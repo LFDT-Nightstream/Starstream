@@ -1,8 +1,10 @@
-// The entry file of your WebAssembly module.
-
-@external("env", "emit")
+// ----------------------------------------------------------------------------
+// FFI imports
+@external("env", "yield")
 declare function emit(value: isize): void;
 
+// ----------------------------------------------------------------------------
+// Entry
 class TokenContract {
   createInfiniteMint(frame: i32): void {
     for (let i: i32 = 0; i < frame; ++i) {

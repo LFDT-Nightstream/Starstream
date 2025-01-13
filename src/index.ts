@@ -1,100 +1,103 @@
 // example.js
 import binaryen from "binaryen";
+import { readFile } from "fs/promises";
 
-// Create a module from text.
-import { readFile } from 'fs/promises';
-const data = await readFile("build/release.wasm");
-console.log('input', data.byteLength);
-const ir = binaryen.readBinary(data);
+interface MemoryExports {
+  memory: WebAssembly.Memory;
+}
 
-// Run the Asyncify pass, with (minor) optimizations.
-binaryen.setOptimizeLevel(4);
-binaryen.setPassArgument("asyncify-imports", "env.emit");
-let sz = 1;
-ir.setMemory(sz, sz);
-ir.setFeatures(binaryen.Features.All);
-ir.runPasses(['asyncify']);
+interface AsyncifyExports {
+  asyncify_get_state(): number;
+  asyncify_start_unwind(addr: number): void;
+  asyncify_stop_unwind(): void;
+  asyncify_start_rewind(addr: number): void;
+  asyncify_stop_rewind(): void;
+}
 
-const State = {
-  NORMAL: 0,
-  UNWIND: 1,
-  REWIND: 2,
-};
+interface MainExports {
+  main(): void;
+}
 
-// Get a WebAssembly binary and compile it to an instance.
-const binary = ir.emitBinary();
-console.log('output', binary.byteLength);
-const compiled = new WebAssembly.Module(binary);
-const instance = new WebAssembly.Instance(compiled, {
-  env: {
-    abort: function () {
-      throw 'ABORT';
+type UtxoExports = MemoryExports & AsyncifyExports & MainExports;
+
+function asyncify(blob: Uint8Array): Uint8Array {
+  binaryen.setOptimizeLevel(4);
+  binaryen.setPassArgument("asyncify-imports", "env.yield");
+
+  const ir = binaryen.readBinary(blob);
+  ir.setMemory(1, 1);
+  // BulkMemory is called for by AssemblyScript; stuff blows up w/o something else.
+  ir.setFeatures(binaryen.Features.All);
+  ir.runPasses(["asyncify"]);
+  return ir.emitBinary();
+}
+
+enum AsyncifyState {
+  NORMAL = 0,
+  UNWIND = 1,
+  REWIND = 2,
+}
+
+/** Where the unwind/rewind data structure will live. */
+const STACK_START = 16;
+const STACK_END = 1024;
+
+/** A UTXO that has a WebAssembly instance currently in memory. */
+class LiveUtxo {
+  static env = {
+    abort(this: LiveUtxo) {
+      throw "abort() called";
     },
-    sleep: function(ms) {
-      if (!sleeping) {
-        // We are called in order to start a sleep/unwind.
-        console.log('sleep...');
-        // Fill in the data structure. The first value has the stack location,
-        // which for simplicity we can start right after the data structure itself.
-        view[DATA_ADDR >> 2] = DATA_ADDR + 8;
-        // The end of the stack will not be reached here anyhow.
-        view[DATA_ADDR + 4 >> 2] = 1024;
-        wasmExports.asyncify_start_unwind(DATA_ADDR);
-        sleeping = true;
-        // Resume after the proper delay.
-        setTimeout(function() {
-          console.log('timeout ended, starting to rewind the stack');
-          wasmExports.asyncify_start_rewind(DATA_ADDR);
-          // The code is now ready to rewind; to start the process, enter the
-          // first function that should be on the call stack.
-          wasmExports.main();
-        }, ms);
+
+    yield(this: LiveUtxo, ...args: unknown[]) {
+      const view = new Int32Array(this.exports.memory.buffer);
+      if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
+        this.#yielded = args;
+        view[STACK_START >> 2] = STACK_START + 8;
+        view[(STACK_START + 4) >> 2] = STACK_END;
+        this.exports.asyncify_start_unwind(STACK_START);
       } else {
-        // We are called as part of a resume/rewind. Stop sleeping.
-        console.log('...resume');
-        wasmExports.asyncify_stop_rewind();
-        sleeping = false;
+        this.exports.asyncify_stop_rewind();
       }
     },
-    emit: function (dbgVal) {
-      if (wasmExports.asyncify_get_state() == State.NORMAL) {
-        console.log('emit', dbgVal);
+  } as const;
 
-        view[DATA_ADDR >> 2] = DATA_ADDR + 8;
-        view[(DATA_ADDR + 4) >> 2] = 1024;
-        wasmExports.asyncify_start_unwind(DATA_ADDR);
-        sleeping = true;
-      } else {
-        console.log('...resume', dbgVal);
-        wasmExports.asyncify_stop_rewind();
-        sleeping = false;
-      }
-    },
-  }
-});
-const wasmExports = instance.exports as any;
-const view = new Int32Array(wasmExports.memory.buffer);
+  instance: WebAssembly.Instance;
+  exports: UtxoExports;
 
-// Global state for running the program.
-const DATA_ADDR = 16; // Where the unwind/rewind data structure will live.
-let sleeping = false;
+  #yielded: unknown[];
 
-// Run the program. When it pauses control flow gets to here, as the
-// stack has unwound.
-while (true) {
-  console.log('r', wasmExports.main());
-  console.log(wasmExports.memory.buffer.byteLength);
-  for (let i = wasmExports.memory.buffer.byteLength - 1; i >= 0; --i) {
-    if (new Uint8Array(wasmExports.memory.buffer)[i] != 0) {
-      console.log('ends at', i, new Uint8Array(wasmExports.memory.buffer)[i]);
-      break;
+  constructor(module: WebAssembly.Module, memory?: Uint8Array) {
+    const env = Object.fromEntries(
+      Object.entries(LiveUtxo.env).map(([k, v]) => [k, v.bind(this)])
+    );
+    this.instance = new WebAssembly.Instance(module, { env });
+    // TODO: validate exports
+    this.exports = this.instance.exports as unknown as UtxoExports;
+
+    if (memory) {
+      // memcpy saved memory on top
+      new Uint8Array(this.exports.memory.buffer).set(memory);
     }
   }
-  if (!sleeping) {
-    break;
+
+  test() {
+    while (true) {
+      const returned = this.exports.main();
+      if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
+        // Normal exit; it's done.
+        console.log("returned", returned);
+        return returned;
+      }
+      this.exports.asyncify_stop_unwind();
+      console.log("yielded", this.#yielded);
+      this.exports.asyncify_start_rewind(STACK_START);
+    }
   }
-  wasmExports.asyncify_stop_unwind();
-  console.log('stack unwound');
-  // we can do whatever we want now...
-  wasmExports.asyncify_start_rewind(sleeping);
 }
+
+// Get a WebAssembly binary and compile it to an instance.
+const binary = asyncify(await readFile("build/release.wasm"));
+const compiled = new WebAssembly.Module(binary);
+const liveUtxo = new LiveUtxo(compiled);
+liveUtxo.test();
