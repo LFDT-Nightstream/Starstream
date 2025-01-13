@@ -2,23 +2,6 @@
 import binaryen from "binaryen";
 
 // Create a module from text.
-/*
-const ir = new binaryen.parseText(`
-  (module
-    (import "env" "before" (func $before))
-    (import "env" "sleep" (func $sleep (param i32)))
-    (import "env" "after" (func $after))
-    (export "memory" (memory 0))
-    (export "main" (func $main))
-    (memory 1 1)
-    (func $main
-      (call $before)
-      (call $sleep (i32.const 2000))
-      (call $after)
-    )
-  )
-`);
-*/
 import { readFile } from 'fs/promises';
 const data = await readFile("build/release.wasm");
 console.log('input', data.byteLength);
@@ -57,7 +40,7 @@ const instance = new WebAssembly.Instance(compiled, {
         // The end of the stack will not be reached here anyhow.
         view[DATA_ADDR + 4 >> 2] = 1024;
         wasmExports.asyncify_start_unwind(DATA_ADDR);
-        sleeping = DATA_ADDR;
+        sleeping = true;
         // Resume after the proper delay.
         setTimeout(function() {
           console.log('timeout ended, starting to rewind the stack');
@@ -80,7 +63,7 @@ const instance = new WebAssembly.Instance(compiled, {
         view[DATA_ADDR >> 2] = DATA_ADDR + 8;
         view[(DATA_ADDR + 4) >> 2] = 1024;
         wasmExports.asyncify_start_unwind(DATA_ADDR);
-        sleeping = DATA_ADDR;
+        sleeping = true;
       } else {
         console.log('...resume', dbgVal);
         wasmExports.asyncify_stop_rewind();
@@ -89,7 +72,7 @@ const instance = new WebAssembly.Instance(compiled, {
     },
   }
 });
-const wasmExports = instance.exports;
+const wasmExports = instance.exports as any;
 const view = new Int32Array(wasmExports.memory.buffer);
 
 // Global state for running the program.

@@ -12,14 +12,16 @@
   "scripts": {
     "asbuild:debug": "asc assembly/index.ts --target debug",
     "asbuild:release": "asc assembly/index.ts --target release",
-    "asbuild": "npm run asbuild:debug && npm run asbuild:release",
-    "build": "npm run asbuild",
+    "tsbuild": "",
+    "build": "npm run asbuild:debug && npm run asbuild:release && npm run tsbuild",
     "test": "node tests",
-    "start": "node index.js"
+    "start": "node build/index.js"
   },
   "devDependencies": {
+    "@types/node": "^22.10.6",
     "assemblyscript": "^0.27.31",
     "binaryen": "^121.0.0",
-    "serve": "^14.2.4"
+    "serve": "^14.2.4",
+    "typescript": "^5.7.3"
   }
 }
