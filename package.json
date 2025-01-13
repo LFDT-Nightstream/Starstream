@@ -15,10 +15,11 @@
     "asbuild": "npm run asbuild:debug && npm run asbuild:release",
     "build": "npm run asbuild",
     "test": "node tests",
-    "start": "npx serve ."
+    "start": "node index.js"
   },
   "devDependencies": {
     "assemblyscript": "^0.27.31",
+    "binaryen": "^121.0.0",
     "serve": "^14.2.4"
   }
 }

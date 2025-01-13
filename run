@@ -1,2 +1,2 @@
 #!/bin/sh
-exec npm start -- "$@"
+make && exec npm start -- "$@"
