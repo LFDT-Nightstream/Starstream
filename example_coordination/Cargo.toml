@@ -1,0 +1,8 @@
+[package]
+name = "example_coordination"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+starstream = { path = "../starstream_sys" }
+example_contract = { path = "../example_contract" }

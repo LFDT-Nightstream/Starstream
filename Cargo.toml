@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "example_contract",
+    "example_coordination",
+]
+resolver = "2"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
