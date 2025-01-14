@@ -1,12 +1,12 @@
 #![feature(coroutine_trait)]
 #![no_std]
 
-use core::{any::{Any, TypeId}, marker::PhantomData, mem::MaybeUninit, ops::{CoroutineState, Deref}, panic::PanicInfo, pin::Pin};
+use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 
+#[link(wasm_import_module = "env")]
 extern "C" {
     fn abort();
-    fn ss_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
-    fn ss_resume(resume_arg: *const (), resume_arg_size: usize);
+    fn starstream_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
 }
 
 #[panic_handler]
@@ -18,38 +18,47 @@ fn panic_handler(_: &PanicInfo) -> ! {
     }
 }
 
-#[repr(C)]
-pub struct Utxo<Data> {
-    data: Data,
+pub trait UtxoCoroutine {
+    type Resume;
+    unsafe fn ffi_status(utxo: &Utxo<Self>) -> bool;
+    unsafe fn ffi_resume(utxo: &mut Utxo<Self>, arg: Self::Resume);
 }
 
-impl<Data> Deref for Utxo<Data> {
-    type Target = Data;
-    fn deref(&self) -> &Data {
-        &self.data
+#[repr(C)]
+pub struct Utxo<T: ?Sized> {
+    ptr: usize,
+    _phantom: PhantomData<*mut T>,
+}
+
+impl<T: ?Sized + UtxoCoroutine> Utxo<T> {
+    pub fn can_resume(&self) -> bool {
+        unsafe { T::ffi_status(self) }
+    }
+
+    pub fn resume(&mut self, arg: T::Resume) {
+        unsafe { T::ffi_resume(self, arg) }
+    }
+
+    pub fn next(&mut self)
+    where
+        T: UtxoCoroutine<Resume = ()>,
+    {
+        self.resume(())
     }
 }
 
 // yield = fn(a...) -> (b...)
 // resume = (b...) -> (a...)
 
-pub fn yield_<ResumeArg, Data>(data: Data) -> ResumeArg
-    // where Data: Coroutine<ResumeArg>
-{
+pub fn sleep<Resume, Yield>(data: Yield) -> Resume {
     unsafe {
-        let mut resume_arg = MaybeUninit::<ResumeArg>::uninit();
-        ss_yield(
+        let mut resume_arg = MaybeUninit::<Resume>::uninit();
+        starstream_yield(
             &raw const data as *const (),
-            size_of::<Data>(),
+            size_of::<Yield>(),
             resume_arg.as_mut_ptr() as *mut (),
-            size_of::<ResumeArg>(),
+            size_of::<Resume>(),
         );
         resume_arg.assume_init()
     }
-}
-
-pub fn resume<Data, ResumeArg>(utxo: &mut Utxo<Data>, resume: ResumeArg) -> CoroutineState<(), ()>
-    // where Data: Coroutine<ResumeArg>
-{
-    unimplemented!()
 }

@@ -1,37 +1,46 @@
-#![feature(coroutines, coroutine_trait)]
+#![feature(coroutines, coroutine_trait, extern_types, never_type)]
 #![no_std]
-#![no_main]
 
-use stack_dst::{buffers::ConstArrayBuf, stack, Value};
-use starstream::{Utxo};
-use core::{ops::Coroutine, pin::{pin, Pin}};
+use starstream::{Utxo, UtxoCoroutine};
 
-static mut SUPPLY: u32 = 0;
+// "starstream:example_contract" should probably be something content-addressed
+#[link(wasm_import_module = "starstream:example_contract")]
+unsafe extern "C" {
+    pub type MyMain;
+    safe fn MyMain_status(utxo: &Utxo<MyMain>) -> bool;
+    safe fn MyMain_resume(utxo: &mut Utxo<MyMain>, arg: <MyMain as UtxoCoroutine>::Resume);
+    safe fn MyMain_main_new() -> Utxo<MyMain>;
+    safe fn MyMain_effect_get_supply(utxo: &Utxo<MyMain>) -> u32;
+}
 
-#[no_mangle]
-pub fn create_infinite_mint() -> ! {
-    //let mut supply = 0;
-    loop {
-        unsafe { SUPPLY += 1; }
-        // The UTXO is of type Token.
-        starstream::yield_::<(), _>(());
+impl UtxoCoroutine for MyMain {
+    type Resume = ();
+
+    #[inline]
+    unsafe fn ffi_status(utxo: &Utxo<Self>) -> bool {
+        MyMain_status(utxo)
     }
-    // spent!
-}
 
-pub struct InfiniteToken {
-    supply: u32,
-}
-
-impl InfiniteToken {
-    pub fn get_supply(&self) -> u32 {
-        self.supply
+    #[inline]
+    unsafe fn ffi_resume(utxo: &mut Utxo<Self>, arg: ()) {
+        MyMain_resume(utxo, arg)
     }
 }
 
-impl InfiniteToken {
-    pub fn next(this: Utxo<Self>) -> InfiniteToken {
-        //starstream::resume(utxo, ()).unwrap
-        unimplemented!()
+impl MyMain {
+    #[inline]
+    pub fn new() -> Utxo<MyMain> {
+        MyMain_main_new()
+    }
+}
+
+pub trait MyMainExt {
+    fn get_supply(&self) -> u32;
+}
+
+impl MyMainExt for Utxo<MyMain> {
+    #[inline]
+    fn get_supply(&self) -> u32 {
+        MyMain_effect_get_supply(self)
     }
 }

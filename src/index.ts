@@ -14,18 +14,16 @@ interface AsyncifyExports {
   asyncify_stop_rewind(): void;
 }
 
-interface MainExports {
-  main(): void;
-}
-
-type UtxoExports = MemoryExports & AsyncifyExports & MainExports;
+type UtxoExports = MemoryExports & AsyncifyExports;
 
 function asyncify(blob: Uint8Array): Uint8Array {
   binaryen.setOptimizeLevel(4);
-  binaryen.setPassArgument("asyncify-imports", "env.ss_yield");
+  binaryen.setPassArgument(
+    "asyncify-imports",
+    `env.${LiveUtxo.utxoEnv.starstream_yield.name}`
+  );
 
   const ir = binaryen.readBinary(blob);
-  ir.setMemory(1, 1);
   // BulkMemory is called for by AssemblyScript; stuff blows up w/o something else.
   ir.setFeatures(binaryen.Features.All);
   ir.runPasses(["asyncify"]);
@@ -53,7 +51,7 @@ class LiveUtxo {
       console.log(...args);
     },
 
-    ss_yield(this: LiveUtxo, ...args: unknown[]) {
+    starstream_yield(this: LiveUtxo, ...args: unknown[]) {
       const view = new Int32Array(this.exports.memory.buffer);
       if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
         this.#yielded = args;
@@ -87,7 +85,7 @@ class LiveUtxo {
 
   test() {
     while (true) {
-      const returned = this.exports.main();
+      const returned = (this.exports as any).MyMain_main_new();
       if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
         // Normal exit; it's spent.
         console.log("returned", returned);
@@ -124,7 +122,8 @@ class Universe {
 }
 
 // Get a WebAssembly binary and compile it to an instance.
-const binary = asyncify(await readFile("build/release.wasm"));
+//const binary = asyncify(await readFile("build/release.wasm"));
+const binary = asyncify(await readFile("target/wasm32-unknown-unknown/debug/example_contract.wasm"));
 const compiled = new WebAssembly.Module(binary);
 const liveUtxo = new LiveUtxo(compiled);
 liveUtxo.test();
