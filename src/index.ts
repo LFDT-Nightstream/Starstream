@@ -22,7 +22,7 @@ type UtxoExports = MemoryExports & AsyncifyExports & MainExports;
 
 function asyncify(blob: Uint8Array): Uint8Array {
   binaryen.setOptimizeLevel(4);
-  binaryen.setPassArgument("asyncify-imports", "env.yield");
+  binaryen.setPassArgument("asyncify-imports", "env.ss_yield");
 
   const ir = binaryen.readBinary(blob);
   ir.setMemory(1, 1);
@@ -44,12 +44,16 @@ const STACK_END = 1024;
 
 /** A UTXO that has a WebAssembly instance currently in memory. */
 class LiveUtxo {
-  static env = {
+  static utxoEnv = {
     abort(this: LiveUtxo) {
       throw "abort() called";
     },
 
-    yield(this: LiveUtxo, ...args: unknown[]) {
+    log(this: LiveUtxo, ...args: unknown[]) {
+      console.log(...args);
+    },
+
+    ss_yield(this: LiveUtxo, ...args: unknown[]) {
       const view = new Int32Array(this.exports.memory.buffer);
       if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
         this.#yielded = args;
@@ -62,14 +66,14 @@ class LiveUtxo {
     },
   } as const;
 
-  instance: WebAssembly.Instance;
-  exports: UtxoExports;
+  readonly instance: WebAssembly.Instance;
+  readonly exports: UtxoExports;
 
   #yielded: unknown[];
 
   constructor(module: WebAssembly.Module, memory?: Uint8Array) {
     const env = Object.fromEntries(
-      Object.entries(LiveUtxo.env).map(([k, v]) => [k, v.bind(this)])
+      Object.entries(LiveUtxo.utxoEnv).map(([k, v]) => [k, v.bind(this)])
     );
     this.instance = new WebAssembly.Instance(module, { env });
     // TODO: validate exports
@@ -85,7 +89,7 @@ class LiveUtxo {
     while (true) {
       const returned = this.exports.main();
       if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
-        // Normal exit; it's done.
+        // Normal exit; it's spent.
         console.log("returned", returned);
         return returned;
       }
@@ -93,6 +97,29 @@ class LiveUtxo {
       console.log("yielded", this.#yielded);
       this.exports.asyncify_start_rewind(STACK_START);
     }
+  }
+}
+
+class Utxo {
+  live?: LiveUtxo;
+}
+
+class Universe {
+  readonly utxos = new Set<Utxo>();
+
+  runTransaction(coordinationScript: WebAssembly.Module) {
+    // We aren't suspending this, we want to run it to completion always, so
+    // we don't need to asyncify it.
+    const imports = WebAssembly.Module.imports(coordinationScript);
+    const instance = new WebAssembly.Instance(coordinationScript, {
+      env: {
+        abort() {
+          throw "abort() called";
+        },
+      },
+      // utxo types
+    });
+    (instance.exports.main as Function)();
   }
 }
 
