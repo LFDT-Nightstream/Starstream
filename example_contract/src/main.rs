@@ -1,4 +1,3 @@
-#![feature(coroutines, coroutine_trait, extern_types, never_type)]
 #![no_std]
 #![no_main]
 

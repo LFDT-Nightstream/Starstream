@@ -6,5 +6,7 @@
     "module": "NodeNext",
     "moduleResolution": "nodenext",
     "sourceMap": true,
+    "noImplicitAny": true,
+    "strict": true,
   },
 }

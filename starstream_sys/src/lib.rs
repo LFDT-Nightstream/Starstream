@@ -1,4 +1,3 @@
-#![feature(coroutine_trait)]
 #![no_std]
 
 use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
@@ -7,6 +6,15 @@ use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 extern "C" {
     fn abort();
     fn starstream_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
+}
+
+#[macro_export]
+macro_rules! metadata {
+    ($x:expr) => {{
+        #[link_section = "starstream"]
+        static FOO: [u8; $x.len()] = *$x;
+        core::hint::black_box(FOO);
+    }}
 }
 
 #[panic_handler]
@@ -20,23 +28,23 @@ fn panic_handler(_: &PanicInfo) -> ! {
 
 pub trait UtxoCoroutine {
     type Resume;
-    unsafe fn ffi_status(utxo: &Utxo<Self>) -> bool;
-    unsafe fn ffi_resume(utxo: &mut Utxo<Self>, arg: Self::Resume);
+    unsafe fn ffi_status(utxo: Utxo<Self>) -> bool;
+    unsafe fn ffi_resume(utxo: Utxo<Self>, arg: Self::Resume);
 }
 
 #[repr(C)]
 pub struct Utxo<T: ?Sized> {
-    ptr: usize,
+    ptr: u32,
     _phantom: PhantomData<*mut T>,
 }
 
 impl<T: ?Sized + UtxoCoroutine> Utxo<T> {
     pub fn can_resume(&self) -> bool {
-        unsafe { T::ffi_status(self) }
+        unsafe { T::ffi_status(*self) }
     }
 
     pub fn resume(&mut self, arg: T::Resume) {
-        unsafe { T::ffi_resume(self, arg) }
+        unsafe { T::ffi_resume(*self, arg) }
     }
 
     pub fn next(&mut self)
@@ -46,6 +54,14 @@ impl<T: ?Sized + UtxoCoroutine> Utxo<T> {
         self.resume(())
     }
 }
+
+impl<T: ?Sized> Clone for Utxo<T> {
+    fn clone(&self) -> Self {
+        Self { ptr: self.ptr.clone(), _phantom: self._phantom.clone() }
+    }
+}
+
+impl<T: ?Sized> Copy for Utxo<T> {}
 
 // yield = fn(a...) -> (b...)
 // resume = (b...) -> (a...)

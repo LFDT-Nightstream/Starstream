@@ -7,7 +7,12 @@ use starstream::Utxo;
 #[no_mangle]
 pub fn produce() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
-    _ = MyMain::new();
+    let mut foo = MyMain::new();
+    foo.get_supply();
+    while foo.can_resume() {
+        foo.next();
+        foo.get_supply();
+    }
 }
 
 #[no_mangle]
