@@ -89,13 +89,7 @@ class LoadedUtxo {
     this.#entryPoint = this.instance.exports[entryPoint] as Function;
   }
 
-  resume() {
-    if (this.#returned !== null) {
-      throw new Error("Cannot resume() after exhaustion");
-    }
-    if (this.#yielded) {
-      this.exports.asyncify_start_rewind(STACK_START);
-    }
+  #raw_resume() {
     const returned = this.#entryPoint();
     if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
       // Normal exit; it's spent.
@@ -107,7 +101,35 @@ class LoadedUtxo {
     return true;
   }
 
+  start(): boolean {
+    if (this.#returned !== null) {
+      throw new Error("Cannot start() after exhaustion");
+    }
+    if (this.#yielded) {
+      throw new Error("Cannot start() after yield");
+    }
+    return this.#raw_resume();
+  }
+
+  resume(resume_data?: Uint8Array): boolean {
+    if (this.#returned !== null) {
+      throw new Error("Cannot resume() after exhaustion");
+    }
+    if (!this.#yielded) {
+      throw new Error("Cannot resume() before yield");
+    }
+    const [yield_arg, yield_arg_size, resume_arg, resume_arg_size] = this.#yielded;
+    if (resume_arg_size !== (resume_data?.byteLength ?? 0)) {
+      throw new Error("resume_arg size mismatch");
+    } else if (resume_data) {
+      new Uint8Array(this.exports.memory.buffer).set(resume_data, resume_arg as number);
+    }
+    this.exports.asyncify_start_rewind(STACK_START);
+    return this.#raw_resume();
+  }
+
   effect(name: string, ...args: unknown[]) {
+    // TODO: enforce asyncify_get_state is NORMAL after this call
     return (this.instance.exports[name] as Function)(this.#yielded![0], ...args);
   }
 
@@ -199,13 +221,15 @@ class Universe {
               return getUtxo(utxo_handle).isAlive();
             };
           } else if (entry.name.startsWith("starstream_resume_")) {
-            module[entry.name] = (utxo_handle: number) => {
-              getUtxo(utxo_handle).load().resume();
+            module[entry.name] = (utxo_handle: number, resume_arg: number, resume_arg_size: number) => {
+              const slice = new Uint8Array(memory.buffer).slice(resume_arg, resume_arg + resume_arg_size);
+              getUtxo(utxo_handle).load().resume(slice);
             };
           } else if (entry.name.startsWith("starstream_new_")) {
             module[entry.name] = () => {
+              // TODO: allow passing arguments
               const utxo = new Utxo(code, entry.name);
-              utxo.load().resume();
+              utxo.load().start();
               return setUtxo(utxo);
             };
           } else if (entry.name.startsWith("starstream_effect_")) {
@@ -219,6 +243,7 @@ class Universe {
 
     // Run
     const instance = new WebAssembly.Instance(coordinationScript, imports);
+    const memory = (instance.exports as unknown as MemoryExports).memory;
     (instance.exports[main] as Function)(...inputs2);
 
     // Update UTXO set

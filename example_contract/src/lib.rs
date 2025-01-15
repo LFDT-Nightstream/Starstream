@@ -8,7 +8,11 @@ use starstream::{Utxo, UtxoCoroutine};
 unsafe extern "C" {
     pub type MyMain;
     safe fn starstream_status_MyMain(utxo: Utxo<MyMain>) -> bool;
-    safe fn starstream_resume_MyMain(utxo: Utxo<MyMain>, arg: <MyMain as UtxoCoroutine>::Resume);
+    unsafe fn starstream_resume_MyMain(
+        utxo: Utxo<MyMain>,
+        resume_arg: *const (),
+        resume_arg_size: usize,
+    );
     safe fn starstream_new_MyMain_new() -> Utxo<MyMain>;
     safe fn starstream_effect_MyMain_get_supply(utxo: Utxo<MyMain>) -> u32;
 }
@@ -17,13 +21,19 @@ impl UtxoCoroutine for MyMain {
     type Resume = ();
 
     #[inline]
-    unsafe fn ffi_status(utxo: Utxo<Self>) -> bool {
+    fn ffi_status(utxo: Utxo<Self>) -> bool {
         starstream_status_MyMain(utxo)
     }
 
     #[inline]
-    unsafe fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
-        starstream_resume_MyMain(utxo, arg)
+    fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
+        unsafe {
+            starstream_resume_MyMain(
+                utxo,
+                &raw const arg as *const (),
+                core::mem::size_of::<Self::Resume>(),
+            )
+        }
     }
 }
 

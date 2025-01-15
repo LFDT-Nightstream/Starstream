@@ -19,16 +19,16 @@ pub struct MyMain {
 }
 
 impl MyMain {
-    //#[starstream::main]
-    pub fn new(sleep: fn(MyMain) /* other args can appear here */) {
+    //#[starstream::new]
+    pub fn new(sleep: fn(&MyMain)) {
         let mut supply = 0;
         loop {
             supply += 1;
-            sleep(MyMain { supply });
+            sleep(&MyMain { supply });
         }
     }
 
-    //#[starstream::export]
+    //#[starstream::effect]
     pub fn get_supply(&self) -> u32 {
         self.supply
     }

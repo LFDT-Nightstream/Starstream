@@ -3,9 +3,9 @@
 use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 
 #[link(wasm_import_module = "env")]
-extern "C" {
-    fn abort();
-    fn starstream_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
+unsafe extern "C" {
+    unsafe fn abort();
+    unsafe fn starstream_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
 }
 
 #[macro_export]
@@ -28,8 +28,8 @@ fn panic_handler(_: &PanicInfo) -> ! {
 
 pub trait UtxoCoroutine {
     type Resume;
-    unsafe fn ffi_status(utxo: Utxo<Self>) -> bool;
-    unsafe fn ffi_resume(utxo: Utxo<Self>, arg: Self::Resume);
+    fn ffi_status(utxo: Utxo<Self>) -> bool;
+    fn ffi_resume(utxo: Utxo<Self>, arg: Self::Resume);
 }
 
 #[repr(C)]
@@ -40,11 +40,11 @@ pub struct Utxo<T: ?Sized> {
 
 impl<T: ?Sized + UtxoCoroutine> Utxo<T> {
     pub fn can_resume(&self) -> bool {
-        unsafe { T::ffi_status(*self) }
+        T::ffi_status(*self)
     }
 
     pub fn resume(&mut self, arg: T::Resume) {
-        unsafe { T::ffi_resume(*self, arg) }
+        T::ffi_resume(*self, arg)
     }
 
     pub fn next(&mut self)
@@ -66,11 +66,11 @@ impl<T: ?Sized> Copy for Utxo<T> {}
 // yield = fn(a...) -> (b...)
 // resume = (b...) -> (a...)
 
-pub fn sleep<Resume, Yield>(data: Yield) -> Resume {
+pub fn sleep<Resume, Yield>(data: &Yield) -> Resume {
     unsafe {
         let mut resume_arg = MaybeUninit::<Resume>::uninit();
         starstream_yield(
-            &raw const data as *const (),
+            data as *const Yield as *const (),
             size_of::<Yield>(),
             resume_arg.as_mut_ptr() as *mut (),
             size_of::<Resume>(),
