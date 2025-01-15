@@ -20,7 +20,7 @@ function asyncify(blob: Uint8Array): Uint8Array {
   binaryen.setOptimizeLevel(4);
   binaryen.setPassArgument(
     "asyncify-imports",
-    `env.${LiveUtxo.utxoEnv.starstream_yield.name}`
+    `env.${LoadedUtxo.utxoEnv.starstream_yield.name}`
   );
 
   const ir = binaryen.readBinary(blob);
@@ -40,18 +40,16 @@ enum AsyncifyState {
 const STACK_START = 16;
 const STACK_END = 1024;
 
+function abort() {
+  throw new Error("abort() called");
+}
+
 /** A UTXO that has a WebAssembly instance currently in memory. */
-class LiveUtxo {
+class LoadedUtxo {
   static utxoEnv = {
-    abort(this: LiveUtxo) {
-      throw "abort() called";
-    },
+    abort,
 
-    log(this: LiveUtxo, ...args: unknown[]) {
-      console.log(...args);
-    },
-
-    starstream_yield(this: LiveUtxo, ...args: unknown[]) {
+    starstream_yield(this: LoadedUtxo, ...args: unknown[]) {
       const view = new Int32Array(this.exports.memory.buffer);
       if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
         this.#yielded = args;
@@ -77,7 +75,7 @@ class LiveUtxo {
     memory?: Uint8Array
   ) {
     const env = Object.fromEntries(
-      Object.entries(LiveUtxo.utxoEnv).map(([k, v]) => [k, v.bind(this)])
+      Object.entries(LoadedUtxo.utxoEnv).map(([k, v]) => [k, v.bind(this)])
     );
     this.instance = new WebAssembly.Instance(module, { env });
     // TODO: validate exports
@@ -109,8 +107,8 @@ class LiveUtxo {
     return true;
   }
 
-  effect(name: string, args: unknown[]) {
-    return (this.instance.exports[name] as Function)(this.#yielded![0]);
+  effect(name: string, ...args: unknown[]) {
+    return (this.instance.exports[name] as Function)(this.#yielded![0], ...args);
   }
 
   get yielded() {
@@ -127,20 +125,23 @@ class UtxoCode {
 }
 
 class Utxo {
-  #live?: LiveUtxo;
+  #code: UtxoCode;
+  #entryPoint: string;
+  #loaded?: LoadedUtxo;
 
-  #module;
-  #entryPoint;
-
-  constructor(module: WebAssembly.Module, entryPoint: string) {
-    this.#module = module;
+  constructor(code: UtxoCode, entryPoint: string) {
+    this.#code = code;
     this.#entryPoint = entryPoint;
   }
 
   flush() {}
 
-  load(): LiveUtxo {
-    return (this.#live ??= new LiveUtxo(this.#module, this.#entryPoint));
+  load(): LoadedUtxo {
+    return (this.#loaded ??= new LoadedUtxo(this.#code.module, this.#entryPoint));
+  }
+
+  isAlive(): boolean {
+    return this.load().returned === null;
   }
 }
 
@@ -148,71 +149,92 @@ class Universe {
   readonly utxoCode = new Map<string, UtxoCode>();
   readonly utxos = new Set<Utxo>();
 
-  runTransaction(coordinationScript: WebAssembly.Module, main: string) {
+  runTransaction(coordinationScript: WebAssembly.Module, main: string, inputs: unknown[] = []) {
     // We aren't suspending this, we want to run it to completion always, so
     // we don't need to asyncify it.
     const imports: WebAssembly.Imports = {
       env: {
-        abort() {
-          throw "abort() called";
-        },
+        abort,
       },
     };
 
-    const utxos: Utxo[] = [];
-
-    for (const entry of WebAssembly.Module.imports(coordinationScript)) {
-      const code = this.utxoCode.get(entry.module);
-      if (!code) {
-        throw new Error(`Missing import: ${code}`);
+    // Prepare UTXO handles
+    const utxos = new Map<number, Utxo>();
+    function setUtxo(utxo: Utxo): number {
+      // target range: [1, 1 << 30]
+      const handle = Math.ceil((1 - Math.random()) * (1 << 30));
+      utxos.set(handle, utxo);
+      return handle;
+    }
+    function getUtxo(handle: number): Utxo {
+      const utxo = utxos.get(handle);
+      if (!utxo) {
+        throw new Error(`Invalid UTXO handle: ${handle}; known: ${JSON.stringify(utxos)}`);
       }
+      return utxo;
+    }
 
-      console.log(entry);
-      const module = (imports[entry.module] ??= {});
-      let f: Function = (...args: unknown[]) => console.log(entry.name, args);
-      if (entry.kind == "function") {
-        switch (entry.name) {
-          case "MyMain_status":
-            f = (utxo_handle: number) => {
-              return utxos[utxo_handle].load().returned === null;
-            };
-            break;
-          case "MyMain_resume":
-            f = (utxo_handle: number) => {
-              utxos[utxo_handle].load().resume();
-              console.log("after resume");
-            };
-            break;
-          case "MyMain_main_new":
-            f = () => {
-              const utxo_handle = utxos.length;
-              const utxo = new Utxo(code.module, entry.name);
-              utxo.load().resume();
-              utxos.push(utxo);
-              return utxo_handle;
-            };
-            break;
-          case "MyMain_effect_get_supply":
-            f = (utxo_handle: number) => {
-              const r = utxos[utxo_handle].load().effect(entry.name, []);
-              console.log("effect[", entry.name, "] =", r);
-              return r;
-            };
-            break;
-        }
-        module[entry.name] = f;
+    // Prepare inputs
+    const inputs2 = [...inputs];
+    for (let i = 0; i < inputs2.length; ++i) {
+      const v = inputs2[i];
+      if (v instanceof Utxo) {
+        inputs2[i] = setUtxo(v);
       }
     }
-    console.log(
-      WebAssembly.Module.customSections(coordinationScript, "starstream")
-    );
 
+    // Bind imports
+    for (const entry of WebAssembly.Module.imports(coordinationScript)) {
+      if (entry.module.startsWith("starstream:")) {
+        const code = this.utxoCode.get(entry.module);
+        if (!code) {
+          throw new Error(`Unknown module: ${entry.module}`);
+        }
+
+        const module = (imports[entry.module] ??= {});
+
+        if (entry.kind == "function") {
+          if (entry.name.startsWith("starstream_status_")) {
+            module[entry.name] = (utxo_handle: number) => {
+              return getUtxo(utxo_handle).isAlive();
+            };
+          } else if (entry.name.startsWith("starstream_resume_")) {
+            module[entry.name] = (utxo_handle: number) => {
+              getUtxo(utxo_handle).load().resume();
+            };
+          } else if (entry.name.startsWith("starstream_new_")) {
+            module[entry.name] = () => {
+              const utxo = new Utxo(code, entry.name);
+              utxo.load().resume();
+              return setUtxo(utxo);
+            };
+          } else if (entry.name.startsWith("starstream_effect_")) {
+            module[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
+              return getUtxo(utxo_handle).load().effect(entry.name, ...args);
+            };
+          }
+        }
+      }
+    }
+
+    // Run
     const instance = new WebAssembly.Instance(coordinationScript, imports);
-    (instance.exports[main] as Function)();
+    (instance.exports[main] as Function)(...inputs2);
+
+    // Update UTXO set
+    for (const utxo of utxos.values()) {
+      if (utxo.isAlive()) {
+        this.utxos.add(utxo);
+      } else {
+        this.utxos.delete(utxo);
+      }
+    }
   }
 }
 
 const universe = new Universe();
+console.log(universe);
+
 universe.utxoCode.set(
   "starstream:example_contract",
   new UtxoCode(
@@ -225,6 +247,7 @@ universe.utxoCode.set(
     )
   )
 );
+console.log(universe);
 
 universe.runTransaction(
   new WebAssembly.Module(
@@ -234,3 +257,17 @@ universe.runTransaction(
   ),
   "produce"
 );
+console.log(universe, universe.utxos.values().next().value?.load().effect("starstream_effect_MyMain_get_supply"));
+
+universe.runTransaction(
+  new WebAssembly.Module(
+    await readFile(
+      "target/wasm32-unknown-unknown/debug/example_coordination.wasm"
+    )
+  ),
+  "consume",
+  [
+    universe.utxos.values().next().value
+  ]
+);
+console.log(universe, universe.utxos.values().next().value?.load().effect("starstream_effect_MyMain_get_supply"));

@@ -38,11 +38,11 @@ impl MyMain {
 // Generated
 
 #[no_mangle]
-pub extern "C" fn MyMain_main_new() {
+pub extern "C" fn starstream_new_MyMain_new() {
     MyMain::new(starstream::sleep::<(), MyMain>)
 }
 
 #[no_mangle]
-pub extern "C" fn MyMain_effect_get_supply(this: &MyMain) -> u32 {
+pub extern "C" fn starstream_effect_MyMain_get_supply(this: &MyMain) -> u32 {
     this.get_supply()
 }

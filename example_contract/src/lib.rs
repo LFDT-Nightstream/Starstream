@@ -7,10 +7,10 @@ use starstream::{Utxo, UtxoCoroutine};
 #[link(wasm_import_module = "starstream:example_contract")]
 unsafe extern "C" {
     pub type MyMain;
-    safe fn MyMain_status(utxo: Utxo<MyMain>) -> bool;
-    safe fn MyMain_resume(utxo: Utxo<MyMain>, arg: <MyMain as UtxoCoroutine>::Resume);
-    safe fn MyMain_main_new() -> Utxo<MyMain>;
-    safe fn MyMain_effect_get_supply(utxo: Utxo<MyMain>) -> u32;
+    safe fn starstream_status_MyMain(utxo: Utxo<MyMain>) -> bool;
+    safe fn starstream_resume_MyMain(utxo: Utxo<MyMain>, arg: <MyMain as UtxoCoroutine>::Resume);
+    safe fn starstream_new_MyMain_new() -> Utxo<MyMain>;
+    safe fn starstream_effect_MyMain_get_supply(utxo: Utxo<MyMain>) -> u32;
 }
 
 impl UtxoCoroutine for MyMain {
@@ -18,22 +18,19 @@ impl UtxoCoroutine for MyMain {
 
     #[inline]
     unsafe fn ffi_status(utxo: Utxo<Self>) -> bool {
-        starstream::metadata!(b"MyMain_status=\0");
-        MyMain_status(utxo)
+        starstream_status_MyMain(utxo)
     }
 
     #[inline]
     unsafe fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
-        starstream::metadata!(b"new=17\0");
-        MyMain_resume(utxo, arg)
+        starstream_resume_MyMain(utxo, arg)
     }
 }
 
 impl MyMain {
     #[inline]
     pub fn new() -> Utxo<MyMain> {
-        starstream::metadata!(b"new=17\0");
-        MyMain_main_new()
+        starstream_new_MyMain_new()
     }
 }
 
@@ -44,7 +41,6 @@ pub trait MyMainExt {
 impl MyMainExt for Utxo<MyMain> {
     #[inline]
     fn get_supply(self) -> u32 {
-        starstream::metadata!(b"get_supply=4\0");
-        MyMain_effect_get_supply(self)
+        starstream_effect_MyMain_get_supply(self)
     }
 }
