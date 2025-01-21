@@ -128,7 +128,7 @@ class LoadedUtxo {
     return this.#raw_resume();
   }
 
-  effect(name: string, ...args: unknown[]) {
+  query(name: string, ...args: unknown[]) {
     // TODO: enforce asyncify_get_state is NORMAL after this call
     return (this.instance.exports[name] as Function)(this.#yielded![0], ...args);
   }
@@ -232,9 +232,9 @@ class Universe {
               utxo.load().start();
               return setUtxo(utxo);
             };
-          } else if (entry.name.startsWith("starstream_effect_")) {
+          } else if (entry.name.startsWith("starstream_query_")) {
             module[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
-              return getUtxo(utxo_handle).load().effect(entry.name, ...args);
+              return getUtxo(utxo_handle).load().query(entry.name, ...args);
             };
           }
         }
@@ -282,7 +282,7 @@ universe.runTransaction(
   ),
   "produce"
 );
-console.log(universe, universe.utxos.values().next().value?.load().effect("starstream_effect_MyMain_get_supply"));
+console.log(universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
 
 universe.runTransaction(
   new WebAssembly.Module(
@@ -295,4 +295,4 @@ universe.runTransaction(
     universe.utxos.values().next().value
   ]
 );
-console.log(universe, universe.utxos.values().next().value?.load().effect("starstream_effect_MyMain_get_supply"));
+console.log(universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));

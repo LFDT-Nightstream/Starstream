@@ -14,7 +14,7 @@ unsafe extern "C" {
         resume_arg_size: usize,
     );
     safe fn starstream_new_MyMain_new() -> Utxo<MyMain>;
-    safe fn starstream_effect_MyMain_get_supply(utxo: Utxo<MyMain>) -> u32;
+    safe fn starstream_query_MyMain_get_supply(utxo: Utxo<MyMain>) -> u32;
 }
 
 impl UtxoCoroutine for MyMain {
@@ -51,6 +51,6 @@ pub trait MyMainExt {
 impl MyMainExt for Utxo<MyMain> {
     #[inline]
     fn get_supply(self) -> u32 {
-        starstream_effect_MyMain_get_supply(self)
+        starstream_query_MyMain_get_supply(self)
     }
 }

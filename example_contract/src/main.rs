@@ -28,7 +28,7 @@ impl MyMain {
         }
     }
 
-    //#[starstream::effect]
+    //#[starstream::query]
     pub fn get_supply(&self) -> u32 {
         self.supply
     }
@@ -43,6 +43,6 @@ pub extern "C" fn starstream_new_MyMain_new() {
 }
 
 #[no_mangle]
-pub extern "C" fn starstream_effect_MyMain_get_supply(this: &MyMain) -> u32 {
+pub extern "C" fn starstream_query_MyMain_get_supply(this: &MyMain) -> u32 {
     this.get_supply()
 }
