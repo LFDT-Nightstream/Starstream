@@ -14,6 +14,21 @@
 // resume result should be a single struct w/ methods on it
 // yield = terminate
 
+//#[starstream::event]
+fn my_event(supply: u32) {
+    // generated
+    extern "C" { fn starstream_event_my_supply(supply: u32); }
+    unsafe {
+        starstream_event_my_supply(supply);
+    }
+}
+
+//#[starstream::effect]
+//fn my_effect(supply: u32);
+
+//#[starstream::error]
+//fn my_error(supply: u32);
+
 pub struct MyMain {
     supply: u32,
 }
@@ -24,6 +39,7 @@ impl MyMain {
         let mut supply = 0;
         loop {
             supply += 1;
+            my_event(supply);
             sleep(&MyMain { supply });
         }
     }

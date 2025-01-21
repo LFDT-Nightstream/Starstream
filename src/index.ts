@@ -60,6 +60,10 @@ class LoadedUtxo {
         this.exports.asyncify_stop_rewind();
       }
     },
+
+    starstream_event_my_supply(this: LoadedUtxo, ...args: unknown[]) {
+      console.log('EVENT', ...args);
+    }
   } as const;
 
   readonly instance: WebAssembly.Instance;
@@ -236,6 +240,10 @@ class Universe {
             module[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
               return getUtxo(utxo_handle).load().query(entry.name, ...args);
             };
+          } else if (entry.name.startsWith("starstream_event_")) {
+            module[entry.name] = (...args: unknown[]) => {
+              console.log('EVENT', ...args);
+            }
           }
         }
       }
