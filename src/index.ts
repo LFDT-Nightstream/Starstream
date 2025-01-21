@@ -20,7 +20,10 @@ function asyncify(blob: Uint8Array): Uint8Array {
   binaryen.setOptimizeLevel(4);
   binaryen.setPassArgument(
     "asyncify-imports",
-    `env.${LoadedUtxo.utxoEnv.starstream_yield.name}`
+    [
+      `env.${LoadedUtxo.utxoEnv.starstream_yield.name}`,
+      `env.${LoadedUtxo.utxoEnv.starstream_effect_my_effect.name}`,
+    ].join(),
   );
 
   const ir = binaryen.readBinary(blob);
@@ -52,7 +55,10 @@ class LoadedUtxo {
     starstream_yield(this: LoadedUtxo, ...args: unknown[]) {
       const view = new Int32Array(this.exports.memory.buffer);
       if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
-        this.#yielded = args;
+        this.#state = {
+          state: "yielded",
+          yielded: args,
+        };
         view[STACK_START >> 2] = STACK_START + 8;
         view[(STACK_START + 4) >> 2] = STACK_END;
         this.exports.asyncify_start_unwind(STACK_START);
@@ -61,8 +67,22 @@ class LoadedUtxo {
       }
     },
 
-    starstream_event_my_supply(this: LoadedUtxo, ...args: unknown[]) {
+    starstream_event_my_event(this: LoadedUtxo, ...args: unknown[]) {
       console.log('EVENT', ...args);
+    },
+
+    starstream_effect_my_effect(this: LoadedUtxo, ...args: unknown[]) {
+      console.log('EFFECT', ...args);
+      LoadedUtxo.utxoEnv.starstream_yield.call(this, ...args);
+      this.#state = {
+        state: "effect",
+        effect: "my_effect",
+        args,
+      };
+    },
+
+    starstream_error_my_error(this: LoadedUtxo, ...args: unknown[]) {
+      throw new Error('TX errored: ' + JSON.stringify(args));
     }
   } as const;
 
@@ -70,8 +90,24 @@ class LoadedUtxo {
   readonly exports: UtxoExports;
 
   #entryPoint: Function;
-  #yielded: unknown[] | null = null;
-  #returned: unknown | null = null;
+  #state: {
+    state: "not_started",
+  } | {
+    state: "yielded",
+    yielded: unknown[],
+  } | {
+    state: "returned",
+    value: unknown,
+  } | {
+    state: "errored",
+    args: unknown[],
+  } | {
+    state: "effect",
+    effect: string,
+    args: unknown[],
+  } = {
+    state: "not_started"
+  };
 
   constructor(
     module: WebAssembly.Module,
@@ -97,8 +133,10 @@ class LoadedUtxo {
     const returned = this.#entryPoint();
     if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
       // Normal exit; it's spent.
-      this.#yielded = null;
-      this.#returned = returned;
+      this.#state = {
+        state: "returned",
+        value: returned,
+      }
       return false;
     }
     this.exports.asyncify_stop_unwind();
@@ -106,23 +144,17 @@ class LoadedUtxo {
   }
 
   start(): boolean {
-    if (this.#returned !== null) {
-      throw new Error("Cannot start() after exhaustion");
-    }
-    if (this.#yielded) {
-      throw new Error("Cannot start() after yield");
+    if (this.#state.state !== "not_started") {
+      throw new Error("Cannot start() in state " + JSON.stringify(this.#state));
     }
     return this.#raw_resume();
   }
 
   resume(resume_data?: Uint8Array): boolean {
-    if (this.#returned !== null) {
-      throw new Error("Cannot resume() after exhaustion");
+    if (this.#state.state !== "yielded") {
+      throw new Error("Cannot resume() in state " + JSON.stringify(this.#state));
     }
-    if (!this.#yielded) {
-      throw new Error("Cannot resume() before yield");
-    }
-    const [yield_arg, yield_arg_size, resume_arg, resume_arg_size] = this.#yielded;
+    const [yield_arg, yield_arg_size, resume_arg, resume_arg_size] = this.#state.yielded;
     if (resume_arg_size !== (resume_data?.byteLength ?? 0)) {
       throw new Error("resume_arg size mismatch");
     } else if (resume_data) {
@@ -133,16 +165,15 @@ class LoadedUtxo {
   }
 
   query(name: string, ...args: unknown[]) {
+    if (this.#state.state !== "yielded") {
+      throw new Error("Cannot query() in state " + JSON.stringify(this.#state));
+    }
     // TODO: enforce asyncify_get_state is NORMAL after this call
-    return (this.instance.exports[name] as Function)(this.#yielded![0], ...args);
+    return (this.instance.exports[name] as Function)(this.#state.yielded![0], ...args);
   }
 
-  get yielded() {
-    return this.#yielded;
-  }
-
-  get returned() {
-    return this.#returned;
+  isAlive(): boolean {
+    return this.#state.state !== "returned";
   }
 }
 
@@ -167,7 +198,7 @@ class Utxo {
   }
 
   isAlive(): boolean {
-    return this.load().returned === null;
+    return this.load().isAlive();
   }
 }
 

@@ -15,19 +15,27 @@
 // yield = terminate
 
 //#[starstream::event]
-fn my_event(supply: u32) {
-    // generated
-    extern "C" { fn starstream_event_my_supply(supply: u32); }
-    unsafe {
-        starstream_event_my_supply(supply);
-    }
+//fn my_event(supply: u32);
+// expands to:
+unsafe extern "C" {
+    #[link_name = "starstream_event_my_event"]
+    safe fn my_event(supply: u32);
 }
 
 //#[starstream::effect]
 //fn my_effect(supply: u32);
+unsafe extern "C" {
+    #[link_name = "starstream_effect_my_effect"]
+    safe fn my_effect(supply: u32);
+}
 
 //#[starstream::error]
 //fn my_error(supply: u32);
+// expands to:
+unsafe extern "C" {
+    #[link_name = "starstream_error_my_error"]
+    safe fn my_error(supply: u32);
+}
 
 pub struct MyMain {
     supply: u32,
@@ -40,6 +48,8 @@ impl MyMain {
         loop {
             supply += 1;
             my_event(supply);
+            //my_effect(supply);
+            //my_error(supply);
             sleep(&MyMain { supply });
         }
     }

@@ -54,3 +54,6 @@ impl MyMainExt for Utxo<MyMain> {
         starstream_query_MyMain_get_supply(self)
     }
 }
+
+#[allow(non_camel_case_types)]
+pub type on_my_effect = fn(supply: u32);
