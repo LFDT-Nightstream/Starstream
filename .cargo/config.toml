@@ -1,0 +1,6 @@
+[target.wasm32-unknown-unknown]
+rustflags = [
+    # This adds __indirect_function_table to the exports which is needed for
+    # the host to be able to call function pointers directly.
+    "-Clink-arg=--export-table",
+]

@@ -14,6 +14,10 @@ interface AsyncifyExports {
   asyncify_stop_rewind(): void;
 }
 
+interface IndirectFunctionTableExports {
+  __indirect_function_table: WebAssembly.Table,
+}
+
 type UtxoExports = MemoryExports & AsyncifyExports;
 
 function asyncify(blob: Uint8Array): Uint8Array {
@@ -47,10 +51,18 @@ function abort() {
   throw new Error("abort() called");
 }
 
+function starstream_log(...args: unknown[]) {
+  console.log('starstream_log', ...args);
+}
+
+const effectHandlers = new Map<string, Function>();
+
 /** A UTXO that has a WebAssembly instance currently in memory. */
 class LoadedUtxo {
   static utxoEnv = {
     abort,
+
+    starstream_log,
 
     starstream_yield(this: LoadedUtxo, ...args: unknown[]) {
       const view = new Int32Array(this.exports.memory.buffer);
@@ -73,12 +85,19 @@ class LoadedUtxo {
 
     starstream_effect_my_effect(this: LoadedUtxo, ...args: unknown[]) {
       console.log('EFFECT', ...args);
-      LoadedUtxo.utxoEnv.starstream_yield.call(this, ...args);
+      /*LoadedUtxo.utxoEnv.starstream_yield.call(this, ...args);
       this.#state = {
         state: "effect",
         effect: "my_effect",
         args,
-      };
+      };*/
+      let fn = effectHandlers.get("starstream_handle_MyMain_my_effect");
+      if (fn) {
+        fn(...args);
+      } else {
+        console.log(effectHandlers);
+        throw new Error('missing handler');
+      }
     },
 
     starstream_error_my_error(this: LoadedUtxo, ...args: unknown[]) {
@@ -212,6 +231,9 @@ class Universe {
     const imports: WebAssembly.Imports = {
       env: {
         abort,
+        starstream_log(...args: unknown[]) {
+          console.log('starstream_log', ...args);
+        }
       },
     };
 
@@ -275,6 +297,17 @@ class Universe {
             module[entry.name] = (...args: unknown[]) => {
               console.log('EVENT', ...args);
             }
+          } else if (entry.name.startsWith("starstream_handle_")) {
+            module[entry.name] = (handler: number) => {
+              console.log('HANDLER =', handler);
+              if (handler == 0) {
+                effectHandlers.delete(entry.name);
+              } else {
+                effectHandlers.set(entry.name, (...args: unknown[]) => {
+                  indirect.get(handler)(...args);
+                });
+              }
+            }
           }
         }
       }
@@ -282,6 +315,7 @@ class Universe {
 
     // Run
     const instance = new WebAssembly.Instance(coordinationScript, imports);
+    const indirect = (instance.exports as unknown as IndirectFunctionTableExports).__indirect_function_table;
     const memory = (instance.exports as unknown as MemoryExports).memory;
     (instance.exports[main] as Function)(...inputs2);
 
@@ -296,8 +330,9 @@ class Universe {
   }
 }
 
+let n = 0;
 const universe = new Universe();
-console.log(universe);
+console.log(++n, '--', universe);
 
 universe.utxoCode.set(
   "starstream:example_contract",
@@ -311,7 +346,7 @@ universe.utxoCode.set(
     )
   )
 );
-console.log(universe);
+console.log(++n, '--', universe);
 
 universe.runTransaction(
   new WebAssembly.Module(
@@ -321,7 +356,7 @@ universe.runTransaction(
   ),
   "produce"
 );
-console.log(universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
+console.log(++n, '--', universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
 
 universe.runTransaction(
   new WebAssembly.Module(
@@ -334,4 +369,4 @@ universe.runTransaction(
     universe.utxos.values().next().value
   ]
 );
-console.log(universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
+console.log(++n, '--', universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));

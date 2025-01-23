@@ -15,6 +15,8 @@ unsafe extern "C" {
     );
     safe fn starstream_new_MyMain_new() -> Utxo<MyMain>;
     safe fn starstream_query_MyMain_get_supply(utxo: Utxo<MyMain>) -> u32;
+
+    safe fn starstream_handle_MyMain_my_effect(handler: on_my_effect) -> on_my_effect;
 }
 
 impl UtxoCoroutine for MyMain {
@@ -42,6 +44,16 @@ impl MyMain {
     pub fn new() -> Utxo<MyMain> {
         starstream_new_MyMain_new()
     }
+
+    pub fn handle_my_effect<R, F: FnOnce() -> R>(
+        scope: F,
+        handler: on_my_effect,
+    ) -> R {
+        let old = starstream_handle_MyMain_my_effect(handler);
+        let r = scope();
+        starstream_handle_MyMain_my_effect(old);
+        r
+    }
 }
 
 pub trait MyMainExt {
@@ -56,4 +68,4 @@ impl MyMainExt for Utxo<MyMain> {
 }
 
 #[allow(non_camel_case_types)]
-pub type on_my_effect = fn(supply: u32);
+pub type on_my_effect = extern "C" fn(supply: u32);

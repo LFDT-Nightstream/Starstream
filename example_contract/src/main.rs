@@ -48,7 +48,9 @@ impl MyMain {
         loop {
             supply += 1;
             my_event(supply);
-            //my_effect(supply);
+            starstream::log(10 + supply);
+            my_effect(supply);
+            starstream::log(20 + supply);
             //my_error(supply);
             sleep(&MyMain { supply });
         }

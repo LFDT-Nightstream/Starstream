@@ -4,6 +4,8 @@ use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
+    #[link_name = "starstream_log"]
+    pub safe fn log(value: u32);
     unsafe fn abort();
     unsafe fn starstream_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
 }
