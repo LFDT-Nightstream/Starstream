@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{any::Any, marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
+use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
@@ -23,7 +23,8 @@ macro_rules! metadata {
     }}
 }
 
-#[panic_handler]
+#[cfg_attr(not(test), panic_handler)]
+#[allow(dead_code)]
 fn panic_handler(_: &PanicInfo) -> ! {
     unsafe {
         abort();
@@ -108,13 +109,13 @@ impl PrivateKey {
         PublicKey { _0: () }
     }
 
-    pub fn sign(&self, message: &[u8]) -> SignedMessage {
+    pub fn sign(&self, _message: &[u8]) -> SignedMessage {
         SignedMessage
     }
 }
 
 impl SignedMessage {
-    pub fn is_valid(&self, message: &[u8]) -> bool {
+    pub fn is_valid(&self, _message: &[u8]) -> bool {
         true
     }
 }
