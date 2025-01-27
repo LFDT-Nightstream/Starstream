@@ -11,8 +11,7 @@ extern "C" fn my_effect_handler(supply: u32) {
 // This is the tap that makes this freely mintable.
 #[no_mangle]
 pub fn mint_star(owner: PublicKey, amount: u64) {
-    //MyMain::new(amount)
-
+    StarToken::new(owner, amount);
 }
 
 // Split and combine functions are always relevant.

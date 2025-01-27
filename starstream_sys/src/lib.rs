@@ -1,13 +1,17 @@
 #![no_std]
 
-use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
+use core::{any::Any, marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
     #[link_name = "starstream_log"]
     pub safe fn log(value: u32);
     unsafe fn abort();
-    unsafe fn starstream_yield(data: *const (), data_size: usize, resume_arg: *mut (), resume_arg_size: usize);
+    unsafe fn starstream_yield(
+        name: *const u8, name_len: usize,
+        data: *const (), data_size: usize,
+        resume_arg: *mut (), resume_arg_size: usize,
+    );
 }
 
 #[macro_export]
@@ -69,14 +73,20 @@ impl<T: ?Sized> Copy for Utxo<T> {}
 // resume = (b...) -> (a...)
 
 pub fn sleep<Resume, Yield>(data: &Yield) -> Resume {
+    let name = core::any::type_name::<Yield>();
+
+    let mut resume_arg = MaybeUninit::<Resume>::uninit();
     unsafe {
-        let mut resume_arg = MaybeUninit::<Resume>::uninit();
         starstream_yield(
+            name.as_ptr(),
+            name.len(),
             data as *const Yield as *const (),
             size_of::<Yield>(),
             resume_arg.as_mut_ptr() as *mut (),
             size_of::<Resume>(),
         );
+        // SAFETY TODO: unsound if we're resumed with a value that isn't
+        // actually a valid instance of Resume due to ABI trouble.
         resume_arg.assume_init()
     }
 }

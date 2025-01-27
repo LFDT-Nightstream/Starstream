@@ -64,18 +64,30 @@ class LoadedUtxo {
 
     starstream_log,
 
-    starstream_yield(this: LoadedUtxo, ...args: unknown[]) {
-      const view = new Int32Array(this.exports.memory.buffer);
-      if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
+    starstream_yield(
+      this: LoadedUtxo,
+      name: number,
+      name_len: number,
+      data: number,
+      data_size: number,
+      resume_arg: number,
+      resume_arg_size: number,
+    ) {
+      const view = new Int32Array(this.#exports.memory.buffer);
+      if (this.#exports.asyncify_get_state() == AsyncifyState.NORMAL) {
         this.#state = {
           state: "yielded",
-          yielded: args,
+          yielded: {
+            type_name: new Uint8Array(this.#exports.memory.buffer, name, name_len),
+            data: new Uint8Array(this.#exports.memory.buffer, data, data_size),
+            resume_arg: new Uint8Array(this.#exports.memory.buffer, resume_arg, resume_arg_size),
+          },
         };
         view[STACK_START >> 2] = STACK_START + 8;
         view[(STACK_START + 4) >> 2] = STACK_END;
-        this.exports.asyncify_start_unwind(STACK_START);
+        this.#exports.asyncify_start_unwind(STACK_START);
       } else {
-        this.exports.asyncify_stop_rewind();
+        this.#exports.asyncify_stop_rewind();
       }
     },
 
@@ -105,15 +117,20 @@ class LoadedUtxo {
     }
   } as const;
 
-  readonly instance: WebAssembly.Instance;
-  readonly exports: UtxoExports;
+  readonly #instance: WebAssembly.Instance;
+  readonly #exports: UtxoExports;
 
   #entryPoint: Function;
+  #start_args: unknown[] | undefined;
   #state: {
     state: "not_started",
   } | {
     state: "yielded",
-    yielded: unknown[],
+    yielded: {
+      type_name: Uint8Array,
+      data: Uint8Array,
+      resume_arg: Uint8Array,
+    },
   } | {
     state: "returned",
     value: unknown,
@@ -136,21 +153,21 @@ class LoadedUtxo {
     const env = Object.fromEntries(
       Object.entries(LoadedUtxo.utxoEnv).map(([k, v]) => [k, v.bind(this)])
     );
-    this.instance = new WebAssembly.Instance(module, { env });
+    this.#instance = new WebAssembly.Instance(module, { env });
     // TODO: validate exports
-    this.exports = this.instance.exports as unknown as UtxoExports;
+    this.#exports = this.#instance.exports as unknown as UtxoExports;
 
     if (memory) {
       // memcpy saved memory on top
-      new Uint8Array(this.exports.memory.buffer).set(memory);
+      new Uint8Array(this.#exports.memory.buffer).set(memory);
     }
 
-    this.#entryPoint = this.instance.exports[entryPoint] as Function;
+    this.#entryPoint = this.#instance.exports[entryPoint] as Function;
   }
 
   #raw_resume() {
-    const returned = this.#entryPoint();
-    if (this.exports.asyncify_get_state() == AsyncifyState.NORMAL) {
+    const returned = this.#entryPoint(...this.#start_args!);
+    if (this.#exports.asyncify_get_state() == AsyncifyState.NORMAL) {
       // Normal exit; it's spent.
       this.#state = {
         state: "returned",
@@ -158,14 +175,15 @@ class LoadedUtxo {
       }
       return false;
     }
-    this.exports.asyncify_stop_unwind();
+    this.#exports.asyncify_stop_unwind();
     return true;
   }
 
-  start(): boolean {
+  start(...args: unknown[]): boolean {
     if (this.#state.state !== "not_started") {
       throw new Error("Cannot start() in state " + JSON.stringify(this.#state));
     }
+    this.#start_args = args;
     return this.#raw_resume();
   }
 
@@ -173,13 +191,12 @@ class LoadedUtxo {
     if (this.#state.state !== "yielded") {
       throw new Error("Cannot resume() in state " + JSON.stringify(this.#state));
     }
-    const [yield_arg, yield_arg_size, resume_arg, resume_arg_size] = this.#state.yielded;
-    if (resume_arg_size !== (resume_data?.byteLength ?? 0)) {
+    if (this.#state.yielded.resume_arg.byteLength !== (resume_data?.byteLength ?? 0)) {
       throw new Error("resume_arg size mismatch");
     } else if (resume_data) {
-      new Uint8Array(this.exports.memory.buffer).set(resume_data, resume_arg as number);
+      this.#state.yielded.resume_arg.set(resume_data);
     }
-    this.exports.asyncify_start_rewind(STACK_START);
+    this.#exports.asyncify_start_rewind(STACK_START);
     return this.#raw_resume();
   }
 
@@ -188,11 +205,33 @@ class LoadedUtxo {
       throw new Error("Cannot query() in state " + JSON.stringify(this.#state));
     }
     // TODO: enforce asyncify_get_state is NORMAL after this call
-    return (this.instance.exports[name] as Function)(this.#state.yielded![0], ...args);
+    return (this.#instance.exports[name] as Function)(this.#state.yielded.data.byteOffset, ...args);
   }
 
   isAlive(): boolean {
     return this.#state.state !== "returned";
+  }
+
+  debug() {
+    if (this.#state.state === "yielded") {
+      const result: Record<string, any> = {};
+      const name = new TextDecoder().decode(this.#state.yielded.type_name);
+      result.__type = name;
+      const last_part = name.split("::").pop();
+      const prefix = `starstream_query_${last_part}_`;
+      for (var key of Object.keys(this.#instance.exports)) {
+        if (key.startsWith(prefix)) {
+          try {
+            result[key.substring(prefix.length)] = this.query(key);
+          } catch (e) {
+            result[key.substring(prefix.length)] = e;
+          }
+        }
+      }
+      return result;
+    } else {
+      return { state: this.#state.state };
+    }
   }
 }
 
@@ -218,6 +257,10 @@ class Utxo {
 
   isAlive(): boolean {
     return this.load().isAlive();
+  }
+
+  debug() {
+    return this.load().debug();
   }
 }
 
@@ -283,10 +326,9 @@ class Universe {
               getUtxo(utxo_handle).load().resume(slice);
             };
           } else if (entry.name.startsWith("starstream_new_")) {
-            module[entry.name] = () => {
-              // TODO: allow passing arguments
+            module[entry.name] = (...args: unknown[]) => {
               const utxo = new Utxo(code, entry.name);
-              utxo.load().start();
+              utxo.load().start(...args);
               return setUtxo(utxo);
             };
           } else if (entry.name.startsWith("starstream_query_")) {
@@ -328,11 +370,21 @@ class Universe {
       }
     }
   }
+
+  debug() {
+    return [...this.utxos].map(u => u.debug());
+  }
 }
 
 let n = 0;
 const universe = new Universe();
-console.log(++n, '--', universe);
+console.log(++n, '--', universe.debug());
+
+const exampleCoordination = new WebAssembly.Module(
+  await readFile(
+    "target/wasm32-unknown-unknown/debug/example_coordination.wasm"
+  )
+);
 
 universe.utxoCode.set(
   "starstream:example_contract",
@@ -346,27 +398,40 @@ universe.utxoCode.set(
     )
   )
 );
-console.log(++n, '--', universe);
+console.log(++n, '--', universe.debug());
 
 universe.runTransaction(
-  new WebAssembly.Module(
-    await readFile(
-      "target/wasm32-unknown-unknown/debug/example_coordination.wasm"
-    )
-  ),
+  exampleCoordination,
   "produce"
 );
-console.log(++n, '--', universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
+console.log(++n, '--', universe.debug());
 
+/*
 universe.runTransaction(
-  new WebAssembly.Module(
-    await readFile(
-      "target/wasm32-unknown-unknown/debug/example_coordination.wasm"
-    )
-  ),
+  exampleCoordination,
   "consume",
   [
     universe.utxos.values().next().value
   ]
 );
 console.log(++n, '--', universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
+*/
+
+universe.runTransaction(
+  exampleCoordination,
+  "mint_star",
+  [
+    // PublicKey has no representation yet
+    17n,
+  ]
+);
+console.log(++n, '--', universe.debug());
+
+universe.runTransaction(
+  exampleCoordination,
+  "mint_star",
+  [
+    20n,
+  ]
+);
+console.log(++n, '--', universe.debug());
