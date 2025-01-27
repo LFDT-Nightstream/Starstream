@@ -80,3 +80,28 @@ pub fn sleep<Resume, Yield>(data: &Yield) -> Resume {
         resume_arg.assume_init()
     }
 }
+
+#[derive(Clone, Copy)]
+pub struct PublicKey;
+
+#[derive(Clone, Copy)]
+pub struct PrivateKey;
+
+#[derive(Clone, Copy)]
+pub struct SignedMessage;
+
+impl PrivateKey {
+    pub fn public_key(&self) -> PublicKey {
+        PublicKey
+    }
+
+    pub fn sign(&self, message: &[u8]) -> SignedMessage {
+        SignedMessage
+    }
+}
+
+impl SignedMessage {
+    pub fn is_valid(&self, message: &[u8]) -> bool {
+        true
+    }
+}

@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use starstream::PublicKey;
+
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
 // init args: A, B
@@ -35,6 +37,29 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[link_name = "starstream_error_my_error"]
     safe fn my_error(supply: u32);
+}
+
+// This is kind of a cheap UTXO that is meant to function like a "Star" token.
+// This isn't how tokens are planned to be represented in the final design.
+pub struct StarToken {
+    owner: PublicKey,
+    amount: u64,
+}
+
+impl StarToken {
+    pub fn mint(owner: PublicKey, amount: u64, sleep: fn(&StarToken)) {
+        while amount > 0 {
+            sleep(&StarToken { owner, amount });
+        }
+    }
+
+    pub fn get_owner(&self) -> PublicKey {
+        self.owner
+    }
+
+    pub fn get_amount(&self) -> u64 {
+        self.amount
+    }
 }
 
 pub struct MyMain {
