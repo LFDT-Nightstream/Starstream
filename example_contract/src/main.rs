@@ -47,9 +47,11 @@ pub struct StarToken {
 }
 
 impl StarToken {
-    pub fn mint(owner: PublicKey, amount: u64, sleep: fn(&StarToken)) {
+    pub fn new(owner: PublicKey, mut amount: u64, sleep: fn(&StarToken) -> u64) {
+        // resume arg is the amount to subtract from this token
         while amount > 0 {
-            sleep(&StarToken { owner, amount });
+            let subtract = sleep(&StarToken { owner, amount });
+            amount = amount.checked_sub(subtract).unwrap();
         }
     }
 
@@ -98,4 +100,19 @@ pub extern "C" fn starstream_new_MyMain_new() {
 #[no_mangle]
 pub extern "C" fn starstream_query_MyMain_get_supply(this: &MyMain) -> u32 {
     this.get_supply()
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) {
+    StarToken::new(owner, amount, starstream::sleep::<u64, StarToken>)
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_query_StarToken_get_owner(this: &StarToken) -> PublicKey {
+    this.get_owner()
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_query_StarToken_get_amount(this: &StarToken) -> u64 {
+    this.get_amount()
 }

@@ -41,15 +41,15 @@ pub struct Utxo<T: ?Sized> {
 }
 
 impl<T: ?Sized + UtxoCoroutine> Utxo<T> {
-    pub fn can_resume(&self) -> bool {
-        T::ffi_status(*self)
+    pub fn can_resume(self) -> bool {
+        T::ffi_status(self)
     }
 
-    pub fn resume(&mut self, arg: T::Resume) {
-        T::ffi_resume(*self, arg)
+    pub fn resume(self, arg: T::Resume) {
+        T::ffi_resume(self, arg)
     }
 
-    pub fn next(&mut self)
+    pub fn next(self)
     where
         T: UtxoCoroutine<Resume = ()>,
     {
@@ -81,8 +81,11 @@ pub fn sleep<Resume, Yield>(data: &Yield) -> Resume {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct PublicKey;
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct PublicKey {
+    _0: (),
+}
 
 #[derive(Clone, Copy)]
 pub struct PrivateKey;
@@ -92,7 +95,7 @@ pub struct SignedMessage;
 
 impl PrivateKey {
     pub fn public_key(&self) -> PublicKey {
-        PublicKey
+        PublicKey { _0: () }
     }
 
     pub fn sign(&self, message: &[u8]) -> SignedMessage {
