@@ -64,7 +64,7 @@ impl<T: ?Sized + UtxoCoroutine> Utxo<T> {
 
 impl<T: ?Sized> Clone for Utxo<T> {
     fn clone(&self) -> Self {
-        Self { ptr: self.ptr.clone(), _phantom: self._phantom.clone() }
+        *self
     }
 }
 
