@@ -419,7 +419,7 @@ console.log(++n, '--', universe, universe.utxos.values().next().value?.load().qu
 
 universe.runTransaction(
   exampleCoordination,
-  "mint_star",
+  "star_mint",
   [
     // PublicKey has no representation yet
     17n,
@@ -429,9 +429,16 @@ console.log(++n, '--', universe.debug());
 
 universe.runTransaction(
   exampleCoordination,
-  "mint_star",
+  "star_mint",
   [
     20n,
   ]
+);
+console.log(++n, '--', universe.debug());
+
+universe.runTransaction(
+  exampleCoordination,
+  "star_combine",
+  [...universe.utxos.values()].splice(1),
 );
 console.log(++n, '--', universe.debug());

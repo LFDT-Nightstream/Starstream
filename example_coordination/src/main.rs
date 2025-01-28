@@ -10,19 +10,23 @@ extern "C" fn my_effect_handler(supply: u32) {
 
 // This is the tap that makes this freely mintable.
 #[no_mangle]
-pub fn mint_star(owner: PublicKey, amount: u64) {
+pub extern "C" fn star_mint(owner: PublicKey, amount: u64) {
     StarToken::new(owner, amount);
 }
 
 // Split and combine functions are always relevant.
-pub fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) {
+#[no_mangle]
+pub extern "C" fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) {
     // TODO: assert that this TX has a signature from first.get_owner()
-    assert!(first.get_owner() == second.get_owner());
+    let owner = first.get_owner();
+    let first_amount = first.get_amount();
+    let second_amount = second.get_amount();
+    assert!(owner == second.get_owner());
     // ^ or maybe it's also OK for them to be different if the TX has a signature from second.get_owner() ???
-    let total = first.get_amount().checked_add(second.get_amount()).unwrap();
-    first.resume(first.get_amount());
-    second.resume(second.get_amount());
-    StarToken::new(first.get_owner(), total);
+    let total = first_amount.checked_add(second_amount).unwrap();
+    first.resume(first_amount);
+    second.resume(second_amount);
+    StarToken::new(owner, total);
 }
 
 #[no_mangle]
