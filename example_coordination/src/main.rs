@@ -30,6 +30,14 @@ pub extern "C" fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) 
 }
 
 #[no_mangle]
+pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarToken> {
+    let owner = from.get_owner();
+    from.resume(amount);
+    // if amount was the max, from is dead now, so we can't call get_owner after
+    StarToken::new(owner, amount)
+}
+
+#[no_mangle]
 pub fn produce() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
     MyMain::handle_my_effect(|| {

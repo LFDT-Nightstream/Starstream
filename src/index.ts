@@ -359,18 +359,20 @@ class Universe {
     const instance = new WebAssembly.Instance(coordinationScript, imports);
     const indirect = (instance.exports as unknown as IndirectFunctionTableExports).__indirect_function_table;
     const memory = (instance.exports as unknown as MemoryExports).memory;
-    const result = (instance.exports[main] as Function)(...inputs2);
+    const result: unknown = (instance.exports[main] as Function)(...inputs2);
+    // TODO: Rollback UTXO memories on error.
 
     // Update UTXO set
     for (const utxo of utxos.values()) {
       if (utxo.isAlive()) {
+        // TODO: Commit UTXO memories on success.
         this.utxos.add(utxo);
       } else {
         this.utxos.delete(utxo);
       }
     }
 
-    if (utxos.has(result)) {
+    if (typeof result === 'number' && utxos.has(result)) {
       // TODO: What of collisions between ordinary numeric returns and random Utxo IDs?
       return utxos.get(result);
     }
@@ -442,9 +444,16 @@ const b = universe.runTransaction(
 );
 console.log(++n, '--', universe.debug());
 
-universe.runTransaction(
+const c = universe.runTransaction(
   exampleCoordination,
   "star_combine",
   [a, b],
+);
+console.log(++n, '--', universe.debug());
+
+universe.runTransaction(
+  exampleCoordination,
+  "star_split",
+  [c, 5n],
 );
 console.log(++n, '--', universe.debug());
