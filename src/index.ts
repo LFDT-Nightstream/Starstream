@@ -359,7 +359,7 @@ class Universe {
     const instance = new WebAssembly.Instance(coordinationScript, imports);
     const indirect = (instance.exports as unknown as IndirectFunctionTableExports).__indirect_function_table;
     const memory = (instance.exports as unknown as MemoryExports).memory;
-    (instance.exports[main] as Function)(...inputs2);
+    const result = (instance.exports[main] as Function)(...inputs2);
 
     // Update UTXO set
     for (const utxo of utxos.values()) {
@@ -369,6 +369,12 @@ class Universe {
         this.utxos.delete(utxo);
       }
     }
+
+    if (utxos.has(result)) {
+      // TODO: What of collisions between ordinary numeric returns and random Utxo IDs?
+      return utxos.get(result);
+    }
+    return result;
   }
 
   debug() {
@@ -417,7 +423,7 @@ universe.runTransaction(
 console.log(++n, '--', universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
 */
 
-universe.runTransaction(
+const a = universe.runTransaction(
   exampleCoordination,
   "star_mint",
   [
@@ -427,7 +433,7 @@ universe.runTransaction(
 );
 console.log(++n, '--', universe.debug());
 
-universe.runTransaction(
+const b = universe.runTransaction(
   exampleCoordination,
   "star_mint",
   [
@@ -439,6 +445,6 @@ console.log(++n, '--', universe.debug());
 universe.runTransaction(
   exampleCoordination,
   "star_combine",
-  [...universe.utxos.values()].splice(1),
+  [a, b],
 );
 console.log(++n, '--', universe.debug());
