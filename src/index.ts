@@ -57,6 +57,16 @@ function starstream_log(...args: unknown[]) {
 
 const effectHandlers = new Map<string, Function>();
 
+function fake_imports(module: WebAssembly.Module): WebAssembly.Imports {
+  const r: Record<string, Record<string, Function>> = {};
+  for (const entry of WebAssembly.Module.imports(module)) {
+    (r[entry.module] ??= {})[entry.name] = () => {
+      throw new Error("fake import " + entry.name);
+    };
+  }
+  return r;
+}
+
 /** A UTXO that has a WebAssembly instance currently in memory. */
 class LoadedUtxo {
   static utxoEnv = {
@@ -114,9 +124,19 @@ class LoadedUtxo {
 
     starstream_error_my_error(this: LoadedUtxo, ...args: unknown[]) {
       throw new Error('TX errored: ' + JSON.stringify(args));
-    }
+    },
+
+    starstream_coordination_code(this: LoadedUtxo, return_addr: number) {
+      // TODO: make different from this_code
+      new Uint8Array(this.#exports.memory.buffer, return_addr, 32).set(new Uint8Array(this.#code.hash));
+    },
+
+    starstream_this_code(this: LoadedUtxo, return_addr: number) {
+      new Uint8Array(this.#exports.memory.buffer, return_addr, 32).set(new Uint8Array(this.#code.hash));
+    },
   } as const;
 
+  readonly #code: UtxoCode;
   readonly #instance: WebAssembly.Instance;
   readonly #exports: UtxoExports;
 
@@ -141,19 +161,25 @@ class LoadedUtxo {
     state: "effect",
     effect: string,
     args: unknown[],
+  } | {
+    state: "consumed",
   } = {
     state: "not_started"
   };
 
   constructor(
-    module: WebAssembly.Module,
+    code: UtxoCode,
     entryPoint: string,
     memory?: Uint8Array
   ) {
     const env = Object.fromEntries(
       Object.entries(LoadedUtxo.utxoEnv).map(([k, v]) => [k, v.bind(this)])
     );
-    this.#instance = new WebAssembly.Instance(module, { env });
+    this.#code = code;
+    this.#instance = new WebAssembly.Instance(code.module, {
+      ...fake_imports(code.module),
+      env,
+    });
     // TODO: validate exports
     this.#exports = this.#instance.exports as unknown as UtxoExports;
 
@@ -200,12 +226,26 @@ class LoadedUtxo {
     return this.#raw_resume();
   }
 
-  query(name: string, ...args: unknown[]) {
+  // &self
+  query(name: string, ...args: unknown[]): unknown {
     if (this.#state.state !== "yielded") {
       throw new Error("Cannot query() in state " + JSON.stringify(this.#state));
     }
     // TODO: enforce asyncify_get_state is NORMAL after this call
     return (this.#instance.exports[name] as Function)(this.#state.yielded.data.byteOffset, ...args);
+  }
+
+  // TODO &mut self
+
+  // self
+  consume(name: string, ...args: unknown[]): unknown {
+    if (this.#state.state !== "yielded") {
+      throw new Error("Cannot consume() in state " + JSON.stringify(this.#state));
+    }
+    // TODO: enforce asyncify_get_state is NORMAL after this call
+    const r = (this.#instance.exports[name] as Function)(this.#state.yielded.data.byteOffset, ...args);
+    this.#state = { state: "consumed" };
+    return r;
   }
 
   isAlive(): boolean {
@@ -236,7 +276,20 @@ class LoadedUtxo {
 }
 
 class UtxoCode {
-  constructor(public module: WebAssembly.Module) {}
+  readonly module: WebAssembly.Module;
+  readonly hash: ArrayBufferLike;
+
+  private constructor(module: WebAssembly.Module, hash: ArrayBufferLike) {
+    this.module = module;
+    this.hash = hash;
+  }
+
+  static async load(wasm: Uint8Array): Promise<UtxoCode> {
+    return new UtxoCode(
+      new WebAssembly.Module(wasm),
+      await crypto.subtle.digest("sha-256", wasm),
+    );
+  }
 }
 
 class Utxo {
@@ -249,10 +302,10 @@ class Utxo {
     this.#entryPoint = entryPoint;
   }
 
-  flush() {}
+  unload() {}
 
   load(): LoadedUtxo {
-    return (this.#loaded ??= new LoadedUtxo(this.#code.module, this.#entryPoint));
+    return (this.#loaded ??= new LoadedUtxo(this.#code, this.#entryPoint));
   }
 
   isAlive(): boolean {
@@ -268,15 +321,26 @@ class Universe {
   readonly utxoCode = new Map<string, UtxoCode>();
   readonly utxos = new Set<Utxo>();
 
-  runTransaction(coordinationScript: WebAssembly.Module, main: string, inputs: unknown[] = []) {
+  runTransaction(coordinationScript: UtxoCode, main: string, inputs: unknown[] = []) {
     // We aren't suspending this, we want to run it to completion always, so
     // we don't need to asyncify it.
+    const fake = fake_imports(coordinationScript.module);
     const imports: WebAssembly.Imports = {
+      ...fake,
       env: {
+        ...fake.env,
         abort,
         starstream_log(...args: unknown[]) {
           console.log('starstream_log', ...args);
-        }
+        },
+
+        starstream_coordination_code(this: LoadedUtxo, return_addr: number) {
+          new Uint8Array(memory.buffer, return_addr, 32).set(new Uint8Array(coordinationScript.hash));
+        },
+
+        starstream_this_code(this: LoadedUtxo, return_addr: number) {
+          new Uint8Array(memory.buffer, return_addr, 32).set(new Uint8Array(coordinationScript.hash));
+        },
       },
     };
 
@@ -306,7 +370,7 @@ class Universe {
     }
 
     // Bind imports
-    for (const entry of WebAssembly.Module.imports(coordinationScript)) {
+    for (const entry of WebAssembly.Module.imports(coordinationScript.module)) {
       if (entry.module.startsWith("starstream:")) {
         const code = this.utxoCode.get(entry.module);
         if (!code) {
@@ -350,15 +414,22 @@ class Universe {
                 });
               }
             }
+          } else if (entry.name.startsWith("starstream_consume_")) {
+            module[entry.name] = (handler: number) => {
+              module[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
+                return getUtxo(utxo_handle).load().consume(entry.name, ...args);
+              };
+            }
           }
         }
       }
     }
 
     // Run
-    const instance = new WebAssembly.Instance(coordinationScript, imports);
+    const instance = new WebAssembly.Instance(coordinationScript.module, imports);
     const indirect = (instance.exports as unknown as IndirectFunctionTableExports).__indirect_function_table;
     const memory = (instance.exports as unknown as MemoryExports).memory;
+    console.log(inputs, inputs2);
     const result: unknown = (instance.exports[main] as Function)(...inputs2);
     // TODO: Rollback UTXO memories on error.
 
@@ -388,7 +459,15 @@ let n = 0;
 const universe = new Universe();
 console.log(++n, '--', universe.debug());
 
-const exampleCoordination = new WebAssembly.Module(
+const exampleContract = await UtxoCode.load(
+  asyncify(
+    await readFile(
+      "target/wasm32-unknown-unknown/debug/example_contract.wasm"
+    )
+  )
+);
+
+const exampleCoordination = await UtxoCode.load(
   await readFile(
     "target/wasm32-unknown-unknown/debug/example_coordination.wasm"
   )
@@ -396,15 +475,7 @@ const exampleCoordination = new WebAssembly.Module(
 
 universe.utxoCode.set(
   "starstream:example_contract",
-  new UtxoCode(
-    new WebAssembly.Module(
-      asyncify(
-        await readFile(
-          "target/wasm32-unknown-unknown/debug/example_contract.wasm"
-        )
-      )
-    )
-  )
+  exampleContract
 );
 console.log(++n, '--', universe.debug());
 
@@ -436,7 +507,7 @@ const a = universe.runTransaction(
 console.log(++n, '--', universe.debug());
 
 const b = universe.runTransaction(
-  exampleCoordination,
+  exampleContract,
   "star_mint",
   [
     20n,
@@ -445,14 +516,14 @@ const b = universe.runTransaction(
 console.log(++n, '--', universe.debug());
 
 const c = universe.runTransaction(
-  exampleCoordination,
+  exampleContract,
   "star_combine",
   [a, b],
 );
 console.log(++n, '--', universe.debug());
 
 universe.runTransaction(
-  exampleCoordination,
+  exampleContract,
   "star_split",
   [c, 5n],
 );

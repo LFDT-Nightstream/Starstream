@@ -27,6 +27,7 @@ unsafe extern "C" {
     safe fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) -> Utxo<StarToken>;
     safe fn starstream_query_StarToken_get_owner(utxo: Utxo<StarToken>) -> PublicKey;
     safe fn starstream_query_StarToken_get_amount(utxo: Utxo<StarToken>) -> u64;
+    safe fn starstream_consume_StarToken_burn(utxo: Utxo<StarToken>) -> u64;
 }
 
 impl UtxoCoroutine for MyMain {
@@ -81,7 +82,7 @@ impl MyMainExt for Utxo<MyMain> {
 pub type on_my_effect = extern "C" fn(supply: u32);
 
 impl UtxoCoroutine for StarToken {
-    type Resume = u64;
+    type Resume = ();
 
     #[inline]
     fn ffi_status(utxo: Utxo<Self>) -> bool {
@@ -89,7 +90,7 @@ impl UtxoCoroutine for StarToken {
     }
 
     #[inline]
-    fn ffi_resume(utxo: Utxo<Self>, arg: u64) {
+    fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
         unsafe {
             starstream_resume_StarToken(
                 utxo,
@@ -101,8 +102,12 @@ impl UtxoCoroutine for StarToken {
 }
 
 pub trait StarTokenExt {
+    // &self
     fn get_owner(self) -> PublicKey;
     fn get_amount(self) -> u64;
+
+    // self
+    fn burn(self) -> u64;
 }
 
 impl StarToken {
@@ -121,5 +126,10 @@ impl StarTokenExt for Utxo<StarToken> {
     #[inline]
     fn get_amount(self) -> u64 {
         starstream_query_StarToken_get_amount(self)
+    }
+
+    #[inline]
+    fn burn(self) -> u64 {
+        starstream_consume_StarToken_burn(self)
     }
 }

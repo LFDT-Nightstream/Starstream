@@ -14,6 +14,7 @@ pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> Utxo<StarToken> {
     StarToken::new(owner, amount)
 }
 
+/*
 // Split and combine functions are always relevant.
 #[no_mangle]
 pub extern "C" fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) -> Utxo<StarToken> {
@@ -36,6 +37,7 @@ pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarTok
     // if amount was the max, from is dead now, so we can't call get_owner after
     StarToken::new(owner, amount)
 }
+     */
 
 #[no_mangle]
 pub fn produce() {

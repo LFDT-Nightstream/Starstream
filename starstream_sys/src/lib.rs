@@ -12,6 +12,12 @@ unsafe extern "C" {
         data: *const (), data_size: usize,
         resume_arg: *mut (), resume_arg_size: usize,
     );
+
+    #[link_name = "starstream_coordination_code"]
+    pub safe fn coordination_code() -> CodeHash;
+
+    #[link_name = "starstream_this_code"]
+    pub safe fn this_code() -> CodeHash;
 }
 
 #[macro_export]
@@ -92,6 +98,16 @@ pub fn sleep<Resume, Yield>(data: &Yield) -> Resume {
     }
 }
 
+pub fn sleep_mut<Resume, Yield>(data: &mut Yield) -> Resume {
+    sleep(data)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+pub struct CodeHash {
+    raw: [u8; 32],
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub struct PublicKey {
@@ -118,4 +134,8 @@ impl SignedMessage {
     pub fn is_valid(&self, _message: &[u8]) -> bool {
         true
     }
+}
+
+pub fn assert_call_signature(key: PublicKey /*, message: &[u8]  */) {
+    // TODO: assert that this coordination-script-call is signed by `key`
 }
