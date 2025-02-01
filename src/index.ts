@@ -115,7 +115,7 @@ class LoadedUtxo {
       };*/
       let fn = effectHandlers.get("starstream_handle_MyMain_my_effect");
       if (fn) {
-        fn(...args);
+        return fn(...args);
       } else {
         console.log(effectHandlers);
         throw new Error('missing handler');
@@ -391,6 +391,7 @@ class Universe {
             };
           } else if (entry.name.startsWith("starstream_new_")) {
             module[entry.name] = (...args: unknown[]) => {
+              console.log('NEW', entry.name, args);
               const utxo = new Utxo(code, entry.name);
               utxo.load().start(...args);
               return setUtxo(utxo);
@@ -415,11 +416,9 @@ class Universe {
               }
             }
           } else if (entry.name.startsWith("starstream_consume_")) {
-            module[entry.name] = (handler: number) => {
-              module[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
-                return getUtxo(utxo_handle).load().consume(entry.name, ...args);
-              };
-            }
+            module[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
+              return getUtxo(utxo_handle).load().consume(entry.name, ...args);
+            };
           }
         }
       }
@@ -429,8 +428,9 @@ class Universe {
     const instance = new WebAssembly.Instance(coordinationScript.module, imports);
     const indirect = (instance.exports as unknown as IndirectFunctionTableExports).__indirect_function_table;
     const memory = (instance.exports as unknown as MemoryExports).memory;
-    console.log(inputs, inputs2);
+    console.log(main, inputs, inputs2);
     const result: unknown = (instance.exports[main] as Function)(...inputs2);
+    console.log('->', result);
     // TODO: Rollback UTXO memories on error.
 
     // Update UTXO set
