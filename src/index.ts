@@ -528,3 +528,23 @@ universe.runTransaction(
   [c, 5n],
 );
 console.log(++n, '--', universe.debug());
+
+const nft_contract = universe.runTransaction(
+  exampleCoordination,
+  "new_nft",
+);
+console.log(++n, '--', universe.debug());
+
+universe.runTransaction(
+  exampleCoordination,
+  "mint_seven_nfts",
+  [nft_contract],
+);
+console.log(++n, '--', universe.debug());
+
+universe.runTransaction(
+  exampleCoordination,
+  "mint_until_10_nfts",
+  [nft_contract],
+);
+console.log(++n, '--', universe.debug());

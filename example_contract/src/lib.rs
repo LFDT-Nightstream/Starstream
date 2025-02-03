@@ -28,6 +28,16 @@ unsafe extern "C" {
     safe fn starstream_query_StarToken_get_owner(utxo: Utxo<StarToken>) -> PublicKey;
     safe fn starstream_query_StarToken_get_amount(utxo: Utxo<StarToken>) -> u64;
     safe fn starstream_consume_StarToken_burn(utxo: Utxo<StarToken>) -> u64;
+
+    pub type StarNft;
+    safe fn starstream_status_StarNft(utxo: Utxo<StarNft>) -> bool;
+    unsafe fn starstream_resume_StarNft(
+        utxo: Utxo<StarNft>,
+        resume_arg: *const (),
+        resume_arg_size: usize,
+    );
+    safe fn starstream_new_StarNft_new() -> Utxo<StarNft>;
+    safe fn starstream_query_StarNft_get_supply(utxo: Utxo<StarNft>) -> u64;
 }
 
 impl UtxoCoroutine for MyMain {
@@ -131,5 +141,42 @@ impl StarTokenExt for Utxo<StarToken> {
     #[inline]
     fn burn(self) -> u64 {
         starstream_consume_StarToken_burn(self)
+    }
+}
+
+impl UtxoCoroutine for StarNft {
+    type Resume = ();
+
+    #[inline]
+    fn ffi_status(utxo: Utxo<Self>) -> bool {
+        starstream_status_StarNft(utxo)
+    }
+
+    #[inline]
+    fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
+        unsafe {
+            starstream_resume_StarNft(
+                utxo,
+                &raw const arg as *const (),
+                core::mem::size_of::<Self::Resume>(),
+            )
+        }
+    }
+}
+
+impl StarNft {
+    #[inline]
+    pub fn new() -> Utxo<Self> {
+        starstream_new_StarNft_new()
+    }
+}
+
+pub trait StarNftExt {
+    fn get_supply(self) -> u64;
+}
+
+impl StarNftExt for Utxo<StarNft> {
+    fn get_supply(self) -> u64 {
+        starstream_query_StarNft_get_supply(self)
     }
 }

@@ -130,6 +130,27 @@ impl MyMain {
     }
 }
 
+pub struct StarNft {
+    supply: u64,
+}
+
+impl StarNft {
+    pub fn new(
+        sleep: fn(&StarNft),
+    ) {
+        let mut this = StarNft { supply: 0 };
+        loop {
+            // "true" is a stand-in for an actual NFT token, representation TBD
+            sleep(&this);
+            this.supply += 1;
+        }
+    }
+
+    pub fn get_supply(&self) -> u64 {
+        self.supply
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Generated
 
@@ -161,6 +182,16 @@ pub extern "C" fn starstream_query_StarToken_get_amount(this: &StarToken) -> u64
 #[no_mangle]
 pub unsafe extern "C" fn starstream_consume_StarToken_burn(this: *mut StarToken) -> u64 {
     core::ptr::read(this).burn()
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_new_StarNft_new() {
+    StarNft::new(starstream::sleep::<(), StarNft>)
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_query_StarNft_get_supply(this: &StarNft) -> u64 {
+    this.get_supply()
 }
 
 // ----------------------------------------------------------------------------
