@@ -3,4 +3,8 @@ rustflags = [
     # This adds __indirect_function_table to the exports which is needed for
     # the host to be able to call function pointers directly.
     "-Clink-arg=--export-table",
+    # This reduces the WASM linear memory size to a single 64KiB page, the
+    # smallest unit WASM currently supports. Rust's default is 16x this.
+    # Set a bit below 64KiB to leave room for debug builds and globals.
+    "-Clink-arg=-zstack-size=61440",
 ]

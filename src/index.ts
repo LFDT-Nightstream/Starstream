@@ -428,7 +428,7 @@ class Universe {
     const instance = new WebAssembly.Instance(coordinationScript.module, imports);
     const indirect = (instance.exports as unknown as IndirectFunctionTableExports).__indirect_function_table;
     const memory = (instance.exports as unknown as MemoryExports).memory;
-    console.log(main, inputs, inputs2);
+    console.log(main, inputs, inputs2, memory.buffer.byteLength);
     const result: unknown = (instance.exports[main] as Function)(...inputs2);
     console.log('->', result);
     // TODO: Rollback UTXO memories on error.
