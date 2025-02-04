@@ -2,7 +2,7 @@
 #![no_main]
 
 use example_contract::StarTokenExt;
-use starstream::{PublicKey, Utxo};
+use starstream::{assert_call_signature, PublicKey, Utxo};
 
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
@@ -58,6 +58,25 @@ impl Drop for StarTokenIntermediate {
         if self.amount > 0 {
             panic!("not allowed to drop this");
         }
+    }
+}
+
+pub struct PayToPublicKeyHash;
+
+impl PayToPublicKeyHash {
+    pub fn new(
+        owner: PublicKey,
+        sleep: fn(),
+    ) {
+        // It's currently the TX where the UTXO is created.
+        sleep();
+        // Now it's the TX where someone has requested to consume the UTXO.
+        // They are allowed to do that if that TX is signed by the owner we
+        // started with.
+        assert_call_signature(owner);
+        // When the UTXO's lifetime ends, all its tokens are freed up, and then
+        // the calling coordination script should either be put directly into
+        // another UTXO or burned according to that token's code.
     }
 }
 
