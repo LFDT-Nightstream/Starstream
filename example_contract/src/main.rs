@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
 
-use example_contract::StarTokenExt;
-use starstream::{assert_call_signature, PublicKey, Utxo};
+use starstream::{assert_tx_signed_by, PublicKey};
 
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
@@ -40,40 +40,16 @@ unsafe extern "C" {
     safe fn my_error(supply: u32);
 }
 
-#[repr(C)]
-struct StarTokenIntermediate {
-    pub amount: u64,
-}
-
-impl StarTokenIntermediate {
-    pub fn mint(self, owner: PublicKey) -> Utxo<example_contract::StarToken> {
-        // assert that current coordination script is the right one
-        example_contract::StarToken::new(owner, self.amount)
-    }
-}
-
-impl Drop for StarTokenIntermediate {
-    fn drop(&mut self) {
-        // simulation of linear type
-        if self.amount > 0 {
-            panic!("not allowed to drop this");
-        }
-    }
-}
-
 pub struct PayToPublicKeyHash;
 
 impl PayToPublicKeyHash {
-    pub fn new(
-        owner: PublicKey,
-        sleep: fn(),
-    ) {
+    pub fn new(owner: PublicKey, sleep: fn()) {
         // It's currently the TX where the UTXO is created.
         sleep();
         // Now it's the TX where someone has requested to consume the UTXO.
         // They are allowed to do that if that TX is signed by the owner we
         // started with.
-        assert_call_signature(owner);
+        assert_tx_signed_by(owner);
         // When the UTXO's lifetime ends, all its tokens are freed up, and then
         // the calling coordination script should either be put directly into
         // another UTXO or burned according to that token's code.
@@ -89,7 +65,7 @@ pub struct StarToken {
 
 impl StarToken {
     /* (owner, amount) is like the intermediate */
-    pub fn new(owner: PublicKey, mut amount: u64, sleep: fn(&mut StarToken)) {
+    pub fn new(owner: PublicKey, amount: u64, sleep: fn(&mut StarToken)) {
         // This is the "mint" section where we can make permissioned assertions.
         // Non-builtin effects we can call here are part of our function
         // signature and must be handled by code that attempts to mint us.
@@ -119,7 +95,8 @@ impl StarToken {
         assert!(starstream::coordination_code() == starstream::this_code());
 
         /*StarTokenIntermediate {
-            amount:*/ self.amount
+        amount:*/
+        self.amount
         //}
     }
 }
@@ -154,9 +131,7 @@ pub struct StarNft {
 }
 
 impl StarNft {
-    pub fn new(
-        sleep: fn(&StarNft),
-    ) {
+    pub fn new(sleep: fn(&StarNft)) {
         let mut this = StarNft { supply: 0 };
         loop {
             // "true" is a stand-in for an actual NFT token, representation TBD
@@ -217,16 +192,19 @@ pub extern "C" fn starstream_query_StarNft_get_supply(this: &StarNft) -> u64 {
 // Coordination script
 
 #[no_mangle]
-pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> Utxo<example_contract::StarToken> {
+pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> example_contract::StarToken {
     // This fulfills StarToken's mint requirement that its `new` is called from
     // THIS FILE, so this function becomes a freely callable tap.
     example_contract::StarToken::new(owner, amount)
 }
 
 #[no_mangle]
-pub extern "C" fn star_combine(first: Utxo<example_contract::StarToken>, second: Utxo<example_contract::StarToken>) -> Utxo<example_contract::StarToken> {
+pub extern "C" fn star_combine(
+    first: example_contract::StarToken,
+    second: example_contract::StarToken,
+) -> example_contract::StarToken {
     let owner = first.get_owner();
-    starstream::assert_call_signature(owner);
+    starstream::assert_tx_signed_by(owner);
     assert!(owner == second.get_owner());
     // ^ or maybe it's also OK for them to be different if the TX has a signature from second.get_owner() ???
     let first_amount = first.burn();
@@ -238,9 +216,12 @@ pub extern "C" fn star_combine(first: Utxo<example_contract::StarToken>, second:
 }
 
 #[no_mangle]
-pub extern "C" fn star_split(from: Utxo<example_contract::StarToken>, amount: u64) -> Utxo<example_contract::StarToken> {
+pub extern "C" fn star_split(
+    from: example_contract::StarToken,
+    amount: u64,
+) -> example_contract::StarToken {
     let owner = from.get_owner();
-    starstream::assert_call_signature(owner);
+    starstream::assert_tx_signed_by(owner);
     // TODO: sucking out of
     let mut from_amount = from.burn();
     from_amount = from_amount.checked_sub(amount).unwrap();

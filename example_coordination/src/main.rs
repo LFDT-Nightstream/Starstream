@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use example_contract::{MyMain, MyMainExt, StarNft, StarNftExt, StarToken, StarTokenExt};
+use example_contract::{MyMain, StarNft, StarToken};
 use starstream::{PublicKey, Utxo};
 
 extern "C" fn my_effect_handler(supply: u32) {
@@ -10,24 +10,24 @@ extern "C" fn my_effect_handler(supply: u32) {
 
 // This is the tap that makes this freely mintable.
 #[no_mangle]
-pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> Utxo<StarToken> {
+pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> StarToken {
     StarToken::new(owner, amount)
 }
 
 #[no_mangle]
-pub extern "C" fn new_nft() -> Utxo<StarNft> {
+pub extern "C" fn new_nft() -> StarNft {
     StarNft::new()
 }
 
 #[no_mangle]
-pub extern "C" fn mint_seven_nfts(nft_contract: Utxo<StarNft>) {
+pub extern "C" fn mint_seven_nfts(nft_contract: StarNft) {
     for _ in 0..7 {
         nft_contract.next();
     }
 }
 
 #[no_mangle]
-pub extern "C" fn mint_until_10_nfts(nft_contract: Utxo<StarNft>) {
+pub extern "C" fn mint_until_10_nfts(nft_contract: StarNft) {
     while nft_contract.get_supply() < 10 {
         nft_contract.next();
     }
@@ -61,14 +61,17 @@ pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarTok
 #[no_mangle]
 pub fn produce() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
-    MyMain::handle_my_effect(|| {
-        _ = MyMain::new();
-    }, my_effect_handler);
+    MyMain::handle_my_effect(
+        || {
+            _ = MyMain::new();
+        },
+        my_effect_handler,
+    );
     // ^ not pretty but it illustrates the implementation
 }
 
 #[no_mangle]
-pub fn consume(utxo: Utxo<MyMain>) {
+pub fn consume(utxo: MyMain) {
     utxo.get_supply();
     utxo.next();
 }

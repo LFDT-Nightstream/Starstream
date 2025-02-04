@@ -1,216 +1,117 @@
-#![feature(extern_types)]
 #![no_std]
 
-use starstream::{PublicKey, Utxo, UtxoCoroutine};
+use starstream::{PublicKey, utxo_import, UtxoHandle};
 
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream:example_contract")]
 unsafe extern "C" {
-    pub type PayToPublicKeyHash;
-    safe fn starstream_status_PayToPublicKeyHash(utxo: Utxo<PayToPublicKeyHash>) -> bool;
-    unsafe fn starstream_resume_PayToPublicKeyHash(
-        utxo: Utxo<PayToPublicKeyHash>,
-        resume_arg: *const (),
-        resume_arg_size: usize,
-    );
-    safe fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) -> Utxo<PayToPublicKeyHash>;
+    safe fn starstream_new_PayToPublicKeyHash_new(
+        owner: PublicKey,
+    ) -> UtxoHandle<PayToPublicKeyHash>;
 
-    pub type MyMain;
-    safe fn starstream_status_MyMain(utxo: Utxo<MyMain>) -> bool;
-    unsafe fn starstream_resume_MyMain(
-        utxo: Utxo<MyMain>,
-        resume_arg: *const (),
-        resume_arg_size: usize,
-    );
-    safe fn starstream_new_MyMain_new() -> Utxo<MyMain>;
-    safe fn starstream_query_MyMain_get_supply(utxo: Utxo<MyMain>) -> u32;
+    safe fn starstream_new_MyMain_new() -> UtxoHandle<MyMain>;
+    safe fn starstream_query_MyMain_get_supply(utxo: UtxoHandle<MyMain>) -> u32;
     safe fn starstream_handle_MyMain_my_effect(handler: on_my_effect) -> on_my_effect;
 
-    pub type StarToken;
-    safe fn starstream_status_StarToken(utxo: Utxo<StarToken>) -> bool;
-    unsafe fn starstream_resume_StarToken(
-        utxo: Utxo<StarToken>,
-        resume_arg: *const (),
-        resume_arg_size: usize,
-    );
-    safe fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) -> Utxo<StarToken>;
-    safe fn starstream_query_StarToken_get_owner(utxo: Utxo<StarToken>) -> PublicKey;
-    safe fn starstream_query_StarToken_get_amount(utxo: Utxo<StarToken>) -> u64;
-    safe fn starstream_consume_StarToken_burn(utxo: Utxo<StarToken>) -> u64;
+    safe fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) -> UtxoHandle<StarToken>;
+    safe fn starstream_query_StarToken_get_owner(utxo: UtxoHandle<StarToken>) -> PublicKey;
+    safe fn starstream_query_StarToken_get_amount(utxo: UtxoHandle<StarToken>) -> u64;
+    safe fn starstream_consume_StarToken_burn(utxo: UtxoHandle<StarToken>) -> u64;
 
-    pub type StarNft;
-    safe fn starstream_status_StarNft(utxo: Utxo<StarNft>) -> bool;
-    unsafe fn starstream_resume_StarNft(
-        utxo: Utxo<StarNft>,
-        resume_arg: *const (),
-        resume_arg_size: usize,
-    );
-    safe fn starstream_new_StarNft_new() -> Utxo<StarNft>;
-    safe fn starstream_query_StarNft_get_supply(utxo: Utxo<StarNft>) -> u64;
+    safe fn starstream_new_StarNft_new() -> UtxoHandle<StarNft>;
+    safe fn starstream_query_StarNft_get_supply(utxo: UtxoHandle<StarNft>) -> u64;
 }
 
-impl UtxoCoroutine for PayToPublicKeyHash {
-    type Resume = ();
-
-    fn ffi_status(utxo: Utxo<Self>) -> bool {
-        starstream_status_PayToPublicKeyHash(utxo)
-    }
-
-    fn ffi_resume(utxo: Utxo<Self>, arg: Self::Resume) {
-        unsafe {
-            starstream_resume_PayToPublicKeyHash(
-                utxo,
-                &raw const arg as *const (),
-                core::mem::size_of_val(&arg),
-            );
-        }
-    }
+utxo_import! {
+    "starstream:example_contract";
+    PayToPublicKeyHash;
+    starstream_status_PayToPublicKeyHash;
+    starstream_resume_PayToPublicKeyHash;
+    ();
 }
 
 impl PayToPublicKeyHash {
     #[inline]
-    pub fn new(owner: PublicKey) -> Utxo<Self> {
-        starstream_new_PayToPublicKeyHash_new(owner)
+    pub fn new(owner: PublicKey) -> Self {
+        PayToPublicKeyHash(starstream_new_PayToPublicKeyHash_new(owner))
     }
 }
 
-impl UtxoCoroutine for MyMain {
-    type Resume = ();
-
-    #[inline]
-    fn ffi_status(utxo: Utxo<Self>) -> bool {
-        starstream_status_MyMain(utxo)
-    }
-
-    #[inline]
-    fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
-        unsafe {
-            starstream_resume_MyMain(
-                utxo,
-                &raw const arg as *const (),
-                core::mem::size_of::<Self::Resume>(),
-            )
-        }
-    }
+utxo_import! {
+    "starstream:example_contract";
+    MyMain;
+    starstream_status_MyMain;
+    starstream_resume_MyMain;
+    ();
 }
 
 impl MyMain {
     #[inline]
-    pub fn new() -> Utxo<Self> {
+    pub fn new() -> UtxoHandle<Self> {
         starstream_new_MyMain_new()
     }
 
-    pub fn handle_my_effect<R, F: FnOnce() -> R>(
-        scope: F,
-        handler: on_my_effect,
-    ) -> R {
+    pub fn handle_my_effect<R, F: FnOnce() -> R>(scope: F, handler: on_my_effect) -> R {
         let old = starstream_handle_MyMain_my_effect(handler);
         let r = scope();
         starstream_handle_MyMain_my_effect(old);
         r
     }
-}
 
-pub trait MyMainExt {
-    fn get_supply(self) -> u32;
-}
-
-impl MyMainExt for Utxo<MyMain> {
     #[inline]
-    fn get_supply(self) -> u32 {
-        starstream_query_MyMain_get_supply(self)
+    pub fn get_supply(self) -> u32 {
+        starstream_query_MyMain_get_supply(self.0)
     }
 }
 
 #[allow(non_camel_case_types)]
 pub type on_my_effect = extern "C" fn(supply: u32);
 
-impl UtxoCoroutine for StarToken {
-    type Resume = ();
-
-    #[inline]
-    fn ffi_status(utxo: Utxo<Self>) -> bool {
-        starstream_status_StarToken(utxo)
-    }
-
-    #[inline]
-    fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
-        unsafe {
-            starstream_resume_StarToken(
-                utxo,
-                &raw const arg as *const (),
-                core::mem::size_of::<Self::Resume>(),
-            )
-        }
-    }
-}
-
-pub trait StarTokenExt {
-    // &self
-    fn get_owner(self) -> PublicKey;
-    fn get_amount(self) -> u64;
-
-    // self
-    fn burn(self) -> u64;
+utxo_import! {
+    "starstream:example_contract";
+    StarToken;
+    starstream_status_StarToken;
+    starstream_resume_StarToken;
+    ();
 }
 
 impl StarToken {
     #[inline]
-    pub fn new(owner: PublicKey, amount: u64) -> Utxo<Self> {
-        starstream_new_StarToken_new(owner, amount)
+    pub fn new(owner: PublicKey, amount: u64) -> Self {
+        Self(starstream_new_StarToken_new(owner, amount))
+    }
+
+    #[inline]
+    pub fn get_owner(self) -> PublicKey {
+        starstream_query_StarToken_get_owner(self.0)
+    }
+
+    #[inline]
+    pub fn get_amount(self) -> u64 {
+        starstream_query_StarToken_get_amount(self.0)
+    }
+
+    #[inline]
+    pub fn burn(self) -> u64 {
+        starstream_consume_StarToken_burn(self.0)
     }
 }
 
-impl StarTokenExt for Utxo<StarToken> {
-    #[inline]
-    fn get_owner(self) -> PublicKey {
-        starstream_query_StarToken_get_owner(self)
-    }
-
-    #[inline]
-    fn get_amount(self) -> u64 {
-        starstream_query_StarToken_get_amount(self)
-    }
-
-    #[inline]
-    fn burn(self) -> u64 {
-        starstream_consume_StarToken_burn(self)
-    }
-}
-
-impl UtxoCoroutine for StarNft {
-    type Resume = ();
-
-    #[inline]
-    fn ffi_status(utxo: Utxo<Self>) -> bool {
-        starstream_status_StarNft(utxo)
-    }
-
-    #[inline]
-    fn ffi_resume(utxo: Utxo<Self>, arg: ()) {
-        unsafe {
-            starstream_resume_StarNft(
-                utxo,
-                &raw const arg as *const (),
-                core::mem::size_of::<Self::Resume>(),
-            )
-        }
-    }
+utxo_import! {
+    "starstream:example_contract";
+    StarNft;
+    starstream_status_StarNft;
+    starstream_resume_StarNft;
+    ();
 }
 
 impl StarNft {
     #[inline]
-    pub fn new() -> Utxo<Self> {
-        starstream_new_StarNft_new()
+    pub fn new() -> Self {
+        Self(starstream_new_StarNft_new())
     }
-}
 
-pub trait StarNftExt {
-    fn get_supply(self) -> u64;
-}
-
-impl StarNftExt for Utxo<StarNft> {
-    fn get_supply(self) -> u64 {
-        starstream_query_StarNft_get_supply(self)
+    pub fn get_supply(self) -> u64 {
+        starstream_query_StarNft_get_supply(self.0)
     }
 }
