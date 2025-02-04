@@ -6,6 +6,15 @@ use starstream::{PublicKey, Utxo, UtxoCoroutine};
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream:example_contract")]
 unsafe extern "C" {
+    pub type PayToPublicKeyHash;
+    safe fn starstream_status_PayToPublicKeyHash(utxo: Utxo<PayToPublicKeyHash>) -> bool;
+    unsafe fn starstream_resume_PayToPublicKeyHash(
+        utxo: Utxo<PayToPublicKeyHash>,
+        resume_arg: *const (),
+        resume_arg_size: usize,
+    );
+    safe fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) -> Utxo<PayToPublicKeyHash>;
+
     pub type MyMain;
     safe fn starstream_status_MyMain(utxo: Utxo<MyMain>) -> bool;
     unsafe fn starstream_resume_MyMain(
@@ -38,6 +47,31 @@ unsafe extern "C" {
     );
     safe fn starstream_new_StarNft_new() -> Utxo<StarNft>;
     safe fn starstream_query_StarNft_get_supply(utxo: Utxo<StarNft>) -> u64;
+}
+
+impl UtxoCoroutine for PayToPublicKeyHash {
+    type Resume = ();
+
+    fn ffi_status(utxo: Utxo<Self>) -> bool {
+        starstream_status_PayToPublicKeyHash(utxo)
+    }
+
+    fn ffi_resume(utxo: Utxo<Self>, arg: Self::Resume) {
+        unsafe {
+            starstream_resume_PayToPublicKeyHash(
+                utxo,
+                &raw const arg as *const (),
+                core::mem::size_of_val(&arg),
+            );
+        }
+    }
+}
+
+impl PayToPublicKeyHash {
+    #[inline]
+    pub fn new(owner: PublicKey) -> Utxo<Self> {
+        starstream_new_PayToPublicKeyHash_new(owner)
+    }
 }
 
 impl UtxoCoroutine for MyMain {
