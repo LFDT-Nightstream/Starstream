@@ -101,6 +101,94 @@ pub fn assert_tx_signed_by(_key: PublicKey) {
 }
 
 // ----------------------------------------------------------------------------
+// Token export environment
+
+#[repr(C)]
+pub struct TokenStorage {
+    pub amount: u64,
+    pub id: u64,
+}
+
+pub trait TokenIntermediate {
+    /// Called when the token is minted. Panics if the mint is invalid.
+    fn mint(self) -> TokenStorage;
+    /// Called when the token is burned. Panics if the burn is invalid.
+    fn burn(storage: TokenStorage) -> Self;
+}
+
+// ----------------------------------------------------------------------------
+// Token import environment
+
+#[repr(C)]
+pub struct TokenHandle<T: ?Sized> {
+    ptr: u32,
+    _phantom: PhantomData<*mut T>,
+}
+
+impl<T: ?Sized> Clone for TokenHandle<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: ?Sized> Copy for TokenHandle<T> {}
+
+pub trait Token {
+    type Intermediate;
+    fn mint(i: Self::Intermediate) -> Self;
+    fn burn(self) -> Self::Intermediate;
+}
+
+#[macro_export]
+macro_rules! token_import {
+    (
+        from $module:expr;
+        type $handle_name:ident;
+        intermediate struct $intermediate_name:ident {
+            $($contents:tt)*
+        }
+        mint fn $mint_fn:ident;
+        burn fn $burn_fn:ident;
+    ) => {
+        #[repr(C)]
+        pub struct $intermediate_name {
+            $($contents)*
+        }
+
+        impl $intermediate_name {
+            #[inline]
+            pub fn mint(self) -> $handle_name {
+                <$handle_name as $crate::Token>::mint(self)
+            }
+        }
+
+        #[link(wasm_import_module = $module)]
+        unsafe extern "C" {
+            safe fn $mint_fn(intermediate: $intermediate_name) -> $crate::TokenHandle<$handle_name>;
+            safe fn $burn_fn(handle: $crate::TokenHandle<$handle_name>) -> $intermediate_name;
+        }
+
+        #[derive(Clone, Copy)]
+        #[repr(transparent)]
+        pub struct $handle_name($crate::TokenHandle<$handle_name>);
+
+        impl $crate::Token for $handle_name {
+            type Intermediate = $intermediate_name;
+
+            #[inline]
+            fn mint(i: Self::Intermediate) -> Self {
+                Self($mint_fn(i))
+            }
+
+            #[inline]
+            fn burn(self) -> Self::Intermediate {
+                $burn_fn(self.0)
+            }
+        }
+    };
+}
+
+// ----------------------------------------------------------------------------
 // UTXO export (main/implementation) environment
 
 #[link(wasm_import_module = "env")]
@@ -190,9 +278,9 @@ macro_rules! utxo_import {
     ) => {
         #[link(wasm_import_module = $module)]
         unsafe extern "C" {
-            safe fn $status_fn(utxo: UtxoHandle<$name>) -> $crate::UtxoStatus;
+            safe fn $status_fn(utxo: $crate::UtxoHandle<$name>) -> $crate::UtxoStatus;
             unsafe fn $resume_fn(
-                utxo: UtxoHandle<$name>,
+                utxo: $crate::UtxoHandle<$name>,
                 resume_arg: *const (),
                 resume_arg_size: usize,
             );
@@ -200,7 +288,7 @@ macro_rules! utxo_import {
 
         #[derive(Clone, Copy)]
         #[repr(transparent)]
-        pub struct $name(UtxoHandle<$name>);
+        pub struct $name($crate::UtxoHandle<$name>);
 
         impl $crate::Utxo for $name {
             type Resume = $resume_ty;

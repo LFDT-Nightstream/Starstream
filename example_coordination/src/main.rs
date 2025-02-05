@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use example_contract::{MyMain, StarNft, StarToken};
+use example_contract::{MyMain, StarNftMint, StarToken};
 use starstream::{PublicKey, Utxo};
 
 extern "C" fn my_effect_handler(supply: u32) {
@@ -15,19 +15,19 @@ pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> StarToken {
 }
 
 #[no_mangle]
-pub extern "C" fn new_nft() -> StarNft {
-    StarNft::new()
+pub extern "C" fn new_nft() -> StarNftMint {
+    StarNftMint::new()
 }
 
 #[no_mangle]
-pub extern "C" fn mint_seven_nfts(nft_contract: StarNft) {
+pub extern "C" fn mint_seven_nfts(nft_contract: StarNftMint) {
     for _ in 0..7 {
         nft_contract.next();
     }
 }
 
 #[no_mangle]
-pub extern "C" fn mint_until_10_nfts(nft_contract: StarNft) {
+pub extern "C" fn mint_until_10_nfts(nft_contract: StarNftMint) {
     while nft_contract.get_supply() < 10 {
         nft_contract.next();
     }

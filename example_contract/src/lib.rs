@@ -1,6 +1,6 @@
 #![no_std]
 
-use starstream::{PublicKey, utxo_import, UtxoHandle};
+use starstream::{token_import, utxo_import, PublicKey, UtxoHandle};
 
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream:example_contract")]
@@ -18,8 +18,8 @@ unsafe extern "C" {
     safe fn starstream_query_StarToken_get_amount(utxo: UtxoHandle<StarToken>) -> u64;
     safe fn starstream_consume_StarToken_burn(utxo: UtxoHandle<StarToken>) -> u64;
 
-    safe fn starstream_new_StarNft_new() -> UtxoHandle<StarNft>;
-    safe fn starstream_query_StarNft_get_supply(utxo: UtxoHandle<StarNft>) -> u64;
+    safe fn starstream_new_StarNft_new() -> UtxoHandle<StarNftMint>;
+    safe fn starstream_query_StarNft_get_supply(utxo: UtxoHandle<StarNftMint>) -> u64;
 }
 
 utxo_import! {
@@ -99,13 +99,13 @@ impl StarToken {
 
 utxo_import! {
     "starstream:example_contract";
-    StarNft;
-    starstream_status_StarNft;
-    starstream_resume_StarNft;
+    StarNftMint;
+    starstream_status_StarNftMint;
+    starstream_resume_StarNftMint;
     ();
 }
 
-impl StarNft {
+impl StarNftMint {
     #[inline]
     pub fn new() -> Self {
         Self(starstream_new_StarNft_new())
@@ -114,4 +114,14 @@ impl StarNft {
     pub fn get_supply(self) -> u64 {
         starstream_query_StarNft_get_supply(self.0)
     }
+}
+
+token_import! {
+    from "starstream:example_contract";
+    type StarNft;
+    intermediate struct StarNftIntermediate {
+        pub id: u64,
+    }
+    mint fn starstream_mint_StarNft;
+    burn fn starstream_burn_StarNft;
 }

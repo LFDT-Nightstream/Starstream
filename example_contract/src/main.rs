@@ -2,7 +2,7 @@
 #![no_main]
 #![allow(dead_code)]
 
-use starstream::{assert_tx_signed_by, PublicKey};
+use starstream::{assert_tx_signed_by, PublicKey, TokenIntermediate, TokenStorage};
 
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
@@ -126,22 +126,40 @@ impl MyMain {
     }
 }
 
-pub struct StarNft {
+pub struct StarNftMint {
     supply: u64,
 }
 
-impl StarNft {
-    pub fn new(sleep: fn(&StarNft)) {
-        let mut this = StarNft { supply: 0 };
-        loop {
-            // "true" is a stand-in for an actual NFT token, representation TBD
+impl StarNftMint {
+    pub fn new(max_supply: u64, sleep: fn(&StarNftMint)) {
+        let mut this = StarNftMint { supply: 0 };
+        while this.supply < max_supply {
             sleep(&this);
             this.supply += 1;
+            example_contract::StarNftIntermediate { id: this.supply }.mint();
         }
     }
 
     pub fn get_supply(&self) -> u64 {
         self.supply
+    }
+}
+
+#[repr(C)]
+struct StarNftIntermediate {
+    id: u64,
+}
+
+impl TokenIntermediate for StarNftIntermediate {
+    fn mint(self) -> TokenStorage {
+        assert!(starstream::coordination_code() == starstream::this_code());
+        TokenStorage { id: self.id, amount: 1 }
+    }
+
+    fn burn(storage: TokenStorage) -> Self {
+        assert!(starstream::coordination_code() == starstream::this_code());
+        assert!(storage.amount == 1);
+        StarNftIntermediate { id: storage.id }
     }
 }
 
@@ -179,12 +197,12 @@ pub unsafe extern "C" fn starstream_consume_StarToken_burn(this: *mut StarToken)
 }
 
 #[no_mangle]
-pub extern "C" fn starstream_new_StarNft_new() {
-    StarNft::new(starstream::sleep::<(), StarNft>)
+pub extern "C" fn starstream_new_StarNftMint_new(max_supply: u64) {
+    StarNftMint::new(max_supply, starstream::sleep::<(), StarNftMint>)
 }
 
 #[no_mangle]
-pub extern "C" fn starstream_query_StarNft_get_supply(this: &StarNft) -> u64 {
+pub extern "C" fn starstream_query_StarNftMint_get_supply(this: &StarNftMint) -> u64 {
     this.get_supply()
 }
 
