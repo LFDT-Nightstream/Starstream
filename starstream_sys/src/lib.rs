@@ -105,15 +105,32 @@ pub fn assert_tx_signed_by(_key: PublicKey) {
 
 #[repr(C)]
 pub struct TokenStorage {
-    pub amount: u64,
     pub id: u64,
+    pub amount: u64,
 }
 
+/*
 pub trait TokenIntermediate {
     /// Called when the token is minted. Panics if the mint is invalid.
     fn mint(self) -> TokenStorage;
     /// Called when the token is burned. Panics if the burn is invalid.
     fn burn(storage: TokenStorage) -> Self;
+}
+*/
+
+#[macro_export]
+macro_rules! token_export {
+    (
+        for $intermediate:ty;
+        mint fn $mint_fn:ident($self:ident: Self) -> TokenStorage $mint_body:block
+        burn fn $burn_fn:ident($storage:ident: TokenStorage) -> Self $burn_body:block
+    ) => {
+        #[no_mangle]
+        pub extern "C" fn $mint_fn($self: $intermediate) -> $crate::TokenStorage $mint_body
+
+        #[no_mangle]
+        pub extern "C" fn $burn_fn($storage: $crate::TokenStorage) -> $intermediate $burn_body
+    }
 }
 
 // ----------------------------------------------------------------------------

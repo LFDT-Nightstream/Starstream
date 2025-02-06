@@ -2,7 +2,8 @@
 #![no_main]
 #![allow(dead_code)]
 
-use starstream::{assert_tx_signed_by, PublicKey, TokenIntermediate, TokenStorage};
+use example_contract::StarNftIntermediate;
+use starstream::{assert_tx_signed_by, token_export, PublicKey, TokenStorage};
 
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
@@ -147,18 +148,13 @@ impl StarNftMint {
     }
 }
 
-#[repr(C)]
-struct StarNftIntermediate {
-    id: u64,
-}
-
-impl TokenIntermediate for StarNftIntermediate {
-    fn mint(self) -> TokenStorage {
+token_export! {
+    for StarNftIntermediate;
+    mint fn starstream_mint_StarNft(this: Self) -> TokenStorage {
         assert!(starstream::coordination_code() == starstream::this_code());
-        TokenStorage { id: self.id, amount: 1 }
+        TokenStorage { id: this.id, amount: 1 }
     }
-
-    fn burn(storage: TokenStorage) -> Self {
+    burn fn starstream_burn_StarNft(storage: TokenStorage) -> Self {
         assert!(starstream::coordination_code() == starstream::this_code());
         assert!(storage.amount == 1);
         StarNftIntermediate { id: storage.id }
