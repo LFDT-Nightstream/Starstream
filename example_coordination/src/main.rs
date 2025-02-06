@@ -16,7 +16,7 @@ pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> StarToken {
 
 #[no_mangle]
 pub extern "C" fn new_nft() -> StarNftMint {
-    StarNftMint::new()
+    StarNftMint::new(u64::MAX)
 }
 
 #[no_mangle]

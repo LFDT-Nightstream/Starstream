@@ -191,7 +191,7 @@ macro_rules! token_import {
 // ----------------------------------------------------------------------------
 // UTXO export (main/implementation) environment
 
-#[link(wasm_import_module = "env")]
+#[link(wasm_import_module = "starstream_utxo_env")]
 unsafe extern "C" {
     unsafe fn starstream_yield(
         name: *const u8,

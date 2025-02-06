@@ -17,6 +17,7 @@ use starstream::{assert_tx_signed_by, PublicKey, TokenIntermediate, TokenStorage
 // resume result should be a single struct w/ methods on it
 // yield = terminate
 
+/*
 //#[starstream::event]
 //fn my_event(supply: u32);
 // expands to:
@@ -39,6 +40,7 @@ unsafe extern "C" {
     #[link_name = "starstream_error_my_error"]
     safe fn my_error(supply: u32);
 }
+*/
 
 pub struct PayToPublicKeyHash;
 
@@ -111,9 +113,9 @@ impl MyMain {
         let mut supply = 0;
         loop {
             supply += 1;
-            my_event(supply);
+            //my_event(supply);
             starstream::log(10 + supply);
-            my_effect(supply);
+            //my_effect(supply);
             starstream::log(20 + supply);
             //my_error(supply);
             sleep(&MyMain { supply });

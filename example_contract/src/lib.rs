@@ -3,7 +3,7 @@
 use starstream::{token_import, utxo_import, PublicKey, UtxoHandle};
 
 // "starstream:example_contract" should probably be something content-addressed
-#[link(wasm_import_module = "starstream:example_contract")]
+#[link(wasm_import_module = "starstream_utxo:example_contract")]
 unsafe extern "C" {
     safe fn starstream_new_PayToPublicKeyHash_new(
         owner: PublicKey,
@@ -18,12 +18,12 @@ unsafe extern "C" {
     safe fn starstream_query_StarToken_get_amount(utxo: UtxoHandle<StarToken>) -> u64;
     safe fn starstream_consume_StarToken_burn(utxo: UtxoHandle<StarToken>) -> u64;
 
-    safe fn starstream_new_StarNft_new() -> UtxoHandle<StarNftMint>;
-    safe fn starstream_query_StarNft_get_supply(utxo: UtxoHandle<StarNftMint>) -> u64;
+    safe fn starstream_new_StarNftMint_new(max_supply: u64) -> UtxoHandle<StarNftMint>;
+    safe fn starstream_query_StarNftMint_get_supply(utxo: UtxoHandle<StarNftMint>) -> u64;
 }
 
 utxo_import! {
-    "starstream:example_contract";
+    "starstream_utxo:example_contract";
     PayToPublicKeyHash;
     starstream_status_PayToPublicKeyHash;
     starstream_resume_PayToPublicKeyHash;
@@ -38,7 +38,7 @@ impl PayToPublicKeyHash {
 }
 
 utxo_import! {
-    "starstream:example_contract";
+    "starstream_utxo:example_contract";
     MyMain;
     starstream_status_MyMain;
     starstream_resume_MyMain;
@@ -68,7 +68,7 @@ impl MyMain {
 pub type on_my_effect = extern "C" fn(supply: u32);
 
 utxo_import! {
-    "starstream:example_contract";
+    "starstream_utxo:example_contract";
     StarToken;
     starstream_status_StarToken;
     starstream_resume_StarToken;
@@ -98,7 +98,7 @@ impl StarToken {
 }
 
 utxo_import! {
-    "starstream:example_contract";
+    "starstream_utxo:example_contract";
     StarNftMint;
     starstream_status_StarNftMint;
     starstream_resume_StarNftMint;
@@ -107,17 +107,17 @@ utxo_import! {
 
 impl StarNftMint {
     #[inline]
-    pub fn new() -> Self {
-        Self(starstream_new_StarNft_new())
+    pub fn new(max_supply: u64) -> Self {
+        Self(starstream_new_StarNftMint_new(max_supply))
     }
 
     pub fn get_supply(self) -> u64 {
-        starstream_query_StarNft_get_supply(self.0)
+        starstream_query_StarNftMint_get_supply(self.0)
     }
 }
 
 token_import! {
-    from "starstream:example_contract";
+    from "starstream_token:example_contract";
     type StarNft;
     intermediate struct StarNftIntermediate {
         pub id: u64,
