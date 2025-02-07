@@ -1,11 +1,16 @@
-// example.js
-import { AsyncLocalStorage } from "async_hooks";
 import binaryen from "binaryen";
 import { readFile } from "fs/promises";
 
 interface MemoryExports {
   memory: WebAssembly.Memory;
 }
+
+interface IndirectFunctionTableExports {
+  __indirect_function_table: WebAssembly.Table,
+}
+
+// ----------------------------------------------------------------------------
+// Asyncify
 
 interface AsyncifyExports {
   asyncify_get_state(): number;
@@ -15,11 +20,15 @@ interface AsyncifyExports {
   asyncify_stop_rewind(): void;
 }
 
-interface IndirectFunctionTableExports {
-  __indirect_function_table: WebAssembly.Table,
+enum AsyncifyState {
+  NORMAL = 0,
+  UNWIND = 1,
+  REWIND = 2,
 }
 
-type UtxoExports = MemoryExports & AsyncifyExports;
+/** Where the unwind/rewind data structure will live. */
+const STACK_START = 16;
+const STACK_END = 1024;
 
 function asyncify(blob: Uint8Array): Uint8Array {
   binaryen.setOptimizeLevel(4);
@@ -38,35 +47,7 @@ function asyncify(blob: Uint8Array): Uint8Array {
   return ir.emitBinary();
 }
 
-enum AsyncifyState {
-  NORMAL = 0,
-  UNWIND = 1,
-  REWIND = 2,
-}
-
-/** Where the unwind/rewind data structure will live. */
-const STACK_START = 16;
-const STACK_END = 1024;
-
-function abort() {
-  throw new Error("abort() called");
-}
-
-function starstream_log(...args: unknown[]) {
-  console.log('starstream_log', ...args);
-}
-
-const effectHandlers = new Map<string, Function>();
-
-function fakeImports(module: WebAssembly.Module): WebAssembly.Imports {
-  const r: Record<string, Record<string, Function>> = {};
-  for (const entry of WebAssembly.Module.imports(module)) {
-    (r[entry.module] ??= {})[entry.name] = () => {
-      throw new Error("fake import " + entry.name);
-    };
-  }
-  return r;
-}
+// ----------------------------------------------------------------------------
 
 function fakeModule(message: string, items: Record<string, WebAssembly.ModuleImportDescriptor>): WebAssembly.ModuleImports {
   const r: WebAssembly.ModuleImports = {};
@@ -136,6 +117,7 @@ interface CoordinationContext {
 
 // TODO: needs to be asynclocal or something crazy?
 let coordinationContext: CoordinationContext | null = null;
+const effectHandlers = new Map<string, Function>();
 
 /** Fulfiller of imports from `env` */
 class StarstreamEnv {
@@ -676,6 +658,8 @@ class Universe {
     return [...this.utxos].map(u => u.debug());
   }
 }
+
+// ----------------------------------------------------------------------------
 
 let n = 0;
 const universe = new Universe();
