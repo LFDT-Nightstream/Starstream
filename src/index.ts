@@ -254,7 +254,7 @@ class TokenImport {
   readonly #tokens = new Map<number, Token>();
 
   constructor(
-    me: ContractInstance,
+    me: UtxoInstance,
     targetCodeId: ContractCodeId,
     want: Record<string, WebAssembly.ModuleImportDescriptor>,
   ) {
@@ -263,12 +263,20 @@ class TokenImport {
         if (entry.name.startsWith("starstream_mint_")) {
           this[entry.name] = (...args: unknown[]) => {
             const handle = randomU32();
-            this.#tokens.set(handle, me.universe.tokenMint(targetCodeId, entry.name, args));
+            const token = me.universe.tokenMint(targetCodeId, entry.name, args);
+            this.#tokens.set(handle, token);
+            me.utxo.tokens.add(token);
             return handle;
           };
         } else if (entry.name.startsWith("starstream_burn_")) {
           this[entry.name] = (handle: number) => {
-            return this.#tokens.get(handle)!.burn(entry.name);
+            const token = this.#tokens.get(handle);
+            if (!token) {
+              throw new Error("bad token handle to burn");
+            }
+            const intermediate = token.burn(entry.name);
+            me.utxo.tokens.delete(token);
+            return intermediate;
           };
         } else {
           throw new Error("bad import " + JSON.stringify(entry));
@@ -388,21 +396,19 @@ class UtxoInstance extends ContractInstance {
   };
 
   constructor(
-    universe: Universe,
-    code: ContractCode,
-    entryPoint: string,
+    public readonly utxo: Utxo,
     memory?: Uint8Array
   ) {
-    super(universe, code.asyncify());
+    super(utxo.universe, utxo.universe.getCodeSync(utxo.codeId).asyncify());
 
     if (memory) {
       // memcpy saved memory on top
       new Uint8Array(this.memory.buffer).set(memory);
     }
 
-    this.#entryPoint = this.wasm.exports[entryPoint] as Function;
+    this.#entryPoint = this.wasm.exports[utxo.entryPoint] as Function;
     if (typeof this.#entryPoint !== 'function') {
-      throw new Error("bad UTXO entry point: " + entryPoint);
+      throw new Error("bad UTXO entry point: " + utxo.entryPoint);
     }
   }
 
@@ -497,22 +503,24 @@ class UtxoInstance extends ContractInstance {
 // ----------------------------------------------------------------------------
 
 class Utxo {
-  #universe: Universe;
-  #codeId: ContractCodeId;
-  #entryPoint: string;
+  readonly universe: Universe;
+  readonly codeId: ContractCodeId;
+  readonly entryPoint: string;
   #loaded?: UtxoInstance;
 
+  readonly tokens = new Set<Token>();
+
   constructor(universe: Universe, codeId: ContractCodeId, entryPoint: string) {
-    this.#universe = universe;
-    this.#codeId = codeId;
-    this.#entryPoint = entryPoint;
-    this.#universe.resolveCode(this.#codeId);
+    this.universe = universe;
+    this.codeId = codeId;
+    this.entryPoint = entryPoint;
+    this.universe.resolveCode(this.codeId);
   }
 
   unload() {}
 
   load(): UtxoInstance {
-    return (this.#loaded ??= new UtxoInstance(this.#universe, this.#universe.getCodeSync(this.#codeId), this.#entryPoint));
+    return (this.#loaded ??= new UtxoInstance(this));
   }
 
   isAlive(): boolean {
@@ -521,7 +529,10 @@ class Utxo {
   }
 
   debug() {
-    return this.#loaded ? this.#loaded.debug() : { unloaded: this.#codeId };
+    return Object.assign(
+      this.#loaded ? this.#loaded.debug() : { unloaded: this.codeId },
+      this.tokens.size > 0 ? { tokens: this.tokens } : {},
+    );
   }
 }
 
