@@ -1,5 +1,6 @@
 import binaryen from "binaryen";
 import { readFile } from "fs/promises";
+import { inspect } from "util";
 
 interface MemoryExports {
   memory: WebAssembly.Memory;
@@ -531,7 +532,7 @@ class Utxo {
   debug() {
     return Object.assign(
       this.#loaded ? this.#loaded.debug() : { unloaded: this.codeId },
-      this.tokens.size > 0 ? { tokens: this.tokens } : {},
+      this.tokens.size > 0 ? { tokens: [...this.tokens].map(t => t.debug()) } : {},
     );
   }
 }
@@ -567,6 +568,14 @@ class Token {
       throw new Error(`bad burnFn: ${burnFn}, expected: ${this.#burnFn}`);
     }
     return new TokenInstance(this.universe, this.code).getFunction(burnFn)(this.id, this.amount);
+  }
+
+  debug() {
+    return {
+      __type: this.#burnFn.replace(/^starstream_burn_/, ""),
+      id: this.id,
+      amount: this.amount,
+    }
   }
 }
 
@@ -666,7 +675,7 @@ class Universe {
   }
 
   debug() {
-    return [...this.utxos].map(u => u.debug());
+    return inspect([...this.utxos].map(u => u.debug()), { depth: null, colors: true });
   }
 }
 
