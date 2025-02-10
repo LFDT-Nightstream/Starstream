@@ -2,8 +2,8 @@
 #![no_main]
 #![allow(dead_code)]
 
-use example_contract::StarNftIntermediate;
-use starstream::{assert_tx_signed_by, token_export, PublicKey, TokenStorage};
+use example_contract::{StarNft, StarNftIntermediate};
+use starstream::{assert_tx_signed_by, token_export, PublicKey, Token, TokenStorage};
 
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
@@ -43,12 +43,15 @@ unsafe extern "C" {
 }
 */
 
-pub struct PayToPublicKeyHash;
+pub struct PayToPublicKeyHash {
+    owner: PublicKey,
+}
 
 impl PayToPublicKeyHash {
-    pub fn new(owner: PublicKey, sleep: fn()) {
+    pub fn new(owner: PublicKey, sleep: fn(&mut Self)) {
         // It's currently the TX where the UTXO is created.
-        sleep();
+        let mut this = PayToPublicKeyHash { owner };
+        sleep(&mut this);
         // Now it's the TX where someone has requested to consume the UTXO.
         // They are allowed to do that if that TX is signed by the owner we
         // started with.
@@ -56,6 +59,14 @@ impl PayToPublicKeyHash {
         // When the UTXO's lifetime ends, all its tokens are freed up, and then
         // the calling coordination script should either be put directly into
         // another UTXO or burned according to that token's code.
+    }
+
+    pub fn get_owner(&self) -> PublicKey {
+        self.owner
+    }
+
+    pub fn attach<T: Token>(&mut self, i: T::Intermediate) {
+        T::mint(i);
     }
 }
 
@@ -134,17 +145,20 @@ pub struct StarNftMint {
 }
 
 impl StarNftMint {
-    pub fn new(max_supply: u64, sleep: fn(&StarNftMint)) {
+    pub fn new(max_supply: u64, sleep: fn(&mut StarNftMint)) {
         let mut this = StarNftMint { supply: 0 };
         while this.supply < max_supply {
-            sleep(&this);
-            this.supply += 1;
-            example_contract::StarNftIntermediate { id: this.supply }.mint();
+            sleep(&mut this);
         }
     }
 
     pub fn get_supply(&self) -> u64 {
         self.supply
+    }
+
+    pub fn prepare_to_mint(&mut self) -> example_contract::StarNftIntermediate {
+        self.supply += 1;
+        example_contract::StarNftIntermediate { id: self.supply }
     }
 }
 
@@ -196,12 +210,32 @@ pub unsafe extern "C" fn starstream_consume_StarToken_burn(this: *mut StarToken)
 
 #[no_mangle]
 pub extern "C" fn starstream_new_StarNftMint_new(max_supply: u64) {
-    StarNftMint::new(max_supply, starstream::sleep::<(), StarNftMint>)
+    StarNftMint::new(max_supply, starstream::sleep_mut::<(), StarNftMint>)
 }
 
 #[no_mangle]
 pub extern "C" fn starstream_query_StarNftMint_get_supply(this: &StarNftMint) -> u64 {
     this.get_supply()
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_mutate_StarNftMint_prepare_to_mint(this: &mut StarNftMint) -> StarNftIntermediate {
+    this.prepare_to_mint()
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) {
+    PayToPublicKeyHash::new(owner, starstream::sleep_mut::<(), PayToPublicKeyHash>)
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_query_PayToPublicKeyHash_get_owner(this: &PayToPublicKeyHash) -> PublicKey {
+    this.get_owner()
+}
+
+#[no_mangle]
+pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(this: &mut PayToPublicKeyHash, i: StarNftIntermediate) {
+    this.attach::<StarNft>(i)
 }
 
 // ----------------------------------------------------------------------------
@@ -244,4 +278,13 @@ pub extern "C" fn star_split(
     // TODO: shouldn't this line
     example_contract::StarToken::new(owner, from_amount);
     example_contract::StarToken::new(owner, amount)
+}
+
+#[no_mangle]
+pub extern "C" fn star_nft_mint_to(
+    nft_contract: example_contract::StarNftMint,
+    owner: PublicKey,
+) {
+    let out = example_contract::PayToPublicKeyHash::new(owner);
+    out.attach(nft_contract.prepare_to_mint());
 }

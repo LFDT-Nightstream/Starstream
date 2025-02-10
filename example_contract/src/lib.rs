@@ -1,13 +1,13 @@
 #![no_std]
 
-use starstream::{token_import, utxo_import, PublicKey, UtxoHandle};
+use starstream::{token_import, utxo_import, PublicKey, Token, UtxoHandle};
 
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream_utxo:example_contract")]
 unsafe extern "C" {
     safe fn starstream_new_PayToPublicKeyHash_new(
         owner: PublicKey,
-    ) -> UtxoHandle<PayToPublicKeyHash>;
+    ) -> PayToPublicKeyHash;
 
     safe fn starstream_new_MyMain_new() -> UtxoHandle<MyMain>;
     safe fn starstream_query_MyMain_get_supply(utxo: UtxoHandle<MyMain>) -> u32;
@@ -20,6 +20,9 @@ unsafe extern "C" {
 
     safe fn starstream_new_StarNftMint_new(max_supply: u64) -> UtxoHandle<StarNftMint>;
     safe fn starstream_query_StarNftMint_get_supply(utxo: UtxoHandle<StarNftMint>) -> u64;
+    safe fn starstream_mutate_StarNftMint_prepare_to_mint(utxo: StarNftMint) -> StarNftIntermediate;
+
+    safe fn starstream_mutate_PayToPublicKeyHash_attach(utxo: PayToPublicKeyHash, i: StarNftIntermediate);
 }
 
 utxo_import! {
@@ -33,7 +36,14 @@ utxo_import! {
 impl PayToPublicKeyHash {
     #[inline]
     pub fn new(owner: PublicKey) -> Self {
-        PayToPublicKeyHash(starstream_new_PayToPublicKeyHash_new(owner))
+        starstream_new_PayToPublicKeyHash_new(owner)
+    }
+
+    #[inline]
+    // TODO: generics over the FFI boundary have to be erased somehow
+    // pub fn attach<T: Token>(self, i: T::Intermediate) {
+    pub fn attach(self, i: StarNftIntermediate) {
+        starstream_mutate_PayToPublicKeyHash_attach(self, i)
     }
 }
 
@@ -113,6 +123,10 @@ impl StarNftMint {
 
     pub fn get_supply(self) -> u64 {
         starstream_query_StarNftMint_get_supply(self.0)
+    }
+
+    pub fn prepare_to_mint(self) -> StarNftIntermediate {
+        starstream_mutate_StarNftMint_prepare_to_mint(self)
     }
 }
 

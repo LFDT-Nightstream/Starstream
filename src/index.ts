@@ -216,8 +216,19 @@ class UtxoImport {
             return me.setUtxo(utxo);
           };
         } else if (entry.name.startsWith("starstream_query_")) {
+          // query = &self
           this[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
             return me.getUtxo(utxo_handle).load().query(entry.name, ...args);
+          };
+        } else if (entry.name.startsWith("starstream_mutate_")) {
+          // mutate = &mut self
+          this[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
+            return me.getUtxo(utxo_handle).load().mutate(entry.name, ...args);
+          };
+        } else if (entry.name.startsWith("starstream_consume_")) {
+          // consume = self
+          this[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
+            return me.getUtxo(utxo_handle).load().consume(entry.name, ...args);
           };
         } else if (entry.name.startsWith("starstream_event_")) {
           this[entry.name] = (...args: unknown[]) => {
@@ -234,10 +245,6 @@ class UtxoImport {
               });
             }
           }
-        } else if (entry.name.startsWith("starstream_consume_")) {
-          this[entry.name] = (utxo_handle: number, ...args: unknown[]) => {
-            return me.getUtxo(utxo_handle).load().consume(entry.name, ...args);
-          };
         } else {
           throw new Error("bad import " + JSON.stringify(entry));
         }
@@ -461,7 +468,14 @@ class UtxoInstance extends ContractInstance {
     return (this.wasm.exports[name] as Function)(this.#state.yielded.data.byteOffset, ...args);
   }
 
-  // TODO &mut self
+  // &mut self
+  mutate(name: string, ...args: unknown[]): unknown {
+    if (this.#state.state !== "yielded") {
+      throw new Error("Cannot mutate() in state " + JSON.stringify(this.#state));
+    }
+    // TODO: enforce asyncify_get_state is NORMAL after this call
+    return (this.wasm.exports[name] as Function)(this.#state.yielded.data.byteOffset, ...args);
+  }
 
   // self
   consume(name: string, ...args: unknown[]): unknown {
@@ -746,6 +760,7 @@ const nft_contract = universe.runTransaction(
 );
 console.log(++n, '--', universe.debug());
 
+/*
 universe.runTransaction(
   exampleCoordination,
   "mint_seven_nfts",
@@ -758,4 +773,12 @@ universe.runTransaction(
   "mint_until_10_nfts",
   [nft_contract],
 );
+console.log(++n, '--', universe.debug());
+*/
+
+universe.runTransaction(
+  exampleContract,
+  "star_nft_mint_to",
+  [nft_contract],
+)
 console.log(++n, '--', universe.debug());
