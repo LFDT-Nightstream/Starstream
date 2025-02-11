@@ -779,6 +779,13 @@ console.log(++n, '--', universe.debug());
 universe.runTransaction(
   exampleContract,
   "star_nft_mint_to",
-  [nft_contract],
+  [nft_contract, /*owner,*/],
+)
+console.log(++n, '--', universe.debug());
+
+universe.runTransaction(
+  exampleContract,
+  "star_nft_mint_count",
+  [nft_contract, /*owner,*/ 4n],
 )
 console.log(++n, '--', universe.debug());

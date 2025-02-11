@@ -288,3 +288,15 @@ pub extern "C" fn star_nft_mint_to(
     let out = example_contract::PayToPublicKeyHash::new(owner);
     out.attach(nft_contract.prepare_to_mint());
 }
+
+#[no_mangle]
+pub extern "C" fn star_nft_mint_count(
+    nft_contract: example_contract::StarNftMint,
+    owner: PublicKey,
+    count: u64,
+) {
+    for _ in 0..count {
+        let out = example_contract::PayToPublicKeyHash::new(owner);
+        out.attach(nft_contract.prepare_to_mint());
+    }
+}
