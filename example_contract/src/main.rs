@@ -57,14 +57,16 @@ impl PayToPublicKeyHash {
         // started with.
         assert_tx_signed_by(owner);
         // When the UTXO's lifetime ends, all its tokens are freed up, and then
-        // the calling coordination script should either be put directly into
-        // another UTXO or burned according to that token's code.
+        // the calling coordination script must either put them directly into
+        // another UTXO or burn them according to that token's code, or else
+        // the TX will fail.
     }
 
     pub fn get_owner(&self) -> PublicKey {
         self.owner
     }
 
+    // Any token can be attached to PayToPublicKeyHash.
     pub fn attach<T: Token>(&mut self, i: T::Intermediate) {
         T::mint(i);
     }
@@ -145,11 +147,18 @@ pub struct StarNftMint {
 }
 
 impl StarNftMint {
+    // `sleep` is supplied by the scheduler and suspends execution.
     pub fn new(max_supply: u64, sleep: fn(&mut StarNftMint)) {
         let mut this = StarNftMint { supply: 0 };
         while this.supply < max_supply {
+            // While sleeping, get_supply and prepare_to_mint can be called.
             sleep(&mut this);
+            // Code here can control the .resume() function of the UTXO, which
+            // can mutate it, equivalent to consuming the UTXO and producing
+            // the "next" UTXO state.
         }
+        // When we hit here, the lifetime of the StarNftMint UTXO ends, but the
+        // StarNft tokens attached to PayToPublicKeyHash UTXOs remain valid.
     }
 
     pub fn get_supply(&self) -> u64 {
@@ -157,6 +166,8 @@ impl StarNftMint {
     }
 
     pub fn prepare_to_mint(&mut self) -> example_contract::StarNftIntermediate {
+        // Note: TX is meant to fail if StarNftIntermediate is dropped without
+        // being mint()ed, so supply += 1 is kept accurate.
         self.supply += 1;
         example_contract::StarNftIntermediate { id: self.supply }
     }
@@ -165,6 +176,9 @@ impl StarNftMint {
 token_export! {
     for StarNftIntermediate;
     mint fn starstream_mint_StarNft(this: Self) -> TokenStorage {
+        // Example of common assertion: only sanctioned coordination code
+        // can mint this NFT. This indirectly enforces that only intermediates
+        // produced by calls to `StarNftMint::prepare_to_mint` are minted.
         assert!(starstream::coordination_code() == starstream::this_code());
         TokenStorage { id: this.id, amount: 1 }
     }
@@ -298,5 +312,22 @@ pub extern "C" fn star_nft_mint_count(
     for _ in 0..count {
         let out = example_contract::PayToPublicKeyHash::new(owner);
         out.attach(nft_contract.prepare_to_mint());
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn star_nft_mint_up_to(
+    // This parameter's type is a handle to a UTXO object.
+    // The scheduler routes calls to the correct sleeping UTXO code instance.
+    nft_contract: example_contract::StarNftMint,
+    desired_supply: u64,
+    owner: PublicKey,
+) {
+    while nft_contract.get_supply() < desired_supply {
+        // In this example, we create many UTXOs with one NFT each. We could
+        // just as easily create one UTXO containing all NFTs minted by this
+        // call.
+        example_contract::PayToPublicKeyHash::new(owner)
+            .attach(nft_contract.prepare_to_mint());
     }
 }
