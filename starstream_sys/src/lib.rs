@@ -295,9 +295,9 @@ macro_rules! utxo_import {
     ) => {
         #[link(wasm_import_module = $module)]
         unsafe extern "C" {
-            safe fn $status_fn(utxo: $crate::UtxoHandle<$name>) -> $crate::UtxoStatus;
+            safe fn $status_fn(utxo: $name) -> $crate::UtxoStatus;
             unsafe fn $resume_fn(
-                utxo: $crate::UtxoHandle<$name>,
+                utxo: $name,
                 resume_arg: *const (),
                 resume_arg_size: usize,
             );
@@ -312,14 +312,14 @@ macro_rules! utxo_import {
 
             #[inline]
             fn status(self) -> $crate::UtxoStatus {
-                $status_fn(self.0)
+                $status_fn(self)
             }
 
             #[inline]
             fn resume(self, arg: Self::Resume) {
                 unsafe {
                     $resume_fn(
-                        self.0,
+                        self,
                         &raw const arg as *const (),
                         core::mem::size_of_val(&arg),
                     );

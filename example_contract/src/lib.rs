@@ -1,6 +1,6 @@
 #![no_std]
 
-use starstream::{token_import, utxo_import, PublicKey, Token, UtxoHandle};
+use starstream::{token_import, utxo_import, PublicKey};
 
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream_utxo:example_contract")]
@@ -9,17 +9,17 @@ unsafe extern "C" {
         owner: PublicKey,
     ) -> PayToPublicKeyHash;
 
-    safe fn starstream_new_MyMain_new() -> UtxoHandle<MyMain>;
-    safe fn starstream_query_MyMain_get_supply(utxo: UtxoHandle<MyMain>) -> u32;
+    safe fn starstream_new_MyMain_new() -> MyMain;
+    safe fn starstream_query_MyMain_get_supply(utxo: MyMain) -> u32;
     safe fn starstream_handle_MyMain_my_effect(handler: on_my_effect) -> on_my_effect;
 
-    safe fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) -> UtxoHandle<StarToken>;
-    safe fn starstream_query_StarToken_get_owner(utxo: UtxoHandle<StarToken>) -> PublicKey;
-    safe fn starstream_query_StarToken_get_amount(utxo: UtxoHandle<StarToken>) -> u64;
-    safe fn starstream_consume_StarToken_burn(utxo: UtxoHandle<StarToken>) -> u64;
+    safe fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) -> StarToken;
+    safe fn starstream_query_StarToken_get_owner(utxo: StarToken) -> PublicKey;
+    safe fn starstream_query_StarToken_get_amount(utxo: StarToken) -> u64;
+    safe fn starstream_consume_StarToken_burn(utxo: StarToken) -> u64;
 
-    safe fn starstream_new_StarNftMint_new(max_supply: u64) -> UtxoHandle<StarNftMint>;
-    safe fn starstream_query_StarNftMint_get_supply(utxo: UtxoHandle<StarNftMint>) -> u64;
+    safe fn starstream_new_StarNftMint_new(max_supply: u64) -> StarNftMint;
+    safe fn starstream_query_StarNftMint_get_supply(utxo: StarNftMint) -> u64;
     safe fn starstream_mutate_StarNftMint_prepare_to_mint(utxo: StarNftMint) -> StarNftIntermediate;
 
     safe fn starstream_mutate_PayToPublicKeyHash_attach(utxo: PayToPublicKeyHash, i: StarNftIntermediate);
@@ -57,7 +57,7 @@ utxo_import! {
 
 impl MyMain {
     #[inline]
-    pub fn new() -> UtxoHandle<Self> {
+    pub fn new() -> Self {
         starstream_new_MyMain_new()
     }
 
@@ -70,7 +70,7 @@ impl MyMain {
 
     #[inline]
     pub fn get_supply(self) -> u32 {
-        starstream_query_MyMain_get_supply(self.0)
+        starstream_query_MyMain_get_supply(self)
     }
 }
 
@@ -88,22 +88,22 @@ utxo_import! {
 impl StarToken {
     #[inline]
     pub fn new(owner: PublicKey, amount: u64) -> Self {
-        Self(starstream_new_StarToken_new(owner, amount))
+        starstream_new_StarToken_new(owner, amount)
     }
 
     #[inline]
     pub fn get_owner(self) -> PublicKey {
-        starstream_query_StarToken_get_owner(self.0)
+        starstream_query_StarToken_get_owner(self)
     }
 
     #[inline]
     pub fn get_amount(self) -> u64 {
-        starstream_query_StarToken_get_amount(self.0)
+        starstream_query_StarToken_get_amount(self)
     }
 
     #[inline]
     pub fn burn(self) -> u64 {
-        starstream_consume_StarToken_burn(self.0)
+        starstream_consume_StarToken_burn(self)
     }
 }
 
@@ -118,11 +118,11 @@ utxo_import! {
 impl StarNftMint {
     #[inline]
     pub fn new(max_supply: u64) -> Self {
-        Self(starstream_new_StarNftMint_new(max_supply))
+        starstream_new_StarNftMint_new(max_supply)
     }
 
     pub fn get_supply(self) -> u64 {
-        starstream_query_StarNftMint_get_supply(self.0)
+        starstream_query_StarNftMint_get_supply(self)
     }
 
     pub fn prepare_to_mint(self) -> StarNftIntermediate {
