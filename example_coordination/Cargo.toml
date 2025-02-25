@@ -1,7 +1,11 @@
+cargo-features = ["per-package-target"]
+
 [package]
 name = "example_coordination"
 version = "0.0.0"
 edition = "2021"
+
+forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
 starstream = { path = "../starstream_sys" }

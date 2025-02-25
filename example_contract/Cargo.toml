@@ -1,7 +1,11 @@
+cargo-features = ["per-package-target"]
+
 [package]
 name = "example_contract"
 version = "0.0.0"
 edition = "2021"
+
+forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
 stack_dst = { version = "0.8.1", default-features = false, features = ["const_generics"] }
