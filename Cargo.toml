@@ -3,6 +3,7 @@ members = [
     "example_contract",
     "example_coordination",
     "starstream_sys",
+    "starstream_vm",
 ]
 resolver = "2"
 

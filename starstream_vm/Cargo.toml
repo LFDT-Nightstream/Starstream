@@ -1,0 +1,8 @@
+[package]
+name = "starstream_vm"
+version = "0.0.0"
+edition = "2024"
+
+default-run = "starstream_vm"
+
+[dependencies]
