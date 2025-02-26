@@ -6,3 +6,4 @@ edition = "2024"
 default-run = "starstream_vm"
 
 [dependencies]
+zk-engine = { git = "https://github.com/ICME-Lab/zkEngine_dev", branch = "main" }
