@@ -1,3 +1,3 @@
 .PHONY: build
 build:
-	@npm run build
+	@cargo build

@@ -61,12 +61,12 @@ pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarTok
 #[no_mangle]
 pub fn produce() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
-    MyMain::handle_my_effect(
-        || {
+    /*MyMain::handle_my_effect(
+        || {*/
             _ = MyMain::new();
-        },
+        /*},
         my_effect_handler,
-    );
+    ); */
     // ^ not pretty but it illustrates the implementation
 }
 

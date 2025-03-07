@@ -721,39 +721,6 @@ universe.runTransaction(
 console.log(++n, '--', universe, universe.utxos.values().next().value?.load().query("starstream_query_MyMain_get_supply"));
 */
 
-const a = universe.runTransaction(
-  exampleCoordination,
-  "star_mint",
-  [
-    // PublicKey has no representation yet
-    17n,
-  ]
-);
-console.log(++n, '--', universe.debug());
-
-const b = universe.runTransaction(
-  exampleContract,
-  "star_mint",
-  [
-    20n,
-  ]
-);
-console.log(++n, '--', universe.debug());
-
-const c = universe.runTransaction(
-  exampleContract,
-  "star_combine",
-  [a, b],
-);
-console.log(++n, '--', universe.debug());
-
-universe.runTransaction(
-  exampleContract,
-  "star_split",
-  [c, 5n],
-);
-console.log(++n, '--', universe.debug());
-
 const nft_contract = universe.runTransaction(
   exampleCoordination,
   "new_nft",

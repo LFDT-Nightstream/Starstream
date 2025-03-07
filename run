@@ -1,2 +1,2 @@
 #!/bin/sh
-make && exec npm start -- "$@"
+make && target/debug/starstream_vm -- "$@"
