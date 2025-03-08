@@ -79,6 +79,7 @@ fn hash_code(code: &[u8]) -> CodeHash {
 
 #[derive(Debug)]
 struct Yield {
+    name: String,
     data: u32,
 }
 
@@ -149,7 +150,10 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
              resume_arg_len: u32|
              -> Result<(), Trap> {
                 eprintln!("YIELD");
-                Err(Trap::from(Yield { data }))
+                Err(Trap::from(Yield {
+                    name: std::str::from_utf8(&memory(&mut caller).0[name as usize..(name + name_len) as usize]).unwrap().to_owned(),
+                    data,
+                }))
             },
         )
         .unwrap();
@@ -407,15 +411,18 @@ impl Utxo {
 impl std::fmt::Debug for Utxo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut s = f.debug_struct("Utxo");
-        s.field("type", &self.entry_point);
+        s.field("entry_point", &self.entry_point);
         match &self.status {
             ResumableCall::Finished => {
                 s.field("finished", &true);
             }
             ResumableCall::Resumable(resumable) => {
+                let pause = resumable.host_error().downcast_ref::<Yield>().unwrap();
                 let inputs = [Value::I32(
-                    resumable.host_error().downcast_ref::<Yield>().unwrap().data as i32,
+                    pause.data as i32,
                 )];
+                s.field("type", &pause.name);
+                let last_part = pause.name.split("::").last().unwrap();
 
                 let mut store = self.store.borrow_mut();
                 let funcs = self
@@ -428,8 +435,8 @@ impl std::fmt::Debug for Utxo {
                     .collect::<Vec<_>>();
                 for (name, func) in funcs {
                     let mut outputs = [Value::ExternRef(ExternRef::null())];
-                    // TODO: narrow to relevant type only
                     if name.starts_with("starstream_query_")
+                        && name["starstream_query_".len()..].starts_with(&last_part)
                         && func.ty(store.as_context()).params() == &[ValueType::I32]
                         && func.ty(store.as_context()).results().len() == 1
                     {
@@ -558,12 +565,18 @@ impl std::fmt::Debug for Token {
 
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 struct UtxoId {
-    id: usize,
+    bytes: [u8; 16],
 }
 
 impl UtxoId {
+    fn random() -> UtxoId {
+        let mut bytes = [0; 16];
+        rand::rng().fill_bytes(&mut bytes);
+        UtxoId { bytes }
+    }
+
     fn to_wasm_u32(self, mut store: StoreContextMut<CoordinationScriptInstance>) -> Value {
         let scrambled = rand::rng().next_u32();
         store.data_mut().temporary_utxo_ids.insert(scrambled, self);
@@ -587,9 +600,15 @@ impl UtxoId {
     }
 }
 
+impl std::fmt::Debug for UtxoId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UtxoId({:02x?})", &self.bytes[..])
+    }
+}
+
 struct CoordinationScriptInstance<'tx> {
     coordination_code: &'tx ContractCode,
-    utxos: &'tx mut Vec<Utxo>,
+    utxos: &'tx mut HashMap<UtxoId, Utxo>,
     temporary_utxo_ids: HashMap<u32, UtxoId>,
 }
 
@@ -623,7 +642,7 @@ fn coordination_script_linker<'tx>(
                             move |mut caller, inputs, outputs| {
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[utxo_id.id].query(
+                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -653,9 +672,9 @@ fn coordination_script_linker<'tx>(
                                 );
                                 let mut store = caller.as_context_mut();
                                 let local_utxos = &mut store.data_mut().utxos;
-                                let id = local_utxos.len();
-                                local_utxos.push(utxo);
-                                outputs[0] = UtxoId { id }.to_wasm_u32(caller.as_context_mut());
+                                let id = UtxoId::random();
+                                local_utxos.insert(id, utxo);
+                                outputs[0] = id.to_wasm_u32(caller.as_context_mut());
                                 Ok(())
                             },
                         )
@@ -670,7 +689,7 @@ fn coordination_script_linker<'tx>(
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[utxo_id.id].query(
+                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -689,7 +708,7 @@ fn coordination_script_linker<'tx>(
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[utxo_id.id].mutate(
+                                caller.as_context_mut().data_mut().utxos.get_mut(&utxo_id).unwrap().mutate(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -708,7 +727,8 @@ fn coordination_script_linker<'tx>(
                                 eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[utxo_id.id].consume(
+                                // NB: not remove() because we want a record of the dead UTXO for later
+                                caller.as_context_mut().data_mut().utxos.get_mut(&utxo_id).unwrap().consume(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -778,16 +798,22 @@ impl CodeCache {
     }
 }
 
-#[derive(Default)]
-struct Universe {
+struct Transaction {
     code_cache: Arc<CodeCache>,
-    utxos: Vec<Utxo>,
+    utxos: HashMap<UtxoId, Utxo>,
 }
 
-impl Universe {
-    fn run_transaction(
+impl Transaction {
+    fn isolated() -> Transaction {
+        Transaction {
+            code_cache: Default::default(),
+            utxos: Default::default(),
+        }
+    }
+
+    fn run_coordination_script(
         &mut self,
-        coordination_script: &Arc<ContractCode>,
+        coordination_code: &Arc<ContractCode>,
         entry_point: &str,
         inputs: &[ValueOrUtxo],
     ) -> ValueOrUtxo {
@@ -796,12 +822,12 @@ impl Universe {
         let engine = Engine::default();
 
         let linker =
-            coordination_script_linker(&engine.clone(), &self.code_cache, coordination_script.clone());
+            coordination_script_linker(&engine.clone(), &self.code_cache, coordination_code.clone());
 
         let mut store = Store::new(
             &engine,
             CoordinationScriptInstance {
-                coordination_code: &coordination_script,
+                coordination_code: &coordination_code,
                 utxos: &mut self.utxos,
                 temporary_utxo_ids: Default::default(),
             },
@@ -817,7 +843,7 @@ impl Universe {
         }
 
         let instance = linker
-            .instantiate(&mut store, &coordination_script.module(&engine))
+            .instantiate(&mut store, &coordination_code.module(&engine))
             .unwrap()
             .ensure_no_start(&mut store)
             .unwrap();
@@ -839,42 +865,46 @@ impl Universe {
     }
 }
 
-impl std::fmt::Debug for Universe {
+impl std::fmt::Debug for Transaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Universe")
+        f.debug_struct("Transaction")
             .field("utxos", &self.utxos)
             .finish()
     }
 }
 
+// TODO: Universe or World type which can spawn transactions (loading a subset
+// of UTXOs into WASM memories) and commit them (verify, flush WASM instances).
+// In the long term it should be possible to commit ZK proofs of transactions.
+
 // ----------------------------------------------------------------------------
 
 fn main() {
-    let mut universe = Universe::default();
-    dbg!(&universe);
+    let mut tx = Transaction::isolated();
+    dbg!(&tx);
 
-    let example_contract = universe.code_cache.load_debug("example_contract");
-    let example_coordination = universe.code_cache.load_debug("example_coordination");
+    let example_contract = tx.code_cache.load_debug("example_contract");
+    let example_coordination = tx.code_cache.load_debug("example_coordination");
 
-    universe.run_transaction(&example_coordination, "produce", &[]);
-    dbg!(&universe);
+    tx.run_coordination_script(&example_coordination, "produce", &[]);
+    dbg!(&tx);
 
-    let a = universe.run_transaction(&example_coordination, "star_mint", &[Value::I64(17).into()]);
-    let b = universe.run_transaction(&example_contract, "star_mint", &[Value::I64(20).into()]);
-    let c = universe.run_transaction(&example_contract, "star_combine", &[a, b]);
-    universe.run_transaction(&example_contract, "star_split", &[c, Value::I64(5).into()]);
-    dbg!(&universe);
+    let a = tx.run_coordination_script(&example_coordination, "star_mint", &[Value::I64(17).into()]);
+    let b = tx.run_coordination_script(&example_contract, "star_mint", &[Value::I64(20).into()]);
+    let c = tx.run_coordination_script(&example_contract, "star_combine", &[a, b]);
+    tx.run_coordination_script(&example_contract, "star_split", &[c, Value::I64(5).into()]);
+    dbg!(&tx);
 
-    let nft_contract = universe.run_transaction(&example_coordination, "new_nft", &[]);
-    universe.run_transaction(
+    let nft_contract = tx.run_coordination_script(&example_coordination, "new_nft", &[]);
+    tx.run_coordination_script(
         &example_contract,
         "star_nft_mint_to",
         &[nft_contract.clone() /* owner */],
     );
-    universe.run_transaction(
+    tx.run_coordination_script(
         &example_contract,
         "star_nft_mint_count",
         &[nft_contract, /* owner, */ Value::I64(4).into()],
     );
-    dbg!(&universe);
+    dbg!(&tx);
 }
