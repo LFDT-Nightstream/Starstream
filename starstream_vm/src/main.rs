@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -216,6 +216,7 @@ impl TokenId {
 
 struct UtxoInstance {
     coordination_code: Arc<ContractCode>,
+    code_cache: Arc<CodeCache>,
 
     tokens: Vec<Token>,
     temporary_token_ids: HashMap<u32, TokenId>,
@@ -248,16 +249,16 @@ fn utxo_linker(
                             func_ty.clone(),
                             move |mut caller, inputs, outputs| {
                                 eprintln!("MINT {name:?} {inputs:?}");
+                                let mut store = caller.as_context_mut();
+                                let data = store.data_mut();
                                 let utxo = Token::mint(
                                     coordination_code.clone(),
-                                    Universe::load_debug_uncached(&rest),
+                                    data.code_cache.load_debug(&rest),
                                     &name,
                                     inputs,
                                 );
-                                let mut store = caller.as_context_mut();
-                                let local_tokens = &mut store.data_mut().tokens;
-                                let id = local_tokens.len();
-                                local_tokens.push(utxo);
+                                let id = data.tokens.len();
+                                data.tokens.push(utxo);
                                 outputs[0] = TokenId { id }.to_wasm_u32(caller.as_context_mut());
                                 Ok(())
                             },
@@ -293,6 +294,7 @@ impl Utxo {
     fn start(
         coordination_code: Arc<ContractCode>,
         utxo_code: Arc<ContractCode>,
+        code_cache: &Arc<CodeCache>,
         entry_point: String,
         inputs: &[Value],
     ) -> Utxo {
@@ -301,6 +303,7 @@ impl Utxo {
             &engine,
             UtxoInstance {
                 coordination_code: coordination_code.clone(),
+                code_cache: code_cache.clone(),
                 tokens: Default::default(),
                 temporary_token_ids: Default::default(),
             },
@@ -592,7 +595,7 @@ struct CoordinationScriptInstance<'tx> {
 
 fn coordination_script_linker<'tx>(
     engine: &Engine,
-    universe: &mut Universe,
+    code_cache: &Arc<CodeCache>,
     coordination_code: Arc<ContractCode>,
 ) -> Linker<CoordinationScriptInstance<'tx>> {
     let mut linker = Linker::new(engine);
@@ -630,8 +633,9 @@ fn coordination_script_linker<'tx>(
                         )
                         .unwrap();
                 } else if import.name().starts_with("starstream_new_") {
-                    let utxo_code = universe.load_debug(rest); // TODO: lazy-load
+                    let code_cache = code_cache.clone();
                     let coordination_code = coordination_code.clone();
+                    let rest = rest.to_owned();
                     linker
                         .func_new(
                             import.module(),
@@ -639,9 +643,11 @@ fn coordination_script_linker<'tx>(
                             func_ty.clone(),
                             move |mut caller, inputs, outputs| {
                                 eprintln!("NEW {name:?} {inputs:?}");
+                                let utxo_code = code_cache.load_debug(&rest);
                                 let utxo = Utxo::start(
                                     coordination_code.clone(),
                                     utxo_code.clone(),
+                                    &code_cache,
                                     name.clone(),
                                     inputs,
                                 );
@@ -755,29 +761,30 @@ impl From<UtxoId> for ValueOrUtxo {
 }
 
 #[derive(Default)]
+struct CodeCache {
+    contract_code: RwLock<HashMap<ContractCodeId, Arc<ContractCode>>>,
+}
+
+impl CodeCache {
+    fn load_debug(&self, name: &str) -> Arc<ContractCode> {
+        if let Some(code) = self.contract_code.read().unwrap().get(name) {
+            code.clone()
+        } else {
+            let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
+            let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
+            self.contract_code.write().unwrap().insert(name.to_owned(), result.clone());
+            result
+        }
+    }
+}
+
+#[derive(Default)]
 struct Universe {
-    engine: Engine,
-    contract_code: HashMap<ContractCodeId, Arc<ContractCode>>,
+    code_cache: Arc<CodeCache>,
     utxos: Vec<Utxo>,
 }
 
 impl Universe {
-    // Cheap hack to get things working.
-    fn load_debug_uncached(name: &str) -> Arc<ContractCode> {
-        let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
-        Arc::new(ContractCode::load(std::fs::read(path).unwrap()))
-    }
-
-    fn load_debug(&mut self, name: &str) -> Arc<ContractCode> {
-        self.contract_code
-            .entry(name.to_owned())
-            .or_insert_with(|| {
-                let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
-                Arc::new(ContractCode::load(std::fs::read(path).unwrap()))
-            })
-            .clone()
-    }
-
     fn run_transaction(
         &mut self,
         coordination_script: &Arc<ContractCode>,
@@ -786,11 +793,13 @@ impl Universe {
     ) -> ValueOrUtxo {
         eprintln!("run_transaction({entry_point:?}, {inputs:?})");
 
+        let engine = Engine::default();
+
         let linker =
-            coordination_script_linker(&self.engine.clone(), self, coordination_script.clone());
+            coordination_script_linker(&engine.clone(), &self.code_cache, coordination_script.clone());
 
         let mut store = Store::new(
-            &self.engine,
+            &engine,
             CoordinationScriptInstance {
                 coordination_code: &coordination_script,
                 utxos: &mut self.utxos,
@@ -808,7 +817,7 @@ impl Universe {
         }
 
         let instance = linker
-            .instantiate(&mut store, &coordination_script.module(&self.engine))
+            .instantiate(&mut store, &coordination_script.module(&engine))
             .unwrap()
             .ensure_no_start(&mut store)
             .unwrap();
@@ -844,8 +853,8 @@ fn main() {
     let mut universe = Universe::default();
     dbg!(&universe);
 
-    let example_contract = universe.load_debug("example_contract");
-    let example_coordination = universe.load_debug("example_coordination");
+    let example_contract = universe.code_cache.load_debug("example_contract");
+    let example_coordination = universe.code_cache.load_debug("example_coordination");
 
     universe.run_transaction(&example_coordination, "produce", &[]);
     dbg!(&universe);
