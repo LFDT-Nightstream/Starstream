@@ -14,6 +14,7 @@
 * `starstream_sys`: WASM-side Rust bindings for Starstream VM exports
 * `starstream_vm`: Host and example/test code
     * Uses [wasmi](https://docs.rs/wasmi/0.31.2/wasmi/) as WASM interpreter
+* `starstream_vscode`: Visual Studio Code extension for Starstream language support
 
 ## Examples
 
