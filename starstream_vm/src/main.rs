@@ -608,7 +608,7 @@ impl std::fmt::Debug for UtxoId {
 
 struct CoordinationScriptInstance<'tx> {
     coordination_code: &'tx ContractCode,
-    utxos: &'tx mut HashMap<UtxoId, Utxo>,
+    tx: &'tx mut Transaction,
     temporary_utxo_ids: HashMap<u32, UtxoId>,
 }
 
@@ -642,7 +642,7 @@ fn coordination_script_linker<'tx>(
                             move |mut caller, inputs, outputs| {
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
+                                caller.as_context_mut().data_mut().tx.utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -671,7 +671,7 @@ fn coordination_script_linker<'tx>(
                                     inputs,
                                 );
                                 let mut store = caller.as_context_mut();
-                                let local_utxos = &mut store.data_mut().utxos;
+                                let local_utxos = &mut store.data_mut().tx.utxos;
                                 let id = UtxoId::random();
                                 local_utxos.insert(id, utxo);
                                 outputs[0] = id.to_wasm_u32(caller.as_context_mut());
@@ -689,7 +689,7 @@ fn coordination_script_linker<'tx>(
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
+                                caller.as_context_mut().data_mut().tx.utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -708,7 +708,7 @@ fn coordination_script_linker<'tx>(
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos.get_mut(&utxo_id).unwrap().mutate(
+                                caller.as_context_mut().data_mut().tx.utxos.get_mut(&utxo_id).unwrap().mutate(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -728,7 +728,7 @@ fn coordination_script_linker<'tx>(
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
                                 // NB: not remove() because we want a record of the dead UTXO for later
-                                caller.as_context_mut().data_mut().utxos.get_mut(&utxo_id).unwrap().consume(
+                                caller.as_context_mut().data_mut().tx.utxos.get_mut(&utxo_id).unwrap().consume(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -828,7 +828,7 @@ impl Transaction {
             &engine,
             CoordinationScriptInstance {
                 coordination_code: &coordination_code,
-                utxos: &mut self.utxos,
+                tx: self,
                 temporary_utxo_ids: Default::default(),
             },
         );
