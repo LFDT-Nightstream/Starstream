@@ -1,5 +1,19 @@
 # Starstream
 
+Starstream is a VM concept that uses delimited continuations as its core primitive.
+The end goal is a language and VM that can be used across any blockchain that chooses to include it.
+
+Unique features of Starstream:
+* Native folding scheme support for both on variable updates & function application (only VM that provides both)
+* UTXO-based (only zkVM in development with this property)
+* Delimited continuations as its core primitive (only blockchain VM that does this)
+
+Basic overview: [slides](https://docs.google.com/presentation/d/1_o9lHQJqFQtUOJovLLBF7E--C73ikaRDpPurZPt1-q8/edit) and [video](https://x.com/SebastienGllmt/status/1898226507874697499)
+
+Technical slides: https://docs.google.com/presentation/d/127mS6K3XBkWJOmctxfDi2HrSQl3Zbr3JBBwWay9xHGo/edit
+
+Starstream Working Group on Discord: https://discord.gg/9eZaheySZE
+
 ## Entry points
 
 * `make` to build everything
