@@ -7,7 +7,7 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(arg_required_else_help(true))]
 struct Args {
-    /// The Starstream source file(s) to compile.
+    /// The Starstream source file to compile.
     #[arg(short = 'c')]
     compile_file: PathBuf,
     /// The WASM output file.

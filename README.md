@@ -4,7 +4,11 @@
 
 * `make` to build everything
     * `cargo build` to build Rust crates
-* `./run` to run prototype VM and tests
+* `./starstream` to run Starstream compiler CLI
+* `./test` to run the VM in test/example configuration
+* `starstream_vscode/install_dev` to install extension working directory into VSC
+    * Reload VSC after running
+    * Uninstall with `rm ~/.vscode/extensions/starstream-dev`
 
 ## Implementation structure
 
