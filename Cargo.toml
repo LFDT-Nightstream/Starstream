@@ -2,6 +2,8 @@
 members = [
     "example_contract",
     "example_coordination",
+    "starstream_cli",
+    "starstream_compiler",
     "starstream_sys",
     "starstream_vm",
 ]

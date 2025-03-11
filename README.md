@@ -8,10 +8,12 @@
 
 ## Implementation structure
 
+* `starstream_compiler`: Compiler from Starstream language to WASM
+* `starstream_cli`: Command-line interface to the compiler
+    * Binary name is `starstream`
+* `starstream_sys`: WASM-side Rust bindings for Starstream VM exports
 * `starstream_vm`: Host and example/test code
     * Uses [wasmi](https://docs.rs/wasmi/0.31.2/wasmi/) as WASM interpreter
-* `starstream_sys`: WASM-side Rust bindings for Starstream VM exports
-* TODO: `starstream_compiler`: Compiler from Starstream language to WASM
 
 ## Examples
 

@@ -1,0 +1,12 @@
+[package]
+name = "starstream_cli"
+version = "0.0.0"
+edition = "2024"
+
+[[bin]]
+name = "starstream"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.32", features = ["derive"] }
+starstream_compiler = { path = "../starstream_compiler" }
