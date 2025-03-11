@@ -133,7 +133,7 @@ name = "example_contract"
 version = "0.0.0"
 dependencies = [
  "stack_dst",
- "starstream",
+ "starstream_sys",
 ]
 
 [[package]]
@@ -141,7 +141,7 @@ name = "example_coordination"
 version = "0.0.0"
 dependencies = [
  "example_contract",
- "starstream",
+ "starstream_sys",
 ]
 
 [[package]]
@@ -296,10 +296,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "starstream"
-version = "0.0.0"
-
-[[package]]
 name = "starstream_cli"
 version = "0.0.0"
 dependencies = [
@@ -309,6 +305,10 @@ dependencies = [
 
 [[package]]
 name = "starstream_compiler"
+version = "0.0.0"
+
+[[package]]
+name = "starstream_sys"
 version = "0.0.0"
 
 [[package]]

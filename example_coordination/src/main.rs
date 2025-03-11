@@ -9,24 +9,24 @@ extern "C" fn my_effect_handler(supply: u32) {
 }
 
 // This is the tap that makes this freely mintable.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> StarToken {
     StarToken::new(owner, amount)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn new_nft() -> StarNftMint {
     StarNftMint::new(u64::MAX)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn mint_seven_nfts(nft_contract: StarNftMint) {
     for _ in 0..7 {
         nft_contract.next();
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn mint_until_10_nfts(nft_contract: StarNftMint) {
     while nft_contract.get_supply() < 10 {
         nft_contract.next();
@@ -35,7 +35,7 @@ pub extern "C" fn mint_until_10_nfts(nft_contract: StarNftMint) {
 
 /*
 // Split and combine functions are always relevant.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) -> Utxo<StarToken> {
     // TODO: assert that this TX has a signature from first.get_owner()
     let owner = first.get_owner();
@@ -49,7 +49,7 @@ pub extern "C" fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) 
     StarToken::new(owner, total)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarToken> {
     let owner = from.get_owner();
     from.resume(amount);
@@ -58,7 +58,7 @@ pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarTok
 }
      */
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn produce() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
     /*MyMain::handle_my_effect(
@@ -70,7 +70,7 @@ pub fn produce() {
     // ^ not pretty but it illustrates the implementation
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub fn consume(utxo: MyMain) {
     utxo.get_supply();
     utxo.next();

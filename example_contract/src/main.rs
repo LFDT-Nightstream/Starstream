@@ -192,62 +192,62 @@ token_export! {
 // ----------------------------------------------------------------------------
 // Generated
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_new_MyMain_new() {
     MyMain::new(starstream::sleep::<(), MyMain>)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_query_MyMain_get_supply(this: &MyMain) -> u32 {
     this.get_supply()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) {
     StarToken::new(owner, amount, starstream::sleep_mut::<(), StarToken>)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_query_StarToken_get_owner(this: &StarToken) -> PublicKey {
     this.get_owner()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_query_StarToken_get_amount(this: &StarToken) -> u64 {
     this.get_amount()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn starstream_consume_StarToken_burn(this: *mut StarToken) -> u64 {
-    core::ptr::read(this).burn()
+    unsafe { core::ptr::read(this) }.burn()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_new_StarNftMint_new(max_supply: u64) {
     StarNftMint::new(max_supply, starstream::sleep_mut::<(), StarNftMint>)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_query_StarNftMint_get_supply(this: &StarNftMint) -> u64 {
     this.get_supply()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_mutate_StarNftMint_prepare_to_mint(this: &mut StarNftMint) -> StarNftIntermediate {
     this.prepare_to_mint()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) {
     PayToPublicKeyHash::new(owner, starstream::sleep_mut::<(), PayToPublicKeyHash>)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_query_PayToPublicKeyHash_get_owner(this: &PayToPublicKeyHash) -> PublicKey {
     this.get_owner()
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(this: &mut PayToPublicKeyHash, i: StarNftIntermediate) {
     this.attach::<StarNft>(i)
 }
@@ -255,14 +255,14 @@ pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(this: &mut PayToPu
 // ----------------------------------------------------------------------------
 // Coordination script
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_mint(owner: PublicKey, amount: u64) -> example_contract::StarToken {
     // This fulfills StarToken's mint requirement that its `new` is called from
     // THIS FILE, so this function becomes a freely callable tap.
     example_contract::StarToken::new(owner, amount)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_combine(
     first: example_contract::StarToken,
     second: example_contract::StarToken,
@@ -279,7 +279,7 @@ pub extern "C" fn star_combine(
     example_contract::StarToken::new(owner, total)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_split(
     from: example_contract::StarToken,
     amount: u64,
@@ -294,7 +294,7 @@ pub extern "C" fn star_split(
     example_contract::StarToken::new(owner, amount)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_nft_mint_to(
     nft_contract: example_contract::StarNftMint,
     owner: PublicKey,
@@ -303,7 +303,7 @@ pub extern "C" fn star_nft_mint_to(
     out.attach(nft_contract.prepare_to_mint());
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_nft_mint_count(
     nft_contract: example_contract::StarNftMint,
     owner: PublicKey,
@@ -315,7 +315,7 @@ pub extern "C" fn star_nft_mint_count(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn star_nft_mint_up_to(
     // This parameter's type is a handle to a UTXO object.
     // The scheduler routes calls to the correct sleeping UTXO code instance.

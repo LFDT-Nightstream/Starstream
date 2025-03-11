@@ -1,10 +1,13 @@
 cargo-features = ["per-package-target"]
 
 [package]
-name = "starstream"
+name = "starstream_sys"
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 
 forced-target = "wasm32-unknown-unknown"
+
+[lib]
+name = "starstream"
 
 [dependencies]

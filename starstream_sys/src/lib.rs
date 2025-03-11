@@ -125,10 +125,10 @@ macro_rules! token_export {
         mint fn $mint_fn:ident($self:ident: Self) -> TokenStorage $mint_body:block
         burn fn $burn_fn:ident($storage:ident: TokenStorage) -> Self $burn_body:block
     ) => {
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn $mint_fn($self: $intermediate) -> $crate::TokenStorage $mint_body
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn $burn_fn($storage: $crate::TokenStorage) -> $intermediate $burn_body
     }
 }
