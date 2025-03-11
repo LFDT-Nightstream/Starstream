@@ -4,6 +4,8 @@
 use example_contract::{MyMain, StarNftMint, StarToken};
 use starstream::{PublicKey, Utxo};
 
+starstream::panic_handler!();
+
 extern "C" fn my_effect_handler(supply: u32) {
     starstream::log(100 + supply);
 }

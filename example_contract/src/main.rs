@@ -5,6 +5,8 @@
 use example_contract::{StarNft, StarNftIntermediate};
 use starstream::{assert_tx_signed_by, token_export, PublicKey, Token, TokenStorage};
 
+starstream::panic_handler!();
+
 // fn foo(_: A, _: B, sleep: fn(Yield) -> (E, F)) -> Yield
 // entry point name: "foo"
 // init args: A, B

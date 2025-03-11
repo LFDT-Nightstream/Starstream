@@ -86,13 +86,26 @@ unsafe extern "C" {
     pub safe fn this_code() -> CodeHash;
 }
 
-#[cfg_attr(not(test), panic_handler)]
-#[allow(dead_code)]
-fn panic_handler(_: &PanicInfo) -> ! {
+pub fn panic_handler(_: &PanicInfo) -> ! {
     unsafe {
         abort();
         // abort() is meant to not return, but just in case:
         loop {}
+    }
+}
+
+/// Set up Starstream's panic handler for this crate.
+///
+/// Exported as a macro because `cargo test`ing a contract will add a `test`
+/// -> `std` dependency that conflicts with the non-test version of this crate.
+#[macro_export]
+macro_rules! panic_handler {
+    () => {
+        #[cfg(not(test))]
+        #[panic_handler]
+        fn panic_handler(info: &core::panic::PanicInfo) -> ! {
+            $crate::panic_handler(info)
+        }
     }
 }
 
