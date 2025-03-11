@@ -3,6 +3,11 @@
   "displayName": "Starstream support",
   "description": "Starstream language support for VSC",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/PaimaStudios/Starstream",
+    "directory": "starstream_vscode"
+  },
   "engines": {
     "vscode": "^1.98.0"
   },
@@ -10,16 +15,28 @@
     "Programming Languages"
   ],
   "contributes": {
-    "languages": [{
-      "id": "starstream",
-      "aliases": ["Starstream", "starstream"],
-      "extensions": [".star"],
-      "configuration": "./language-configuration.json"
-    }],
-    "grammars": [{
-      "language": "starstream",
-      "scopeName": "source.starstream",
-      "path": "./syntaxes/starstream.tmLanguage.json"
-    }]
+    "languages": [
+      {
+        "id": "starstream",
+        "aliases": [
+          "Starstream",
+          "starstream"
+        ],
+        "extensions": [
+          ".star"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "starstream",
+        "scopeName": "source.starstream",
+        "path": "./syntaxes/starstream.tmLanguage.json"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
   }
 }

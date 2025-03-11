@@ -1,2 +1,4 @@
 #!/bin/sh
-make && target/debug/starstream_vm -- "$@"
+set -eu
+make cargo
+target/debug/starstream_vm -- "$@"
