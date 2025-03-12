@@ -7,8 +7,6 @@ use clap::Parser;
 #[derive(Parser, Debug)]
 #[command(arg_required_else_help(true))]
 enum Args {
-    /// Run VM simple self-test / example.
-    VmSelfTest,
     /// Compile Starstream source to WASM.
     Compile {
         /// The Starstream source file to compile.
@@ -22,9 +20,6 @@ enum Args {
 
 fn main() {
     match Args::parse() {
-        Args::VmSelfTest => {
-            starstream_vm::vm_self_test();
-        },
         Args::Compile { compile_file, output_file } => {
             let source = std::fs::read_to_string(&compile_file).expect("Error reading Starstream input");
             let wasm = starstream_compiler::starstream_to_wasm(&source).expect("Error compiling Starstream code");

@@ -1,4 +1,4 @@
 #!/bin/bash
 set -euo pipefail
-make cargo
-target/debug/starstream vm-self-test "$@"
+make target/debug/examples/self_test
+exec target/debug/examples/self_test "$@"

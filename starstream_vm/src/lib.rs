@@ -161,9 +161,9 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
 
 // ----------------------------------------------------------------------------
 
-struct ContractCode {
+pub struct ContractCode {
     wasm: Vec<u8>,
-    pub hash: CodeHash,
+    hash: CodeHash,
 }
 
 impl ContractCode {
@@ -176,6 +176,10 @@ impl ContractCode {
 
     fn module(&self, engine: &Engine) -> Module {
         Module::new(engine, &self.wasm[..]).unwrap()
+    }
+
+    pub fn hash(&self) -> &CodeHash {
+        &self.hash
     }
 }
 
@@ -566,7 +570,7 @@ impl std::fmt::Debug for Token {
 // ----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-struct UtxoId {
+pub struct UtxoId {
     bytes: [u8; 16],
 }
 
@@ -763,7 +767,7 @@ fn coordination_script_linker<'tx>(
 // ----------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
-enum ValueOrUtxo {
+pub enum ValueOrUtxo {
     Value(Value),
     Utxo(UtxoId),
 }
@@ -781,12 +785,12 @@ impl From<UtxoId> for ValueOrUtxo {
 }
 
 #[derive(Default)]
-struct CodeCache {
+pub struct CodeCache {
     contract_code: RwLock<HashMap<ContractCodeId, Arc<ContractCode>>>,
 }
 
 impl CodeCache {
-    fn load_debug(&self, name: &str) -> Arc<ContractCode> {
+    pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
         if let Some(code) = self.contract_code.read().unwrap().get(name) {
             code.clone()
         } else {
@@ -798,20 +802,20 @@ impl CodeCache {
     }
 }
 
-struct Transaction {
-    code_cache: Arc<CodeCache>,
+pub struct Transaction {
+    pub code_cache: Arc<CodeCache>,
     utxos: HashMap<UtxoId, Utxo>,
 }
 
 impl Transaction {
-    fn isolated() -> Transaction {
+    pub fn isolated() -> Transaction {
         Transaction {
             code_cache: Default::default(),
             utxos: Default::default(),
         }
     }
 
-    fn run_coordination_script(
+    pub fn run_coordination_script(
         &mut self,
         coordination_code: &Arc<ContractCode>,
         entry_point: &str,
@@ -876,35 +880,3 @@ impl std::fmt::Debug for Transaction {
 // TODO: Universe or World type which can spawn transactions (loading a subset
 // of UTXOs into WASM memories) and commit them (verify, flush WASM instances).
 // In the long term it should be possible to commit ZK proofs of transactions.
-
-// ----------------------------------------------------------------------------
-
-pub fn vm_self_test() {
-    let mut tx = Transaction::isolated();
-    dbg!(&tx);
-
-    let example_contract = tx.code_cache.load_debug("example_contract");
-    let example_coordination = tx.code_cache.load_debug("example_coordination");
-
-    tx.run_coordination_script(&example_coordination, "produce", &[]);
-    dbg!(&tx);
-
-    let a = tx.run_coordination_script(&example_coordination, "star_mint", &[Value::I64(17).into()]);
-    let b = tx.run_coordination_script(&example_contract, "star_mint", &[Value::I64(20).into()]);
-    let c = tx.run_coordination_script(&example_contract, "star_combine", &[a, b]);
-    tx.run_coordination_script(&example_contract, "star_split", &[c, Value::I64(5).into()]);
-    dbg!(&tx);
-
-    let nft_contract = tx.run_coordination_script(&example_coordination, "new_nft", &[]);
-    tx.run_coordination_script(
-        &example_contract,
-        "star_nft_mint_to",
-        &[nft_contract.clone() /* owner */],
-    );
-    tx.run_coordination_script(
-        &example_contract,
-        "star_nft_mint_count",
-        &[nft_contract, /* owner, */ Value::I64(4).into()],
-    );
-    dbg!(&tx);
-}
