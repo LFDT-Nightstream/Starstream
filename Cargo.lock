@@ -301,6 +301,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "starstream_compiler",
+ "starstream_vm",
 ]
 
 [[package]]

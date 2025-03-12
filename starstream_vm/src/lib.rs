@@ -879,7 +879,7 @@ impl std::fmt::Debug for Transaction {
 
 // ----------------------------------------------------------------------------
 
-fn main() {
+pub fn vm_self_test() {
     let mut tx = Transaction::isolated();
     dbg!(&tx);
 

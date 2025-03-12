@@ -3,6 +3,8 @@ name = "starstream_cli"
 version = "0.0.0"
 edition = "2024"
 
+default-run = "starstream"
+
 [[bin]]
 name = "starstream"
 path = "src/main.rs"
@@ -10,3 +12,4 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.5.32", features = ["derive"] }
 starstream_compiler = { path = "../starstream_compiler" }
+starstream_vm = { path = "../starstream_vm" }
