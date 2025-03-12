@@ -1,0 +1,15 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
+      - run: make
+      - run: target/debug/starstream vm-self-test
