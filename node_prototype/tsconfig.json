@@ -1,8 +1,8 @@
 {
-  "include": ["src/**/*.ts"],
+  "include": ["index.ts"],
   "compilerOptions": {
     "outDir": "build",
-    "rootDir": "src",
+    "rootDir": ".",
     "module": "NodeNext",
     "moduleResolution": "nodenext",
     "sourceMap": true,
