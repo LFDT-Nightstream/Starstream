@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use example_contract::{StarNft, StarNftIntermediate};
-use starstream::{assert_tx_signed_by, token_export, PublicKey, Token, TokenStorage};
+use starstream::{assert_tx_signed_by, token_export, PublicKey, Token, TokenStorage, Utxo};
 
 starstream::panic_handler!();
 
@@ -297,6 +297,11 @@ pub extern "C" fn star_split(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn new_nft() -> example_contract::StarNftMint {
+    example_contract::StarNftMint::new(u64::MAX)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn star_nft_mint_to(
     nft_contract: example_contract::StarNftMint,
     owner: PublicKey,
@@ -332,4 +337,51 @@ pub extern "C" fn star_nft_mint_up_to(
         example_contract::PayToPublicKeyHash::new(owner)
             .attach(nft_contract.prepare_to_mint());
     }
+}
+
+extern "C" fn my_effect_handler(supply: u32) {
+    starstream::log(&(0x100 + supply).to_be_bytes());
+}
+
+/*
+// Split and combine functions are always relevant.
+#[unsafe(no_mangle)]
+pub extern "C" fn star_combine(first: Utxo<StarToken>, second: Utxo<StarToken>) -> Utxo<StarToken> {
+    // TODO: assert that this TX has a signature from first.get_owner()
+    let owner = first.get_owner();
+    let first_amount = first.get_amount();
+    let second_amount = second.get_amount();
+    assert!(owner == second.get_owner());
+    // ^ or maybe it's also OK for them to be different if the TX has a signature from second.get_owner() ???
+    let total = first_amount.checked_add(second_amount).unwrap();
+    first.resume(first_amount);
+    second.resume(second_amount);
+    StarToken::new(owner, total)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarToken> {
+    let owner = from.get_owner();
+    from.resume(amount);
+    // if amount was the max, from is dead now, so we can't call get_owner after
+    StarToken::new(owner, amount)
+}
+     */
+
+#[unsafe(no_mangle)]
+pub extern "C" fn produce() {
+    // All UTXOs that aren't exhausted are implicitly part of the output.
+    /*MyMain::handle_my_effect(
+        || {*/
+            _ = example_contract::MyMain::new();
+        /*},
+        my_effect_handler,
+    ); */
+    // ^ not pretty but it illustrates the implementation
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn consume(utxo: example_contract::MyMain) {
+    utxo.get_supply();
+    utxo.next();
 }

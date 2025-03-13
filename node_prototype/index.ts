@@ -700,7 +700,7 @@ const universe = new Universe();
 console.log(++n, '--', universe.debug());
 
 const exampleContract = await universe.resolveCode("example_contract");
-const exampleCoordination = await universe.resolveCode("example_coordination");
+const exampleCoordination = exampleContract;
 
 console.log(++n, '--', universe.debug());
 

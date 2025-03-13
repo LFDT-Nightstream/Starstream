@@ -137,14 +137,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "example_coordination"
-version = "0.0.0"
-dependencies = [
- "example_contract",
- "starstream_sys",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

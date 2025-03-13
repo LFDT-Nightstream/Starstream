@@ -37,6 +37,5 @@ Starstream Working Group on Discord: https://discord.gg/9eZaheySZE
 ## Examples
 
 * `example_contract`
-* `example_coordination`
 
 Note that a single WASM file can contain any combination of coordination scripts, UTXOs, and tokens. This allows them to ship together as a unit. The limitations on what each type of contract can do are enforced dynamically.
