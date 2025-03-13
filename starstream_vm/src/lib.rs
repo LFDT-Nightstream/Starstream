@@ -106,8 +106,10 @@ fn starstream_env<T>(
         })
         .unwrap();
     linker
-        .func_wrap(module, "starstream_log", |v: u32| -> () {
-            eprintln!("starstream_log: {v}");
+        .func_wrap(module, "starstream_log", |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
+            let (memory, _) = memory(&mut caller);
+            let slice = &memory[ptr as usize..(ptr + len) as usize];
+            eprintln!("starstream_log: {slice:x?}");
         })
         .unwrap();
     linker

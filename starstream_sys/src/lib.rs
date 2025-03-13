@@ -77,13 +77,20 @@ unsafe extern "C" {
 
     // Debug log
     #[link_name = "starstream_log"]
-    pub safe fn log(value: u32);
+    unsafe fn starstream_log(buf: *const u8, len: usize);
 
     #[link_name = "starstream_coordination_code"]
     pub safe fn coordination_code() -> CodeHash;
 
     #[link_name = "starstream_this_code"]
     pub safe fn this_code() -> CodeHash;
+}
+
+#[inline]
+pub fn log(buf: &[u8]) {
+    unsafe {
+        starstream_log(buf.as_ptr(), buf.len())
+    }
 }
 
 pub fn panic_handler(_: &PanicInfo) -> ! {

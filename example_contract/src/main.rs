@@ -126,13 +126,13 @@ pub struct MyMain {
 impl MyMain {
     //#[starstream::new]
     pub fn new(sleep: fn(&MyMain)) {
-        let mut supply = 0;
+        let mut supply = 0u32;
         loop {
             supply += 1;
             //my_event(supply);
-            starstream::log(10 + supply);
+            starstream::log(&(0x100 + supply).to_be_bytes());
             //my_effect(supply);
-            starstream::log(20 + supply);
+            starstream::log(&(0x200 + supply).to_be_bytes());
             //my_error(supply);
             sleep(&MyMain { supply });
         }

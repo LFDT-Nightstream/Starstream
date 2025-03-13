@@ -7,7 +7,7 @@ use starstream::{PublicKey, Utxo};
 starstream::panic_handler!();
 
 extern "C" fn my_effect_handler(supply: u32) {
-    starstream::log(100 + supply);
+    starstream::log(&(0x100 + supply).to_be_bytes());
 }
 
 // This is the tap that makes this freely mintable.
