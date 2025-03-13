@@ -8,6 +8,6 @@ cargo:
 .PHONY: vsc
 all: vsc
 vsc:
-	@cd starstream_vscode && npx vsce package
+	@cd starstream_vscode && npm i && npx vsce package
 
 target/debug/examples/self_test: cargo
