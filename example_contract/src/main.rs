@@ -29,13 +29,6 @@ unsafe extern "C" {
     safe fn my_event(supply: u32);
 }
 
-//#[starstream::effect]
-//fn my_effect(supply: u32);
-unsafe extern "C" {
-    #[link_name = "starstream_effect_my_effect"]
-    safe fn my_effect(supply: u32);
-}
-
 //#[starstream::error]
 //fn my_error(supply: u32);
 // expands to:
@@ -131,7 +124,7 @@ impl MyMain {
             supply += 1;
             //my_event(supply);
             starstream::log(&(0x100 + supply).to_be_bytes());
-            //my_effect(supply);
+            //example_contract::MyEffect::raise(supply);
             starstream::log(&(0x200 + supply).to_be_bytes());
             //my_error(supply);
             sleep(&MyMain { supply });
@@ -339,10 +332,6 @@ pub extern "C" fn star_nft_mint_up_to(
     }
 }
 
-extern "C" fn my_effect_handler(supply: u32) {
-    starstream::log(&(0x100 + supply).to_be_bytes());
-}
-
 /*
 // Split and combine functions are always relevant.
 #[unsafe(no_mangle)]
@@ -371,13 +360,15 @@ pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarTok
 #[unsafe(no_mangle)]
 pub extern "C" fn produce() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
-    /*MyMain::handle_my_effect(
-        || {*/
+    example_contract::MyEffect::handle(
+        || {
             _ = example_contract::MyMain::new();
-        /*},
-        my_effect_handler,
-    ); */
-    // ^ not pretty but it illustrates the implementation
+        },
+        |supply| {
+            starstream::log(&(0x3000 + supply).to_be_bytes());
+            Ok(())
+        },
+    );
 }
 
 #[unsafe(no_mangle)]

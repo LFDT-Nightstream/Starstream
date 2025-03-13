@@ -1,6 +1,6 @@
 #![no_std]
 
-use starstream::{token_import, utxo_import, PublicKey};
+use starstream::{effect, token_import, utxo_import, PublicKey};
 
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream_utxo:example_contract")]
@@ -11,7 +11,6 @@ unsafe extern "C" {
 
     safe fn starstream_new_MyMain_new() -> MyMain;
     safe fn starstream_query_MyMain_get_supply(utxo: MyMain) -> u32;
-    safe fn starstream_handle_MyMain_my_effect(handler: on_my_effect) -> on_my_effect;
 
     safe fn starstream_new_StarToken_new(owner: PublicKey, amount: u64) -> StarToken;
     safe fn starstream_query_StarToken_get_owner(utxo: StarToken) -> PublicKey;
@@ -24,6 +23,8 @@ unsafe extern "C" {
 
     safe fn starstream_mutate_PayToPublicKeyHash_attach(utxo: PayToPublicKeyHash, i: StarNftIntermediate);
 }
+
+effect!(pub effect MyEffect(supply: u32) -> ());
 
 utxo_import! {
     "starstream_utxo:example_contract";
@@ -61,21 +62,11 @@ impl MyMain {
         starstream_new_MyMain_new()
     }
 
-    pub fn handle_my_effect<R, F: FnOnce() -> R>(scope: F, handler: on_my_effect) -> R {
-        let old = starstream_handle_MyMain_my_effect(handler);
-        let r = scope();
-        starstream_handle_MyMain_my_effect(old);
-        r
-    }
-
     #[inline]
     pub fn get_supply(self) -> u32 {
         starstream_query_MyMain_get_supply(self)
     }
 }
-
-#[allow(non_camel_case_types)]
-pub type on_my_effect = extern "C" fn(supply: u32);
 
 utxo_import! {
     "starstream_utxo:example_contract";

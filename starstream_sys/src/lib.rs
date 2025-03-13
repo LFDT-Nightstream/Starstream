@@ -32,6 +32,12 @@ pub struct PublicKey {
     _0: (),
 }
 
+impl PublicKey {
+    pub fn zero() -> PublicKey {
+        PublicKey { _0: () }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct PrivateKey;
 
@@ -69,7 +75,7 @@ impl UtxoStatus {
 }
 
 // ----------------------------------------------------------------------------
-// Common environment
+// Common import environment
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
@@ -118,6 +124,50 @@ macro_rules! panic_handler {
 
 pub fn assert_tx_signed_by(_key: PublicKey) {
     // TODO: assert that this coordination-script-call is signed by `key`
+}
+
+// ----------------------------------------------------------------------------
+// Common export environment
+
+#[macro_export]
+macro_rules! effect {
+    (
+        $(#[$attr:meta])*
+        pub effect
+        $name:ident
+        (
+            $($param:ident: $pty:ty),*
+            $(,)?
+        )
+        -> $return_ty:ty
+    ) => {
+        $(#[$attr])*
+        pub struct $name;
+        impl $name {
+            #[inline]
+            pub fn raise($($param: $pty),*) -> $return_ty {
+                #[link(wasm_import_module = "starstream_raise_effect")]
+                unsafe extern "C" {
+                    #[link_name = stringify!($name)]
+                    safe fn inner($($param: $pty),*) -> $return_ty;
+                }
+                inner($($param),*)
+            }
+
+            #[inline]
+            pub fn handle<Output, Body, Handler>(
+                body: Body,
+                handler: Handler,
+            ) -> Body::Output
+            where
+                Body: FnOnce() -> Output,
+                Handler: FnMut($($pty),*) -> Result<$return_ty, Body::Output>,
+            {
+                // TODO
+                body()
+            }
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
