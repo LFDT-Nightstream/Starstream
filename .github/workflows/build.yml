@@ -13,3 +13,31 @@ jobs:
       - run: rustup target add --toolchain nightly wasm32-unknown-unknown
       - run: make
       - run: ./test
+
+  website:
+    name: Website
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cd website && npm i && npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./website/build
+  website-deploy:
+    name: GitHub Pages
+    needs: website
+    if: github.event_name == 'push' && github.ref_name == 'master'
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/configure-pages@v5
+      - uses: actions/deploy-pages@v4
+        id: deployment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
