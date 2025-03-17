@@ -106,11 +106,15 @@ fn starstream_env<T>(
         })
         .unwrap();
     linker
-        .func_wrap(module, "starstream_log", |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
-            let (memory, _) = memory(&mut caller);
-            let slice = &memory[ptr as usize..(ptr + len) as usize];
-            eprintln!("starstream_log: {slice:x?}");
-        })
+        .func_wrap(
+            module,
+            "starstream_log",
+            |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
+                let (memory, _) = memory(&mut caller);
+                let slice = &memory[ptr as usize..(ptr + len) as usize];
+                eprintln!("starstream_log: {slice:x?}");
+            },
+        )
         .unwrap();
     linker
         .func_wrap(
@@ -153,7 +157,11 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
              -> Result<(), Trap> {
                 eprintln!("YIELD");
                 Err(Trap::from(Yield {
-                    name: std::str::from_utf8(&memory(&mut caller).0[name as usize..(name + name_len) as usize]).unwrap().to_owned(),
+                    name: std::str::from_utf8(
+                        &memory(&mut caller).0[name as usize..(name + name_len) as usize],
+                    )
+                    .unwrap()
+                    .to_owned(),
                     data,
                 }))
             },
@@ -424,9 +432,7 @@ impl std::fmt::Debug for Utxo {
             }
             ResumableCall::Resumable(resumable) => {
                 let pause = resumable.host_error().downcast_ref::<Yield>().unwrap();
-                let inputs = [Value::I32(
-                    pause.data as i32,
-                )];
+                let inputs = [Value::I32(pause.data as i32)];
                 s.field("type", &pause.name);
                 let last_part = pause.name.split("::").last().unwrap();
 
@@ -714,11 +720,14 @@ fn coordination_script_linker<'tx>(
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().tx.utxos.get_mut(&utxo_id).unwrap().mutate(
-                                    &name,
-                                    &inputs[1..],
-                                    outputs,
-                                );
+                                caller
+                                    .as_context_mut()
+                                    .data_mut()
+                                    .tx
+                                    .utxos
+                                    .get_mut(&utxo_id)
+                                    .unwrap()
+                                    .mutate(&name, &inputs[1..], outputs);
                                 Ok(())
                             },
                         )
@@ -734,11 +743,14 @@ fn coordination_script_linker<'tx>(
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
                                 // NB: not remove() because we want a record of the dead UTXO for later
-                                caller.as_context_mut().data_mut().tx.utxos.get_mut(&utxo_id).unwrap().consume(
-                                    &name,
-                                    &inputs[1..],
-                                    outputs,
-                                );
+                                caller
+                                    .as_context_mut()
+                                    .data_mut()
+                                    .tx
+                                    .utxos
+                                    .get_mut(&utxo_id)
+                                    .unwrap()
+                                    .consume(&name, &inputs[1..], outputs);
                                 Ok(())
                             },
                         )
@@ -798,7 +810,10 @@ impl CodeCache {
         } else {
             let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
             let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
-            self.contract_code.write().unwrap().insert(name.to_owned(), result.clone());
+            self.contract_code
+                .write()
+                .unwrap()
+                .insert(name.to_owned(), result.clone());
             result
         }
     }
@@ -827,8 +842,11 @@ impl Transaction {
 
         let engine = Engine::default();
 
-        let linker =
-            coordination_script_linker(&engine.clone(), &self.code_cache, coordination_code.clone());
+        let linker = coordination_script_linker(
+            &engine.clone(),
+            &self.code_cache,
+            coordination_code.clone(),
+        );
 
         let mut store = Store::new(
             &engine,

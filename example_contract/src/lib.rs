@@ -1,13 +1,11 @@
 #![no_std]
 
-use starstream::{effect, token_import, utxo_import, PublicKey};
+use starstream::{PublicKey, effect, token_import, utxo_import};
 
 // "starstream:example_contract" should probably be something content-addressed
 #[link(wasm_import_module = "starstream_utxo:example_contract")]
 unsafe extern "C" {
-    safe fn starstream_new_PayToPublicKeyHash_new(
-        owner: PublicKey,
-    ) -> PayToPublicKeyHash;
+    safe fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) -> PayToPublicKeyHash;
 
     safe fn starstream_new_MyMain_new() -> MyMain;
     safe fn starstream_query_MyMain_get_supply(utxo: MyMain) -> u32;
@@ -19,9 +17,13 @@ unsafe extern "C" {
 
     safe fn starstream_new_StarNftMint_new(max_supply: u64) -> StarNftMint;
     safe fn starstream_query_StarNftMint_get_supply(utxo: StarNftMint) -> u64;
-    safe fn starstream_mutate_StarNftMint_prepare_to_mint(utxo: StarNftMint) -> StarNftIntermediate;
+    safe fn starstream_mutate_StarNftMint_prepare_to_mint(utxo: StarNftMint)
+    -> StarNftIntermediate;
 
-    safe fn starstream_mutate_PayToPublicKeyHash_attach(utxo: PayToPublicKeyHash, i: StarNftIntermediate);
+    safe fn starstream_mutate_PayToPublicKeyHash_attach(
+        utxo: PayToPublicKeyHash,
+        i: StarNftIntermediate,
+    );
 }
 
 effect!(pub effect MyEffect(supply: u32) -> ());

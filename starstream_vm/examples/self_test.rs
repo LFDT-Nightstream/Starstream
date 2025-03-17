@@ -1,5 +1,5 @@
-use wasmi::Value;
 use starstream_vm::*;
+use wasmi::Value;
 
 pub fn main() {
     let mut tx = Transaction::isolated();

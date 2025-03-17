@@ -20,10 +20,15 @@ enum Args {
 
 fn main() {
     match Args::parse() {
-        Args::Compile { compile_file, output_file } => {
-            let source = std::fs::read_to_string(&compile_file).expect("Error reading Starstream input");
-            let wasm = starstream_compiler::starstream_to_wasm(&source).expect("Error compiling Starstream code");
+        Args::Compile {
+            compile_file,
+            output_file,
+        } => {
+            let source =
+                std::fs::read_to_string(&compile_file).expect("Error reading Starstream input");
+            let wasm = starstream_compiler::starstream_to_wasm(&source)
+                .expect("Error compiling Starstream code");
             std::fs::write(&output_file, wasm).expect("Error writing WASM output");
-        },
+        }
     }
 }

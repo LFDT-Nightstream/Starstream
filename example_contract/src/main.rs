@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use example_contract::{StarNft, StarNftIntermediate};
-use starstream::{assert_tx_signed_by, token_export, PublicKey, Token, TokenStorage, Utxo};
+use starstream::{PublicKey, Token, TokenStorage, Utxo, assert_tx_signed_by, token_export};
 
 starstream::panic_handler!();
 
@@ -228,7 +228,9 @@ pub extern "C" fn starstream_query_StarNftMint_get_supply(this: &StarNftMint) ->
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_mutate_StarNftMint_prepare_to_mint(this: &mut StarNftMint) -> StarNftIntermediate {
+pub extern "C" fn starstream_mutate_StarNftMint_prepare_to_mint(
+    this: &mut StarNftMint,
+) -> StarNftIntermediate {
     this.prepare_to_mint()
 }
 
@@ -238,12 +240,17 @@ pub extern "C" fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_query_PayToPublicKeyHash_get_owner(this: &PayToPublicKeyHash) -> PublicKey {
+pub extern "C" fn starstream_query_PayToPublicKeyHash_get_owner(
+    this: &PayToPublicKeyHash,
+) -> PublicKey {
     this.get_owner()
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(this: &mut PayToPublicKeyHash, i: StarNftIntermediate) {
+pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(
+    this: &mut PayToPublicKeyHash,
+    i: StarNftIntermediate,
+) {
     this.attach::<StarNft>(i)
 }
 
@@ -295,10 +302,7 @@ pub extern "C" fn new_nft() -> example_contract::StarNftMint {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn star_nft_mint_to(
-    nft_contract: example_contract::StarNftMint,
-    owner: PublicKey,
-) {
+pub extern "C" fn star_nft_mint_to(nft_contract: example_contract::StarNftMint, owner: PublicKey) {
     let out = example_contract::PayToPublicKeyHash::new(owner);
     out.attach(nft_contract.prepare_to_mint());
 }
@@ -327,8 +331,7 @@ pub extern "C" fn star_nft_mint_up_to(
         // In this example, we create many UTXOs with one NFT each. We could
         // just as easily create one UTXO containing all NFTs minted by this
         // call.
-        example_contract::PayToPublicKeyHash::new(owner)
-            .attach(nft_contract.prepare_to_mint());
+        example_contract::PayToPublicKeyHash::new(owner).attach(nft_contract.prepare_to_mint());
     }
 }
 

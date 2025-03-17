@@ -94,9 +94,7 @@ unsafe extern "C" {
 
 #[inline]
 pub fn log(buf: &[u8]) {
-    unsafe {
-        starstream_log(buf.as_ptr(), buf.len())
-    }
+    unsafe { starstream_log(buf.as_ptr(), buf.len()) }
 }
 
 pub fn panic_handler(_: &PanicInfo) -> ! {
@@ -119,7 +117,7 @@ macro_rules! panic_handler {
         fn panic_handler(info: &core::panic::PanicInfo) -> ! {
             $crate::panic_handler(info)
         }
-    }
+    };
 }
 
 pub fn assert_tx_signed_by(_key: PublicKey) {
@@ -366,11 +364,7 @@ macro_rules! utxo_import {
         #[link(wasm_import_module = $module)]
         unsafe extern "C" {
             safe fn $status_fn(utxo: $name) -> $crate::UtxoStatus;
-            unsafe fn $resume_fn(
-                utxo: $name,
-                resume_arg: *const (),
-                resume_arg_size: usize,
-            );
+            unsafe fn $resume_fn(utxo: $name, resume_arg: *const (), resume_arg_size: usize);
         }
 
         #[derive(Clone, Copy)]
