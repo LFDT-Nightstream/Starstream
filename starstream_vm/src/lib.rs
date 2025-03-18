@@ -140,14 +140,10 @@ fn starstream_env<T>(
             },
         )
         .unwrap();
-}
-
-/// Fulfiller of imports from `precompiles`.
-fn starstream_precompiles<T>(linker: &mut Linker<T>) {
     linker
         .func_wrap(
-            "precompiles",
-            "starstream_precompiles_keccak256",
+            module,
+            "starstream_keccak256",
             |mut caller: Caller<T>, ptr: u32, len: u32, return_addr: u32| {
                 let mut hasher = tiny_keccak::Keccak::v256();
 
@@ -271,8 +267,6 @@ fn utxo_linker(
     starstream_env(&mut linker, "env", utxo_code, |instance: &UtxoInstance| {
         &instance.coordination_code
     });
-
-    starstream_precompiles(&mut linker);
 
     starstream_utxo_env(&mut linker, "starstream_utxo_env");
 
@@ -660,8 +654,6 @@ fn coordination_script_linker<'tx>(
         &coordination_code,
         |env: &CoordinationScriptInstance| &env.coordination_code,
     );
-
-    starstream_precompiles(&mut linker);
 
     for import in coordination_code.module(&engine).imports() {
         if import.module() == "env" {

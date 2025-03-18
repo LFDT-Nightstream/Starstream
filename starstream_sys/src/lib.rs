@@ -90,6 +90,9 @@ unsafe extern "C" {
 
     #[link_name = "starstream_this_code"]
     pub safe fn this_code() -> CodeHash;
+
+    #[link_name = "starstream_keccak256"]
+    fn preocompile_keccak256(buf: *const u8, len: usize, result: *mut u8);
 }
 
 #[inline]
@@ -97,18 +100,10 @@ pub fn log(buf: &[u8]) {
     unsafe { starstream_log(buf.as_ptr(), buf.len()) }
 }
 
-// ----------------------------------------------------------------------------
-// Common import environment for precompiles, separated from "env" just for namespacing reasons.
-#[link(wasm_import_module = "precompiles")]
-unsafe extern "C" {
-    #[link_name = "starstream_precompiles_keccak256"]
-    fn preocompiles_keccak256(buf: *const u8, len: usize, result: *mut u8);
-}
-
 #[inline]
 pub fn keccak256(buf: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
-    unsafe { preocompiles_keccak256(buf.as_ptr(), buf.len(), out.as_mut_slice().as_mut_ptr()) };
+    unsafe { preocompile_keccak256(buf.as_ptr(), buf.len(), out.as_mut_slice().as_mut_ptr()) };
     out
 }
 
