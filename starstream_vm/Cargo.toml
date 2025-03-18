@@ -8,4 +8,5 @@ edition = "2024"
 byteorder = "1.5.0"
 rand = "0.9.0"
 wasmi = "0.31.0"
+tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 #zk-engine = { git = "https://github.com/ICME-Lab/zkEngine_dev", branch = "main" }
