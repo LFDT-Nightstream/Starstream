@@ -92,7 +92,7 @@ unsafe extern "C" {
     pub safe fn this_code() -> CodeHash;
 
     #[link_name = "starstream_keccak256"]
-    fn preocompile_keccak256(buf: *const u8, len: usize, result: *mut u8);
+    fn precompile_keccak256(buf: *const u8, len: usize, result: *mut u8);
 }
 
 #[inline]
@@ -103,7 +103,7 @@ pub fn log(buf: &[u8]) {
 #[inline]
 pub fn keccak256(buf: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
-    unsafe { preocompile_keccak256(buf.as_ptr(), buf.len(), out.as_mut_slice().as_mut_ptr()) };
+    unsafe { precompile_keccak256(buf.as_ptr(), buf.len(), out.as_mut_slice().as_mut_ptr()) };
     out
 }
 
