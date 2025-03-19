@@ -6,6 +6,7 @@ use std::{
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use rand::RngCore;
+use tiny_keccak::Hasher;
 use wasmi::{
     AsContext, AsContextMut, Caller, Engine, ExternRef, ExternType, Func, ImportType, Instance,
     Linker, Module, ResumableCall, Store, StoreContext, StoreContextMut, Value,
@@ -136,6 +137,22 @@ fn starstream_env<T>(
                 let (memory, _) = memory(&mut caller);
                 memory[return_addr as usize..return_addr as usize + this_code.len()]
                     .copy_from_slice(&this_code);
+            },
+        )
+        .unwrap();
+    linker
+        .func_wrap(
+            module,
+            "starstream_keccak256",
+            |mut caller: Caller<T>, ptr: u32, len: u32, return_addr: u32| {
+                let mut hasher = tiny_keccak::Keccak::v256();
+
+                let (memory, _) = memory(&mut caller);
+                let slice = &memory[ptr as usize..(ptr + len) as usize];
+
+                hasher.update(slice);
+
+                hasher.finalize(&mut memory[return_addr as usize..return_addr as usize + 32]);
             },
         )
         .unwrap();
