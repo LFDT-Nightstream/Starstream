@@ -1063,14 +1063,32 @@ impl Transaction {
             ProgramIdx::Root,
             inputs2,
         );
-        let outputs = loop {
+        loop {
             match result {
                 Ok(values) => {
                     // Program returned.
                     let return_to = store.data_mut().tx.programs[program.0].return_to;
                     eprintln!("{program:?} -> {return_to:?}: {values:?}");
                     if return_to == ProgramIdx::Root {
-                        break values;
+                        let result = if values.len() > 0 {
+                            if let Some(utxo) = UtxoId::from_wasm(&values[0], store.as_context()) {
+                                // TODO: collisions still technically possible here.
+                                // Should consider examining static types.
+                                ValueOrUtxo::Utxo(utxo)
+                            } else {
+                                ValueOrUtxo::Value(values[0].clone())
+                            }
+                        } else {
+                            ValueOrUtxo::Value(Value::I32(0))
+                        };
+
+                        store.data_mut().tx.witnesses.push(TxWitness {
+                            from_program: program,
+                            to_program: ProgramIdx::Root,
+                            values,
+                        });
+
+                        return result;
                     }
                     (program, result) = (
                         return_to,
@@ -1081,18 +1099,6 @@ impl Transaction {
                     todo!();
                 }
             }
-        };
-
-        if outputs.len() > 0 {
-            if let Some(utxo_id) = UtxoId::from_wasm(&outputs[0], store.as_context()) {
-                // TODO: collisions still technically possible here.
-                // Should consider examining static types.
-                ValueOrUtxo::Utxo(utxo_id)
-            } else {
-                ValueOrUtxo::Value(outputs[0].clone())
-            }
-        } else {
-            ValueOrUtxo::Value(Value::I32(0))
         }
     }
 }
