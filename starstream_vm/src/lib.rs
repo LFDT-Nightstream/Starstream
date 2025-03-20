@@ -1,18 +1,20 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    sync::{Arc, Mutex, RwLock},
-    usize,
-};
+//! Starstream VM as a library.
+
+use std::{cell::RefCell, collections::HashMap, sync::Arc, usize};
 
 use byteorder::{LittleEndian, ReadBytesExt};
+use code::{CodeCache, CodeHash, ContractCode};
 use rand::RngCore;
 use tiny_keccak::Hasher;
+use util::DisplayHex;
 use wasmi::{
-    AsContext, AsContextMut, Caller, Engine, ExternRef, ExternType, Func, ImportType, Instance,
-    Linker, Module, ResumableCall, Store, StoreContext, StoreContextMut, Value,
+    AsContext, AsContextMut, Caller, Engine, ExternRef, ExternType, ImportType, Instance, Linker,
+    ResumableCall, Store, StoreContext, StoreContextMut, Value,
     core::{HostError, Trap, ValueType},
 };
+
+mod code;
+mod util;
 
 fn memory<'a, T>(caller: &'a mut Caller<T>) -> (&'a mut [u8], &'a mut T) {
     caller
@@ -69,37 +71,6 @@ fn fake_import<T>(linker: &mut Linker<T>, import: &ImportType, message: &'static
 
 // ----------------------------------------------------------------------------
 
-struct DisplayHex<'a>(&'a [u8]);
-
-impl<'a> std::fmt::Display for DisplayHex<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for &v in self.0 {
-            write!(f, "{:02x}", v)?;
-        }
-        Ok(())
-    }
-}
-
-type ContractCodeId = String;
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct CodeHash([u8; 32]);
-
-impl CodeHash {
-    fn of(code: &[u8]) -> CodeHash {
-        // TODO
-        CodeHash([0; 32])
-    }
-}
-
-impl std::fmt::Debug for CodeHash {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CodeHash({})", DisplayHex(&self.0[..]))
-    }
-}
-
-// ----------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 enum Interrupt {
     Yield { name: String, data: u32 },
@@ -134,7 +105,7 @@ fn starstream_env<T>(
     this_code: &ContractCode,
     coordination_code: impl Fn(&T) -> &ContractCode + Send + Sync + 'static,
 ) {
-    let this_code = this_code.hash;
+    let this_code = this_code.hash();
 
     linker
         .func_wrap(module, "abort", || -> () {
@@ -158,9 +129,9 @@ fn starstream_env<T>(
             "starstream_coordination_code",
             move |mut caller: Caller<T>, return_addr: u32| {
                 let (memory, env) = memory(&mut caller);
-                let hash = &coordination_code(env).hash;
-                memory[return_addr as usize..return_addr as usize + hash.0.len()]
-                    .copy_from_slice(&hash.0);
+                let hash = coordination_code(env).hash().raw();
+                memory[return_addr as usize..return_addr as usize + hash.len()]
+                    .copy_from_slice(&hash);
             },
         )
         .unwrap();
@@ -170,8 +141,9 @@ fn starstream_env<T>(
             "starstream_this_code",
             move |mut caller: Caller<T>, return_addr: u32| {
                 let (memory, _) = memory(&mut caller);
-                memory[return_addr as usize..return_addr as usize + this_code.0.len()]
-                    .copy_from_slice(&this_code.0);
+                let hash = this_code.raw();
+                memory[return_addr as usize..return_addr as usize + hash.len()]
+                    .copy_from_slice(&hash);
             },
         )
         .unwrap();
@@ -219,38 +191,6 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
             },
         )
         .unwrap();
-}
-
-// ----------------------------------------------------------------------------
-
-pub struct ContractCode {
-    wasm: Vec<u8>,
-    hash: CodeHash,
-}
-
-impl ContractCode {
-    fn load(wasm: Vec<u8>) -> ContractCode {
-        ContractCode {
-            hash: CodeHash::of(&wasm),
-            wasm,
-        }
-    }
-
-    fn module(&self, engine: &Engine) -> Module {
-        Module::new(engine, &self.wasm[..]).unwrap()
-    }
-
-    pub fn hash(&self) -> CodeHash {
-        self.hash
-    }
-}
-
-impl std::fmt::Debug for ContractCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ContractCode")
-            .field("hash", &self.hash)
-            .finish()
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -860,27 +800,6 @@ impl From<Value> for ValueOrUtxo {
 impl From<UtxoId> for ValueOrUtxo {
     fn from(value: UtxoId) -> Self {
         ValueOrUtxo::Utxo(value)
-    }
-}
-
-#[derive(Default)]
-pub struct CodeCache {
-    contract_code: RwLock<HashMap<ContractCodeId, Arc<ContractCode>>>,
-}
-
-impl CodeCache {
-    pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
-        if let Some(code) = self.contract_code.read().unwrap().get(name) {
-            code.clone()
-        } else {
-            let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
-            let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
-            self.contract_code
-                .write()
-                .unwrap()
-                .insert(name.to_owned(), result.clone());
-            result
-        }
     }
 }
 
