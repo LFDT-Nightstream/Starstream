@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use sha2::{Sha256, digest::DynDigest};
 use wasmi::{Engine, Module};
 
 use crate::util::DisplayHex;
@@ -15,8 +16,14 @@ pub struct CodeHash([u8; 32]);
 
 impl CodeHash {
     fn from_content(code: &[u8]) -> CodeHash {
-        // TODO
-        CodeHash([0; 32])
+        // Currently this is just sha256 of the whole WASM file. There might
+        // be stuff in the WASM file that we don't want to count or that isn't
+        // reproducible and should exclude here, but that seems tricky.
+        let mut hash = [0; 32];
+        let mut hasher = Sha256::default();
+        hasher.update(code);
+        hasher.finalize_into(&mut hash[..]).unwrap();
+        CodeHash(hash)
     }
 
     pub fn raw(&self) -> [u8; 32] {
