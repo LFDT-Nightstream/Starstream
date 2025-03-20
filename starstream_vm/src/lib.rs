@@ -69,12 +69,33 @@ fn fake_import<T>(linker: &mut Linker<T>, import: &ImportType, message: &'static
 
 // ----------------------------------------------------------------------------
 
+struct DisplayHex<'a>(&'a [u8]);
+
+impl<'a> std::fmt::Display for DisplayHex<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for &v in self.0 {
+            write!(f, "{:02x}", v)?;
+        }
+        Ok(())
+    }
+}
+
 type ContractCodeId = String;
 
-type CodeHash = [u8; 32];
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct CodeHash([u8; 32]);
 
-fn hash_code(code: &[u8]) -> CodeHash {
-    [0; 32] // TODO
+impl CodeHash {
+    fn of(code: &[u8]) -> CodeHash {
+        // TODO
+        CodeHash([0; 32])
+    }
+}
+
+impl std::fmt::Debug for CodeHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "CodeHash({})", DisplayHex(&self.0[..]))
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -138,8 +159,8 @@ fn starstream_env<T>(
             move |mut caller: Caller<T>, return_addr: u32| {
                 let (memory, env) = memory(&mut caller);
                 let hash = &coordination_code(env).hash;
-                memory[return_addr as usize..return_addr as usize + hash.len()]
-                    .copy_from_slice(hash);
+                memory[return_addr as usize..return_addr as usize + hash.0.len()]
+                    .copy_from_slice(&hash.0);
             },
         )
         .unwrap();
@@ -149,8 +170,8 @@ fn starstream_env<T>(
             "starstream_this_code",
             move |mut caller: Caller<T>, return_addr: u32| {
                 let (memory, _) = memory(&mut caller);
-                memory[return_addr as usize..return_addr as usize + this_code.len()]
-                    .copy_from_slice(&this_code);
+                memory[return_addr as usize..return_addr as usize + this_code.0.len()]
+                    .copy_from_slice(&this_code.0);
             },
         )
         .unwrap();
@@ -210,7 +231,7 @@ pub struct ContractCode {
 impl ContractCode {
     fn load(wasm: Vec<u8>) -> ContractCode {
         ContractCode {
-            hash: hash_code(&wasm),
+            hash: CodeHash::of(&wasm),
             wasm,
         }
     }
@@ -658,7 +679,7 @@ impl UtxoId {
 
 impl std::fmt::Debug for UtxoId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UtxoId({:02x?})", &self.bytes[..])
+        write!(f, "UtxoId({})", DisplayHex(&self.bytes[..]))
     }
 }
 
@@ -881,7 +902,6 @@ impl std::fmt::Debug for ProgramIdx {
     }
 }
 
-#[derive(Debug)]
 struct TxProgram {
     return_to: ProgramIdx,
 
@@ -902,6 +922,19 @@ impl TxProgram {
             ResumableCall::Resumable(f) => f.host_error().downcast_ref::<Interrupt>(),
             _ => None,
         }
+    }
+}
+
+impl std::fmt::Debug for TxProgram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TxProgram")
+            .field("return_to", &self.return_to)
+            .field("code", &self.code)
+            .field("entry_point", &self.entry_point)
+            //.field("instance", &self.instance)
+            .field("resumable", &self.resumable)
+            .field("num_outputs", &self.num_outputs)
+            .finish()
     }
 }
 
@@ -1107,7 +1140,7 @@ impl std::fmt::Debug for Transaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
             .field("utxos", &self.utxos)
-            //.field("programs", &self.programs)
+            .field("programs", &self.programs)
             .field("witnesses", &self.witnesses)
             .finish()
     }
