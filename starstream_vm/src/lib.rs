@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     collections::HashMap,
     sync::{Arc, Mutex, RwLock},
+    usize,
 };
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -78,19 +79,32 @@ fn hash_code(code: &[u8]) -> CodeHash {
 
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
-struct Yield {
-    name: String,
-    data: u32,
+#[derive(Debug, Clone)]
+enum Interrupt {
+    Yield { name: String, data: u32 },
 }
 
-impl std::fmt::Display for Yield {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Yield")
+impl Interrupt {
+    // TODO: these should probably be dropped in favor of global memory or something.
+    fn yield_data(&self) -> u32 {
+        match self {
+            Interrupt::Yield { data, .. } => *data,
+        }
+    }
+    fn yield_name(&self) -> &str {
+        match self {
+            Interrupt::Yield { name, .. } => name,
+        }
     }
 }
 
-impl HostError for Yield {}
+impl std::fmt::Display for Interrupt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl HostError for Interrupt {}
 
 /// Fulfiller of imports from `env`.
 fn starstream_env<T>(
@@ -173,7 +187,7 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
              resume_arg_len: u32|
              -> Result<(), Trap> {
                 eprintln!("YIELD");
-                Err(Trap::from(Yield {
+                Err(Trap::from(Interrupt::Yield {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
                     )
@@ -205,8 +219,8 @@ impl ContractCode {
         Module::new(engine, &self.wasm[..]).unwrap()
     }
 
-    pub fn hash(&self) -> &CodeHash {
-        &self.hash
+    pub fn hash(&self) -> CodeHash {
+        self.hash
     }
 }
 
@@ -384,7 +398,11 @@ impl Utxo {
             panic!("Cannot query() after exit");
         };
         let inputs = std::iter::once(Value::I32(
-            resumable.host_error().downcast_ref::<Yield>().unwrap().data as i32,
+            resumable
+                .host_error()
+                .downcast_ref::<Interrupt>()
+                .unwrap()
+                .yield_data() as i32,
         ))
         .chain(inputs.iter().cloned())
         .collect::<Vec<_>>();
@@ -403,7 +421,11 @@ impl Utxo {
             panic!("Cannot query() after exit");
         };
         let inputs: Vec<Value> = std::iter::once(Value::I32(
-            resumable.host_error().downcast_ref::<Yield>().unwrap().data as i32,
+            resumable
+                .host_error()
+                .downcast_ref::<Interrupt>()
+                .unwrap()
+                .yield_data() as i32,
         ))
         .chain(inputs.iter().cloned())
         .collect::<Vec<_>>();
@@ -422,7 +444,11 @@ impl Utxo {
             panic!("Cannot query() after exit");
         };
         let inputs: Vec<Value> = std::iter::once(Value::I32(
-            resumable.host_error().downcast_ref::<Yield>().unwrap().data as i32,
+            resumable
+                .host_error()
+                .downcast_ref::<Interrupt>()
+                .unwrap()
+                .yield_data() as i32,
         ))
         .chain(inputs.iter().cloned())
         .collect::<Vec<_>>();
@@ -448,10 +474,11 @@ impl std::fmt::Debug for Utxo {
                 s.field("finished", &true);
             }
             ResumableCall::Resumable(resumable) => {
-                let pause = resumable.host_error().downcast_ref::<Yield>().unwrap();
-                let inputs = [Value::I32(pause.data as i32)];
-                s.field("type", &pause.name);
-                let last_part = pause.name.split("::").last().unwrap();
+                let pause = resumable.host_error().downcast_ref::<Interrupt>().unwrap();
+                let inputs = [Value::I32(pause.yield_data() as i32)];
+                let name = pause.yield_name();
+                s.field("type", &name);
+                let last_part = name.split("::").last().unwrap();
 
                 let mut store = self.store.borrow_mut();
                 let funcs = self
@@ -836,9 +863,62 @@ impl CodeCache {
     }
 }
 
+/// Index into the list of programs loaded by a transaction.
+#[derive(PartialEq, Eq, Clone, Copy)]
+struct ProgramIdx(usize);
+
+#[allow(non_upper_case_globals)]
+impl ProgramIdx {
+    const Root: ProgramIdx = ProgramIdx(usize::MAX);
+}
+
+impl std::fmt::Debug for ProgramIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            ProgramIdx::Root => f.write_str("Root"),
+            ProgramIdx(other) => write!(f, "{}", other),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TxProgram {
+    return_to: ProgramIdx,
+
+    code: CodeHash,
+    entry_point: String,
+
+    // Memory is in here
+    instance: Instance,
+    // None if just started, Finished if finished, Resumable if yielded
+    resumable: ResumableCall,
+    // Num outputs of root fn of `resumable`. wasmi knows this but doesn't expose it.
+    num_outputs: usize,
+}
+
+impl TxProgram {
+    fn interrupt(&self) -> Option<&Interrupt> {
+        match &self.resumable {
+            ResumableCall::Resumable(f) => f.host_error().downcast_ref::<Interrupt>(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct TxWitness {
+    from_program: ProgramIdx,
+    to_program: ProgramIdx,
+    values: Vec<Value>,
+}
+
 pub struct Transaction {
     pub code_cache: Arc<CodeCache>,
     utxos: HashMap<UtxoId, Utxo>,
+    /// Programs this transaction has started or resumed.
+    programs: Vec<TxProgram>,
+    /// Call and return values between programs, logged for future ZK use.
+    witnesses: Vec<TxWitness>,
 }
 
 impl Transaction {
@@ -846,6 +926,98 @@ impl Transaction {
         Transaction {
             code_cache: Default::default(),
             utxos: Default::default(),
+            programs: Default::default(),
+            witnesses: Default::default(),
+        }
+    }
+
+    fn start_program<'a>(
+        store: &mut Store<CoordinationScriptInstance<'a>>,
+        linker: &Linker<CoordinationScriptInstance<'a>>,
+        code: &Arc<ContractCode>,
+        entry_point: &str,
+        from_program: ProgramIdx,
+        values: Vec<Value>,
+    ) -> (ProgramIdx, Result<Vec<Value>, Interrupt>) {
+        let module = &code.module(store.engine());
+        let instance = linker
+            .instantiate(&mut *store, module)
+            .unwrap()
+            .ensure_no_start(&mut *store)
+            .unwrap();
+
+        let id = ProgramIdx(store.data_mut().tx.programs.len());
+        eprintln!("{from_program:?} -> {id:?} = {entry_point}{values:?}");
+
+        let main = instance.get_func(&mut *store, entry_point).unwrap();
+        let num_outputs = main.ty(&mut *store).results().len();
+        let mut outputs = [Value::from(ExternRef::null())];
+        let resumable = main
+            .call_resumable(&mut *store, &values[..], &mut outputs[..num_outputs])
+            .unwrap();
+        assert_eq!(
+            id.0,
+            store.data_mut().tx.programs.len(),
+            "unexpected re-entrancy in start_program"
+        );
+        let result = match &resumable {
+            ResumableCall::Finished => Ok(outputs[..num_outputs].to_vec()),
+            ResumableCall::Resumable(invocation) => Err(invocation
+                .host_error()
+                .downcast_ref::<Interrupt>()
+                .unwrap()
+                .clone()),
+        };
+        eprintln!("  = {result:?}");
+        store.data_mut().tx.programs.push(TxProgram {
+            return_to: from_program,
+            code: code.hash(),
+            entry_point: entry_point.to_owned(),
+            instance,
+            num_outputs,
+            resumable,
+        });
+        store.data_mut().tx.witnesses.push(TxWitness {
+            from_program,
+            to_program: id,
+            values,
+        });
+        (id, result)
+    }
+
+    fn resume(
+        store: &mut Store<CoordinationScriptInstance>,
+        from_program: ProgramIdx,
+        to_program: ProgramIdx,
+        values: Vec<Value>,
+    ) -> Result<Vec<Value>, Interrupt> {
+        match std::mem::replace(
+            &mut store.data_mut().tx.programs[to_program.0].resumable,
+            ResumableCall::Finished,
+        ) {
+            ResumableCall::Finished => panic!("attempt to resume finished program"),
+            ResumableCall::Resumable(invocation) => {
+                let num_outputs = store.data_mut().tx.programs[to_program.0].num_outputs;
+                let mut outputs = [Value::from(ExternRef::null())];
+                let resumable = invocation
+                    .resume(&mut *store, &values[..], &mut outputs[..num_outputs])
+                    .unwrap();
+                let result = match &resumable {
+                    ResumableCall::Finished => Ok(outputs[..num_outputs].to_vec()),
+                    ResumableCall::Resumable(invocation) => Err(invocation
+                        .host_error()
+                        .downcast_ref::<Interrupt>()
+                        .unwrap()
+                        .clone()),
+                };
+                store.data_mut().tx.programs[to_program.0].resumable = resumable;
+                store.data_mut().tx.witnesses.push(TxWitness {
+                    from_program,
+                    to_program,
+                    values,
+                });
+                result
+            }
         }
     }
 
@@ -883,25 +1055,44 @@ impl Transaction {
             });
         }
 
-        let instance = linker
-            .instantiate(&mut store, &coordination_code.module(&engine))
-            .unwrap()
-            .ensure_no_start(&mut store)
-            .unwrap();
+        let (mut program, mut result) = Transaction::start_program(
+            &mut store,
+            &linker,
+            coordination_code,
+            entry_point,
+            ProgramIdx::Root,
+            inputs2,
+        );
+        let outputs = loop {
+            match result {
+                Ok(values) => {
+                    // Program returned.
+                    let return_to = store.data_mut().tx.programs[program.0].return_to;
+                    eprintln!("{program:?} -> {return_to:?}: {values:?}");
+                    if return_to == ProgramIdx::Root {
+                        break values;
+                    }
+                    (program, result) = (
+                        return_to,
+                        Transaction::resume(&mut store, program, return_to, values),
+                    );
+                }
+                Err(Interrupt::Yield { .. }) => {
+                    todo!();
+                }
+            }
+        };
 
-        let mut outputs = [Value::from(ExternRef::null())];
-        let main = instance.get_func(&mut store, entry_point).unwrap();
-        let num_outputs = main.ty(&mut store).results().len();
-        main.call(&mut store, &inputs2[..], &mut outputs[..num_outputs])
-            .unwrap();
-        //eprintln!("returned: {outputs:?}");
-
-        if let Some(utxo_id) = UtxoId::from_wasm(&outputs[0], store.as_context()) {
-            // TODO: collisions still technically possible here.
-            // Should consider examining static types.
-            ValueOrUtxo::Utxo(utxo_id)
+        if outputs.len() > 0 {
+            if let Some(utxo_id) = UtxoId::from_wasm(&outputs[0], store.as_context()) {
+                // TODO: collisions still technically possible here.
+                // Should consider examining static types.
+                ValueOrUtxo::Utxo(utxo_id)
+            } else {
+                ValueOrUtxo::Value(outputs[0].clone())
+            }
         } else {
-            ValueOrUtxo::Value(outputs[0].clone())
+            ValueOrUtxo::Value(Value::I32(0))
         }
     }
 }
@@ -910,6 +1101,8 @@ impl std::fmt::Debug for Transaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transaction")
             .field("utxos", &self.utxos)
+            //.field("programs", &self.programs)
+            .field("witnesses", &self.witnesses)
             .finish()
     }
 }
