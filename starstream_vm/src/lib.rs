@@ -74,6 +74,7 @@ fn fake_import<T>(linker: &mut Linker<T>, import: &ImportType, message: &'static
 #[derive(Debug, Clone)]
 enum Interrupt {
     Yield { name: String, data: u32 },
+    //CoordinationCode,
 }
 
 impl Interrupt {
@@ -594,17 +595,17 @@ impl UtxoId {
         UtxoId { bytes }
     }
 
-    fn to_wasm_u32(self, mut store: StoreContextMut<CoordinationScriptInstance>) -> Value {
+    fn to_wasm_u32(self, mut store: StoreContextMut<TransactionInner>) -> Value {
         let scrambled = rand::rng().next_u32();
         store.data_mut().temporary_utxo_ids.insert(scrambled, self);
         Value::I32(scrambled as i32)
     }
 
-    fn to_wasm_externref(self, store: StoreContextMut<CoordinationScriptInstance>) -> Value {
+    fn to_wasm_externref(self, store: StoreContextMut<TransactionInner>) -> Value {
         Value::ExternRef(ExternRef::new::<UtxoId>(store, Some(self)))
     }
 
-    fn from_wasm(value: &Value, store: StoreContext<CoordinationScriptInstance>) -> Option<UtxoId> {
+    fn from_wasm(value: &Value, store: StoreContext<TransactionInner>) -> Option<UtxoId> {
         match value {
             Value::I32(scrambled) => store
                 .data()
@@ -623,25 +624,15 @@ impl std::fmt::Debug for UtxoId {
     }
 }
 
-struct CoordinationScriptInstance<'tx> {
-    coordination_code: &'tx ContractCode,
-    tx: &'tx mut Transaction,
-    temporary_utxo_ids: HashMap<u32, UtxoId>,
-}
-
 fn coordination_script_linker<'tx>(
     engine: &Engine,
     code_cache: &Arc<CodeCache>,
     coordination_code: Arc<ContractCode>,
-) -> Linker<CoordinationScriptInstance<'tx>> {
-    let mut linker = Linker::new(engine);
+) -> Linker<TransactionInner> {
+    let mut linker = Linker::<TransactionInner>::new(engine);
 
-    starstream_env(
-        &mut linker,
-        "env",
-        &coordination_code,
-        |env: &CoordinationScriptInstance| &env.coordination_code,
-    );
+    let cc = coordination_code.clone();
+    starstream_env(&mut linker, "env", &coordination_code, move |_| todo!());
 
     for import in coordination_code.module(&engine).imports() {
         if import.module() == "env" {
@@ -659,7 +650,7 @@ fn coordination_script_linker<'tx>(
                             move |mut caller, inputs, outputs| {
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().tx.utxos[&utxo_id].query(
+                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -688,7 +679,7 @@ fn coordination_script_linker<'tx>(
                                     inputs,
                                 );
                                 let mut store = caller.as_context_mut();
-                                let local_utxos = &mut store.data_mut().tx.utxos;
+                                let local_utxos = &mut store.data_mut().utxos;
                                 let id = UtxoId::random();
                                 local_utxos.insert(id, utxo);
                                 outputs[0] = id.to_wasm_u32(caller.as_context_mut());
@@ -706,7 +697,7 @@ fn coordination_script_linker<'tx>(
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().tx.utxos[&utxo_id].query(
+                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
                                     outputs,
@@ -728,7 +719,6 @@ fn coordination_script_linker<'tx>(
                                 caller
                                     .as_context_mut()
                                     .data_mut()
-                                    .tx
                                     .utxos
                                     .get_mut(&utxo_id)
                                     .unwrap()
@@ -751,7 +741,6 @@ fn coordination_script_linker<'tx>(
                                 caller
                                     .as_context_mut()
                                     .data_mut()
-                                    .tx
                                     .utxos
                                     .get_mut(&utxo_id)
                                     .unwrap()
@@ -864,52 +853,135 @@ struct TxWitness {
     values: Vec<Value>,
 }
 
-pub struct Transaction {
-    pub code_cache: Arc<CodeCache>,
+/// State inside a transaction. The Transaction itself keeps the wasm Store.
+#[derive(Default)]
+struct TransactionInner {
     utxos: HashMap<UtxoId, Utxo>,
+    temporary_utxo_ids: HashMap<u32, UtxoId>,
+
     /// Programs this transaction has started or resumed.
     programs: Vec<TxProgram>,
     /// Call and return values between programs, logged for future ZK use.
     witnesses: Vec<TxWitness>,
 }
 
+/// An in-progress transaction and its traces. Contains all related WASM execution.
+pub struct Transaction {
+    store: Store<TransactionInner>,
+    code_cache: Arc<CodeCache>,
+}
+
 impl Transaction {
-    pub fn isolated() -> Transaction {
+    /// Begin a new transaction with no dependencies.
+    pub fn new() -> Transaction {
+        let engine = Engine::default();
+        let store = Store::new(&engine, TransactionInner::default());
         Transaction {
+            store,
             code_cache: Default::default(),
-            utxos: Default::default(),
-            programs: Default::default(),
-            witnesses: Default::default(),
+        }
+    }
+
+    pub fn code_cache(&self) -> &Arc<CodeCache> {
+        &self.code_cache
+    }
+
+    pub fn run_coordination_script(
+        &mut self,
+        coordination_code: &Arc<ContractCode>,
+        entry_point: &str,
+        inputs: &[ValueOrUtxo],
+    ) -> ValueOrUtxo {
+        eprintln!("run_transaction({entry_point:?}, {inputs:?})");
+
+        let linker = coordination_script_linker(
+            &self.store.engine().clone(),
+            &self.code_cache,
+            coordination_code.clone(),
+        );
+
+        // Turn ExternRefs into u32 UTXO refs
+        let mut inputs2 = Vec::with_capacity(inputs.len());
+        for value in inputs {
+            inputs2.push(match value {
+                ValueOrUtxo::Value(v) => v.clone(),
+                ValueOrUtxo::Utxo(u) => u.to_wasm_u32(self.store.as_context_mut()),
+            });
+        }
+
+        let (mut program, mut result) = self.start_program(
+            &linker,
+            coordination_code,
+            entry_point,
+            ProgramIdx::Root,
+            inputs2,
+        );
+        // Main effect scheduler loop.
+        loop {
+            match result {
+                Ok(values) => {
+                    // Program returned.
+                    let return_to = self.store.data_mut().programs[program.0].return_to;
+                    eprintln!("{program:?} -> {return_to:?}: {values:?}");
+                    if return_to == ProgramIdx::Root {
+                        let result = if values.len() > 0 {
+                            if let Some(utxo) =
+                                UtxoId::from_wasm(&values[0], self.store.as_context())
+                            {
+                                // TODO: collisions still technically possible here.
+                                // Should consider examining static types.
+                                ValueOrUtxo::Utxo(utxo)
+                            } else {
+                                ValueOrUtxo::Value(values[0].clone())
+                            }
+                        } else {
+                            ValueOrUtxo::Value(Value::I32(0))
+                        };
+
+                        self.store.data_mut().witnesses.push(TxWitness {
+                            from_program: program,
+                            to_program: ProgramIdx::Root,
+                            values,
+                        });
+
+                        return result;
+                    }
+                    (program, result) = (return_to, self.resume(program, return_to, values));
+                }
+                Err(Interrupt::Yield { .. }) => {
+                    todo!();
+                }
+            }
         }
     }
 
     fn start_program<'a>(
-        store: &mut Store<CoordinationScriptInstance<'a>>,
-        linker: &Linker<CoordinationScriptInstance<'a>>,
+        &mut self,
+        linker: &Linker<TransactionInner>,
         code: &Arc<ContractCode>,
         entry_point: &str,
         from_program: ProgramIdx,
         values: Vec<Value>,
     ) -> (ProgramIdx, Result<Vec<Value>, Interrupt>) {
-        let module = &code.module(store.engine());
+        let module = &code.module(self.store.engine());
         let instance = linker
-            .instantiate(&mut *store, module)
+            .instantiate(&mut self.store, module)
             .unwrap()
-            .ensure_no_start(&mut *store)
+            .ensure_no_start(&mut self.store)
             .unwrap();
 
-        let id = ProgramIdx(store.data_mut().tx.programs.len());
+        let id = ProgramIdx(self.store.data_mut().programs.len());
         eprintln!("{from_program:?} -> {id:?} = {entry_point}{values:?}");
 
-        let main = instance.get_func(&mut *store, entry_point).unwrap();
-        let num_outputs = main.ty(&mut *store).results().len();
+        let main = instance.get_func(&mut self.store, entry_point).unwrap();
+        let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
         let resumable = main
-            .call_resumable(&mut *store, &values[..], &mut outputs[..num_outputs])
+            .call_resumable(&mut self.store, &values[..], &mut outputs[..num_outputs])
             .unwrap();
         assert_eq!(
             id.0,
-            store.data_mut().tx.programs.len(),
+            self.store.data_mut().programs.len(),
             "unexpected re-entrancy in start_program"
         );
         let result = match &resumable {
@@ -921,7 +993,7 @@ impl Transaction {
                 .clone()),
         };
         eprintln!("  = {result:?}");
-        store.data_mut().tx.programs.push(TxProgram {
+        self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,
             code: code.hash(),
             entry_point: entry_point.to_owned(),
@@ -929,7 +1001,7 @@ impl Transaction {
             num_outputs,
             resumable,
         });
-        store.data_mut().tx.witnesses.push(TxWitness {
+        self.store.data_mut().witnesses.push(TxWitness {
             from_program,
             to_program: id,
             values,
@@ -938,21 +1010,21 @@ impl Transaction {
     }
 
     fn resume(
-        store: &mut Store<CoordinationScriptInstance>,
+        &mut self,
         from_program: ProgramIdx,
         to_program: ProgramIdx,
         values: Vec<Value>,
     ) -> Result<Vec<Value>, Interrupt> {
         match std::mem::replace(
-            &mut store.data_mut().tx.programs[to_program.0].resumable,
+            &mut self.store.data_mut().programs[to_program.0].resumable,
             ResumableCall::Finished,
         ) {
             ResumableCall::Finished => panic!("attempt to resume finished program"),
             ResumableCall::Resumable(invocation) => {
-                let num_outputs = store.data_mut().tx.programs[to_program.0].num_outputs;
+                let num_outputs = self.store.data_mut().programs[to_program.0].num_outputs;
                 let mut outputs = [Value::from(ExternRef::null())];
                 let resumable = invocation
-                    .resume(&mut *store, &values[..], &mut outputs[..num_outputs])
+                    .resume(&mut self.store, &values[..], &mut outputs[..num_outputs])
                     .unwrap();
                 let result = match &resumable {
                     ResumableCall::Finished => Ok(outputs[..num_outputs].to_vec()),
@@ -962,8 +1034,8 @@ impl Transaction {
                         .unwrap()
                         .clone()),
                 };
-                store.data_mut().tx.programs[to_program.0].resumable = resumable;
-                store.data_mut().tx.witnesses.push(TxWitness {
+                self.store.data_mut().programs[to_program.0].resumable = resumable;
+                self.store.data_mut().witnesses.push(TxWitness {
                     from_program,
                     to_program,
                     values,
@@ -972,95 +1044,15 @@ impl Transaction {
             }
         }
     }
-
-    pub fn run_coordination_script(
-        &mut self,
-        coordination_code: &Arc<ContractCode>,
-        entry_point: &str,
-        inputs: &[ValueOrUtxo],
-    ) -> ValueOrUtxo {
-        eprintln!("run_transaction({entry_point:?}, {inputs:?})");
-
-        let engine = Engine::default();
-
-        let linker = coordination_script_linker(
-            &engine.clone(),
-            &self.code_cache,
-            coordination_code.clone(),
-        );
-
-        let mut store = Store::new(
-            &engine,
-            CoordinationScriptInstance {
-                coordination_code: &coordination_code,
-                tx: self,
-                temporary_utxo_ids: Default::default(),
-            },
-        );
-
-        // Turn ExternRefs into u32 UTXO refs
-        let mut inputs2 = Vec::with_capacity(inputs.len());
-        for value in inputs {
-            inputs2.push(match value {
-                ValueOrUtxo::Value(v) => v.clone(),
-                ValueOrUtxo::Utxo(u) => u.to_wasm_u32(store.as_context_mut()),
-            });
-        }
-
-        let (mut program, mut result) = Transaction::start_program(
-            &mut store,
-            &linker,
-            coordination_code,
-            entry_point,
-            ProgramIdx::Root,
-            inputs2,
-        );
-        loop {
-            match result {
-                Ok(values) => {
-                    // Program returned.
-                    let return_to = store.data_mut().tx.programs[program.0].return_to;
-                    eprintln!("{program:?} -> {return_to:?}: {values:?}");
-                    if return_to == ProgramIdx::Root {
-                        let result = if values.len() > 0 {
-                            if let Some(utxo) = UtxoId::from_wasm(&values[0], store.as_context()) {
-                                // TODO: collisions still technically possible here.
-                                // Should consider examining static types.
-                                ValueOrUtxo::Utxo(utxo)
-                            } else {
-                                ValueOrUtxo::Value(values[0].clone())
-                            }
-                        } else {
-                            ValueOrUtxo::Value(Value::I32(0))
-                        };
-
-                        store.data_mut().tx.witnesses.push(TxWitness {
-                            from_program: program,
-                            to_program: ProgramIdx::Root,
-                            values,
-                        });
-
-                        return result;
-                    }
-                    (program, result) = (
-                        return_to,
-                        Transaction::resume(&mut store, program, return_to, values),
-                    );
-                }
-                Err(Interrupt::Yield { .. }) => {
-                    todo!();
-                }
-            }
-        }
-    }
 }
 
 impl std::fmt::Debug for Transaction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.store.data();
         f.debug_struct("Transaction")
-            .field("utxos", &self.utxos)
-            .field("programs", &self.programs)
-            .field("witnesses", &self.witnesses)
+            .field("utxos", &inner.utxos)
+            .field("programs", &inner.programs)
+            .field("witnesses", &inner.witnesses)
             .finish()
     }
 }

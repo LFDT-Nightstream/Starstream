@@ -2,10 +2,10 @@ use starstream_vm::*;
 use wasmi::Value;
 
 pub fn main() {
-    let mut tx = Transaction::isolated();
+    let mut tx = Transaction::new();
     dbg!(&tx);
 
-    let example_contract = tx.code_cache.load_debug("example_contract");
+    let example_contract = tx.code_cache().load_debug("example_contract");
 
     tx.run_coordination_script(&example_contract, "produce", &[]);
     dbg!(&tx);
