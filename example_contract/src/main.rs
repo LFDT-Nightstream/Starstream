@@ -3,7 +3,9 @@
 #![allow(dead_code)]
 
 use example_contract::{StarNft, StarNftIntermediate};
-use starstream::{PublicKey, Token, TokenStorage, Utxo, assert_tx_signed_by, token_export};
+use starstream::{
+    PublicKey, Token, TokenStorage, Utxo, assert_tx_signed_by, eprintln, token_export,
+};
 
 starstream::panic_handler!();
 
@@ -123,9 +125,8 @@ impl MyMain {
         loop {
             supply += 1;
             //my_event(supply);
-            starstream::log(&(0x100 + supply).to_be_bytes());
+            eprintln!("MyMain says supply = {supply}");
             //example_contract::MyEffect::raise(supply);
-            starstream::log(&(0x200 + supply).to_be_bytes());
             //my_error(supply);
             sleep(&MyMain { supply });
         }
@@ -290,7 +291,8 @@ pub extern "C" fn star_split(
     starstream::assert_tx_signed_by(owner);
     // TODO: sucking out of
     let mut from_amount = from.burn();
-    from_amount = from_amount.checked_sub(amount).unwrap();
+    eprintln!("from_amount={from_amount} subtract={amount}");
+    from_amount = from_amount.checked_sub(amount).expect("checked_sub");
     // TODO: shouldn't this line
     example_contract::StarToken::new(owner, from_amount);
     example_contract::StarToken::new(owner, amount)
@@ -368,7 +370,7 @@ pub extern "C" fn produce() {
             _ = example_contract::MyMain::new();
         },
         |supply| {
-            starstream::log(&(0x3000 + supply).to_be_bytes());
+            eprintln!("effect handler says supply={supply}");
             Ok(())
         },
     );

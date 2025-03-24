@@ -110,17 +110,17 @@ fn starstream_env<T>(
 
     linker
         .func_wrap(module, "abort", || -> () {
-            panic!("abort() called");
+            panic!("contract called abort()");
         })
         .unwrap();
     linker
         .func_wrap(
             module,
-            "starstream_log",
+            "eprint",
             |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
                 let (memory, _) = memory(&mut caller);
                 let slice = &memory[ptr as usize..(ptr + len) as usize];
-                eprintln!("starstream_log: {slice:x?}");
+                eprintln!("eprint: {:?}", String::from_utf8_lossy(slice));
             },
         )
         .unwrap();

@@ -1,6 +1,6 @@
 #![no_std]
 
-use core::{marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
+use core::{fmt::Write, marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
 
 #[macro_export]
 macro_rules! metadata {
@@ -75,40 +75,63 @@ impl UtxoStatus {
 }
 
 // ----------------------------------------------------------------------------
-// Common import environment
+// Common platform: Debug logging
+
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    #[link_name = "eprint"]
+    unsafe fn eprint(buf: *const u8, len: usize);
+}
+
+struct DebugLog;
+
+impl Write for DebugLog {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        unsafe {
+            eprint(s.as_ptr(), s.len());
+        }
+        Ok(())
+    }
+}
+
+#[doc(hidden)]
+pub fn _eprint(args: core::fmt::Arguments) {
+    let _ = DebugLog.write_fmt(args);
+}
+
+/// Print to the debug log.
+#[macro_export]
+macro_rules! eprint {
+    ($($arg:tt)*) => {{
+        $crate::_eprint(core::format_args!($($arg)*));
+    }}
+}
+
+/// Print to the debug log, with a newline.
+#[macro_export]
+macro_rules! eprintln {
+    () => {
+        $crate::eprint!("\n")
+    };
+    ($($arg:tt)*) => {{
+        $crate::_eprint(core::format_args!($($arg)*));
+        // Separate because format_args_nl! is unstable and concat! breaks {var} syntax.
+        $crate::_eprint(core::format_args!("\n"));
+    }};
+}
+
+// ----------------------------------------------------------------------------
+// Common platform: Panic and abort handling
 
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
     unsafe fn abort();
-
-    // Debug log
-    #[link_name = "starstream_log"]
-    unsafe fn starstream_log(buf: *const u8, len: usize);
-
-    #[link_name = "starstream_coordination_code"]
-    pub safe fn coordination_code() -> CodeHash;
-
-    #[link_name = "starstream_this_code"]
-    pub safe fn this_code() -> CodeHash;
-
-    #[link_name = "starstream_keccak256"]
-    fn precompile_keccak256(buf: *const u8, len: usize, result: *mut u8);
 }
 
-#[inline]
-pub fn log(buf: &[u8]) {
-    unsafe { starstream_log(buf.as_ptr(), buf.len()) }
-}
-
-#[inline]
-pub fn keccak256(buf: &[u8]) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    unsafe { precompile_keccak256(buf.as_ptr(), buf.len(), out.as_mut_slice().as_mut_ptr()) };
-    out
-}
-
-pub fn panic_handler(_: &PanicInfo) -> ! {
+#[doc(hidden)]
+pub fn _panic_handler(info: &PanicInfo) -> ! {
     unsafe {
+        eprintln!("{info}");
         abort();
         // abort() is meant to not return, but just in case:
         loop {}
@@ -125,9 +148,33 @@ macro_rules! panic_handler {
         #[cfg(not(test))]
         #[panic_handler]
         fn panic_handler(info: &core::panic::PanicInfo) -> ! {
-            $crate::panic_handler(info)
+            $crate::_panic_handler(info)
         }
     };
+}
+
+// ----------------------------------------------------------------------------
+// Common import environment
+
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    /// Get the hash of the code calling `this_code()`.
+    #[link_name = "starstream_this_code"]
+    pub safe fn this_code() -> CodeHash;
+
+    /// Get the hash of the top-level coordination script currently executing.
+    #[link_name = "starstream_coordination_code"]
+    pub safe fn coordination_code() -> CodeHash;
+
+    #[link_name = "starstream_keccak256"]
+    unsafe fn precompile_keccak256(buf: *const u8, len: usize, result: *mut u8);
+}
+
+#[inline]
+pub fn keccak256(buf: &[u8]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    unsafe { precompile_keccak256(buf.as_ptr(), buf.len(), out.as_mut_slice().as_mut_ptr()) };
+    out
 }
 
 pub fn assert_tx_signed_by(_key: PublicKey) {
