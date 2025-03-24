@@ -605,13 +605,19 @@ impl UtxoId {
         Value::ExternRef(ExternRef::new::<UtxoId>(store, Some(self)))
     }
 
-    fn from_wasm(value: &Value, store: StoreContext<TransactionInner>) -> Option<UtxoId> {
+    fn from_wasm_u32(value: &Value, store: StoreContext<TransactionInner>) -> Option<UtxoId> {
         match value {
             Value::I32(scrambled) => store
                 .data()
                 .temporary_utxo_ids
                 .get(&(*scrambled as u32))
                 .copied(),
+            _ => None,
+        }
+    }
+
+    fn from_wasm_externref(value: &Value, store: StoreContext<TransactionInner>) -> Option<UtxoId> {
+        match value {
             Value::ExternRef(handle) => handle.data(store)?.downcast_ref::<UtxoId>().copied(),
             _ => None,
         }
@@ -649,7 +655,7 @@ fn coordination_script_linker<'tx>(
                             func_ty.clone(),
                             move |mut caller, inputs, outputs| {
                                 let utxo_id =
-                                    UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
                                 caller.as_context_mut().data_mut().utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
@@ -696,7 +702,7 @@ fn coordination_script_linker<'tx>(
                             move |mut caller, inputs, outputs| {
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
                                 caller.as_context_mut().data_mut().utxos[&utxo_id].query(
                                     &name,
                                     &inputs[1..],
@@ -715,7 +721,7 @@ fn coordination_script_linker<'tx>(
                             move |mut caller, inputs, outputs| {
                                 //eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
                                 caller
                                     .as_context_mut()
                                     .data_mut()
@@ -736,7 +742,7 @@ fn coordination_script_linker<'tx>(
                             move |mut caller, inputs, outputs| {
                                 eprintln!("inputs are {inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
                                 // NB: not remove() because we want a record of the dead UTXO for later
                                 caller
                                     .as_context_mut()
@@ -773,24 +779,6 @@ fn coordination_script_linker<'tx>(
 }
 
 // ----------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub enum ValueOrUtxo {
-    Value(Value),
-    Utxo(UtxoId),
-}
-
-impl From<Value> for ValueOrUtxo {
-    fn from(value: Value) -> Self {
-        ValueOrUtxo::Value(value)
-    }
-}
-
-impl From<UtxoId> for ValueOrUtxo {
-    fn from(value: UtxoId) -> Self {
-        ValueOrUtxo::Utxo(value)
-    }
-}
 
 /// Index into the list of programs loaded by a transaction.
 #[derive(PartialEq, Eq, Clone, Copy)]
@@ -890,8 +878,8 @@ impl Transaction {
         &mut self,
         coordination_code: &Arc<ContractCode>,
         entry_point: &str,
-        inputs: &[ValueOrUtxo],
-    ) -> ValueOrUtxo {
+        mut inputs: Vec<Value>,
+    ) -> Value {
         eprintln!("run_transaction({entry_point:?}, {inputs:?})");
 
         let linker = coordination_script_linker(
@@ -900,13 +888,11 @@ impl Transaction {
             coordination_code.clone(),
         );
 
-        // Turn ExternRefs into u32 UTXO refs
-        let mut inputs2 = Vec::with_capacity(inputs.len());
-        for value in inputs {
-            inputs2.push(match value {
-                ValueOrUtxo::Value(v) => v.clone(),
-                ValueOrUtxo::Utxo(u) => u.to_wasm_u32(self.store.as_context_mut()),
-            });
+        // Turn ExternRefs into numeric UTXO refs
+        for value in &mut inputs {
+            if let Some(utxo_id) = UtxoId::from_wasm_externref(value, self.store.as_context()) {
+                *value = utxo_id.to_wasm_u32(self.store.as_context_mut());
+            }
         }
 
         let (mut program, mut result) = self.start_program(
@@ -914,7 +900,7 @@ impl Transaction {
             coordination_code,
             entry_point,
             ProgramIdx::Root,
-            inputs2,
+            inputs,
         );
         // Main effect scheduler loop.
         loop {
@@ -926,16 +912,16 @@ impl Transaction {
                     if return_to == ProgramIdx::Root {
                         let result = if values.len() > 0 {
                             if let Some(utxo) =
-                                UtxoId::from_wasm(&values[0], self.store.as_context())
+                                UtxoId::from_wasm_u32(&values[0], self.store.as_context())
                             {
                                 // TODO: collisions still technically possible here.
                                 // Should consider examining static types.
-                                ValueOrUtxo::Utxo(utxo)
+                                utxo.to_wasm_externref(self.store.as_context_mut())
                             } else {
-                                ValueOrUtxo::Value(values[0].clone())
+                                values[0].clone()
                             }
                         } else {
-                            ValueOrUtxo::Value(Value::I32(0))
+                            Value::I32(0)
                         };
 
                         self.store.data_mut().witnesses.push(TxWitness {
