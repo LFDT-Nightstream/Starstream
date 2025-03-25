@@ -247,14 +247,14 @@ pub trait TokenIntermediate {
 macro_rules! token_export {
     (
         for $intermediate:ty;
-        mint fn $mint_fn:ident($self:ident: Self) -> TokenStorage $mint_body:block
-        burn fn $burn_fn:ident($storage:ident: TokenStorage) -> Self $burn_body:block
+        bind fn $bind_fn:ident($self:ident: Self) -> TokenStorage $bind_body:block
+        unbind fn $unbind_fn:ident($storage:ident: TokenStorage) -> Self $unbind_body:block
     ) => {
         #[unsafe(no_mangle)]
-        pub extern "C" fn $mint_fn($self: $intermediate) -> $crate::TokenStorage $mint_body
+        pub extern "C" fn $bind_fn($self: $intermediate) -> $crate::TokenStorage $bind_body
 
         #[unsafe(no_mangle)]
-        pub extern "C" fn $burn_fn($storage: $crate::TokenStorage) -> $intermediate $burn_body
+        pub extern "C" fn $unbind_fn($storage: $crate::TokenStorage) -> $intermediate $unbind_body
     }
 }
 
@@ -277,8 +277,8 @@ impl<T: ?Sized> Copy for TokenHandle<T> {}
 
 pub trait Token {
     type Intermediate;
-    fn mint(i: Self::Intermediate) -> Self;
-    fn burn(self) -> Self::Intermediate;
+    fn bind(i: Self::Intermediate) -> Self;
+    fn unbind(self) -> Self::Intermediate;
 }
 
 #[macro_export]
@@ -289,8 +289,8 @@ macro_rules! token_import {
         intermediate struct $intermediate_name:ident {
             $($contents:tt)*
         }
-        mint fn $mint_fn:ident;
-        burn fn $burn_fn:ident;
+        bind fn $bind_fn:ident;
+        unbind fn $unbind_fn:ident;
     ) => {
         #[repr(C)]
         pub struct $intermediate_name {
@@ -299,15 +299,15 @@ macro_rules! token_import {
 
         impl $intermediate_name {
             #[inline]
-            pub fn mint(self) -> $handle_name {
-                <$handle_name as $crate::Token>::mint(self)
+            pub fn bind(self) -> $handle_name {
+                <$handle_name as $crate::Token>::bind(self)
             }
         }
 
         #[link(wasm_import_module = $module)]
         unsafe extern "C" {
-            safe fn $mint_fn(intermediate: $intermediate_name) -> $crate::TokenHandle<$handle_name>;
-            safe fn $burn_fn(handle: $crate::TokenHandle<$handle_name>) -> $intermediate_name;
+            safe fn $bind_fn(intermediate: $intermediate_name) -> $crate::TokenHandle<$handle_name>;
+            safe fn $unbind_fn(handle: $crate::TokenHandle<$handle_name>) -> $intermediate_name;
         }
 
         #[derive(Clone, Copy)]
@@ -318,13 +318,13 @@ macro_rules! token_import {
             type Intermediate = $intermediate_name;
 
             #[inline]
-            fn mint(i: Self::Intermediate) -> Self {
-                Self($mint_fn(i))
+            fn bind(i: Self::Intermediate) -> Self {
+                Self($bind_fn(i))
             }
 
             #[inline]
-            fn burn(self) -> Self::Intermediate {
-                $burn_fn(self.0)
+            fn unbind(self) -> Self::Intermediate {
+                $unbind_fn(self.0)
             }
         }
     };

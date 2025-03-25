@@ -17,8 +17,7 @@ unsafe extern "C" {
 
     safe fn starstream_new_StarNftMint_new(max_supply: u64) -> StarNftMint;
     safe fn starstream_query_StarNftMint_get_supply(utxo: StarNftMint) -> u64;
-    safe fn starstream_mutate_StarNftMint_prepare_to_mint(utxo: StarNftMint)
-    -> StarNftIntermediate;
+    safe fn starstream_mutate_StarNftMint_mint(utxo: StarNftMint) -> StarNftIntermediate;
 
     safe fn starstream_mutate_PayToPublicKeyHash_attach(
         utxo: PayToPublicKeyHash,
@@ -118,8 +117,8 @@ impl StarNftMint {
         starstream_query_StarNftMint_get_supply(self)
     }
 
-    pub fn prepare_to_mint(self) -> StarNftIntermediate {
-        starstream_mutate_StarNftMint_prepare_to_mint(self)
+    pub fn mint(self) -> StarNftIntermediate {
+        starstream_mutate_StarNftMint_mint(self)
     }
 }
 
@@ -129,6 +128,6 @@ token_import! {
     intermediate struct StarNftIntermediate {
         pub id: u64,
     }
-    mint fn starstream_mint_StarNft;
-    burn fn starstream_burn_StarNft;
+    bind fn starstream_bind_StarNft;
+    unbind fn starstream_unbind_StarNft;
 }

@@ -1,6 +1,6 @@
 //! Starstream VM as a library.
 
-use std::{cell::RefCell, collections::HashMap, sync::Arc, usize};
+use std::{collections::HashMap, sync::Arc, usize};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use code::{CodeCache, CodeHash, ContractCode};
@@ -9,8 +9,7 @@ use tiny_keccak::Hasher;
 use util::DisplayHex;
 use wasmi::{
     AsContext, AsContextMut, Caller, Engine, ExternRef, ExternType, ImportType, Instance, Linker,
-    ResumableCall, Store, StoreContext, StoreContextMut, Val as Value,
-    core::{HostError, ValType as ValueType},
+    ResumableCall, Store, StoreContext, StoreContextMut, Val as Value, core::HostError,
 };
 
 mod code;
@@ -108,27 +107,17 @@ enum Interrupt {
         data: u32,
     },
     // UTXO -> Token
-    TokenMint {
+    TokenBind {
         hash: CodeHash,
         entry_point: String,
         inputs: Vec<Value>,
     },
-}
-
-impl Interrupt {
-    // TODO: these should probably be dropped in favor of global memory or something.
-    fn yield_data(&self) -> u32 {
-        match self {
-            Interrupt::Yield { data, .. } => *data,
-            _ => panic!(),
-        }
-    }
-    fn yield_name(&self) -> &str {
-        match self {
-            Interrupt::Yield { name, .. } => name,
-            _ => panic!(),
-        }
-    }
+    TokenUnbind {
+        token_id: TokenId,
+        // Sanity checking - must match that of the token.
+        //hash: CodeHash,
+        //unbind_fn: String,
+    },
 }
 
 #[inline]
@@ -296,7 +285,7 @@ fn utxo_linker(
     for import in utxo_code.module(engine).imports() {
         if let ExternType::Func(func_ty) = import.ty() {
             if let Some(rest) = import.module().strip_prefix("starstream_token:") {
-                if import.name().starts_with("starstream_mint_") {
+                if import.name().starts_with("starstream_bind_") {
                     let name = import.name().to_owned();
                     let rest = rest.to_owned();
                     let code_cache = code_cache.clone();
@@ -308,7 +297,7 @@ fn utxo_linker(
                             move |_caller, inputs, _outputs| {
                                 eprintln!("{rest}::{name}{inputs:?}");
                                 let hash = code_cache.load_debug(&rest).hash();
-                                host(Interrupt::TokenMint {
+                                host(Interrupt::TokenBind {
                                     hash,
                                     entry_point: name.clone(),
                                     inputs: inputs.to_vec(),
@@ -316,11 +305,25 @@ fn utxo_linker(
                             },
                         )
                         .unwrap();
-                } else if import.name().starts_with("starstream_burn_") {
+                } else if import.name().starts_with("starstream_unbind_") {
+                    let name = import.name().to_owned();
+                    let rest = rest.to_owned();
                     linker
-                        .func_wrap(import.module(), import.name(), |handle: u32| -> () {
-                            todo!()
-                        })
+                        .func_new(
+                            import.module(),
+                            import.name(),
+                            func_ty.clone(),
+                            move |caller, inputs, _outputs| {
+                                eprintln!("{rest}::{name}{inputs:?}");
+                                let token_id =
+                                    TokenId::from_wasm(&inputs[0], caller.as_context()).unwrap();
+                                host(Interrupt::TokenUnbind {
+                                    token_id,
+                                    //hash,
+                                    //unbind_fn: name.clone(),
+                                })
+                            },
+                        )
                         .unwrap();
                 }
             } else {
@@ -929,7 +932,7 @@ impl Transaction {
                         .unwrap();
                     self.resume(from_program, to_program, vec![value], vec![], vec![])
                 }
-                Err(Interrupt::TokenMint {
+                Err(Interrupt::TokenBind {
                     hash,
                     entry_point,
                     mut inputs,
@@ -947,6 +950,9 @@ impl Transaction {
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].return_is_token = true;
                     (to_program, result)
+                }
+                Err(Interrupt::TokenUnbind { .. }) => {
+                    todo!();
                 }
             }
         }
@@ -1085,7 +1091,9 @@ impl Transaction {
         let id = ProgramIdx(self.store.data_mut().programs.len());
         eprintln!("call: {from_program:?} -> {to_program:?} -> {id:?} = {method}{inputs:?}");
 
-        let main = instance.get_func(&mut self.store, &method).unwrap();
+        let main = instance
+            .get_func(&mut self.store, &method)
+            .expect("no such method");
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
         let resumable = main
