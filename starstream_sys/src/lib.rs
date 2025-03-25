@@ -263,7 +263,7 @@ macro_rules! token_export {
 
 #[repr(C)]
 pub struct TokenHandle<T: ?Sized> {
-    ptr: u32,
+    ptr: u64,
     _phantom: PhantomData<*mut T>,
 }
 
@@ -376,7 +376,7 @@ pub fn sleep_mut<Resume, Yield>(data: &mut Yield) -> Resume {
 
 #[repr(C)]
 pub struct UtxoHandle<T: ?Sized> {
-    ptr: u32,
+    ptr: u64,
     _phantom: PhantomData<*mut T>,
 }
 

@@ -244,10 +244,10 @@ impl TokenId {
         TokenId { bytes }
     }
 
-    fn to_wasm_u32(self, mut store: StoreContextMut<TransactionInner>) -> Value {
-        let scrambled = rand::rng().next_u32();
+    fn to_wasm_i64(self, mut store: StoreContextMut<TransactionInner>) -> Value {
+        let scrambled = rand::rng().next_u64();
         store.data_mut().temporary_token_ids.insert(scrambled, self);
-        Value::I32(scrambled as i32)
+        Value::I64(scrambled as i64)
     }
 
     fn to_wasm_externref(self, store: StoreContextMut<TransactionInner>) -> Value {
@@ -256,10 +256,10 @@ impl TokenId {
 
     fn from_wasm(value: &Value, store: StoreContext<TransactionInner>) -> Option<TokenId> {
         match value {
-            Value::I32(scrambled) => store
+            Value::I64(scrambled) => store
                 .data()
                 .temporary_token_ids
-                .get(&(*scrambled as u32))
+                .get(&(*scrambled as u64))
                 .copied(),
             Value::ExternRef(handle) => handle.data(store)?.downcast_ref::<TokenId>().copied(),
             _ => None,
@@ -456,22 +456,22 @@ impl UtxoId {
         UtxoId { bytes }
     }
 
-    fn to_wasm_u32(self, mut store: StoreContextMut<TransactionInner>) -> Value {
-        let scrambled = rand::rng().next_u32();
+    fn to_wasm_i64(self, mut store: StoreContextMut<TransactionInner>) -> Value {
+        let scrambled = rand::rng().next_u64();
         store.data_mut().temporary_utxo_ids.insert(scrambled, self);
-        Value::I32(scrambled as i32)
+        Value::I64(scrambled as i64)
     }
 
     fn to_wasm_externref(self, store: StoreContextMut<TransactionInner>) -> Value {
         Value::ExternRef(ExternRef::new::<UtxoId>(store, Some(self)))
     }
 
-    fn from_wasm_u32(value: &Value, store: StoreContext<TransactionInner>) -> Option<UtxoId> {
+    fn from_wasm_i64(value: &Value, store: StoreContext<TransactionInner>) -> Option<UtxoId> {
         match value {
-            Value::I32(scrambled) => store
+            Value::I64(scrambled) => store
                 .data()
                 .temporary_utxo_ids
-                .get(&(*scrambled as u32))
+                .get(&(*scrambled as u64))
                 .copied(),
             _ => None,
         }
@@ -539,7 +539,7 @@ fn coordination_script_linker<'tx>(
                             move |caller, inputs, _outputs| {
                                 eprintln!("{name}{inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoResume {
                                     utxo_id,
                                     inputs: inputs.to_vec(),
@@ -556,7 +556,7 @@ fn coordination_script_linker<'tx>(
                             move |caller, inputs, _outputs| {
                                 eprintln!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoQuery {
                                     utxo_id,
                                     method: name.clone(),
@@ -574,7 +574,7 @@ fn coordination_script_linker<'tx>(
                             move |caller, inputs, _outputs| {
                                 eprintln!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoMutate {
                                     utxo_id,
                                     method: name.clone(),
@@ -592,7 +592,7 @@ fn coordination_script_linker<'tx>(
                             move |caller, inputs, _outputs| {
                                 eprintln!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
-                                    UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
+                                    UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoConsume {
                                     utxo_id,
                                     method: name.clone(),
@@ -718,8 +718,8 @@ struct TxWitness {
 #[derive(Default)]
 struct TransactionInner {
     utxos: HashMap<UtxoId, Utxo>,
-    temporary_utxo_ids: HashMap<u32, UtxoId>,
-    temporary_token_ids: HashMap<u32, TokenId>,
+    temporary_utxo_ids: HashMap<u64, UtxoId>,
+    temporary_token_ids: HashMap<u64, TokenId>,
 
     /// Programs this transaction has started or resumed.
     programs: Vec<TxProgram>,
@@ -765,7 +765,7 @@ impl Transaction {
         // Turn ExternRefs into numeric UTXO refs
         for value in &mut inputs {
             if let Some(utxo_id) = UtxoId::from_wasm_externref(value, self.store.as_context()) {
-                *value = utxo_id.to_wasm_u32(self.store.as_context_mut());
+                *value = utxo_id.to_wasm_i64(self.store.as_context_mut());
             }
         }
 
@@ -789,7 +789,7 @@ impl Transaction {
                         // Transform WASM-side values to .
                         let result = if values.len() > 0 {
                             if let Some(utxo) =
-                                UtxoId::from_wasm_u32(&values[0], self.store.as_context())
+                                UtxoId::from_wasm_i64(&values[0], self.store.as_context())
                             {
                                 // TODO: collisions still technically possible here.
                                 // Should consider examining static types.
@@ -848,7 +848,7 @@ impl Transaction {
                             .unwrap()
                             .tokens
                             .insert(token_id, token);
-                        values = vec![token_id.to_wasm_u32(self.store.as_context_mut())];
+                        values = vec![token_id.to_wasm_i64(self.store.as_context_mut())];
                     }
 
                     self.resume(from_program, to_program, values, read_from_memory, vec![])
@@ -883,7 +883,7 @@ impl Transaction {
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].yield_to =
-                        Some((from_program, id.to_wasm_u32(self.store.as_context_mut())));
+                        Some((from_program, id.to_wasm_i64(self.store.as_context_mut())));
                     self.store.data_mut().programs[to_program.0].utxo = Some(id);
                     self.store.data_mut().utxos.insert(
                         id,
