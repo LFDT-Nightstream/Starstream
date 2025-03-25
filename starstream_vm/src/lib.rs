@@ -78,7 +78,7 @@ enum Interrupt {
     },
     // Coordination -> UTXO
     UtxoNew {
-        hash: CodeHash,
+        code: CodeHash,
         entry_point: String,
         inputs: Vec<Value>,
     },
@@ -108,14 +108,14 @@ enum Interrupt {
     },
     // UTXO -> Token
     TokenBind {
-        hash: CodeHash,
+        code: CodeHash,
         entry_point: String,
         inputs: Vec<Value>,
     },
     TokenUnbind {
         token_id: TokenId,
         // Sanity checking - must match that of the token.
-        //hash: CodeHash,
+        //code: CodeHash,
         //unbind_fn: String,
     },
 }
@@ -232,12 +232,18 @@ fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
 
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct TokenId {
-    id: usize,
+    bytes: [u8; 16],
 }
 
 impl TokenId {
+    fn random() -> TokenId {
+        let mut bytes = [0; 16];
+        rand::rng().fill_bytes(&mut bytes);
+        TokenId { bytes }
+    }
+
     fn to_wasm_u32(self, mut store: StoreContextMut<TransactionInner>) -> Value {
         let scrambled = rand::rng().next_u32();
         store.data_mut().temporary_token_ids.insert(scrambled, self);
@@ -258,6 +264,12 @@ impl TokenId {
             Value::ExternRef(handle) => handle.data(store)?.downcast_ref::<TokenId>().copied(),
             _ => None,
         }
+    }
+}
+
+impl std::fmt::Debug for TokenId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TokenId({})", DisplayHex(&self.bytes[..]))
     }
 }
 
@@ -296,9 +308,9 @@ fn utxo_linker(
                             func_ty.clone(),
                             move |_caller, inputs, _outputs| {
                                 eprintln!("{rest}::{name}{inputs:?}");
-                                let hash = code_cache.load_debug(&rest).hash();
+                                let code = code_cache.load_debug(&rest).hash();
                                 host(Interrupt::TokenBind {
-                                    hash,
+                                    code,
                                     entry_point: name.clone(),
                                     inputs: inputs.to_vec(),
                                 })
@@ -340,6 +352,7 @@ fn utxo_linker(
 #[derive(Debug)]
 struct Utxo {
     program: ProgramIdx,
+    tokens: HashMap<TokenId, Token>,
 }
 
 // ----------------------------------------------------------------------------
@@ -358,17 +371,14 @@ fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<Trans
 
 // ----------------------------------------------------------------------------
 
-/*
+#[derive(Debug)]
 struct Token {
-    code: Arc<ContractCode>,
-    // Note: doesn't save Store or Instance, instead recreates it from scratch
-    // on burn() call therefore not needing to persist aribtrary memory for
-    // tokens.
-    burn_fn: String,
+    bind_program: ProgramIdx,
     id: u64,
     amount: u64,
 }
 
+/*
 impl Token {
     fn mint(token_code: Arc<ContractCode>, mint_fn: &str, inputs: &[Value]) -> Token {
         let burn_fn = mint_fn.replace("starstream_mint_", "starstream_burn_");
@@ -428,16 +438,6 @@ impl Token {
             &mut [],
         )
         .unwrap();
-    }
-}
-
-impl std::fmt::Debug for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Token")
-            .field("burn_fn", &self.burn_fn)
-            .field("id", &self.id)
-            .field("amount", &self.amount)
-            .finish()
     }
 }
 */
@@ -519,9 +519,9 @@ fn coordination_script_linker<'tx>(
                                   _outputs|
                                   -> Result<(), wasmi::Error> {
                                 eprintln!("{rest}::{name}{inputs:?}");
-                                let hash = code_cache.load_debug(&rest).hash();
+                                let code = code_cache.load_debug(&rest).hash();
                                 host(Interrupt::UtxoNew {
-                                    hash,
+                                    code,
                                     entry_point: name.clone(),
                                     inputs: inputs.to_vec(),
                                 })
@@ -536,7 +536,7 @@ fn coordination_script_linker<'tx>(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |caller, inputs, outputs| {
+                            move |caller, inputs, _outputs| {
                                 eprintln!("{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
@@ -658,6 +658,8 @@ struct TxProgram {
     instance: Instance,
     // None if just started, Finished if finished, Resumable if yielded
     resumable: ResumableCall,
+
+    utxo: Option<UtxoId>,
 }
 
 impl TxProgram {
@@ -676,6 +678,7 @@ impl std::fmt::Debug for TxProgram {
             .field("code", &self.code)
             .field("entry_point", &self.entry_point)
             .field("num_outputs", &self.num_outputs)
+            .field("utxo", &self.utxo)
             .field(
                 "interrupt",
                 &match &self.resumable {
@@ -820,6 +823,7 @@ impl Transaction {
                             .into_memory()
                             .unwrap()
                             .data(&self.store);
+
                         let segment = MemorySegment {
                             address: 16,
                             data: memory[16..32].to_vec(),
@@ -827,9 +831,24 @@ impl Transaction {
                         let mut cursor = &segment.data[..];
                         let id = cursor.read_u64::<LittleEndian>().unwrap();
                         let amount = cursor.read_u64::<LittleEndian>().unwrap();
-                        // TODO: store id & amount in Token and actually bind it to the UTXO
                         read_from_memory.push(segment);
-                        values = vec![TokenId { id: 0 }.to_wasm_u32(self.store.as_context_mut())];
+
+                        let token_id = TokenId::random();
+                        let token = Token {
+                            // code and unbind_fn can be determined by the bind() program
+                            bind_program: from_program,
+                            id,
+                            amount,
+                        };
+                        let utxo_id = self.store.data_mut().programs[to_program.0].utxo.unwrap();
+                        self.store
+                            .data_mut()
+                            .utxos
+                            .get_mut(&utxo_id)
+                            .unwrap()
+                            .tokens
+                            .insert(token_id, token);
+                        values = vec![token_id.to_wasm_u32(self.store.as_context_mut())];
                     }
 
                     self.resume(from_program, to_program, values, read_from_memory, vec![])
@@ -854,21 +873,23 @@ impl Transaction {
                 // ------------------------------------------------------------
                 // Coordination scripts can call into UTXOs
                 Err(Interrupt::UtxoNew {
-                    hash,
+                    code,
                     entry_point,
                     inputs,
                 }) => {
-                    let code = self.code_cache.get(hash);
+                    let code = self.code_cache.get(code);
                     let linker = utxo_linker(self.store.engine(), &self.code_cache, &code);
                     let id = UtxoId::random();
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].yield_to =
                         Some((from_program, id.to_wasm_u32(self.store.as_context_mut())));
+                    self.store.data_mut().programs[to_program.0].utxo = Some(id);
                     self.store.data_mut().utxos.insert(
                         id,
                         Utxo {
                             program: to_program,
+                            tokens: Default::default(),
                         },
                     );
                     (to_program, result)
@@ -933,11 +954,11 @@ impl Transaction {
                     self.resume(from_program, to_program, vec![value], vec![], vec![])
                 }
                 Err(Interrupt::TokenBind {
-                    hash,
+                    code,
                     entry_point,
                     mut inputs,
                 }) => {
-                    let code = self.code_cache.get(hash);
+                    let code = self.code_cache.get(code);
                     let linker = token_linker(self.store.engine(), &code);
                     //let id = TokenId::random();
 
@@ -1006,6 +1027,7 @@ impl Transaction {
             instance,
             num_outputs,
             resumable,
+            utxo: None,
         });
         self.store.data_mut().witnesses.push(TxWitness {
             from_program,
@@ -1113,6 +1135,7 @@ impl Transaction {
                 .clone()),
         };
         eprintln!("= {result:?}");
+        let utxo = self.store.data().programs[to_program.0].utxo;
         self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,
             return_is_token: false,
@@ -1122,6 +1145,7 @@ impl Transaction {
             num_outputs,
             instance,
             resumable,
+            utxo,
         });
         self.store.data_mut().witnesses.push(TxWitness {
             from_program,
