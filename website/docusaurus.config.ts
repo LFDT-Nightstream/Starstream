@@ -41,9 +41,8 @@ const config: Config = {
           editUrl:
             'https://github.com/PaimaStudios/Starstream/tree/master/website/',
         },
-        /*
         blog: {
-          showReadingTime: true,
+          showReadingTime: false,
           feedOptions: {
             type: ['rss', 'atom'],
             xslt: true,
@@ -51,13 +50,12 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+            'https://github.com/PaimaStudios/Starstream/tree/master/website/',
           // Useful options to enforce blogging best practices
           onInlineTags: 'warn',
           onInlineAuthors: 'warn',
           onUntruncatedBlogPosts: 'warn',
         },
-        */
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -89,6 +87,10 @@ const config: Config = {
           position: 'left',
           label: 'Documentation',
         },
+        {
+          to: '/blog',
+          label: 'Posts',
+        }
       ],
     },
     footer: {
