@@ -11,7 +11,7 @@ use wasmi::{Engine, Module};
 use crate::util::DisplayHex;
 
 /// A raw ID describing a contract in a content-addressible way.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CodeHash([u8; 32]);
 
 impl CodeHash {
@@ -71,22 +71,28 @@ impl std::fmt::Debug for ContractCode {
 /// A cache of WASM blobs.
 #[derive(Default)]
 pub struct CodeCache {
-    contract_code: RwLock<HashMap<String, Arc<ContractCode>>>,
+    by_hash: RwLock<HashMap<CodeHash, Arc<ContractCode>>>,
 }
 
 impl CodeCache {
-    /// Load a debug .
+    /// Load code by crate name from the Rust `target/` directory.
     pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
-        if let Some(code) = self.contract_code.read().unwrap().get(name) {
-            code.clone()
-        } else {
-            let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
-            let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
-            self.contract_code
-                .write()
-                .unwrap()
-                .insert(name.to_owned(), result.clone());
-            result
-        }
+        let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
+        let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
+
+        self.by_hash
+            .write()
+            .unwrap()
+            .insert(result.hash(), result.clone());
+        result
+    }
+
+    pub fn get(&self, hash: CodeHash) -> Arc<ContractCode> {
+        self.by_hash
+            .read()
+            .unwrap()
+            .get(&hash)
+            .expect("todo: load code by hash")
+            .clone()
     }
 }

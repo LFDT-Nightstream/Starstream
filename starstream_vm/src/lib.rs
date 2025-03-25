@@ -73,8 +73,46 @@ fn fake_import<T>(linker: &mut Linker<T>, import: &ImportType, message: &'static
 
 #[derive(Debug, Clone)]
 enum Interrupt {
-    Yield { name: String, data: u32 },
-    //CoordinationCode,
+    // Common
+    CoordinationCode {
+        return_addr: u32,
+    },
+    // Coordination -> UTXO
+    UtxoNew {
+        hash: CodeHash,
+        entry_point: String,
+        inputs: Vec<Value>,
+    },
+    UtxoResume {
+        utxo_id: UtxoId,
+        inputs: Vec<Value>,
+    },
+    UtxoQuery {
+        utxo_id: UtxoId,
+        method: String,
+        inputs: Vec<Value>,
+    },
+    UtxoMutate {
+        utxo_id: UtxoId,
+        method: String,
+        inputs: Vec<Value>,
+    },
+    UtxoConsume {
+        utxo_id: UtxoId,
+        method: String,
+        inputs: Vec<Value>,
+    },
+    // Coordination <- UTXO
+    Yield {
+        name: String,
+        data: u32,
+    },
+    // UTXO -> Token
+    TokenMint {
+        hash: CodeHash,
+        entry_point: String,
+        inputs: Vec<Value>,
+    },
 }
 
 impl Interrupt {
@@ -82,13 +120,20 @@ impl Interrupt {
     fn yield_data(&self) -> u32 {
         match self {
             Interrupt::Yield { data, .. } => *data,
+            _ => panic!(),
         }
     }
     fn yield_name(&self) -> &str {
         match self {
             Interrupt::Yield { name, .. } => name,
+            _ => panic!(),
         }
     }
+}
+
+#[inline]
+fn host(i: Interrupt) -> Result<(), wasmi::Error> {
+    Err(wasmi::Error::host(i))
 }
 
 impl std::fmt::Display for Interrupt {
@@ -100,12 +145,7 @@ impl std::fmt::Display for Interrupt {
 impl HostError for Interrupt {}
 
 /// Fulfiller of imports from `env`.
-fn starstream_env<T>(
-    linker: &mut Linker<T>,
-    module: &str,
-    this_code: &ContractCode,
-    coordination_code: impl Fn(&T) -> &ContractCode + Send + Sync + 'static,
-) {
+fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractCode) {
     let this_code = this_code.hash();
 
     linker
@@ -134,11 +174,11 @@ fn starstream_env<T>(
         .func_wrap(
             module,
             "starstream_coordination_code",
-            move |mut caller: Caller<T>, return_addr: u32| {
-                let (memory, env) = memory(&mut caller);
-                let hash = coordination_code(env).hash().raw();
-                memory[return_addr as usize..return_addr as usize + hash.len()]
-                    .copy_from_slice(&hash);
+            move |return_addr: u32| -> Result<(), wasmi::Error> {
+                eprintln!("starstream_coordination_code({return_addr:#x})");
+                Err(wasmi::Error::host(Interrupt::CoordinationCode {
+                    return_addr,
+                }))
             },
         )
         .unwrap();
@@ -147,6 +187,7 @@ fn starstream_env<T>(
             module,
             "starstream_this_code",
             move |mut caller: Caller<T>, return_addr: u32| {
+                eprintln!("starstream_this_code({return_addr:#x})");
                 let (memory, _) = memory(&mut caller);
                 let hash = this_code.raw();
                 memory[return_addr as usize..return_addr as usize + hash.len()]
@@ -173,12 +214,12 @@ fn starstream_env<T>(
 }
 
 /// Fulfiller of imports from `starstream_utxo_env`.
-fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
+fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
     linker
         .func_wrap(
             module,
             "starstream_yield",
-            |mut caller: Caller<UtxoInstance>,
+            |mut caller: Caller<TransactionInner>,
              name: u32,
              name_len: u32,
              data: u32,
@@ -186,7 +227,7 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
              resume_arg: u32,
              resume_arg_len: u32|
              -> Result<(), wasmi::Error> {
-                eprintln!("YIELD");
+                eprintln!("starstream_yield()");
                 Err(wasmi::Error::host(Interrupt::Yield {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
@@ -208,17 +249,17 @@ struct TokenId {
 }
 
 impl TokenId {
-    fn to_wasm_u32(self, mut store: StoreContextMut<UtxoInstance>) -> Value {
+    fn to_wasm_u32(self, mut store: StoreContextMut<TransactionInner>) -> Value {
         let scrambled = rand::rng().next_u32();
         store.data_mut().temporary_token_ids.insert(scrambled, self);
         Value::I32(scrambled as i32)
     }
 
-    fn to_wasm_externref(self, store: StoreContextMut<UtxoInstance>) -> Value {
+    fn to_wasm_externref(self, store: StoreContextMut<TransactionInner>) -> Value {
         Value::ExternRef(ExternRef::new::<TokenId>(store, Some(self)))
     }
 
-    fn from_wasm(value: &Value, store: StoreContext<UtxoInstance>) -> Option<TokenId> {
+    fn from_wasm(value: &Value, store: StoreContext<TransactionInner>) -> Option<TokenId> {
         match value {
             Value::I32(scrambled) => store
                 .data()
@@ -231,6 +272,7 @@ impl TokenId {
     }
 }
 
+/*
 struct UtxoInstance {
     coordination_code: Arc<ContractCode>,
     code_cache: Arc<CodeCache>,
@@ -238,17 +280,16 @@ struct UtxoInstance {
     tokens: Vec<Token>,
     temporary_token_ids: HashMap<u32, TokenId>,
 }
+*/
 
 fn utxo_linker(
     engine: &Engine,
+    code_cache: &Arc<CodeCache>,
     utxo_code: &ContractCode,
-    coordination_code: &Arc<ContractCode>,
-) -> Linker<UtxoInstance> {
-    let mut linker = Linker::new(engine);
+) -> Linker<TransactionInner> {
+    let mut linker = Linker::<TransactionInner>::new(engine);
 
-    starstream_env(&mut linker, "env", utxo_code, |instance: &UtxoInstance| {
-        &instance.coordination_code
-    });
+    starstream_env(&mut linker, "env", utxo_code);
 
     starstream_utxo_env(&mut linker, "starstream_utxo_env");
 
@@ -258,26 +299,20 @@ fn utxo_linker(
                 if import.name().starts_with("starstream_mint_") {
                     let name = import.name().to_owned();
                     let rest = rest.to_owned();
-                    let coordination_code = coordination_code.clone();
+                    let code_cache = code_cache.clone();
                     linker
                         .func_new(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |mut caller, inputs, outputs| {
-                                eprintln!("MINT {name:?} {inputs:?}");
-                                let mut store = caller.as_context_mut();
-                                let data = store.data_mut();
-                                let utxo = Token::mint(
-                                    coordination_code.clone(),
-                                    data.code_cache.load_debug(&rest),
-                                    &name,
-                                    inputs,
-                                );
-                                let id = data.tokens.len();
-                                data.tokens.push(utxo);
-                                outputs[0] = TokenId { id }.to_wasm_u32(caller.as_context_mut());
-                                Ok(())
+                            move |_caller, inputs, _outputs| {
+                                eprintln!("{rest}::{name}{inputs:?}");
+                                let hash = code_cache.load_debug(&rest).hash();
+                                host(Interrupt::TokenMint {
+                                    hash,
+                                    entry_point: name.clone(),
+                                    inputs: inputs.to_vec(),
+                                })
                             },
                         )
                         .unwrap();
@@ -299,200 +334,20 @@ fn utxo_linker(
 
 // ----------------------------------------------------------------------------
 
+#[derive(Debug)]
 struct Utxo {
-    code: Arc<ContractCode>,
-    entry_point: String,
-    store: RefCell<Store<UtxoInstance>>,
-    instance: Instance,
-    status: ResumableCall,
-}
-
-impl Utxo {
-    fn start(
-        coordination_code: Arc<ContractCode>,
-        utxo_code: Arc<ContractCode>,
-        code_cache: &Arc<CodeCache>,
-        entry_point: String,
-        inputs: &[Value],
-    ) -> Utxo {
-        let engine = Engine::default();
-        let mut store = Store::new(
-            &engine,
-            UtxoInstance {
-                coordination_code: coordination_code.clone(),
-                code_cache: code_cache.clone(),
-                tokens: Default::default(),
-                temporary_token_ids: Default::default(),
-            },
-        );
-        let linker = utxo_linker(&engine, &utxo_code, &coordination_code);
-        let instance = linker
-            .instantiate(&mut store, &utxo_code.module(&engine))
-            .unwrap()
-            .ensure_no_start(&mut store)
-            .unwrap();
-        let main = instance.get_func(&mut store, &entry_point).unwrap();
-        // TODO: call_resumable is naturally what we want here, but it's not
-        // serializable to disk yet. We could patch wasmi to make it so, or go
-        // back to binaryen-asyncify.
-        let status = main.call_resumable(&mut store, inputs, &mut []).unwrap();
-        Utxo {
-            code: utxo_code,
-            entry_point,
-            store: RefCell::new(store),
-            instance,
-            status,
-        }
-    }
-
-    fn is_alive(&self) -> bool {
-        matches!(self.status, ResumableCall::Resumable(_))
-    }
-
-    fn resume(&mut self) {
-        let ResumableCall::Resumable(resumable) =
-            std::mem::replace(&mut self.status, ResumableCall::Finished)
-        else {
-            panic!("Cannot resume() after exit")
-        };
-        self.status = resumable
-            .resume(self.store.borrow_mut().as_context_mut(), &[], &mut [])
-            .unwrap();
-    }
-
-    fn query(&self, method: &str, inputs: &[Value], outputs: &mut [Value]) {
-        eprintln!("query {method:?} {inputs:?} {}", outputs.len());
-        let ResumableCall::Resumable(resumable) = &self.status else {
-            panic!("Cannot query() after exit");
-        };
-        let inputs = std::iter::once(Value::I32(
-            resumable
-                .host_error()
-                .downcast_ref::<Interrupt>()
-                .unwrap()
-                .yield_data() as i32,
-        ))
-        .chain(inputs.iter().cloned())
-        .collect::<Vec<_>>();
-
-        let func = self
-            .instance
-            .get_func(self.store.borrow().as_context(), method)
-            .unwrap();
-        func.call(self.store.borrow_mut().as_context_mut(), &inputs, outputs)
-            .unwrap()
-    }
-
-    fn mutate(&mut self, method: &str, inputs: &[Value], outputs: &mut [Value]) {
-        eprintln!("mutate {method:?} {inputs:?} {}", outputs.len());
-        let ResumableCall::Resumable(resumable) = &self.status else {
-            panic!("Cannot query() after exit");
-        };
-        let inputs: Vec<Value> = std::iter::once(Value::I32(
-            resumable
-                .host_error()
-                .downcast_ref::<Interrupt>()
-                .unwrap()
-                .yield_data() as i32,
-        ))
-        .chain(inputs.iter().cloned())
-        .collect::<Vec<_>>();
-
-        let func = self
-            .instance
-            .get_func(self.store.borrow().as_context(), method)
-            .unwrap();
-        func.call(self.store.borrow_mut().as_context_mut(), &inputs, outputs)
-            .unwrap()
-    }
-
-    fn consume(&mut self, method: &str, inputs: &[Value], outputs: &mut [Value]) {
-        eprintln!("consume {method:?} {inputs:?} {}", outputs.len());
-        let ResumableCall::Resumable(resumable) = &self.status else {
-            panic!("Cannot query() after exit");
-        };
-        let inputs: Vec<Value> = std::iter::once(Value::I32(
-            resumable
-                .host_error()
-                .downcast_ref::<Interrupt>()
-                .unwrap()
-                .yield_data() as i32,
-        ))
-        .chain(inputs.iter().cloned())
-        .collect::<Vec<_>>();
-
-        let func = self
-            .instance
-            .get_func(self.store.borrow().as_context(), method)
-            .unwrap();
-        let r = func
-            .call(self.store.borrow_mut().as_context_mut(), &inputs, outputs)
-            .unwrap();
-        self.status = ResumableCall::Finished;
-        r
-    }
-}
-
-impl std::fmt::Debug for Utxo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = f.debug_struct("Utxo");
-        s.field("entry_point", &self.entry_point);
-        match &self.status {
-            ResumableCall::Finished => {
-                s.field("finished", &true);
-            }
-            ResumableCall::Resumable(resumable) => {
-                let pause = resumable.host_error().downcast_ref::<Interrupt>().unwrap();
-                let inputs = [Value::I32(pause.yield_data() as i32)];
-                let name = pause.yield_name();
-                s.field("type", &name);
-                let last_part = name.split("::").last().unwrap();
-
-                let mut store = self.store.borrow_mut();
-                let funcs = self
-                    .instance
-                    .exports(store.as_context())
-                    .filter_map(|e| {
-                        let n = e.name().to_owned();
-                        e.into_func().map(|x| (n, x))
-                    })
-                    .collect::<Vec<_>>();
-                for (name, func) in funcs {
-                    let mut outputs = [Value::ExternRef(ExternRef::null())];
-                    if name.starts_with("starstream_query_")
-                        && name["starstream_query_".len()..].starts_with(&last_part)
-                        && func.ty(store.as_context()).params() == &[ValueType::I32]
-                        && func.ty(store.as_context()).results().len() == 1
-                    {
-                        func.call(store.as_context_mut(), &inputs, &mut outputs)
-                            .unwrap();
-                        s.field(&name, &outputs[0]);
-                    }
-                }
-            }
-        }
-        s.finish()
-    }
+    program: ProgramIdx,
 }
 
 // ----------------------------------------------------------------------------
 
-struct TokenInstance {
-    coordination_code: Arc<ContractCode>,
-}
-
-fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<TokenInstance> {
+fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<TransactionInner> {
     let mut linker = Linker::new(engine);
 
-    starstream_env(
-        &mut linker,
-        "env",
-        token_code,
-        |instance: &TokenInstance| &instance.coordination_code,
-    );
+    starstream_env(&mut linker, "env", token_code);
 
     for import in token_code.module(engine).imports() {
-        fake_import(&mut linker, &import, "Not available in UTXO context");
+        fake_import(&mut linker, &import, "Not available in token context");
     }
 
     linker
@@ -500,6 +355,7 @@ fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<Token
 
 // ----------------------------------------------------------------------------
 
+/*
 struct Token {
     code: Arc<ContractCode>,
     // Note: doesn't save Store or Instance, instead recreates it from scratch
@@ -511,12 +367,7 @@ struct Token {
 }
 
 impl Token {
-    fn mint(
-        coordination_code: Arc<ContractCode>,
-        token_code: Arc<ContractCode>,
-        mint_fn: &str,
-        inputs: &[Value],
-    ) -> Token {
+    fn mint(token_code: Arc<ContractCode>, mint_fn: &str, inputs: &[Value]) -> Token {
         let burn_fn = mint_fn.replace("starstream_mint_", "starstream_burn_");
         assert_ne!(mint_fn, burn_fn);
 
@@ -527,7 +378,7 @@ impl Token {
             .collect::<Vec<_>>();
 
         let engine = Engine::default();
-        let mut store = Store::new(&engine, TokenInstance { coordination_code });
+        let mut store = Store::new(&engine, TokenInstance {});
         let linker = token_linker(&engine, &token_code);
         let instance = linker
             .instantiate(&mut store, &token_code.module(&engine))
@@ -556,11 +407,11 @@ impl Token {
         }
     }
 
-    fn burn(self, burn_fn: &str, coordination_code: Arc<ContractCode>) {
+    fn burn(self, burn_fn: &str) {
         assert_eq!(self.burn_fn, burn_fn);
 
         let engine = Engine::default();
-        let mut store = Store::new(&engine, TokenInstance { coordination_code });
+        let mut store = Store::new(&engine, TokenInstance {});
         let linker = token_linker(&engine, &self.code);
         let instance = linker
             .instantiate(&mut store, &self.code.module(&engine))
@@ -586,6 +437,7 @@ impl std::fmt::Debug for Token {
             .finish()
     }
 }
+*/
 
 // ----------------------------------------------------------------------------
 
@@ -643,59 +495,52 @@ fn coordination_script_linker<'tx>(
 ) -> Linker<TransactionInner> {
     let mut linker = Linker::<TransactionInner>::new(engine);
 
-    let cc = coordination_code.clone();
-    starstream_env(&mut linker, "env", &coordination_code, move |_| todo!());
+    starstream_env(&mut linker, "env", &coordination_code);
 
     for import in coordination_code.module(&engine).imports() {
         if import.module() == "env" {
             // handled by starstream_env above
         } else if let Some(rest) = import.module().strip_prefix("starstream_utxo:") {
+            let rest = rest.to_owned();
             if let ExternType::Func(func_ty) = import.ty() {
                 let name = import.name().to_owned();
-                if import.name().starts_with("starstream_status_") {
+                if import.name().starts_with("starstream_new_") {
+                    let code_cache = code_cache.clone();
+                    linker
+                        .func_new(
+                            import.module(),
+                            import.name(),
+                            func_ty.clone(),
+                            move |_caller,
+                                  inputs: &[Value],
+                                  _outputs|
+                                  -> Result<(), wasmi::Error> {
+                                eprintln!("{rest}::{name}{inputs:?}");
+                                let hash = code_cache.load_debug(&rest).hash();
+                                host(Interrupt::UtxoNew {
+                                    hash,
+                                    entry_point: name.clone(),
+                                    inputs: inputs.to_vec(),
+                                })
+                            },
+                        )
+                        .unwrap();
+                } else if import.name().starts_with("starstream_status_") {
+                    // TODO
                 } else if import.name().starts_with("starstream_resume_") {
                     linker
                         .func_new(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |mut caller, inputs, outputs| {
+                            move |caller, inputs, outputs| {
+                                eprintln!("{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
-                                    &name,
-                                    &inputs[1..],
-                                    outputs,
-                                );
-                                Ok(())
-                            },
-                        )
-                        .unwrap();
-                } else if import.name().starts_with("starstream_new_") {
-                    let code_cache = code_cache.clone();
-                    let coordination_code = coordination_code.clone();
-                    let rest = rest.to_owned();
-                    linker
-                        .func_new(
-                            import.module(),
-                            import.name(),
-                            func_ty.clone(),
-                            move |mut caller, inputs, outputs| {
-                                eprintln!("NEW {name:?} {inputs:?}");
-                                let utxo_code = code_cache.load_debug(&rest);
-                                let utxo = Utxo::start(
-                                    coordination_code.clone(),
-                                    utxo_code.clone(),
-                                    &code_cache,
-                                    name.clone(),
-                                    inputs,
-                                );
-                                let mut store = caller.as_context_mut();
-                                let local_utxos = &mut store.data_mut().utxos;
-                                let id = UtxoId::random();
-                                local_utxos.insert(id, utxo);
-                                outputs[0] = id.to_wasm_u32(caller.as_context_mut());
-                                Ok(())
+                                host(Interrupt::UtxoResume {
+                                    utxo_id,
+                                    inputs: inputs.to_vec(),
+                                })
                             },
                         )
                         .unwrap();
@@ -705,16 +550,15 @@ fn coordination_script_linker<'tx>(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |mut caller, inputs, outputs| {
-                                //eprintln!("inputs are {inputs:?}");
+                            move |caller, inputs, _outputs| {
+                                eprintln!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
-                                caller.as_context_mut().data_mut().utxos[&utxo_id].query(
-                                    &name,
-                                    &inputs[1..],
-                                    outputs,
-                                );
-                                Ok(())
+                                host(Interrupt::UtxoQuery {
+                                    utxo_id,
+                                    method: name.clone(),
+                                    inputs: inputs[1..].to_vec(),
+                                })
                             },
                         )
                         .unwrap();
@@ -724,18 +568,15 @@ fn coordination_script_linker<'tx>(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |mut caller, inputs, outputs| {
-                                //eprintln!("inputs are {inputs:?}");
+                            move |caller, inputs, _outputs| {
+                                eprintln!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
-                                caller
-                                    .as_context_mut()
-                                    .data_mut()
-                                    .utxos
-                                    .get_mut(&utxo_id)
-                                    .unwrap()
-                                    .mutate(&name, &inputs[1..], outputs);
-                                Ok(())
+                                host(Interrupt::UtxoMutate {
+                                    utxo_id,
+                                    method: name.clone(),
+                                    inputs: inputs[1..].to_vec(),
+                                })
                             },
                         )
                         .unwrap();
@@ -745,19 +586,15 @@ fn coordination_script_linker<'tx>(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |mut caller, inputs, outputs| {
-                                eprintln!("inputs are {inputs:?}");
+                            move |caller, inputs, _outputs| {
+                                eprintln!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_u32(&inputs[0], caller.as_context()).unwrap();
-                                // NB: not remove() because we want a record of the dead UTXO for later
-                                caller
-                                    .as_context_mut()
-                                    .data_mut()
-                                    .utxos
-                                    .get_mut(&utxo_id)
-                                    .unwrap()
-                                    .consume(&name, &inputs[1..], outputs);
-                                Ok(())
+                                host(Interrupt::UtxoConsume {
+                                    utxo_id,
+                                    method: name.clone(),
+                                    inputs: inputs[1..].to_vec(),
+                                })
                             },
                         )
                         .unwrap();
@@ -806,16 +643,18 @@ impl std::fmt::Debug for ProgramIdx {
 
 struct TxProgram {
     return_to: ProgramIdx,
+    return_is_token: bool,
+    yield_to: Option<(ProgramIdx, Value)>,
 
     code: CodeHash,
     entry_point: String,
+    // Num outputs of root fn of `resumable`. wasmi knows this but doesn't expose it.
+    num_outputs: usize,
 
     // Memory is in here
     instance: Instance,
     // None if just started, Finished if finished, Resumable if yielded
     resumable: ResumableCall,
-    // Num outputs of root fn of `resumable`. wasmi knows this but doesn't expose it.
-    num_outputs: usize,
 }
 
 impl TxProgram {
@@ -833,10 +672,28 @@ impl std::fmt::Debug for TxProgram {
             .field("return_to", &self.return_to)
             .field("code", &self.code)
             .field("entry_point", &self.entry_point)
-            //.field("instance", &self.instance)
-            .field("resumable", &self.resumable)
             .field("num_outputs", &self.num_outputs)
+            .field(
+                "interrupt",
+                &match &self.resumable {
+                    ResumableCall::Resumable(resumable) => {
+                        resumable.host_error().downcast_ref::<Interrupt>()
+                    }
+                    ResumableCall::Finished => None::<&Interrupt>,
+                },
+            )
             .finish()
+    }
+}
+
+struct MemorySegment {
+    address: u32,
+    data: Vec<u8>,
+}
+
+impl std::fmt::Debug for MemorySegment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({:#x}, {})", self.address, DisplayHex(&self.data))
     }
 }
 
@@ -845,6 +702,10 @@ struct TxWitness {
     from_program: ProgramIdx,
     to_program: ProgramIdx,
     values: Vec<Value>,
+    /// Memory segments read from `from_program` by this witness.
+    read_from_memory: Vec<MemorySegment>,
+    /// Memory segments written to `to_program`` by this witness.
+    write_to_memory: Vec<MemorySegment>,
 }
 
 /// State inside a transaction. The Transaction itself keeps the wasm Store.
@@ -852,6 +713,7 @@ struct TxWitness {
 struct TransactionInner {
     utxos: HashMap<UtxoId, Utxo>,
     temporary_utxo_ids: HashMap<u32, UtxoId>,
+    temporary_token_ids: HashMap<u32, TokenId>,
 
     /// Programs this transaction has started or resumed.
     programs: Vec<TxProgram>,
@@ -886,7 +748,7 @@ impl Transaction {
         entry_point: &str,
         mut inputs: Vec<Value>,
     ) -> Value {
-        eprintln!("run_transaction({entry_point:?}, {inputs:?})");
+        eprintln!(); //"run_transaction({entry_point:?}, {inputs:?})");
 
         let linker = coordination_script_linker(
             &self.store.engine().clone(),
@@ -901,21 +763,24 @@ impl Transaction {
             }
         }
 
-        let (mut program, mut result) = self.start_program(
+        let (mut from_program, mut result) = self.start_program(
+            ProgramIdx::Root,
             &linker,
             coordination_code,
             entry_point,
-            ProgramIdx::Root,
             inputs,
         );
         // Main effect scheduler loop.
         loop {
-            match result {
-                Ok(values) => {
+            (from_program, result) = match result {
+                // ------------------------------------------------------------
+                // Entry point returned
+                Ok(mut values) => {
                     // Program returned.
-                    let return_to = self.store.data_mut().programs[program.0].return_to;
-                    eprintln!("{program:?} -> {return_to:?}: {values:?}");
-                    if return_to == ProgramIdx::Root {
+                    let to_program = self.store.data_mut().programs[from_program.0].return_to;
+                    if to_program == ProgramIdx::Root {
+                        eprintln!("{from_program:?} -> {to_program:?}: {values:?}");
+                        // Transform WASM-side values to .
                         let result = if values.len() > 0 {
                             if let Some(utxo) =
                                 UtxoId::from_wasm_u32(&values[0], self.store.as_context())
@@ -930,30 +795,171 @@ impl Transaction {
                             Value::I32(0)
                         };
 
+                        // Push final witness
                         self.store.data_mut().witnesses.push(TxWitness {
-                            from_program: program,
+                            from_program,
                             to_program: ProgramIdx::Root,
                             values,
+                            read_from_memory: Default::default(),
+                            write_to_memory: Default::default(),
                         });
 
                         return result;
                     }
-                    (program, result) = (return_to, self.resume(program, return_to, values));
+
+                    let mut read_from_memory = vec![];
+                    if self.store.data().programs[from_program.0].return_is_token {
+                        // Transform id & amount in memory into [TokenId]. Kind of awkward?
+                        let instance = self.store.data().programs[from_program.0].instance;
+                        let memory = instance
+                            .get_export(&self.store, "memory")
+                            .unwrap()
+                            .into_memory()
+                            .unwrap()
+                            .data(&self.store);
+                        let segment = MemorySegment {
+                            address: 16,
+                            data: memory[16..32].to_vec(),
+                        };
+                        let mut cursor = &segment.data[..];
+                        let id = cursor.read_u64::<LittleEndian>().unwrap();
+                        let amount = cursor.read_u64::<LittleEndian>().unwrap();
+                        // TODO: store id & amount in Token and actually bind it to the UTXO
+                        read_from_memory.push(segment);
+                        values = vec![TokenId { id: 0 }.to_wasm_u32(self.store.as_context_mut())];
+                    }
+
+                    self.resume(from_program, to_program, values, read_from_memory, vec![])
                 }
+
+                // ------------------------------------------------------------
+                // Common
+                Err(Interrupt::CoordinationCode { return_addr }) => {
+                    let to_program = from_program;
+                    self.resume(
+                        from_program,
+                        to_program,
+                        vec![],
+                        vec![],
+                        vec![MemorySegment {
+                            address: return_addr,
+                            data: coordination_code.hash().raw().to_vec(),
+                        }],
+                    )
+                }
+
+                // ------------------------------------------------------------
+                // Coordination scripts can call into UTXOs
+                Err(Interrupt::UtxoNew {
+                    hash,
+                    entry_point,
+                    inputs,
+                }) => {
+                    let code = self.code_cache.get(hash);
+                    let linker = utxo_linker(self.store.engine(), &self.code_cache, &code);
+                    let id = UtxoId::random();
+                    let (to_program, result) =
+                        self.start_program(from_program, &linker, &code, &entry_point, inputs);
+                    self.store.data_mut().programs[to_program.0].yield_to =
+                        Some((from_program, id.to_wasm_u32(self.store.as_context_mut())));
+                    self.store.data_mut().utxos.insert(
+                        id,
+                        Utxo {
+                            program: to_program,
+                        },
+                    );
+                    (to_program, result)
+                }
+                Err(Interrupt::UtxoResume { utxo_id, inputs }) => {
+                    todo!()
+                }
+                Err(Interrupt::UtxoQuery {
+                    utxo_id,
+                    method,
+                    mut inputs,
+                }) => {
+                    let to_program = self.store.data().utxos[&utxo_id].program;
+                    // Insert address of yielded object.
+                    let address = match self.store.data().programs[to_program.0].interrupt() {
+                        Some(Interrupt::Yield { data, .. }) => *data,
+                        other => panic!("cannot query a UTXO in state {other:?}"),
+                    };
+                    inputs.insert(0, Value::I32(address as i32));
+                    self.call_method(from_program, to_program, method, inputs)
+                    // TODO: either enforce non-mutation or drop the query/mutate split
+                }
+                Err(Interrupt::UtxoMutate {
+                    utxo_id,
+                    method,
+                    mut inputs,
+                }) => {
+                    let to_program = self.store.data().utxos[&utxo_id].program;
+                    // Insert address of yielded object.
+                    let address = match self.store.data().programs[to_program.0].interrupt() {
+                        Some(Interrupt::Yield { data, .. }) => *data,
+                        other => panic!("cannot mutate a UTXO in state {other:?}"),
+                    };
+                    inputs.insert(0, Value::I32(address as i32));
+                    self.call_method(from_program, to_program, method, inputs)
+                }
+                Err(Interrupt::UtxoConsume {
+                    utxo_id,
+                    method,
+                    mut inputs,
+                }) => {
+                    let to_program = self.store.data().utxos[&utxo_id].program;
+                    // Insert address of yielded object.
+                    let address = match self.store.data().programs[to_program.0].interrupt() {
+                        Some(Interrupt::Yield { data, .. }) => *data,
+                        other => panic!("cannot consume a UTXO in state {other:?}"),
+                    };
+                    inputs.insert(0, Value::I32(address as i32));
+                    // Now throw away that object
+                    self.store.data_mut().programs[to_program.0].resumable =
+                        ResumableCall::Finished;
+                    self.call_method(from_program, to_program, method, inputs)
+                }
+
+                // ------------------------------------------------------------
+                // UTXOs can yield and call into tokens
                 Err(Interrupt::Yield { .. }) => {
-                    todo!();
+                    let (to_program, value) = self.store.data_mut().programs[from_program.0]
+                        .yield_to
+                        .take()
+                        .unwrap();
+                    self.resume(from_program, to_program, vec![value], vec![], vec![])
+                }
+                Err(Interrupt::TokenMint {
+                    hash,
+                    entry_point,
+                    mut inputs,
+                }) => {
+                    let code = self.code_cache.get(hash);
+                    let linker = token_linker(self.store.engine(), &code);
+                    //let id = TokenId::random();
+
+                    // Prepend struct return slot to inputs
+                    let return_addr: usize = 16;
+                    inputs.insert(0, Value::I32(return_addr as i32));
+                    // TODO: memory trace this?
+
+                    let (to_program, result) =
+                        self.start_program(from_program, &linker, &code, &entry_point, inputs);
+                    self.store.data_mut().programs[to_program.0].return_is_token = true;
+                    (to_program, result)
                 }
             }
         }
     }
 
+    /// Instantiate a new contract instance.
     fn start_program<'a>(
         &mut self,
-        linker: &Linker<TransactionInner>,
-        code: &Arc<ContractCode>,
-        entry_point: &str,
         from_program: ProgramIdx,
-        values: Vec<Value>,
+        linker: &Linker<TransactionInner>,
+        code: &ContractCode,
+        entry_point: &str,
+        inputs: Vec<Value>,
     ) -> (ProgramIdx, Result<Vec<Value>, Interrupt>) {
         let module = &code.module(self.store.engine());
         let instance = linker
@@ -963,13 +969,13 @@ impl Transaction {
             .unwrap();
 
         let id = ProgramIdx(self.store.data_mut().programs.len());
-        eprintln!("{from_program:?} -> {id:?} = {entry_point}{values:?}");
+        eprintln!("start: {from_program:?} -> {id:?} = {entry_point}{inputs:?}");
 
         let main = instance.get_func(&mut self.store, entry_point).unwrap();
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
         let resumable = main
-            .call_resumable(&mut self.store, &values[..], &mut outputs[..num_outputs])
+            .call_resumable(&mut self.store, &inputs, &mut outputs[..num_outputs])
             .unwrap();
         assert_eq!(
             id.0,
@@ -984,9 +990,11 @@ impl Transaction {
                 .unwrap()
                 .clone()),
         };
-        eprintln!("  = {result:?}");
+        eprintln!("= {result:?}");
         self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,
+            return_is_token: false,
+            yield_to: None,
             code: code.hash(),
             entry_point: entry_point.to_owned(),
             instance,
@@ -996,27 +1004,50 @@ impl Transaction {
         self.store.data_mut().witnesses.push(TxWitness {
             from_program,
             to_program: id,
-            values,
+            values: inputs,
+            read_from_memory: Default::default(),
+            write_to_memory: Default::default(),
         });
         (id, result)
     }
 
+    /// Resume a suspended call stack of a WASM instance.
     fn resume(
         &mut self,
         from_program: ProgramIdx,
         to_program: ProgramIdx,
-        values: Vec<Value>,
-    ) -> Result<Vec<Value>, Interrupt> {
+        inputs: Vec<Value>, // The inputs of this function are the outputs of the yield.
+        read_from_memory: Vec<MemorySegment>,
+        write_to_memory: Vec<MemorySegment>,
+    ) -> (ProgramIdx, Result<Vec<Value>, Interrupt>) {
         match std::mem::replace(
             &mut self.store.data_mut().programs[to_program.0].resumable,
             ResumableCall::Finished,
         ) {
             ResumableCall::Finished => panic!("attempt to resume finished program"),
             ResumableCall::Resumable(invocation) => {
+                eprintln!("resume: {from_program:?} -> {to_program:?} {inputs:?}");
+
+                if !write_to_memory.is_empty() {
+                    // Commit memory writes.
+                    let instance = self.store.data_mut().programs[to_program.0].instance;
+                    let (memory, _) = instance
+                        .get_export(&mut self.store, "memory")
+                        .unwrap()
+                        .into_memory()
+                        .unwrap()
+                        .data_and_store_mut(&mut self.store);
+                    for &MemorySegment { address, ref data } in &write_to_memory {
+                        memory[address as usize..address as usize + data.len()]
+                            .copy_from_slice(data);
+                        eprintln!("  {:#x}: {}", address, DisplayHex(data));
+                    }
+                }
+
                 let num_outputs = self.store.data_mut().programs[to_program.0].num_outputs;
                 let mut outputs = [Value::from(ExternRef::null())];
                 let resumable = invocation
-                    .resume(&mut self.store, &values[..], &mut outputs[..num_outputs])
+                    .resume(&mut self.store, &inputs[..], &mut outputs[..num_outputs])
                     .unwrap();
                 let result = match &resumable {
                     ResumableCall::Finished => Ok(outputs[..num_outputs].to_vec()),
@@ -1026,15 +1057,72 @@ impl Transaction {
                         .unwrap()
                         .clone()),
                 };
+                eprintln!("= {result:?}");
                 self.store.data_mut().programs[to_program.0].resumable = resumable;
                 self.store.data_mut().witnesses.push(TxWitness {
                     from_program,
                     to_program,
-                    values,
+                    values: inputs,
+                    read_from_memory,
+                    write_to_memory,
                 });
-                result
+                (to_program, result)
             }
         }
+    }
+
+    /// Spawn an additional function call in an existing WASM instance.
+    fn call_method(
+        &mut self,
+        from_program: ProgramIdx,
+        to_program: ProgramIdx,
+        method: String,
+        inputs: Vec<Value>,
+    ) -> (ProgramIdx, Result<Vec<Value>, Interrupt>) {
+        let code = self.store.data().programs[to_program.0].code;
+        let instance = self.store.data().programs[to_program.0].instance;
+
+        let id = ProgramIdx(self.store.data_mut().programs.len());
+        eprintln!("call: {from_program:?} -> {to_program:?} -> {id:?} = {method}{inputs:?}");
+
+        let main = instance.get_func(&mut self.store, &method).unwrap();
+        let num_outputs = main.ty(&mut self.store).results().len();
+        let mut outputs = [Value::from(ExternRef::null())];
+        let resumable = main
+            .call_resumable(&mut self.store, &inputs, &mut outputs[..num_outputs])
+            .unwrap();
+        assert_eq!(
+            id.0,
+            self.store.data_mut().programs.len(),
+            "unexpected re-entrancy in Transaction::call_method"
+        );
+        let result = match &resumable {
+            ResumableCall::Finished => Ok(outputs[..num_outputs].to_vec()),
+            ResumableCall::Resumable(invocation) => Err(invocation
+                .host_error()
+                .downcast_ref::<Interrupt>()
+                .unwrap()
+                .clone()),
+        };
+        eprintln!("= {result:?}");
+        self.store.data_mut().programs.push(TxProgram {
+            return_to: from_program,
+            return_is_token: false,
+            yield_to: None,
+            code,
+            entry_point: method.to_owned(),
+            num_outputs,
+            instance,
+            resumable,
+        });
+        self.store.data_mut().witnesses.push(TxWitness {
+            from_program,
+            to_program: id,
+            values: inputs,
+            read_from_memory: Default::default(),
+            write_to_memory: Default::default(),
+        });
+        (id, result)
     }
 }
 
