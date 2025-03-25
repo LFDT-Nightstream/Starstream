@@ -9,8 +9,8 @@ use tiny_keccak::Hasher;
 use util::DisplayHex;
 use wasmi::{
     AsContext, AsContextMut, Caller, Engine, ExternRef, ExternType, ImportType, Instance, Linker,
-    ResumableCall, Store, StoreContext, StoreContextMut, Value,
-    core::{HostError, Trap, ValueType},
+    ResumableCall, Store, StoreContext, StoreContextMut, Val as Value,
+    core::{HostError, ValType as ValueType},
 };
 
 mod code;
@@ -179,9 +179,9 @@ fn starstream_utxo_env(linker: &mut Linker<UtxoInstance>, module: &str) {
              data_len: u32,
              resume_arg: u32,
              resume_arg_len: u32|
-             -> Result<(), Trap> {
+             -> Result<(), wasmi::Error> {
                 eprintln!("YIELD");
-                Err(Trap::from(Interrupt::Yield {
+                Err(wasmi::Error::host(Interrupt::Yield {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
                     )

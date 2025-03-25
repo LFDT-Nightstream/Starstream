@@ -1,5 +1,5 @@
 use starstream_vm::*;
-use wasmi::Value;
+use wasmi::Val as Value;
 
 pub fn main() {
     let mut tx = Transaction::new();
