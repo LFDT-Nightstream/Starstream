@@ -240,12 +240,12 @@ struct TokenId {
 impl TokenId {
     fn random() -> TokenId {
         let mut bytes = [0; 16];
-        rand::rng().fill_bytes(&mut bytes);
+        rand::thread_rng().fill_bytes(&mut bytes);
         TokenId { bytes }
     }
 
     fn to_wasm_i64(self, mut store: StoreContextMut<TransactionInner>) -> Value {
-        let scrambled = rand::rng().next_u64();
+        let scrambled = rand::thread_rng().next_u64();
         store.data_mut().temporary_token_ids.insert(scrambled, self);
         Value::I64(scrambled as i64)
     }
@@ -452,12 +452,12 @@ pub struct UtxoId {
 impl UtxoId {
     fn random() -> UtxoId {
         let mut bytes = [0; 16];
-        rand::rng().fill_bytes(&mut bytes);
+        rand::thread_rng().fill_bytes(&mut bytes);
         UtxoId { bytes }
     }
 
     fn to_wasm_i64(self, mut store: StoreContextMut<TransactionInner>) -> Value {
-        let scrambled = rand::rng().next_u64();
+        let scrambled = rand::thread_rng().next_u64();
         store.data_mut().temporary_utxo_ids.insert(scrambled, self);
         Value::I64(scrambled as i64)
     }

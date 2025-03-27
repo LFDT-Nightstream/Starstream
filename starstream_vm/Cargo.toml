@@ -6,9 +6,9 @@ edition = "2024"
 [dependencies]
 #binaryen = "0.13.0"
 byteorder = "1.5.0"
-rand = "0.9.0"
+rand = "0.8.5"
 wasmi = "0.42.1"
 tiny-keccak = { version = "2.0.2", features = ["keccak"] }
 sha2 = "0.10.8"
 termcolor = "1.4.1"
-#zk-engine = { git = "https://github.com/ICME-Lab/zkEngine_dev", branch = "main" }
+zk-engine = { git = "https://github.com/ICME-Lab/zkEngine_dev", branch = "main" }
