@@ -8,8 +8,8 @@ use rand::RngCore;
 use tiny_keccak::Hasher;
 use util::DisplayHex;
 use wasmi::{
-    AsContext, AsContextMut, Caller, Engine, ExternRef, ExternType, ImportType, Instance, Linker,
-    ResumableCall, Store, StoreContext, StoreContextMut, Val as Value, core::HostError,
+    AsContext, AsContextMut, Caller, Config, Engine, ExternRef, ExternType, ImportType, Instance,
+    Linker, ResumableCall, Store, StoreContext, StoreContextMut, Val as Value, core::HostError,
 };
 
 mod code;
@@ -703,8 +703,12 @@ impl std::fmt::Debug for MemorySegment {
     }
 }
 
+const MAX_FUEL: u64 = u64::MAX;
+
 #[derive(Debug)]
 struct TxWitness {
+    /// Total fuel spent by the transaction as of the time of this witness.
+    fuel: u64,
     from_program: ProgramIdx,
     to_program: ProgramIdx,
     values: Vec<Value>,
@@ -736,8 +740,9 @@ pub struct Transaction {
 impl Transaction {
     /// Begin a new transaction with no dependencies.
     pub fn new() -> Transaction {
-        let engine = Engine::default();
-        let store = Store::new(&engine, TransactionInner::default());
+        let engine = Engine::new(Config::default().consume_fuel(true));
+        let mut store = Store::new(&engine, TransactionInner::default());
+        store.set_fuel(MAX_FUEL).unwrap();
         Transaction {
             store,
             code_cache: Default::default(),
@@ -802,7 +807,9 @@ impl Transaction {
                         };
 
                         // Push final witness
+                        let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
                         self.store.data_mut().witnesses.push(TxWitness {
+                            fuel,
                             from_program,
                             to_program: ProgramIdx::Root,
                             values,
@@ -998,6 +1005,7 @@ impl Transaction {
         let id = ProgramIdx(self.store.data_mut().programs.len());
         eprintln!("start: {from_program:?} -> {id:?} = {entry_point}{inputs:?}");
 
+        let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
         let main = instance.get_func(&mut self.store, entry_point).unwrap();
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
@@ -1030,6 +1038,7 @@ impl Transaction {
             utxo: None,
         });
         self.store.data_mut().witnesses.push(TxWitness {
+            fuel,
             from_program,
             to_program: id,
             values: inputs,
@@ -1072,6 +1081,7 @@ impl Transaction {
                     }
                 }
 
+                let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
                 let num_outputs = self.store.data_mut().programs[to_program.0].num_outputs;
                 let mut outputs = [Value::from(ExternRef::null())];
                 let resumable = invocation
@@ -1088,6 +1098,7 @@ impl Transaction {
                 eprintln!("= {result:?}");
                 self.store.data_mut().programs[to_program.0].resumable = resumable;
                 self.store.data_mut().witnesses.push(TxWitness {
+                    fuel,
                     from_program,
                     to_program,
                     values: inputs,
@@ -1118,6 +1129,7 @@ impl Transaction {
             .expect("no such method");
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
+        let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
         let resumable = main
             .call_resumable(&mut self.store, &inputs, &mut outputs[..num_outputs])
             .unwrap();
@@ -1148,6 +1160,7 @@ impl Transaction {
             utxo,
         });
         self.store.data_mut().witnesses.push(TxWitness {
+            fuel,
             from_program,
             to_program: id,
             values: inputs,
