@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: rustup target add --toolchain nightly wasm32-unknown-unknown
+      - run: rustup target add wasm32-unknown-unknown
       - run: make
       - run: ./test
 
