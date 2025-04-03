@@ -715,7 +715,7 @@ struct TxWitness {
     values: Vec<Value>,
     /// Memory segments read from `from_program` by this witness.
     read_from_memory: Vec<MemorySegment>,
-    /// Memory segments written to `to_program`` by this witness.
+    /// Memory segments written to `to_program` by this witness.
     write_to_memory: Vec<MemorySegment>,
 }
 
@@ -970,10 +970,18 @@ impl Transaction {
                     let linker = token_linker(self.store.engine(), &code);
                     //let id = TokenId::random();
 
-                    // Prepend struct return slot to inputs
+                    // Prepend TokenStorage struct return address to inputs.
+                    // HACK: The 16 here is a low but nonzero memory address
+                    // that we're crossing our fingers and hoping that the WASM
+                    // doesn't actually use.
+                    // BETTER: Extend the WASM memory with a new page that we
+                    // know won't collide because it didn't exist before,
+                    // and return there (downside: uses more memory).
+                    // BEST: Use WASM multivalues (Rust -Ctarget-feature=+multivalue)
+                    // instead of struct return addresses in the first place.
+                    // TODO: Memory trace this or fix the hack described above.
                     let return_addr: usize = 16;
                     inputs.insert(0, Value::I32(return_addr as i32));
-                    // TODO: memory trace this?
 
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
