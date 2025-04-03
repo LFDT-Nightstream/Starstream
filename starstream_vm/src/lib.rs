@@ -13,6 +13,7 @@ use wasmi::{
 };
 
 mod code;
+mod nebula;
 mod util;
 
 fn memory<'a, T>(caller: &'a mut Caller<T>) -> (&'a mut [u8], &'a mut T) {

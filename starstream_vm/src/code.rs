@@ -58,6 +58,10 @@ impl ContractCode {
     pub fn hash(&self) -> CodeHash {
         self.hash
     }
+
+    pub fn wasm(&self) -> &[u8] {
+        &self.wasm
+    }
 }
 
 impl std::fmt::Debug for ContractCode {
