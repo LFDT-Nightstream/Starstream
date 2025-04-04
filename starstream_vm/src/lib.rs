@@ -9,7 +9,7 @@ use tiny_keccak::Hasher;
 use util::DisplayHex;
 use wasmi::{
     AsContext, AsContextMut, Caller, Config, Engine, ExternRef, ExternType, ImportType, Instance,
-    Linker, ResumableCall, Store, StoreContext, StoreContextMut, Val as Value, core::HostError,
+    Linker, ResumableCall, Store, StoreContext, StoreContextMut, Value, core::HostError,
 };
 
 mod code;
@@ -121,9 +121,11 @@ enum Interrupt {
     },
 }
 
+type WasmiError = wasmi::core::Trap;
+
 #[inline]
-fn host(i: Interrupt) -> Result<(), wasmi::Error> {
-    Err(wasmi::Error::host(i))
+fn host(i: Interrupt) -> Result<(), WasmiError> {
+    Err(wasmi::core::Trap::from(i))
 }
 
 impl std::fmt::Display for Interrupt {
@@ -164,11 +166,9 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_coordination_code",
-            move |return_addr: u32| -> Result<(), wasmi::Error> {
+            move |return_addr: u32| -> Result<(), WasmiError> {
                 eprintln!("starstream_coordination_code({return_addr:#x})");
-                Err(wasmi::Error::host(Interrupt::CoordinationCode {
-                    return_addr,
-                }))
+                host(Interrupt::CoordinationCode { return_addr })
             },
         )
         .unwrap();
@@ -216,16 +216,16 @@ fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
              data_len: u32,
              resume_arg: u32,
              resume_arg_len: u32|
-             -> Result<(), wasmi::Error> {
+             -> Result<(), WasmiError> {
                 eprintln!("starstream_yield()");
-                Err(wasmi::Error::host(Interrupt::Yield {
+                host(Interrupt::Yield {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
                     )
                     .unwrap()
                     .to_owned(),
                     data,
-                }))
+                })
             },
         )
         .unwrap();
@@ -515,10 +515,7 @@ fn coordination_script_linker<'tx>(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |_caller,
-                                  inputs: &[Value],
-                                  _outputs|
-                                  -> Result<(), wasmi::Error> {
+                            move |_caller, inputs: &[Value], _outputs| -> Result<(), WasmiError> {
                                 eprintln!("{rest}::{name}{inputs:?}");
                                 let code = code_cache.load_debug(&rest).hash();
                                 host(Interrupt::UtxoNew {
@@ -743,7 +740,7 @@ impl Transaction {
     pub fn new() -> Transaction {
         let engine = Engine::new(Config::default().consume_fuel(true));
         let mut store = Store::new(&engine, TransactionInner::default());
-        store.set_fuel(MAX_FUEL).unwrap();
+        store.add_fuel(MAX_FUEL).unwrap();
         Transaction {
             store,
             code_cache: Default::default(),
@@ -808,7 +805,7 @@ impl Transaction {
                         };
 
                         // Push final witness
-                        let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
+                        let fuel = self.store.fuel_consumed().unwrap();
                         self.store.data_mut().witnesses.push(TxWitness {
                             fuel,
                             from_program,
@@ -1014,7 +1011,7 @@ impl Transaction {
         let id = ProgramIdx(self.store.data_mut().programs.len());
         eprintln!("start: {from_program:?} -> {id:?} = {entry_point}{inputs:?}");
 
-        let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
+        let fuel = self.store.fuel_consumed().unwrap();
         let main = instance.get_func(&mut self.store, entry_point).unwrap();
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
@@ -1090,7 +1087,7 @@ impl Transaction {
                     }
                 }
 
-                let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
+                let fuel = self.store.fuel_consumed().unwrap();
                 let num_outputs = self.store.data_mut().programs[to_program.0].num_outputs;
                 let mut outputs = [Value::from(ExternRef::null())];
                 let resumable = invocation
@@ -1138,7 +1135,7 @@ impl Transaction {
             .expect("no such method");
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
-        let fuel = MAX_FUEL - self.store.get_fuel().unwrap();
+        let fuel = self.store.fuel_consumed().unwrap();
         let resumable = main
             .call_resumable(&mut self.store, &inputs, &mut outputs[..num_outputs])
             .unwrap();
