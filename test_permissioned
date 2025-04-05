@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+make target/debug/examples/self_test_permissioned
+exec target/debug/examples/self_test_permissioned "$@"

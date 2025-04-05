@@ -1,0 +1,12 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "example_contract_permissioned"
+version = "0.0.0"
+edition = "2024"
+
+forced-target = "wasm32-unknown-unknown"
+
+[dependencies]
+stack_dst = { version = "0.8.1", default-features = false, features = ["const_generics"] }
+starstream_sys = { path = "../starstream_sys" }
