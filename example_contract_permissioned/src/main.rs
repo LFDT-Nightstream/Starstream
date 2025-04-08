@@ -126,8 +126,8 @@ pub extern "C" fn transfer_usdc(
     proof_to: example_contract_permissioned::LinkedListNode,
     to: i32,
 ) {
-    register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
-    register_effect_handler(TX_CALLER);
+    let _blacklisted_effect_guard = register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
+    let _tx_caller_effect_guard = register_effect_handler(TX_CALLER);
 
     let from = source.get_owner();
 
@@ -220,8 +220,8 @@ pub extern "C" fn token_mint_to(
     amount: i32,
     proof: example_contract_permissioned::LinkedListNode,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
-    register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
-    register_effect_handler(TX_CALLER);
+    let _blacklisted_effect_guard = register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
+    let _tx_caller_effect_guard = register_effect_handler(TX_CALLER);
 
     let out = example_contract_permissioned::PayToPublicKeyHash::new(owner);
     let intermediate = minter.mint(amount);

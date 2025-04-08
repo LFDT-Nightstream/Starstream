@@ -419,16 +419,12 @@ pub struct DropGuard<'a> {
 impl Drop for DropGuard<'_> {
     fn drop(&mut self) {
         unsafe {
-            // NOTE: just in case the len of the string is not the same as the size
-            // in bytes (utf-8)
-            //
-            // most likely this shouldn't be a string anyway
-            let name = self.name.as_bytes();
-            starstream_register_effect_handler(name.as_ptr(), name.len());
+            starstream_unregister_effect_handler(self.name.as_ptr(), self.name.len());
         }
     }
 }
 
+#[must_use]
 pub fn register_effect_handler(name: &str) -> DropGuard<'_> {
     unsafe {
         // NOTE: just in case the len of the string is not the same as the size

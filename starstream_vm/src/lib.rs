@@ -1076,7 +1076,7 @@ impl Transaction {
                 }) => {
                     let to_program = from_program;
 
-                    let throwing_program = self.store.data().raised_effects.get(dbg!(&name));
+                    let throwing_program = self.store.data().raised_effects.get(&name);
 
                     let mut write_to_memory = vec![];
 
