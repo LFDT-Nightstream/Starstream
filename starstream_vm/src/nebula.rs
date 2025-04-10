@@ -1,22 +1,23 @@
 use zk_engine::{
     error::ZKWASMError,
     nova::{
-        provider::{Bn256EngineKZG, GrumpkinEngine, hyperkzg, ipa_pc},
-        spartan::ppsnark::RelaxedR1CSSNARK,
+        provider::{Bn256EngineIPA, ipa_pc},
+        spartan,
+        traits::Dual,
     },
-    wasm_ctx::{WASMArgs, WASMArgsBuilder, ZKWASMCtx},
+    utils::logging::init_logger,
+    wasm_ctx::{WASMArgs, WASMArgsBuilder, WASMCtx, ZKWASMCtx},
     wasm_snark::{StepSize, WasmSNARK},
 };
 
-type E1 = Bn256EngineKZG;
-type E2 = GrumpkinEngine;
-type EE1 = hyperkzg::EvaluationEngine<E1>;
-type EE2 = ipa_pc::EvaluationEngine<E2>;
-type S1 = RelaxedR1CSSNARK<E1, EE1>;
-type S2 = RelaxedR1CSSNARK<E2, EE2>;
-type Snark = WasmSNARK<E1, E2, S1, S2>;
-
 use crate::Transaction;
+
+type E = Bn256EngineIPA;
+type EE1 = ipa_pc::EvaluationEngine<E>;
+type EE2 = ipa_pc::EvaluationEngine<Dual<E>>;
+type S1 = spartan::batched::BatchedRelaxedR1CSSNARK<E, EE1>;
+type S2 = spartan::batched::BatchedRelaxedR1CSSNARK<Dual<E>, EE2>;
+type Snark = WasmSNARK<E, S1, S2>;
 
 /// A context that supplies a linker fulfilling Starstream imports.
 struct StarstreamWasmCtx {
@@ -26,11 +27,11 @@ struct StarstreamWasmCtx {
 impl ZKWASMCtx for StarstreamWasmCtx {
     type T = ();
 
-    fn store(engine: &wasmi::Engine) -> wasmi::Store<Self::T> {
+    fn create_store(engine: &wasmi::Engine) -> wasmi::Store<Self::T> {
         wasmi::Store::new(engine, ())
     }
 
-    fn linker(engine: &wasmi::Engine) -> Result<wasmi::Linker<Self::T>, ZKWASMError> {
+    fn create_linker(engine: &wasmi::Engine) -> Result<wasmi::Linker<Self::T>, ZKWASMError> {
         Ok(<wasmi::Linker<()>>::new(engine))
     }
 
@@ -56,9 +57,7 @@ impl Transaction {
         }
 
         let step_size = StepSize::new(1000).set_memory_step_size(50_000);
-        dbg!(&step_size);
-        let public_params = Snark::setup(step_size).unwrap();
-        eprintln!("snark setup done");
+        let public_params = Snark::setup(step_size);
 
         for program in &inner.programs {
             eprintln!("{program:?}");
