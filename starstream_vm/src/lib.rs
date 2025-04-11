@@ -1337,10 +1337,38 @@ impl Transaction {
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].return_is_token = true;
+
                     (to_program, result)
                 }
-                Err(Interrupt::TokenUnbind { .. }) => {
-                    todo!();
+                Err(Interrupt::TokenUnbind { token_id }) => {
+                    // assume that only the utxo that owns the token can unbind it?
+                    let utxo_id = self.store.data_mut().programs[from_program.0].utxo.unwrap();
+
+                    let token = self
+                        .store
+                        .data_mut()
+                        .utxos
+                        .get_mut(&utxo_id)
+                        .unwrap()
+                        .tokens
+                        .remove(&token_id)
+                        .unwrap();
+
+                    let code = self.store.data().programs[token.bind_program.0].code;
+                    let code = self.code_cache.get(code);
+
+                    let entry_point = self.store.data().programs[token.bind_program.0]
+                        .entry_point
+                        .replace("bind", "unbind");
+
+                    let linker = token_linker(self.store.engine(), &code);
+
+                    let inputs = vec![Value::I64(token.id as i64), Value::I64(token.amount as i64)];
+
+                    let (to_program, result) =
+                        self.start_program(from_program, &linker, &code, &entry_point, inputs);
+
+                    (to_program, result)
                 }
             }
         }

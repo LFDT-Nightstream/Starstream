@@ -63,11 +63,42 @@ pub fn main() {
     let proof_from = find_prev_node(&mut tx, &contract, from);
     let proof_to = find_prev_node(&mut tx, &contract, to);
 
-    let new_node = tx.run_coordination_script(
+    let transfer_output = tx.run_coordination_script(
         &contract,
         "transfer_usdc",
-        vec![minted_token, proof_from, proof_to, Value::I32(to)],
+        vec![
+            minted_token,
+            proof_from,
+            proof_to,
+            Value::I32(to),
+            Value::I32(50),
+        ],
     );
+
+    let utxos = tx
+        .utxos()
+        .into_iter()
+        .filter(|(_, entry_point)| dbg!(entry_point) == "starstream_new_PayToPublicKeyHash_new")
+        .collect::<Vec<_>>();
+
+    dbg!(&utxos);
+
+    let owner0 = tx.run_coordination_script(
+        &contract,
+        "pay_to_public_key_hash_owner",
+        vec![utxos[0].0.clone()],
+    );
+
+    let owner1 = tx.run_coordination_script(
+        &contract,
+        "pay_to_public_key_hash_owner",
+        vec![utxos[1].0.clone()],
+    );
+
+    dbg!(owner0);
+    dbg!(owner1);
+    // let output = transfer_output.next();
+    // let change = transfer_output.next();
 }
 
 fn find_prev_node(tx: &mut Transaction, contract: &Arc<ContractCode>, new_key: i32) -> Value {

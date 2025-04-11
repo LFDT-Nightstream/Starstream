@@ -12,18 +12,28 @@ starstream::panic_handler!();
 
 const IS_BLACKLISTED_EFFECT_ID: &str = "IsBlacklisted";
 const TX_CALLER: &str = "GetTxCaller";
+const UNBIND_TOKEN: &str = "UnbindToken";
+
+const PERMISSIONED_TOKEN_ID: u64 = 1003;
 
 pub struct PayToPublicKeyHash {
     owner: i32,
+    token: Option<PermissionedToken>,
 }
 
 impl PayToPublicKeyHash {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(owner: i32, sleep: fn(&mut Self)) {
         // It's currently the TX where the UTXO is created.
-        let mut this = PayToPublicKeyHash { owner };
+        let mut this = PayToPublicKeyHash { owner, token: None };
 
         sleep(&mut this);
+
+        if let Some(token) = this.token {
+            let intermediate = token.unbind();
+
+            starstream::raise::<TokenIntermediate, ()>(UNBIND_TOKEN, &intermediate);
+        }
 
         // TODO: assert signature so that only the owner can consume this
     }
@@ -32,9 +42,9 @@ impl PayToPublicKeyHash {
         self.owner
     }
 
-    // Any token can be attached to PayToPublicKeyHash.
-    pub fn attach<T: Token>(&mut self, i: T::Intermediate) {
-        T::bind(i);
+    // TODO: generalize
+    pub fn attach(&mut self, i: TokenIntermediate) {
+        self.token = Some(PermissionedToken::bind(i));
     }
 
     pub fn burn(self) {}
@@ -85,12 +95,11 @@ pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(
     this: &mut PayToPublicKeyHash,
     i: TokenIntermediate,
 ) {
-    this.attach::<PermissionedToken>(i)
+    this.attach(i)
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn starstream_new_LinkedListNode_new(key: i32, next: i32) {
-    eprintln!("does this get called before?");
     LinkedListNode::new(key, next, starstream::sleep_mut::<(), LinkedListNode>)
 }
 
@@ -125,29 +134,45 @@ pub extern "C" fn transfer_usdc(
     proof_from: example_contract_permissioned::LinkedListNode,
     proof_to: example_contract_permissioned::LinkedListNode,
     to: i32,
-) {
+    to_amount: i32,
+) -> example_contract_permissioned::PayToPublicKeyHash {
     let _blacklisted_effect_guard = register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
     let _tx_caller_effect_guard = register_effect_handler(TX_CALLER);
+    let _unbind_token_guard = register_effect_handler(UNBIND_TOKEN);
 
     let from = source.get_owner();
 
-    // TODO: this should unbind the token, which currently doesn't happen.
-    // but it's also not clear how you'd get that back?
+    // TODO: this should probably yield the tokens, but currently it's not easy
+    // to yield something that it's not the utxo handler, so we use an effect
+    // instead.
+    //
+    // although maybe we just need a different function call to get the tokens
+    // of a dead utxo? Or maybe unbind should always raise an effect?
     source.next();
 
-    // source.burn();
+    let mut input_amount = 0;
 
-    let out = example_contract_permissioned::PayToPublicKeyHash::new(to);
+    while let Some(token) = get_raised_effect_data::<TokenIntermediate>(UNBIND_TOKEN) {
+        input_amount += token.amount;
 
-    // TODO: how to check this is balanced? It probably requires getting the
-    // token bound to the source utxo after yielding/burning?
-    // And then just asserting?
+        resume_throwing_program::<()>(UNBIND_TOKEN, &());
+    }
 
-    let amount = 100;
+    let output_utxo = example_contract_permissioned::PayToPublicKeyHash::new(to);
+    let output_amount = to_amount;
 
-    let intermediate = example_contract_permissioned::TokenIntermediate { amount };
+    let output_intermediate = example_contract_permissioned::TokenIntermediate {
+        amount: output_amount,
+    };
+    output_utxo.attach(output_intermediate);
 
-    out.attach(intermediate);
+    let change_utxo = example_contract_permissioned::PayToPublicKeyHash::new(from);
+    let change_intermediate = example_contract_permissioned::TokenIntermediate {
+        amount: input_amount
+            .checked_sub(output_amount)
+            .expect("not enough inputs"),
+    };
+    change_utxo.attach(change_intermediate);
 
     loop {
         if let Some(address) = get_raised_effect_data::<i32>(IS_BLACKLISTED_EFFECT_ID) {
@@ -163,6 +188,8 @@ pub extern "C" fn transfer_usdc(
             break;
         }
     }
+
+    output_utxo
 }
 
 fn is_in_range(proof: example_contract_permissioned::LinkedListNode, addr: i32) -> bool {
@@ -243,6 +270,13 @@ pub extern "C" fn token_mint_to(
     out
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn pay_to_public_key_hash_owner(
+    utxo: example_contract_permissioned::PayToPublicKeyHash,
+) -> i32 {
+    utxo.get_owner()
+}
+
 // Token
 
 pub struct TokenMint {}
@@ -275,9 +309,6 @@ pub extern "C" fn starstream_mutate_TokenMint_mint(
 }
 
 fn starstream_bind_token_inner(this: TokenIntermediate) -> TokenStorage {
-    assert!(starstream::coordination_code() == starstream::this_code());
-
-    // TODO: what should this value be?
     let owner = starstream::raise::<(), i32>(TX_CALLER, &());
 
     let is_blacklisted_output = starstream::raise::<i32, bool>(IS_BLACKLISTED_EFFECT_ID, &owner);
@@ -285,17 +316,18 @@ fn starstream_bind_token_inner(this: TokenIntermediate) -> TokenStorage {
     assert!(is_blacklisted_output);
 
     TokenStorage {
-        id: 1003,
+        id: PERMISSIONED_TOKEN_ID,
         amount: this.amount.try_into().unwrap(),
     }
 }
 token_export! {
     for TokenIntermediate;
     bind fn starstream_bind_Token(this: Self) -> TokenStorage {
+        assert!(starstream::coordination_code() == starstream::this_code());
         starstream_bind_token_inner(this)
     }
     unbind fn starstream_unbind_Token(storage: TokenStorage) -> Self {
-        assert!(starstream::coordination_code() == starstream::this_code());
+        // assert!(starstream::coordination_code() == starstream::this_code());
         TokenIntermediate { amount: storage.amount.try_into().unwrap() }
     }
 }
