@@ -1,6 +1,6 @@
 //! Starstream VM as a library.
 
-use std::{collections::HashMap, sync::Arc, usize};
+use std::{collections::HashMap, sync::Arc};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 pub use code::ContractCode;
@@ -776,7 +776,8 @@ impl std::fmt::Debug for ProgramIdx {
 struct TxProgram {
     return_to: ProgramIdx,
     return_is_token: bool,
-    yield_to: Option<(ProgramIdx, Value)>,
+    yield_to: Option<ProgramIdx>,
+    yield_to_constructor: Option<Value>,
 
     code: CodeHash,
     entry_point: String,
@@ -1173,8 +1174,11 @@ impl Transaction {
                     let id = UtxoId::random();
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
-                    self.store.data_mut().programs[to_program.0].yield_to =
-                        Some((from_program, id.to_wasm_i64(self.store.as_context_mut())));
+                    self.store.data_mut().programs[to_program.0].yield_to = Some(from_program);
+
+                    self.store.data_mut().programs[to_program.0].yield_to_constructor =
+                        Some(id.to_wasm_i64(self.store.as_context_mut()));
+
                     self.store.data_mut().programs[to_program.0].utxo = Some(id);
                     self.store.data_mut().utxos.insert(
                         id,
@@ -1196,6 +1200,7 @@ impl Transaction {
                     // But this wouldn't work with utxos. That said, that can't
                     // happen now anyway.
                     self.store.data_mut().programs[to_program.0].return_to = from_program;
+                    self.store.data_mut().programs[to_program.0].yield_to = Some(from_program);
 
                     let (resume_arg, resume_len) =
                         match self.store.data().programs[to_program.0].interrupt() {
@@ -1279,12 +1284,21 @@ impl Transaction {
                 // ------------------------------------------------------------
                 // UTXOs can yield and call into tokens
                 Err(Interrupt::Yield { .. }) => {
-                    // NOTE: value := utxo_id (random i64)
-                    let (to_program, value) = self.store.data_mut().programs[from_program.0]
+                    let utxo_scrambled_id = self.store.data_mut().programs[from_program.0]
+                        .yield_to_constructor
+                        .take();
+
+                    let to_program = self.store.data_mut().programs[from_program.0]
                         .yield_to
-                        .take()
                         .unwrap();
-                    self.resume(from_program, to_program, vec![value], vec![], vec![])
+
+                    let mut inputs = vec![];
+
+                    if let Some(id) = utxo_scrambled_id {
+                        inputs.push(id);
+                    }
+
+                    self.resume(from_program, to_program, inputs, vec![], vec![])
                 }
                 Err(Interrupt::Raise { name, .. }) => {
                     let to_program = *self.store.data_mut().registered_effect_handler[&name]
@@ -1376,6 +1390,7 @@ impl Transaction {
             return_to: from_program,
             return_is_token: false,
             yield_to: None,
+            yield_to_constructor: None,
             code: code.hash(),
             entry_point: entry_point.to_owned(),
             instance,
@@ -1498,6 +1513,7 @@ impl Transaction {
             return_to: from_program,
             return_is_token: false,
             yield_to: None,
+            yield_to_constructor: None,
             code,
             entry_point: method.to_owned(),
             num_outputs,
