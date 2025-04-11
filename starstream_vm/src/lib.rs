@@ -50,8 +50,10 @@ fn asyncify(blob: &[u8]) -> Vec<u8> {
 
 // ----------------------------------------------------------------------------
 
-fn fake_import<T>(linker: &mut Linker<T>, import: &ImportType, message: &'static str) {
+fn fake_import<T>(linker: &mut Linker<T>, import: &ImportType, message: &str) {
     if let ExternType::Func(func) = import.ty() {
+        let message = format!("{}:{}: {}", import.module(), import.name(), message);
+
         let r = linker.func_new(
             import.module(),
             import.name(),

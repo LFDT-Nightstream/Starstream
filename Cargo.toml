@@ -14,6 +14,10 @@ panic = "abort"
 [profile.release]
 panic = "abort"
 
+[patch."https://github.com/ICME-Lab/zkEngine_dev"]
+wasmi = { git = "https://github.com/SpaceManiac/zkEngine_dev", branch = "patch/stronger-zk-wasm-ctx" }
+zk-engine = { git = "https://github.com/SpaceManiac/zkEngine_dev", branch = "patch/stronger-zk-wasm-ctx" }
+
 # https://github.com/lurk-lab/grumpkin-msm/pull/15
 [patch."https://github.com/lurk-lab/grumpkin-msm"]
 grumpkin-msm = { git = "https://github.com/SpaceManiac/grumpkin-msm", branch = "patch/rand-dependency" }
