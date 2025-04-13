@@ -327,7 +327,7 @@ fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
                     data,
                     resume_arg,
                     resume_arg_len,
-                }))
+                })
             },
         )
         .unwrap();
@@ -343,9 +343,9 @@ fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
              data_len: u32,
              resume_arg: u32,
              resume_arg_len: u32|
-             -> Result<(), wasmi::Error> {
+             -> Result<(), WasmiError> {
                 eprintln!("starstream_raise()");
-                Err(wasmi::Error::host(Interrupt::Raise {
+                host(Interrupt::Raise {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
                     )
@@ -355,7 +355,7 @@ fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
                     data_len,
                     resume_arg,
                     resume_arg_len,
-                }))
+                })
             },
         )
         .unwrap();
