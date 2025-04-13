@@ -557,6 +557,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "example_contract_permissioned"
+version = "0.0.0"
+dependencies = [
+ "stack_dst",
+ "starstream_sys",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
