@@ -82,6 +82,7 @@ enum Interrupt {
     },
     RegisterEffectHandler {
         name: String,
+        handler_addr: u32,
     },
     UnRegisterEffectHandler {
         name: String,
@@ -233,13 +234,15 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_register_effect_handler",
-            move |mut caller: Caller<T>, ptr: u32, len: u32| {
+            move |mut caller: Caller<T>, ptr: u32, len: u32, handler_addr: i32| {
                 let (memory, _) = memory(&mut caller);
 
-                let slice = &memory[ptr as usize..(ptr + len) as usize];
+                let name_slice = &memory[ptr as usize..(ptr + len) as usize];
+
                 // TODO: maybe we don't actually need to trap for this?
                 host(Interrupt::RegisterEffectHandler {
-                    name: String::from_utf8_lossy(slice).into_owned(),
+                    name: String::from_utf8_lossy(name_slice).into_owned(),
+                    handler_addr: handler_addr as u32,
                 })
             },
         )
@@ -860,7 +863,7 @@ struct TransactionInner {
     /// Call and return values between programs, logged for future ZK use.
     witnesses: Vec<TxWitness>,
 
-    registered_effect_handler: HashMap<String, Vec<ProgramIdx>>,
+    registered_effect_handler: HashMap<String, Vec<(ProgramIdx, u32)>>,
     raised_effects: HashMap<String, ProgramIdx>,
 }
 
@@ -1038,7 +1041,7 @@ impl Transaction {
                         }],
                     )
                 }
-                Err(Interrupt::RegisterEffectHandler { name }) => {
+                Err(Interrupt::RegisterEffectHandler { name, handler_addr }) => {
                     let to_program = from_program;
 
                     self.store
@@ -1046,7 +1049,7 @@ impl Transaction {
                         .registered_effect_handler
                         .entry(name)
                         .or_default()
-                        .push(from_program);
+                        .push((from_program, handler_addr));
 
                     self.resume(from_program, to_program, vec![], vec![], vec![])
                 }
@@ -1063,7 +1066,7 @@ impl Transaction {
                     let (index, _) = effect_handlers
                         .iter()
                         .enumerate()
-                        .find(|(_index, program)| **program == from_program)
+                        .find(|(_index, (program, _))| *program == from_program)
                         .unwrap();
 
                     effect_handlers.remove(index);
@@ -1301,16 +1304,24 @@ impl Transaction {
                     self.resume(from_program, to_program, inputs, vec![], vec![])
                 }
                 Err(Interrupt::Raise { name, .. }) => {
-                    let to_program = *self.store.data_mut().registered_effect_handler[&name]
-                        .last()
-                        .unwrap();
+                    let (to_program, handler_address) =
+                        *self.store.data_mut().registered_effect_handler[&name]
+                            .last()
+                            .unwrap();
+
+                    let method = format!("{}_handle", name);
 
                     self.store
                         .data_mut()
                         .raised_effects
                         .insert(name, from_program);
 
-                    self.resume(from_program, to_program, vec![], vec![], vec![])
+                    self.call_method(
+                        from_program,
+                        to_program,
+                        method,
+                        vec![Value::I32(handler_address as i32)],
+                    )
                 }
                 Err(Interrupt::TokenBind {
                     code,

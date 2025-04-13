@@ -78,10 +78,8 @@ pub fn main() {
     let utxos = tx
         .utxos()
         .into_iter()
-        .filter(|(_, entry_point)| dbg!(entry_point) == "starstream_new_PayToPublicKeyHash_new")
+        .filter(|(_, entry_point)| entry_point == "starstream_new_PayToPublicKeyHash_new")
         .collect::<Vec<_>>();
-
-    dbg!(&utxos);
 
     let owner0 = tx.run_coordination_script(
         &contract,
@@ -97,8 +95,6 @@ pub fn main() {
 
     dbg!(owner0);
     dbg!(owner1);
-    // let output = transfer_output.next();
-    // let change = transfer_output.next();
 }
 
 fn find_prev_node(tx: &mut Transaction, contract: &Arc<ContractCode>, new_key: i32) -> Value {

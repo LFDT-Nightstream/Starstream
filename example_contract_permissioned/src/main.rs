@@ -4,15 +4,11 @@
 
 use example_contract_permissioned::{PermissionedToken, TokenIntermediate};
 use starstream::{
-    Token, TokenStorage, Utxo, eprintln, get_raised_effect_data, register_effect_handler,
-    resume_throwing_program, token_export,
+    Effect, EffectHandler, Token, TokenStorage, Utxo, eprintln, run_effectful_computation,
+    token_export,
 };
 
 starstream::panic_handler!();
-
-const IS_BLACKLISTED_EFFECT_ID: &str = "IsBlacklisted";
-const TX_CALLER: &str = "GetTxCaller";
-const UNBIND_TOKEN: &str = "UnbindToken";
 
 const PERMISSIONED_TOKEN_ID: u64 = 1003;
 
@@ -32,7 +28,8 @@ impl PayToPublicKeyHash {
         if let Some(token) = this.token {
             let intermediate = token.unbind();
 
-            starstream::raise::<TokenIntermediate, ()>(UNBIND_TOKEN, &intermediate);
+            // TODO: maybe the unbind should do this by default?
+            TokenUnbound::raise(&intermediate);
         }
 
         // TODO: assert signature so that only the owner can consume this
@@ -136,27 +133,24 @@ pub extern "C" fn transfer_usdc(
     to: i32,
     to_amount: i32,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
-    let _blacklisted_effect_guard = register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
-    let _tx_caller_effect_guard = register_effect_handler(TX_CALLER);
-    let _unbind_token_guard = register_effect_handler(UNBIND_TOKEN);
-
     let from = source.get_owner();
 
-    // TODO: this should probably yield the tokens, but currently it's not easy
-    // to yield something that it's not the utxo handler, so we use an effect
-    // instead.
-    //
-    // although maybe we just need a different function call to get the tokens
-    // of a dead utxo? Or maybe unbind should always raise an effect?
-    source.next();
+    let input_amount = core::cell::RefCell::new(0);
 
-    let mut input_amount = 0;
+    run_effectful_computation(
+        EffectHandler::<TokenUnbound>::with(&|token| *input_amount.borrow_mut() += token.amount),
+        || {
+            // TODO: this should probably yield the tokens, but currently it's not easy
+            // to yield something that it's not the utxo handler, so we use an effect
+            // instead.
+            //
+            // although maybe we just need a different function call to get the tokens
+            // of a dead utxo? Or maybe unbind should always raise an effect?
+            source.next();
+        },
+    );
 
-    while let Some(token) = get_raised_effect_data::<TokenIntermediate>(UNBIND_TOKEN) {
-        input_amount += token.amount;
-
-        resume_throwing_program::<()>(UNBIND_TOKEN, &());
-    }
+    let input_amount = *input_amount.borrow();
 
     let output_utxo = example_contract_permissioned::PayToPublicKeyHash::new(to);
     let output_amount = to_amount;
@@ -164,7 +158,23 @@ pub extern "C" fn transfer_usdc(
     let output_intermediate = example_contract_permissioned::TokenIntermediate {
         amount: output_amount,
     };
-    output_utxo.attach(output_intermediate);
+
+    let is_blacklisted_handler = |address| {
+        let res1 = is_in_range(proof_from, address);
+        let res2 = is_in_range(proof_to, address);
+
+        res1 || res2
+    };
+
+    run_effectful_computation(
+        (
+            EffectHandler::<TxCaller>::with(&|_| from),
+            EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
+        ),
+        || {
+            output_utxo.attach(output_intermediate);
+        },
+    );
 
     let change_utxo = example_contract_permissioned::PayToPublicKeyHash::new(from);
     let change_intermediate = example_contract_permissioned::TokenIntermediate {
@@ -172,22 +182,16 @@ pub extern "C" fn transfer_usdc(
             .checked_sub(output_amount)
             .expect("not enough inputs"),
     };
-    change_utxo.attach(change_intermediate);
 
-    loop {
-        if let Some(address) = get_raised_effect_data::<i32>(IS_BLACKLISTED_EFFECT_ID) {
-            // currently unbind is not really called, so only the proof_to proof
-            // matters
-            let res1 = is_in_range(proof_from, address);
-            let res2 = is_in_range(proof_to, address);
-
-            resume_throwing_program::<bool>(IS_BLACKLISTED_EFFECT_ID, &(res1 || res2));
-        } else if let Some(()) = get_raised_effect_data(TX_CALLER) {
-            resume_throwing_program::<i32>(TX_CALLER, &from);
-        } else {
-            break;
-        }
-    }
+    run_effectful_computation(
+        (
+            EffectHandler::<TxCaller>::with(&|_| from),
+            EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
+        ),
+        || {
+            change_utxo.attach(change_intermediate);
+        },
+    );
 
     output_utxo
 }
@@ -247,27 +251,19 @@ pub extern "C" fn token_mint_to(
     amount: i32,
     proof: example_contract_permissioned::LinkedListNode,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
-    let _blacklisted_effect_guard = register_effect_handler(IS_BLACKLISTED_EFFECT_ID);
-    let _tx_caller_effect_guard = register_effect_handler(TX_CALLER);
+    run_effectful_computation::<_, _>(
+        (
+            EffectHandler::<IsBlacklisted>::with(&|to_address| is_in_range(proof, to_address)),
+            EffectHandler::<TxCaller>::with(&(|_| owner)),
+        ),
+        || {
+            let out = example_contract_permissioned::PayToPublicKeyHash::new(owner);
+            let intermediate = minter.mint(amount);
+            out.attach(intermediate);
 
-    let out = example_contract_permissioned::PayToPublicKeyHash::new(owner);
-    let intermediate = minter.mint(amount);
-    out.attach(intermediate);
-
-    // NOTE: this assumes that effects are eventually raised, otherwise this
-    // will loop forever.
-    loop {
-        if let Some(to_address) = get_raised_effect_data::<i32>(IS_BLACKLISTED_EFFECT_ID) {
-            let res = is_in_range(proof, to_address);
-            resume_throwing_program::<bool>(IS_BLACKLISTED_EFFECT_ID, &res);
-        } else if let Some(()) = get_raised_effect_data(TX_CALLER) {
-            resume_throwing_program::<i32>(TX_CALLER, &owner);
-        } else {
-            break;
-        }
-    }
-
-    out
+            out
+        },
+    )
 }
 
 #[unsafe(no_mangle)]
@@ -309,9 +305,9 @@ pub extern "C" fn starstream_mutate_TokenMint_mint(
 }
 
 fn starstream_bind_token_inner(this: TokenIntermediate) -> TokenStorage {
-    let owner = starstream::raise::<(), i32>(TX_CALLER, &());
+    let owner = TxCaller::raise(&());
 
-    let is_blacklisted_output = starstream::raise::<i32, bool>(IS_BLACKLISTED_EFFECT_ID, &owner);
+    let is_blacklisted_output = IsBlacklisted::raise(&owner);
 
     assert!(is_blacklisted_output);
 
@@ -330,4 +326,48 @@ token_export! {
         // assert!(starstream::coordination_code() == starstream::this_code());
         TokenIntermediate { amount: storage.amount.try_into().unwrap() }
     }
+}
+
+// Effects
+//
+pub enum IsBlacklisted {}
+
+impl Effect for IsBlacklisted {
+    const NAME: &'static str = "IsBlacklisted";
+
+    type Input = i32;
+    type Output = bool;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn IsBlacklisted_handle(this: &EffectHandler<'_, IsBlacklisted>) {
+    this.handle();
+}
+
+pub enum TxCaller {}
+
+impl Effect for TxCaller {
+    const NAME: &'static str = "TxCaller";
+
+    type Input = ();
+    type Output = i32;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn TxCaller_handle(this: &EffectHandler<'_, TxCaller>) {
+    this.handle();
+}
+
+pub enum TokenUnbound {}
+
+impl Effect for TokenUnbound {
+    const NAME: &'static str = "TokenUnbound";
+
+    type Input = TokenIntermediate;
+    type Output = ();
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn TokenUnbound_handle(this: &EffectHandler<'_, TokenUnbound>) {
+    this.handle();
 }

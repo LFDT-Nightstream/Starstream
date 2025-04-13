@@ -1,6 +1,8 @@
 #![no_std]
 
 use core::{fmt::Write, marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
+mod effects;
+pub use effects::*;
 
 #[macro_export]
 macro_rules! metadata {
@@ -371,135 +373,6 @@ pub fn sleep_mut<Resume, Yield>(data: &mut Yield) -> Resume {
     sleep(data)
 }
 
-#[link(wasm_import_module = "starstream_utxo_env")]
-unsafe extern "C" {
-    unsafe fn starstream_raise(
-        name: *const u8,
-        name_len: usize,
-        data: *const (),
-        data_size: usize,
-        resume_arg: *mut (),
-        resume_arg_size: usize,
-    );
-}
-
-pub fn raise<Yield, Resume>(name: &str, data: &Yield) -> Resume {
-    let name = name.as_bytes();
-
-    let mut resume_arg = MaybeUninit::<Resume>::uninit();
-    unsafe {
-        starstream_raise(
-            name.as_ptr(),
-            name.len(),
-            data as *const Yield as *const (),
-            size_of::<Yield>(),
-            resume_arg.as_mut_ptr() as *mut (),
-            size_of::<Resume>(),
-        );
-        // SAFETY TODO: unsound if we're resumed with a value that isn't
-        // actually a valid instance of Resume due to ABI trouble.
-        resume_arg.assume_init()
-    }
-}
-
-#[link(wasm_import_module = "env")]
-unsafe extern "C" {
-    unsafe fn starstream_register_effect_handler(name: *const u8, name_len: usize);
-}
-
-#[link(wasm_import_module = "env")]
-unsafe extern "C" {
-    unsafe fn starstream_unregister_effect_handler(name: *const u8, name_len: usize);
-}
-
-pub struct DropGuard<'a> {
-    name: &'a str,
-}
-
-impl Drop for DropGuard<'_> {
-    fn drop(&mut self) {
-        unsafe {
-            starstream_unregister_effect_handler(self.name.as_ptr(), self.name.len());
-        }
-    }
-}
-
-#[must_use]
-pub fn register_effect_handler(name: &str) -> DropGuard<'_> {
-    unsafe {
-        // NOTE: just in case the len of the string is not the same as the size
-        // in bytes (utf-8)
-        //
-        // most likely this shouldn't be a string anyway
-        let name = name.as_bytes();
-        starstream_register_effect_handler(name.as_ptr(), name.len());
-    }
-
-    DropGuard { name }
-}
-
-#[link(wasm_import_module = "env")]
-unsafe extern "C" {
-    unsafe fn starstream_get_raised_effect_data(
-        name: *const u8,
-        name_len: usize,
-        output_ptr: *mut (),
-        not_null: *mut u8,
-    );
-}
-
-pub fn get_raised_effect_data<Effect>(name: &str) -> Option<Effect> {
-    unsafe {
-        // NOTE: just in case the len of the string is not the same as the size
-        // in bytes (utf-8)
-        //
-        // most likely this shouldn't be a string anyway
-        let name = name.as_bytes();
-
-        let mut effect = MaybeUninit::<Effect>::uninit();
-
-        let mut not_null = 0u8;
-
-        starstream_get_raised_effect_data(
-            name.as_ptr(),
-            name.len(),
-            effect.as_mut_ptr() as *mut (),
-            &mut not_null as *mut u8,
-        );
-
-        if not_null == 1 {
-            Some(effect.assume_init())
-        } else {
-            None
-        }
-    }
-}
-
-#[link(wasm_import_module = "env")]
-unsafe extern "C" {
-    unsafe fn starstream_resume_throwing_program(
-        name: *const u8,
-        name_len: usize,
-        input_ptr: *const (),
-    );
-}
-
-pub fn resume_throwing_program<Data>(name: &str, data: &Data) {
-    unsafe {
-        // NOTE: just in case the len of the string is not the same as the size
-        // in bytes (utf-8)
-        //
-        // most likely this shouldn't be a string anyway
-        let name = name.as_bytes();
-
-        starstream_resume_throwing_program(
-            name.as_ptr(),
-            name.len(),
-            data as *const Data as *const (),
-        );
-    }
-}
-
 // ----------------------------------------------------------------------------
 // UTXO import (lib) interface
 
@@ -573,7 +446,7 @@ macro_rules! utxo_import {
                         self,
                         &raw const arg as *const (),
                         core::mem::size_of_val(&arg),
-                    );
+                    )
                 }
             }
         }
@@ -582,3 +455,4 @@ macro_rules! utxo_import {
 
 // ----------------------------------------------------------------------------
 // Coordination script environment
+//
