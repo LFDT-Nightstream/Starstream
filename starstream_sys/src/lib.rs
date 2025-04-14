@@ -269,6 +269,22 @@ pub struct TokenHandle<T: ?Sized> {
     _phantom: PhantomData<*mut T>,
 }
 
+impl<T: ?Sized> TokenHandle<T> {
+    fn from_raw(ptr: u64) -> Self {
+        Self {
+            ptr,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn unsafe_coerce<U: ?Sized>(self) -> TokenHandle<U> {
+        TokenHandle::<U> {
+            ptr: self.ptr,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<T: ?Sized> Clone for TokenHandle<T> {
     fn clone(&self) -> Self {
         *self
@@ -329,6 +345,12 @@ macro_rules! token_import {
                 $unbind_fn(self.0)
             }
         }
+
+        impl From<$crate::TokenHandle<$handle_name>> for $handle_name {
+            fn from(handle: $crate::TokenHandle<$handle_name>) -> $handle_name {
+                Self(handle)
+            }
+        }
     };
 }
 
@@ -377,7 +399,6 @@ pub fn sleep_mut<Resume, Yield>(data: &mut Yield) -> Resume {
 // UTXO import (lib) interface
 
 #[repr(C)]
-#[derive(Debug)]
 pub struct UtxoHandle<T: ?Sized> {
     ptr: u64,
     _phantom: PhantomData<*mut T>,
@@ -427,7 +448,7 @@ macro_rules! utxo_import {
             unsafe fn $resume_fn(utxo: $name, resume_arg: *const (), resume_arg_size: usize);
         }
 
-        #[derive(Clone, Copy, Debug)]
+        #[derive(Clone, Copy)]
         #[repr(transparent)]
         pub struct $name($crate::UtxoHandle<$name>);
 
@@ -456,3 +477,51 @@ macro_rules! utxo_import {
 // ----------------------------------------------------------------------------
 // Coordination script environment
 //
+
+// ----------------------------------------------------------------------------
+// Tokens getter
+//
+#[link(wasm_import_module = "starstream_utxo_env")]
+unsafe extern "C" {
+    unsafe fn starstream_get_tokens(data: *mut (), data_len: u32, skip: u32) -> u32;
+}
+
+pub struct BoundTokenIter {
+    skip: usize,
+}
+
+#[repr(C)]
+struct TokenStorageId {
+    token_handle: u64,
+    storage: TokenStorage,
+}
+
+pub fn get_tokens_in_current_utxo() -> BoundTokenIter {
+    BoundTokenIter { skip: 0 }
+}
+
+pub enum AnyToken {}
+
+impl Iterator for BoundTokenIter {
+    type Item = (TokenHandle<AnyToken>, TokenStorage);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut tokens = [MaybeUninit::<TokenStorageId>::uninit(); 1];
+
+        let r = unsafe {
+            starstream_get_tokens(&mut tokens as *mut _ as *mut (), tokens.len() as u32, 0)
+        };
+
+        if r == 1 {
+            self.skip += 1;
+
+            let token_with_id = unsafe { tokens.into_iter().next().unwrap().assume_init() };
+            Some((
+                TokenHandle::from_raw(token_with_id.token_handle),
+                token_with_id.storage,
+            ))
+        } else {
+            None
+        }
+    }
+}

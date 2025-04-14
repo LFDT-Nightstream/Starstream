@@ -31,7 +31,7 @@ pub fn main() {
     let new_key = 6;
     let prev_node = find_prev_node(&mut tx, &contract, new_key);
 
-    let new_node = tx.run_coordination_script(
+    let _new_node = tx.run_coordination_script(
         &contract,
         "blacklist_insert",
         vec![prev_node, Value::I32(new_key)],
@@ -52,8 +52,6 @@ pub fn main() {
             proof_to,
         ],
     );
-
-    eprintln!("transfer usdc");
 
     // blacklist: [3, 5, 6, 7]
     let from = 4;

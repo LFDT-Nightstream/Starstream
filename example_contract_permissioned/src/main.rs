@@ -4,8 +4,8 @@
 
 use example_contract_permissioned::{PermissionedToken, TokenIntermediate};
 use starstream::{
-    Effect, EffectHandler, Token, TokenStorage, Utxo, eprintln, run_effectful_computation,
-    token_export,
+    Effect, EffectHandler, Token, TokenStorage, Utxo, eprintln, get_tokens_in_current_utxo,
+    run_effectful_computation, token_export,
 };
 
 starstream::panic_handler!();
@@ -14,21 +14,36 @@ const PERMISSIONED_TOKEN_ID: u64 = 1003;
 
 pub struct PayToPublicKeyHash {
     owner: i32,
-    token: Option<PermissionedToken>,
+}
+
+#[link(wasm_import_module = "starstream_utxo_env")]
+unsafe extern "C" {
+    unsafe fn starstream_get_tokens(data: *mut (), data_len: u32, skip: u32) -> u32;
 }
 
 impl PayToPublicKeyHash {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(owner: i32, sleep: fn(&mut Self)) {
-        // It's currently the TX where the UTXO is created.
-        let mut this = PayToPublicKeyHash { owner, token: None };
+        let mut this = PayToPublicKeyHash { owner };
 
         sleep(&mut this);
 
-        if let Some(token) = this.token {
-            let intermediate = token.unbind();
+        let tokens_iter = get_tokens_in_current_utxo();
+
+        for (handle, _) in tokens_iter {
+            // TODO: this should be checked, but currently it's not really
+            // possible to figure out what type of token this is.
+            //
+            // We could look at the id in the token storage, but for ntfs
+            // the id should be different even if they have the same type of
+            // intermediate?
+            let intermediate =
+                PermissionedToken::from(handle.unsafe_coerce::<PermissionedToken>()).unbind();
 
             // TODO: maybe the unbind should do this by default?
+            // it doesn't really give you linearity since the handler could just
+            // not do anything with the value, but at least it should guarantee
+            // you have a handler.
             TokenUnbound::raise(&intermediate);
         }
 
@@ -41,7 +56,7 @@ impl PayToPublicKeyHash {
 
     // TODO: generalize
     pub fn attach(&mut self, i: TokenIntermediate) {
-        self.token = Some(PermissionedToken::bind(i));
+        PermissionedToken::bind(i);
     }
 
     pub fn burn(self) {}
@@ -135,6 +150,9 @@ pub extern "C" fn transfer_usdc(
 ) -> example_contract_permissioned::PayToPublicKeyHash {
     let from = source.get_owner();
 
+    // Note: right now there can only be a single token type in here.
+    //
+    // Otherwise we'd need to also know the value of the other tokens.
     let input_amount = core::cell::RefCell::new(0);
 
     run_effectful_computation(
@@ -323,7 +341,6 @@ token_export! {
         starstream_bind_token_inner(this)
     }
     unbind fn starstream_unbind_Token(storage: TokenStorage) -> Self {
-        // assert!(starstream::coordination_code() == starstream::this_code());
         TokenIntermediate { amount: storage.amount.try_into().unwrap() }
     }
 }

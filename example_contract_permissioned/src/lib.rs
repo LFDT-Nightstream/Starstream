@@ -1,6 +1,6 @@
 #![no_std]
 
-use starstream::{PublicKey, TokenStorage, token_export, token_import, utxo_import};
+use starstream::{token_import, utxo_import};
 
 #[link(wasm_import_module = "starstream_utxo:example_contract_permissioned")]
 unsafe extern "C" {

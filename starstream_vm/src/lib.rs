@@ -147,6 +147,11 @@ enum Interrupt {
         //code: CodeHash,
         //unbind_fn: String,
     },
+    GetTokens {
+        data: u32,
+        data_len: u32,
+        skip: u32,
+    },
 }
 
 type WasmiError = wasmi::core::Trap;
@@ -359,11 +364,30 @@ fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
             },
         )
         .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_get_tokens",
+            |_caller: Caller<TransactionInner>,
+             data: u32,
+             data_len: u32,
+             skip: u32|
+             -> Result<u32, WasmiError> {
+                host(Interrupt::GetTokens {
+                    data,
+                    data_len,
+                    skip,
+                })
+                .map(|_| unreachable!())
+            },
+        )
+        .unwrap();
 }
 
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct TokenId {
     bytes: [u8; 16],
 }
@@ -1101,8 +1125,6 @@ impl Transaction {
                             [data as usize..data as usize + data_len as usize]
                             .to_vec();
 
-                        // handler_program_memory[not_null as usize] = 1;
-                        //
                         write_to_memory.push(MemorySegment {
                             address: not_null,
                             data: vec![1u8],
@@ -1380,6 +1402,53 @@ impl Transaction {
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
 
                     (to_program, result)
+                }
+                Err(Interrupt::GetTokens {
+                    data,
+                    data_len,
+                    skip,
+                }) => {
+                    let to_program = from_program;
+
+                    let utxo_id = self.store.data().programs[from_program.0].utxo.unwrap();
+
+                    let tokens = {
+                        let utxo = &self.store.data().utxos[&utxo_id];
+
+                        let mut tokens_sorted = utxo.tokens.keys().copied().collect::<Vec<_>>();
+
+                        tokens_sorted.sort();
+
+                        tokens_sorted
+                    };
+
+                    let mut count = 0;
+                    let mut raw = vec![];
+
+                    for token_id in tokens.iter().skip(skip as usize).take(data_len as usize) {
+                        let i = token_id.to_wasm_i64(self.store.as_context_mut());
+
+                        let i = match i {
+                            Value::I64(i) => i as u64,
+                            _ => unreachable!(),
+                        };
+
+                        raw.extend_from_slice(&i.to_le_bytes());
+                        count += 1;
+                    }
+
+                    let writes = vec![MemorySegment {
+                        address: data,
+                        data: raw,
+                    }];
+
+                    self.resume(
+                        from_program,
+                        to_program,
+                        vec![Value::I32(count)],
+                        vec![],
+                        writes,
+                    )
                 }
             }
         }

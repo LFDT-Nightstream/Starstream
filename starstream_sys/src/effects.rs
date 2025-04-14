@@ -151,8 +151,6 @@ pub trait Effect {
     }
 }
 
-pub trait EffectHandlerSignature {}
-
 pub struct EffectHandler<'a, E: Effect> {
     f: &'a dyn Fn(E::Input) -> E::Output,
     effect: PhantomData<E>,
