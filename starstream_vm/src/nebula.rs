@@ -1,4 +1,4 @@
-use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, core::TrapCode};
+use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, Value, core::TrapCode};
 use zk_engine::{
     error::ZKWASMError,
     nova::{
@@ -94,7 +94,6 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
                         // Then find the next witness TO us to correspond.
                         // TODO: explicitly store this rather than guessing.
                         while data.witness < data.tx.witnesses.len() {
-                            eprintln!("  ?? {:?}", &data.tx.witnesses[data.witness]);
                             if data.tx.witnesses[data.witness].to_program == data.program_idx {
                                 eprintln!("  <- {:?}", &data.tx.witnesses[data.witness]);
 
@@ -142,19 +141,43 @@ impl Transaction {
         //let public_params = Snark::setup(step_size);
 
         for (i, program) in inner.programs.iter().enumerate() {
-            eprintln!("\n{:?} {program:?}", ProgramIdx(i));
+            let program_idx = ProgramIdx(i);
+            eprintln!("\n{:?} {program:?}", program_idx);
+
+            // Scan for first witness TO our program to be the func_args.
+            let mut witness = 0;
+            let mut func_args = Vec::new();
+            while witness < inner.witnesses.len() {
+                if inner.witnesses[witness].to_program == program_idx {
+                    eprintln!("  -> {:?}", &inner.witnesses[witness]);
+                    func_args = inner.witnesses[witness]
+                        .values
+                        .iter()
+                        .map(|v| match v {
+                            Value::F32(x) => x.to_string(),
+                            Value::F64(x) => x.to_string(),
+                            Value::I32(x) => x.to_string(),
+                            Value::I64(x) => x.to_string(),
+                            _ => unimplemented!(),
+                        })
+                        .collect();
+                    break;
+                }
+                witness += 1;
+            }
+
             let wasm_args = WASMArgsBuilder::default()
                 .bytecode(self.code_cache.get(program.code).wasm().to_vec())
                 .invoke(&program.entry_point)
-                // TODO: func_args with first witness
+                .func_args(func_args)
                 .build();
             let wasm_ctx = StarstreamWasmCtx {
                 args: wasm_args,
                 data: StoreData {
                     tx: inner,
-                    program_idx: ProgramIdx(i),
+                    program_idx,
                     program,
-                    witness: 0,
+                    witness,
                 },
             };
             let trace = wasm_ctx.execution_trace();
