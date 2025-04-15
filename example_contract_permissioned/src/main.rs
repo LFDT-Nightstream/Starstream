@@ -12,8 +12,10 @@ starstream::panic_handler!();
 
 const PERMISSIONED_TOKEN_ID: u64 = 1003;
 
+type PublicKey = i32;
+
 pub struct PayToPublicKeyHash {
-    owner: i32,
+    owner: PublicKey,
 }
 
 #[link(wasm_import_module = "starstream_utxo_env")]
@@ -23,10 +25,12 @@ unsafe extern "C" {
 
 impl PayToPublicKeyHash {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(owner: i32, sleep: fn(&mut Self)) {
+    pub fn new(owner: PublicKey, sleep: fn(&mut Self)) {
         let mut this = PayToPublicKeyHash { owner };
 
         sleep(&mut this);
+
+        // TODO: assert signature so that only the owner can consume this
 
         let tokens_iter = get_tokens_in_current_utxo();
 
@@ -46,11 +50,9 @@ impl PayToPublicKeyHash {
             // you have a handler.
             TokenUnbound::raise(&intermediate);
         }
-
-        // TODO: assert signature so that only the owner can consume this
     }
 
-    pub fn get_owner(&self) -> i32 {
+    pub fn get_owner(&self) -> PublicKey {
         self.owner
     }
 
@@ -63,22 +65,22 @@ impl PayToPublicKeyHash {
 }
 
 pub struct LinkedListNode {
-    key: i32,
-    next: i32,
+    key: PublicKey,
+    next: PublicKey,
 }
 
 impl LinkedListNode {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(key: i32, next: i32, sleep: fn(&mut Self)) {
+    pub fn new(key: PublicKey, next: PublicKey, sleep: fn(&mut Self)) {
         let mut this = LinkedListNode { key, next };
         sleep(&mut this);
     }
 
-    pub fn get_key(&self) -> i32 {
+    pub fn get_key(&self) -> PublicKey {
         self.key
     }
 
-    pub fn get_next(&self) -> i32 {
+    pub fn get_next(&self) -> PublicKey {
         self.next
     }
 
@@ -93,12 +95,14 @@ impl LinkedListNode {
 // Generated
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_new_PayToPublicKeyHash_new(owner: i32) {
+pub extern "C" fn starstream_new_PayToPublicKeyHash_new(owner: PublicKey) {
     PayToPublicKeyHash::new(owner, starstream::sleep_mut::<(), PayToPublicKeyHash>)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_query_PayToPublicKeyHash_get_owner(this: &PayToPublicKeyHash) -> i32 {
+pub extern "C" fn starstream_query_PayToPublicKeyHash_get_owner(
+    this: &PayToPublicKeyHash,
+) -> PublicKey {
     this.get_owner()
 }
 
@@ -111,17 +115,17 @@ pub extern "C" fn starstream_mutate_PayToPublicKeyHash_attach(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_new_LinkedListNode_new(key: i32, next: i32) {
+pub extern "C" fn starstream_new_LinkedListNode_new(key: PublicKey, next: PublicKey) {
     LinkedListNode::new(key, next, starstream::sleep_mut::<(), LinkedListNode>)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_query_LinkedListNode_get_next(this: &LinkedListNode) -> i32 {
+pub extern "C" fn starstream_query_LinkedListNode_get_next(this: &LinkedListNode) -> PublicKey {
     this.next
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn starstream_query_LinkedListNode_get_key(this: &LinkedListNode) -> i32 {
+pub extern "C" fn starstream_query_LinkedListNode_get_key(this: &LinkedListNode) -> PublicKey {
     this.key
 }
 
@@ -145,7 +149,7 @@ pub extern "C" fn transfer_usdc(
     source: example_contract_permissioned::PayToPublicKeyHash,
     proof_from: example_contract_permissioned::LinkedListNode,
     proof_to: example_contract_permissioned::LinkedListNode,
-    to: i32,
+    to: PublicKey,
     to_amount: i32,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
     let from = source.get_owner();
@@ -214,7 +218,7 @@ pub extern "C" fn transfer_usdc(
     output_utxo
 }
 
-fn is_in_range(proof: example_contract_permissioned::LinkedListNode, addr: i32) -> bool {
+fn is_in_range(proof: example_contract_permissioned::LinkedListNode, addr: PublicKey) -> bool {
     eprintln!(
         "checking range: {} < {} < {}",
         proof.get_key(),
@@ -227,8 +231,9 @@ fn is_in_range(proof: example_contract_permissioned::LinkedListNode, addr: i32) 
 
 #[unsafe(no_mangle)]
 pub extern "C" fn blacklist_empty() -> example_contract_permissioned::LinkedListNode {
+    // TODO: assert that the transaction is signed by someone with permissions to create nodes
     let key = 0;
-    let next = i32::MAX;
+    let next = PublicKey::MAX;
 
     example_contract_permissioned::LinkedListNode::new(key, next)
 }
@@ -236,8 +241,9 @@ pub extern "C" fn blacklist_empty() -> example_contract_permissioned::LinkedList
 #[unsafe(no_mangle)]
 pub extern "C" fn blacklist_insert(
     prev: example_contract_permissioned::LinkedListNode,
-    new: i32,
+    new: PublicKey,
 ) -> example_contract_permissioned::LinkedListNode {
+    // TODO: assert that the transaction is signed by someone with permissions to create nodes
     let prev_next = prev.get_next();
     let prev_key = prev.get_key();
 
@@ -253,7 +259,7 @@ pub extern "C" fn blacklist_insert(
 #[unsafe(no_mangle)]
 pub extern "C" fn blacklist_node_get_key(
     prev: example_contract_permissioned::LinkedListNode,
-) -> i32 {
+) -> PublicKey {
     prev.get_key()
 }
 
@@ -265,7 +271,7 @@ pub extern "C" fn token_mint_new() -> example_contract_permissioned::TokenMint {
 #[unsafe(no_mangle)]
 pub extern "C" fn token_mint_to(
     minter: example_contract_permissioned::TokenMint,
-    owner: i32,
+    owner: PublicKey,
     amount: i32,
     proof: example_contract_permissioned::LinkedListNode,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
@@ -287,7 +293,7 @@ pub extern "C" fn token_mint_to(
 #[unsafe(no_mangle)]
 pub extern "C" fn pay_to_public_key_hash_owner(
     utxo: example_contract_permissioned::PayToPublicKeyHash,
-) -> i32 {
+) -> PublicKey {
     utxo.get_owner()
 }
 
@@ -352,7 +358,7 @@ pub enum IsBlacklisted {}
 impl Effect for IsBlacklisted {
     const NAME: &'static str = "IsBlacklisted";
 
-    type Input = i32;
+    type Input = PublicKey;
     type Output = bool;
 }
 
@@ -367,7 +373,7 @@ impl Effect for TxCaller {
     const NAME: &'static str = "TxCaller";
 
     type Input = ();
-    type Output = i32;
+    type Output = PublicKey;
 }
 
 #[unsafe(no_mangle)]
