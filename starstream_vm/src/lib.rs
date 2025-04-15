@@ -244,7 +244,6 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
 
                 let name_slice = &memory[ptr as usize..(ptr + len) as usize];
 
-                // TODO: maybe we don't actually need to trap for this?
                 host(Interrupt::RegisterEffectHandler {
                     name: String::from_utf8_lossy(name_slice).into_owned(),
                     handler_addr: handler_addr as u32,
@@ -261,7 +260,6 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
                 let (memory, _) = memory(&mut caller);
 
                 let slice = &memory[ptr as usize..(ptr + len) as usize];
-                // TODO: maybe we don't actually need to trap for this?
                 host(Interrupt::UnRegisterEffectHandler {
                     name: String::from_utf8_lossy(slice).into_owned(),
                 })
@@ -280,7 +278,6 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
                 let (memory, _) = memory(&mut caller);
 
                 let slice = &memory[ptr as usize..(ptr + len) as usize];
-                // TODO: maybe we don't actually need to trap for this?
                 host(Interrupt::GetRaisedEffectData {
                     name: String::from_utf8_lossy(slice).into_owned(),
                     output_ptr_data,
@@ -298,7 +295,6 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
                 let (memory, _) = memory(&mut caller);
 
                 let slice = &memory[ptr as usize..(ptr + len) as usize];
-                // TODO: maybe we don't actually need to trap for this?
                 host(Interrupt::ResumeThrowingProgram {
                     name: String::from_utf8_lossy(slice).into_owned(),
                     input_ptr_data,
