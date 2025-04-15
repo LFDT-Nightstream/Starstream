@@ -106,7 +106,7 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
                             data.witness += 1;
                         }
                         // No more witnesses to use, so trace ends now.
-                        Err(WasmiError::from(TrapCode::OutOfFuel))
+                        Err(WasmiError::i32_exit(0))
                     },
                 );
             }
@@ -180,8 +180,14 @@ impl Transaction {
                     witness,
                 },
             };
-            let trace = wasm_ctx.execution_trace();
-            eprintln!("{:?}", trace.map(|_| ()));
+            let trace = wasm_ctx.execution_trace().unwrap();
+            eprintln!(
+                "Trace: {} {} {} {}",
+                trace.0.len(),
+                trace.1.len(),
+                trace.2.mem_len(),
+                trace.2.stack_len()
+            );
             //let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
             //snark.verify(&public_params, &instance).unwrap();
         }
