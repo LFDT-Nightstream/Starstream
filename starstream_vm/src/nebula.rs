@@ -1,4 +1,4 @@
-use wasmi::{Engine, Linker, Module, Store};
+use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, core::TrapCode};
 use zk_engine::{
     error::ZKWASMError,
     nova::{
@@ -11,7 +11,10 @@ use zk_engine::{
     wasm_snark::{StepSize, WasmSNARK},
 };
 
-use crate::{Transaction, TransactionInner, TxProgram, code::CodeHash, fake_import};
+use crate::{
+    ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash, fake_import,
+    starstream_utxo_env,
+};
 
 type E = Bn256EngineIPA;
 type EE1 = ipa_pc::EvaluationEngine<E>;
@@ -26,11 +29,29 @@ fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHas
             panic!("contract called abort()");
         })
         .unwrap();
+    linker
+        .func_wrap(
+            module,
+            "eprint",
+            |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
+                use termcolor::{ColorSpec, StandardStream, WriteColor};
+
+                let (memory, _) = crate::memory(&mut caller);
+                let slice = &memory[ptr as usize..(ptr + len) as usize];
+
+                let mut stderr = StandardStream::stderr(termcolor::ColorChoice::Auto);
+                let _ = stderr.set_color(&ColorSpec::new().set_dimmed(true));
+                eprint!("{}", String::from_utf8_lossy(slice));
+                let _ = stderr.reset();
+            },
+        )
+        .unwrap();
 }
 
 #[derive(Clone)]
 struct StoreData<'a> {
     tx: &'a TransactionInner,
+    program_idx: ProgramIdx,
     program: &'a TxProgram,
     witness: usize,
 }
@@ -58,9 +79,46 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
         // Set real imports
         starstream_env_zk(&mut linker, "env", self.data.program.code);
 
-        // Fake all remaining imports
+        // Remaining imports slurp witnesses
         for import in module.imports() {
-            fake_import(&mut linker, &import, "not yet implemented");
+            //fake_import(&mut linker, &import, "not yet implemented");
+            if let ExternType::Func(func_ty) = import.ty() {
+                let desc = format!("{:?}.{:?}", import.module(), import.name());
+                let _ = linker.func_new(
+                    import.module(),
+                    import.name(),
+                    func_ty.clone(),
+                    move |mut caller, inputs, outputs| -> Result<(), WasmiError> {
+                        let data = caller.data_mut();
+                        // This call corresponds to a witness FROM us, so find that.
+                        eprintln!("{}{:?}", desc, inputs);
+                        while data.witness < data.tx.witnesses.len() {
+                            if data.tx.witnesses[data.witness].from_program == data.program_idx {
+                                eprintln!("  -> {:?}", &data.tx.witnesses[data.witness]);
+                                break;
+                            }
+                            data.witness += 1;
+                        }
+                        // Then find the next witness TO us to correspond.
+                        // TODO: explicitly store this rather than guessing.
+                        while data.witness < data.tx.witnesses.len() {
+                            eprintln!("  ?? {:?}", &data.tx.witnesses[data.witness]);
+                            if data.tx.witnesses[data.witness].to_program == data.program_idx {
+                                eprintln!("  <- {:?}", &data.tx.witnesses[data.witness]);
+
+                                outputs.clone_from_slice(&data.tx.witnesses[data.witness].values);
+                                // TODO: copy memory registered in witness
+
+                                data.witness += 1;
+                                return Ok(());
+                            }
+                            data.witness += 1;
+                        }
+                        // No more witnesses to use, so trace ends now.
+                        Err(WasmiError::from(TrapCode::OutOfFuel))
+                    },
+                );
+            }
         }
 
         Ok(linker)
@@ -88,11 +146,11 @@ impl Transaction {
             eprintln!("{witness:?}");
         }
 
-        let step_size = StepSize::new(1000).set_memory_step_size(50_000);
-        let public_params = Snark::setup(step_size);
+        //let step_size = StepSize::new(1000).set_memory_step_size(50_000);
+        //let public_params = Snark::setup(step_size);
 
-        for program in &inner.programs {
-            eprintln!("{program:?}");
+        for (i, program) in inner.programs.iter().enumerate() {
+            eprintln!("\n{:?} {program:?}", ProgramIdx(i));
             let wasm_args = WASMArgsBuilder::default()
                 .bytecode(self.code_cache.get(program.code).wasm().to_vec())
                 .invoke(&program.entry_point)
@@ -102,12 +160,15 @@ impl Transaction {
                 args: wasm_args,
                 data: StoreData {
                     tx: inner,
+                    program_idx: ProgramIdx(i),
                     program,
                     witness: 0,
                 },
             };
-            let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
-            snark.verify(&public_params, &instance).unwrap();
+            let trace = wasm_ctx.execution_trace();
+            eprintln!("{:?}", trace.map(|_| ()));
+            //let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
+            //snark.verify(&public_params, &instance).unwrap();
         }
     }
 }

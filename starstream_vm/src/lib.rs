@@ -206,12 +206,12 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
 }
 
 /// Fulfiller of imports from `starstream_utxo_env`.
-fn starstream_utxo_env(linker: &mut Linker<TransactionInner>, module: &str) {
+fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
     linker
         .func_wrap(
             module,
             "starstream_yield",
-            |mut caller: Caller<TransactionInner>,
+            |mut caller: Caller<T>,
              name: u32,
              name_len: u32,
              data: u32,
@@ -711,6 +711,7 @@ struct TxWitness {
     fuel: u64,
     from_program: ProgramIdx,
     to_program: ProgramIdx,
+    reply_to_witness: usize,
     values: Vec<Value>,
     /// Memory segments read from `from_program` by this witness.
     read_from_memory: Vec<MemorySegment>,
@@ -812,6 +813,7 @@ impl Transaction {
                             fuel,
                             from_program,
                             to_program: ProgramIdx::Root,
+                            reply_to_witness: 0,
                             values,
                             read_from_memory: Default::default(),
                             write_to_memory: Default::default(),
@@ -1049,6 +1051,7 @@ impl Transaction {
             fuel,
             from_program,
             to_program: id,
+            reply_to_witness: usize::MAX,
             values: inputs,
             read_from_memory: Default::default(),
             write_to_memory: Default::default(),
@@ -1061,6 +1064,7 @@ impl Transaction {
         &mut self,
         from_program: ProgramIdx,
         to_program: ProgramIdx,
+        //reply_to_witness: usize,
         inputs: Vec<Value>, // The inputs of this function are the outputs of the yield.
         read_from_memory: Vec<MemorySegment>,
         write_to_memory: Vec<MemorySegment>,
@@ -1109,6 +1113,7 @@ impl Transaction {
                     fuel,
                     from_program,
                     to_program,
+                    reply_to_witness: usize::MAX,
                     values: inputs,
                     read_from_memory,
                     write_to_memory,
@@ -1171,6 +1176,7 @@ impl Transaction {
             fuel,
             from_program,
             to_program: id,
+            reply_to_witness: usize::MAX,
             values: inputs,
             read_from_memory: Default::default(),
             write_to_memory: Default::default(),
