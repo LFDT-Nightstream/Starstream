@@ -138,6 +138,18 @@ impl std::fmt::Display for Interrupt {
 
 impl HostError for Interrupt {}
 
+fn starstream_eprint<T>(mut caller: Caller<T>, ptr: u32, len: u32) {
+    use termcolor::{ColorSpec, StandardStream, WriteColor};
+
+    let (memory, _) = memory(&mut caller);
+    let slice = &memory[ptr as usize..(ptr + len) as usize];
+
+    let mut stderr = StandardStream::stderr(termcolor::ColorChoice::Auto);
+    let _ = stderr.set_color(&ColorSpec::new().set_dimmed(true));
+    eprint!("{}", String::from_utf8_lossy(slice));
+    let _ = stderr.reset();
+}
+
 /// Fulfiller of imports from `env`.
 fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractCode) {
     let this_code = this_code.hash();
@@ -151,16 +163,8 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "eprint",
-            |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
-                use termcolor::{ColorSpec, StandardStream, WriteColor};
-
-                let (memory, _) = memory(&mut caller);
-                let slice = &memory[ptr as usize..(ptr + len) as usize];
-
-                let mut stderr = StandardStream::stderr(termcolor::ColorChoice::Auto);
-                let _ = stderr.set_color(&ColorSpec::new().set_dimmed(true));
-                eprint!("{}", String::from_utf8_lossy(slice));
-                let _ = stderr.reset();
+            |caller: Caller<T>, ptr: u32, len: u32| -> () {
+                starstream_eprint(caller, ptr, len);
             },
         )
         .unwrap();

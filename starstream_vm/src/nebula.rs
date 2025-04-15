@@ -13,7 +13,7 @@ use zk_engine::{
 
 use crate::{
     ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash, fake_import,
-    starstream_utxo_env,
+    starstream_eprint,
 };
 
 type E = Bn256EngineIPA;
@@ -33,16 +33,8 @@ fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHas
         .func_wrap(
             module,
             "eprint",
-            |mut caller: Caller<T>, ptr: u32, len: u32| -> () {
-                use termcolor::{ColorSpec, StandardStream, WriteColor};
-
-                let (memory, _) = crate::memory(&mut caller);
-                let slice = &memory[ptr as usize..(ptr + len) as usize];
-
-                let mut stderr = StandardStream::stderr(termcolor::ColorChoice::Auto);
-                let _ = stderr.set_color(&ColorSpec::new().set_dimmed(true));
-                eprint!("{}", String::from_utf8_lossy(slice));
-                let _ = stderr.reset();
+            |caller: Caller<T>, ptr: u32, len: u32| -> () {
+                starstream_eprint(caller, ptr, len);
             },
         )
         .unwrap();
