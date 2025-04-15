@@ -63,11 +63,6 @@ impl Drop for DropGuard<'_> {
 #[must_use]
 pub fn register_effect_handler<'a, T>(name: &'a str, handler: &T) -> DropGuard<'a> {
     unsafe {
-        // NOTE: just in case the len of the string is not the same as the size
-        // in bytes (utf-8)
-        //
-        // most likely this shouldn't be a string anyway
-        //
         let name = name.as_bytes();
         starstream_register_effect_handler(
             name.as_ptr(),
@@ -91,10 +86,6 @@ unsafe extern "C" {
 
 pub fn get_raised_effect_data<Effect>(name: &str) -> Option<Effect> {
     unsafe {
-        // NOTE: just in case the len of the string is not the same as the size
-        // in bytes (utf-8)
-        //
-        // most likely this shouldn't be a string anyway
         let name = name.as_bytes();
 
         let mut effect = MaybeUninit::<Effect>::uninit();
@@ -127,10 +118,6 @@ unsafe extern "C" {
 
 pub fn resume_throwing_program<Data>(name: &str, data: &Data) {
     unsafe {
-        // NOTE: just in case the len of the string is not the same as the size
-        // in bytes (utf-8)
-        //
-        // most likely this shouldn't be a string anyway
         let name = name.as_bytes();
 
         starstream_resume_throwing_program(
@@ -174,14 +161,14 @@ impl<E: Effect> Registrable for EffectHandler<'_, E> {
     }
 }
 
-impl<E: Effect> Registrable for &EffectHandler<'_, E> {
+impl<T: Registrable> Registrable for &T {
     type DropGuard<'a>
-        = DropGuard<'a>
+        = T::DropGuard<'a>
     where
         Self: 'a;
 
     fn register(&self) -> Self::DropGuard<'_> {
-        register_effect_handler(<E as Effect>::NAME, self)
+        (*self).register()
     }
 }
 
