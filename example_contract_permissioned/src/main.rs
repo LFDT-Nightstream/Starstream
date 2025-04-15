@@ -12,6 +12,8 @@ starstream::panic_handler!();
 
 const PERMISSIONED_TOKEN_ID: u64 = 1003;
 
+// this should be an array, but passing those to the coordination script is not
+// possible now so let's use plain numbers for now.
 type PublicKey = i32;
 
 pub struct PayToPublicKeyHash {
@@ -42,7 +44,9 @@ impl PayToPublicKeyHash {
             // the id should be different even if they have the same type of
             // intermediate?
             let intermediate =
-                PermissionedToken::from(handle.unsafe_coerce::<PermissionedToken>()).unbind();
+                run_effectful_computation(EffectHandler::<CallerOwner>::with(&|_| owner), || {
+                    PermissionedToken::from(handle.unsafe_coerce::<PermissionedToken>()).unbind()
+                });
 
             // TODO: maybe the unbind should do this by default?
             // it doesn't really give you linearity since the handler could just
@@ -58,7 +62,9 @@ impl PayToPublicKeyHash {
 
     // TODO: generalize
     pub fn attach(&mut self, i: TokenIntermediate) {
-        PermissionedToken::bind(i);
+        run_effectful_computation(EffectHandler::<CallerOwner>::with(&|_| self.owner), || {
+            PermissionedToken::bind(i);
+        });
     }
 
     pub fn burn(self) {}
@@ -145,13 +151,20 @@ pub unsafe extern "C" fn starstream_consume_PayToPublicKeyHash_burn(this: *mut P
 // Coordination script
 
 #[unsafe(no_mangle)]
-pub extern "C" fn transfer_usdc(
+pub extern "C" fn transfer_permissioned_token(
     source: example_contract_permissioned::PayToPublicKeyHash,
     proof_from: example_contract_permissioned::LinkedListNode,
     proof_to: example_contract_permissioned::LinkedListNode,
     to: PublicKey,
     to_amount: i32,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
+    let is_blacklisted_handler = |address| {
+        let res1 = is_in_range(proof_from, address);
+        let res2 = is_in_range(proof_to, address);
+
+        res1 || res2
+    };
+
     let from = source.get_owner();
 
     // Note: right now there can only be a single token type in here.
@@ -160,7 +173,12 @@ pub extern "C" fn transfer_usdc(
     let input_amount = core::cell::RefCell::new(0);
 
     run_effectful_computation(
-        EffectHandler::<TokenUnbound>::with(&|token| *input_amount.borrow_mut() += token.amount),
+        (
+            EffectHandler::<TokenUnbound>::with(&|token| {
+                *input_amount.borrow_mut() += token.amount
+            }),
+            EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
+        ),
         || {
             // TODO: this should probably yield the tokens, but currently it's not easy
             // to yield something that it's not the utxo handler, so we use an effect
@@ -181,18 +199,8 @@ pub extern "C" fn transfer_usdc(
         amount: output_amount,
     };
 
-    let is_blacklisted_handler = |address| {
-        let res1 = is_in_range(proof_from, address);
-        let res2 = is_in_range(proof_to, address);
-
-        res1 || res2
-    };
-
     run_effectful_computation(
-        (
-            EffectHandler::<TxCaller>::with(&|_| from),
-            EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
-        ),
+        EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
         || {
             output_utxo.attach(output_intermediate);
         },
@@ -206,10 +214,7 @@ pub extern "C" fn transfer_usdc(
     };
 
     run_effectful_computation(
-        (
-            EffectHandler::<TxCaller>::with(&|_| from),
-            EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
-        ),
+        EffectHandler::<IsBlacklisted>::with(&is_blacklisted_handler),
         || {
             change_utxo.attach(change_intermediate);
         },
@@ -276,10 +281,7 @@ pub extern "C" fn token_mint_to(
     proof: example_contract_permissioned::LinkedListNode,
 ) -> example_contract_permissioned::PayToPublicKeyHash {
     run_effectful_computation::<_, _>(
-        (
-            EffectHandler::<IsBlacklisted>::with(&|to_address| is_in_range(proof, to_address)),
-            EffectHandler::<TxCaller>::with(&(|_| owner)),
-        ),
+        EffectHandler::<IsBlacklisted>::with(&|to_address| is_in_range(proof, to_address)),
         || {
             let out = example_contract_permissioned::PayToPublicKeyHash::new(owner);
             let intermediate = minter.mint(amount);
@@ -329,17 +331,36 @@ pub extern "C" fn starstream_mutate_TokenMint_mint(
 }
 
 fn starstream_bind_token_inner(this: TokenIntermediate) -> TokenStorage {
-    let owner = TxCaller::raise(&());
+    let owner = CallerOwner::raise(&());
 
     let is_blacklisted_output = IsBlacklisted::raise(&owner);
 
-    assert!(is_blacklisted_output);
+    assert!(
+        is_blacklisted_output,
+        "tried to bind token to blacklisted utxo (owner)"
+    );
 
     TokenStorage {
         id: PERMISSIONED_TOKEN_ID,
         amount: this.amount.try_into().unwrap(),
     }
 }
+
+fn starstream_unbind_token_inner(storage: TokenStorage) -> TokenIntermediate {
+    let owner = CallerOwner::raise(&());
+
+    let is_blacklisted_output = IsBlacklisted::raise(&owner);
+
+    assert!(
+        is_blacklisted_output,
+        "tried to unbind token from blacklisted utxo (owner)"
+    );
+
+    TokenIntermediate {
+        amount: storage.amount.try_into().unwrap(),
+    }
+}
+
 token_export! {
     for TokenIntermediate;
     bind fn starstream_bind_Token(this: Self) -> TokenStorage {
@@ -347,7 +368,7 @@ token_export! {
         starstream_bind_token_inner(this)
     }
     unbind fn starstream_unbind_Token(storage: TokenStorage) -> Self {
-        TokenIntermediate { amount: storage.amount.try_into().unwrap() }
+        starstream_unbind_token_inner(storage)
     }
 }
 
@@ -367,20 +388,6 @@ pub extern "C" fn IsBlacklisted_handle(this: &EffectHandler<'_, IsBlacklisted>) 
     this.handle();
 }
 
-pub enum TxCaller {}
-
-impl Effect for TxCaller {
-    const NAME: &'static str = "TxCaller";
-
-    type Input = ();
-    type Output = PublicKey;
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn TxCaller_handle(this: &EffectHandler<'_, TxCaller>) {
-    this.handle();
-}
-
 pub enum TokenUnbound {}
 
 impl Effect for TokenUnbound {
@@ -392,5 +399,19 @@ impl Effect for TokenUnbound {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn TokenUnbound_handle(this: &EffectHandler<'_, TokenUnbound>) {
+    this.handle();
+}
+
+pub enum CallerOwner {}
+
+impl Effect for CallerOwner {
+    const NAME: &'static str = "CallerOwner";
+
+    type Input = ();
+    type Output = PublicKey;
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn CallerOwner_handle(this: &EffectHandler<'_, CallerOwner>) {
     this.handle();
 }

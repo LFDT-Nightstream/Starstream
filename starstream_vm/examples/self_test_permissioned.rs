@@ -57,18 +57,20 @@ pub fn main() {
     let from = 4;
     // let from = 7; // blacklisted
     let to = 8;
+    // let to = 7; // blacklisted
 
     let proof_from = find_prev_node(&mut tx, &contract, from);
     let proof_to = find_prev_node(&mut tx, &contract, to);
 
-    let transfer_output = tx.run_coordination_script(
+    let _transfer_output = tx.run_coordination_script(
         &contract,
-        "transfer_usdc",
+        "transfer_permissioned_token",
         vec![
             minted_token,
             proof_from,
             proof_to,
             Value::I32(to),
+            // amount to transfer
             Value::I32(50),
         ],
     );
