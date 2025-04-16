@@ -342,7 +342,7 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
         .func_wrap(
             module,
             "starstream_raise",
-            |mut caller: Caller<TransactionInner>,
+            |mut caller: Caller<T>,
              name: u32,
              name_len: u32,
              data: u32,
@@ -370,11 +370,7 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
         .func_wrap(
             module,
             "starstream_get_tokens",
-            |_caller: Caller<TransactionInner>,
-             data: u32,
-             data_len: u32,
-             skip: u32|
-             -> Result<u32, WasmiError> {
+            |_caller: Caller<T>, data: u32, data_len: u32, skip: u32| -> Result<u32, WasmiError> {
                 host(Interrupt::GetTokens {
                     data,
                     data_len,
