@@ -1,9 +1,10 @@
 //! Starstream VM as a library.
 
-use std::{collections::HashMap, sync::Arc, usize};
+use std::{collections::HashMap, sync::Arc};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use code::{CodeCache, CodeHash, ContractCode};
+pub use code::ContractCode;
+use code::{CodeCache, CodeHash};
 use rand::RngCore;
 use tiny_keccak::Hasher;
 use util::DisplayHex;
@@ -80,6 +81,22 @@ enum Interrupt {
     CoordinationCode {
         return_addr: u32,
     },
+    RegisterEffectHandler {
+        name: String,
+        handler_addr: u32,
+    },
+    UnRegisterEffectHandler {
+        name: String,
+    },
+    GetRaisedEffectData {
+        name: String,
+        output_ptr_data: u32,
+        not_null: u32,
+    },
+    ResumeThrowingProgram {
+        name: String,
+        input_ptr_data: u32,
+    },
     // Coordination -> UTXO
     UtxoNew {
         code: CodeHash,
@@ -109,6 +126,15 @@ enum Interrupt {
     Yield {
         name: String,
         data: u32,
+        resume_arg: u32,
+        resume_arg_len: u32,
+    },
+    Raise {
+        name: String,
+        data: u32,
+        data_len: u32,
+        resume_arg: u32,
+        resume_arg_len: u32,
     },
     // UTXO -> Token
     TokenBind {
@@ -121,6 +147,11 @@ enum Interrupt {
         // Sanity checking - must match that of the token.
         //code: CodeHash,
         //unbind_fn: String,
+    },
+    GetTokens {
+        data: u32,
+        data_len: u32,
+        skip: u32,
     },
 }
 
@@ -208,6 +239,74 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
             },
         )
         .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_register_effect_handler",
+            move |mut caller: Caller<T>, ptr: u32, len: u32, handler_addr: i32| {
+                let (memory, _) = memory(&mut caller);
+
+                let name_slice = &memory[ptr as usize..(ptr + len) as usize];
+
+                host(Interrupt::RegisterEffectHandler {
+                    name: String::from_utf8_lossy(name_slice).into_owned(),
+                    handler_addr: handler_addr as u32,
+                })
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_unregister_effect_handler",
+            move |mut caller: Caller<T>, ptr: u32, len: u32| {
+                let (memory, _) = memory(&mut caller);
+
+                let slice = &memory[ptr as usize..(ptr + len) as usize];
+                host(Interrupt::UnRegisterEffectHandler {
+                    name: String::from_utf8_lossy(slice).into_owned(),
+                })
+            },
+        )
+        .unwrap();
+    linker
+        .func_wrap(
+            module,
+            "starstream_get_raised_effect_data",
+            move |mut caller: Caller<T>,
+                  ptr: u32,
+                  len: u32,
+                  output_ptr_data: u32,
+                  not_null: u32| {
+                let (memory, _) = memory(&mut caller);
+
+                let slice = &memory[ptr as usize..(ptr + len) as usize];
+                host(Interrupt::GetRaisedEffectData {
+                    name: String::from_utf8_lossy(slice).into_owned(),
+                    output_ptr_data,
+                    not_null,
+                })
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_resume_throwing_program",
+            move |mut caller: Caller<T>, ptr: u32, len: u32, input_ptr_data: u32| {
+                let (memory, _) = memory(&mut caller);
+
+                let slice = &memory[ptr as usize..(ptr + len) as usize];
+                host(Interrupt::ResumeThrowingProgram {
+                    name: String::from_utf8_lossy(slice).into_owned(),
+                    input_ptr_data,
+                })
+            },
+        )
+        .unwrap();
 }
 
 /// Fulfiller of imports from `starstream_utxo_env`.
@@ -232,7 +331,56 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
                     .unwrap()
                     .to_owned(),
                     data,
+                    resume_arg,
+                    resume_arg_len,
                 })
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_raise",
+            |mut caller: Caller<TransactionInner>,
+             name: u32,
+             name_len: u32,
+             data: u32,
+             data_len: u32,
+             resume_arg: u32,
+             resume_arg_len: u32|
+             -> Result<(), WasmiError> {
+                eprintln!("starstream_raise()");
+                host(Interrupt::Raise {
+                    name: std::str::from_utf8(
+                        &memory(&mut caller).0[name as usize..(name + name_len) as usize],
+                    )
+                    .unwrap()
+                    .to_owned(),
+                    data,
+                    data_len,
+                    resume_arg,
+                    resume_arg_len,
+                })
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_get_tokens",
+            |_caller: Caller<TransactionInner>,
+             data: u32,
+             data_len: u32,
+             skip: u32|
+             -> Result<u32, WasmiError> {
+                host(Interrupt::GetTokens {
+                    data,
+                    data_len,
+                    skip,
+                })
+                .map(|_| unreachable!())
             },
         )
         .unwrap();
@@ -240,7 +388,7 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
 
 // ----------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 struct TokenId {
     bytes: [u8; 16],
 }
@@ -358,7 +506,7 @@ fn utxo_linker(
 // ----------------------------------------------------------------------------
 
 #[derive(Debug)]
-struct Utxo {
+pub struct Utxo {
     program: ProgramIdx,
     tokens: HashMap<TokenId, Token>,
 }
@@ -370,8 +518,12 @@ fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<Trans
 
     starstream_env(&mut linker, "env", token_code);
 
+    starstream_utxo_env(&mut linker, "starstream_utxo_env");
+
     for import in token_code.module(engine).imports() {
-        fake_import(&mut linker, &import, "Not available in token context");
+        if import.module() != "starstream_utxo_env" {
+            fake_import(&mut linker, &import, "Not available in token context");
+        }
     }
 
     linker
@@ -652,7 +804,8 @@ impl std::fmt::Debug for ProgramIdx {
 struct TxProgram {
     return_to: ProgramIdx,
     return_is_token: bool,
-    yield_to: Option<(ProgramIdx, Value)>,
+    yield_to: Option<ProgramIdx>,
+    yield_to_constructor: Option<Value>,
 
     code: CodeHash,
     entry_point: String,
@@ -737,6 +890,9 @@ struct TransactionInner {
     programs: Vec<TxProgram>,
     /// Call and return values between programs, logged for future ZK use.
     witnesses: Vec<TxWitness>,
+
+    registered_effect_handler: HashMap<String, Vec<(ProgramIdx, u32)>>,
+    raised_effects: HashMap<String, ProgramIdx>,
 }
 
 /// An in-progress transaction and its traces. Contains all related WASM execution.
@@ -755,6 +911,35 @@ impl Transaction {
             store,
             code_cache: Default::default(),
         }
+    }
+
+    pub fn utxos(&mut self) -> Vec<(Value, String)> {
+        let data = self.store.data();
+
+        let mut res = vec![];
+        let iter = data
+            .utxos
+            .iter()
+            .filter_map(|(utxo_id, utxo)| {
+                let tx_program = &data.programs[utxo.program.0];
+
+                if tx_program.interrupt().is_some() {
+                    Some((*utxo_id, tx_program.entry_point.clone()))
+                } else {
+                    None
+                }
+            })
+            // TODO: can probably avoid this, but just do this for simplicity
+            .collect::<Vec<_>>();
+
+        for (utxo_id, entry_point) in iter {
+            res.push((
+                utxo_id.to_wasm_externref(self.store.as_context_mut()),
+                entry_point,
+            ));
+        }
+
+        res
     }
 
     pub fn code_cache(&self) -> &Arc<CodeCache> {
@@ -887,7 +1072,128 @@ impl Transaction {
                         }],
                     )
                 }
+                Err(Interrupt::RegisterEffectHandler { name, handler_addr }) => {
+                    let to_program = from_program;
 
+                    self.store
+                        .data_mut()
+                        .registered_effect_handler
+                        .entry(name)
+                        .or_default()
+                        .push((from_program, handler_addr));
+
+                    self.resume(from_program, to_program, vec![], vec![], vec![])
+                }
+                Err(Interrupt::UnRegisterEffectHandler { name }) => {
+                    let to_program = from_program;
+
+                    let effect_handlers = &mut self
+                        .store
+                        .data_mut()
+                        .registered_effect_handler
+                        .get_mut(&name)
+                        .unwrap();
+
+                    let (index, _) = effect_handlers
+                        .iter()
+                        .enumerate()
+                        .find(|(_index, (program, _))| *program == from_program)
+                        .unwrap();
+
+                    effect_handlers.remove(index);
+
+                    self.resume(from_program, to_program, vec![], vec![], vec![])
+                }
+                Err(Interrupt::GetRaisedEffectData {
+                    name,
+                    output_ptr_data,
+                    not_null,
+                }) => {
+                    let to_program = from_program;
+
+                    let throwing_program = self.store.data().raised_effects.get(&name);
+
+                    let mut write_to_memory = vec![];
+
+                    if let Some(throwing_program) = throwing_program {
+                        let (data, data_len) =
+                            match self.store.data().programs[throwing_program.0].interrupt() {
+                                Some(Interrupt::Raise { data, data_len, .. }) => (*data, *data_len),
+                                other => panic!("program didn't throw {other:?}"),
+                            };
+
+                        let throwed_data = self.store.data().programs[throwing_program.0]
+                            .instance
+                            .get_export(&self.store, "memory")
+                            .unwrap()
+                            .into_memory()
+                            .unwrap()
+                            .data(&self.store)
+                            [data as usize..data as usize + data_len as usize]
+                            .to_vec();
+
+                        write_to_memory.push(MemorySegment {
+                            address: not_null,
+                            data: vec![1u8],
+                        });
+
+                        write_to_memory.push(MemorySegment {
+                            address: output_ptr_data,
+                            data: throwed_data,
+                        });
+                    } else {
+                        write_to_memory.push(MemorySegment {
+                            address: not_null,
+                            data: vec![0u8],
+                        });
+                    }
+
+                    self.resume(from_program, to_program, vec![], vec![], write_to_memory)
+                }
+                Err(Interrupt::ResumeThrowingProgram {
+                    name,
+                    input_ptr_data,
+                }) => {
+                    let throwing_program =
+                        self.store.data_mut().raised_effects.remove(&name).unwrap();
+                    let to_program = throwing_program;
+
+                    let (output_ptr_data, data_len) =
+                        match self.store.data().programs[throwing_program.0].interrupt() {
+                            Some(Interrupt::Raise {
+                                resume_arg,
+                                resume_arg_len,
+                                ..
+                            }) => (*resume_arg, *resume_arg_len),
+                            other => panic!("program didn't throw {other:?}"),
+                        };
+
+                    let caller_memory = self.store.data().programs[from_program.0]
+                        .instance
+                        .get_export(&self.store, "memory")
+                        .unwrap()
+                        .into_memory()
+                        .unwrap()
+                        .data(&self.store)
+                        [input_ptr_data as usize..input_ptr_data as usize + data_len as usize]
+                        // TODO: needed to avoid double borrow on the store
+                        // can we avoid this?
+                        .to_vec();
+
+                    let resumed_program_memory = self.store.data().programs[to_program.0]
+                        .instance
+                        .get_export(&self.store, "memory")
+                        .unwrap()
+                        .into_memory()
+                        .unwrap()
+                        .data_mut(&mut self.store);
+
+                    resumed_program_memory
+                        [output_ptr_data as usize..output_ptr_data as usize + data_len as usize]
+                        .copy_from_slice(&caller_memory);
+
+                    self.resume(from_program, to_program, vec![], vec![], vec![])
+                }
                 // ------------------------------------------------------------
                 // Coordination scripts can call into UTXOs
                 Err(Interrupt::UtxoNew {
@@ -900,8 +1206,11 @@ impl Transaction {
                     let id = UtxoId::random();
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
-                    self.store.data_mut().programs[to_program.0].yield_to =
-                        Some((from_program, id.to_wasm_i64(self.store.as_context_mut())));
+                    self.store.data_mut().programs[to_program.0].yield_to = Some(from_program);
+
+                    self.store.data_mut().programs[to_program.0].yield_to_constructor =
+                        Some(id.to_wasm_i64(self.store.as_context_mut()));
+
                     self.store.data_mut().programs[to_program.0].utxo = Some(id);
                     self.store.data_mut().utxos.insert(
                         id,
@@ -913,7 +1222,49 @@ impl Transaction {
                     (to_program, result)
                 }
                 Err(Interrupt::UtxoResume { utxo_id, inputs }) => {
-                    todo!()
+                    let to_program = self.store.data().utxos[&utxo_id].program;
+
+                    // TODO: I think this is correct if the utxo is resumed
+                    // from a coordination script, because there is a chance the
+                    // current value of return_to points to an already finished
+                    // coordination script.
+                    //
+                    // But this wouldn't work with utxos. That said, that can't
+                    // happen now anyway.
+                    self.store.data_mut().programs[to_program.0].return_to = from_program;
+                    self.store.data_mut().programs[to_program.0].yield_to = Some(from_program);
+
+                    let (resume_arg, resume_len) =
+                        match self.store.data().programs[to_program.0].interrupt() {
+                            Some(Interrupt::Yield {
+                                resume_arg,
+                                resume_arg_len,
+                                ..
+                            }) => (*resume_arg, *resume_arg_len),
+                            other => panic!("cannot query a UTXO in state {other:?}"),
+                        };
+
+                    let copy_from = match inputs[1] {
+                        Value::I32(n) => n as usize,
+                        Value::I64(n) => n as usize,
+                        _ => panic!("Expected pointer as the first argument in UtxoResume"),
+                    };
+
+                    let caller_memory_data = self.store.data().programs[from_program.0]
+                        .instance
+                        .get_export(&self.store, "memory")
+                        .unwrap()
+                        .into_memory()
+                        .unwrap()
+                        .data(&self.store)[copy_from..copy_from + resume_len as usize]
+                        .to_vec();
+
+                    let write_to_memory = vec![MemorySegment {
+                        address: resume_arg,
+                        data: caller_memory_data,
+                    }];
+
+                    self.resume(from_program, to_program, vec![], vec![], write_to_memory)
                 }
                 Err(Interrupt::UtxoQuery {
                     utxo_id,
@@ -965,11 +1316,41 @@ impl Transaction {
                 // ------------------------------------------------------------
                 // UTXOs can yield and call into tokens
                 Err(Interrupt::Yield { .. }) => {
-                    let (to_program, value) = self.store.data_mut().programs[from_program.0]
+                    let utxo_scrambled_id = self.store.data_mut().programs[from_program.0]
+                        .yield_to_constructor
+                        .take();
+
+                    let to_program = self.store.data_mut().programs[from_program.0]
                         .yield_to
-                        .take()
                         .unwrap();
-                    self.resume(from_program, to_program, vec![value], vec![], vec![])
+
+                    let mut inputs = vec![];
+
+                    if let Some(id) = utxo_scrambled_id {
+                        inputs.push(id);
+                    }
+
+                    self.resume(from_program, to_program, inputs, vec![], vec![])
+                }
+                Err(Interrupt::Raise { name, .. }) => {
+                    let (to_program, handler_address) =
+                        *self.store.data_mut().registered_effect_handler[&name]
+                            .last()
+                            .unwrap();
+
+                    let method = format!("{}_handle", name);
+
+                    self.store
+                        .data_mut()
+                        .raised_effects
+                        .insert(name, from_program);
+
+                    self.call_method(
+                        from_program,
+                        to_program,
+                        method,
+                        vec![Value::I32(handler_address as i32)],
+                    )
                 }
                 Err(Interrupt::TokenBind {
                     code,
@@ -996,10 +1377,85 @@ impl Transaction {
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].return_is_token = true;
+
                     (to_program, result)
                 }
-                Err(Interrupt::TokenUnbind { .. }) => {
-                    todo!();
+                Err(Interrupt::TokenUnbind { token_id }) => {
+                    // assume that only the utxo that owns the token can unbind it?
+                    let utxo_id = self.store.data_mut().programs[from_program.0].utxo.unwrap();
+
+                    let token = self
+                        .store
+                        .data_mut()
+                        .utxos
+                        .get_mut(&utxo_id)
+                        .unwrap()
+                        .tokens
+                        .remove(&token_id)
+                        .unwrap();
+
+                    let code = self.store.data().programs[token.bind_program.0].code;
+                    let code = self.code_cache.get(code);
+
+                    let entry_point = self.store.data().programs[token.bind_program.0]
+                        .entry_point
+                        .replace("bind", "unbind");
+
+                    let linker = token_linker(self.store.engine(), &code);
+
+                    let inputs = vec![Value::I64(token.id as i64), Value::I64(token.amount as i64)];
+
+                    let (to_program, result) =
+                        self.start_program(from_program, &linker, &code, &entry_point, inputs);
+
+                    (to_program, result)
+                }
+                Err(Interrupt::GetTokens {
+                    data,
+                    data_len,
+                    skip,
+                }) => {
+                    let to_program = from_program;
+
+                    let utxo_id = self.store.data().programs[from_program.0].utxo.unwrap();
+
+                    let tokens = {
+                        let utxo = &self.store.data().utxos[&utxo_id];
+
+                        let mut tokens_sorted = utxo.tokens.keys().copied().collect::<Vec<_>>();
+
+                        tokens_sorted.sort();
+
+                        tokens_sorted
+                    };
+
+                    let mut count = 0;
+                    let mut raw = vec![];
+
+                    for token_id in tokens.iter().skip(skip as usize).take(data_len as usize) {
+                        let i = token_id.to_wasm_i64(self.store.as_context_mut());
+
+                        let i = match i {
+                            Value::I64(i) => i as u64,
+                            _ => unreachable!(),
+                        };
+
+                        raw.extend_from_slice(&i.to_le_bytes());
+                        count += 1;
+                    }
+
+                    let writes = vec![MemorySegment {
+                        address: data,
+                        data: raw,
+                    }];
+
+                    self.resume(
+                        from_program,
+                        to_program,
+                        vec![Value::I32(count)],
+                        vec![],
+                        writes,
+                    )
                 }
             }
         }
@@ -1049,6 +1505,7 @@ impl Transaction {
             return_to: from_program,
             return_is_token: false,
             yield_to: None,
+            yield_to_constructor: None,
             code: code.hash(),
             entry_point: entry_point.to_owned(),
             instance,
@@ -1178,6 +1635,7 @@ impl Transaction {
             return_to: from_program,
             return_is_token: false,
             yield_to: None,
+            yield_to_constructor: None,
             code,
             entry_point: method.to_owned(),
             num_outputs,

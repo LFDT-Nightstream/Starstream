@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "example_contract",
+    "example_contract_permissioned",
     "starstream_cli",
     "starstream_compiler",
     "starstream_sys",
