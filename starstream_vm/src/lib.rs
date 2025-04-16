@@ -13,6 +13,7 @@ use wasmi::{
 };
 
 mod code;
+mod mermaid;
 mod nebula;
 mod util;
 
@@ -721,6 +722,8 @@ struct TxWitness {
     read_from_memory: Vec<MemorySegment>,
     /// Memory segments written to `to_program` by this witness.
     write_to_memory: Vec<MemorySegment>,
+    is_create: bool,
+    is_destroy: bool,
 }
 
 /// State inside a transaction. The Transaction itself keeps the wasm Store.
@@ -821,6 +824,8 @@ impl Transaction {
                             values,
                             read_from_memory: Default::default(),
                             write_to_memory: Default::default(),
+                            is_create: false,
+                            is_destroy: true,
                         });
 
                         return result;
@@ -1059,6 +1064,8 @@ impl Transaction {
             values: inputs,
             read_from_memory: Default::default(),
             write_to_memory: Default::default(),
+            is_create: true,
+            is_destroy: false,
         });
         (id, result)
     }
@@ -1121,6 +1128,8 @@ impl Transaction {
                     values: inputs,
                     read_from_memory,
                     write_to_memory,
+                    is_create: false,
+                    is_destroy: false,
                 });
                 (to_program, result)
             }
@@ -1184,6 +1193,8 @@ impl Transaction {
             values: inputs,
             read_from_memory: Default::default(),
             write_to_memory: Default::default(),
+            is_create: true,
+            is_destroy: false,
         });
         (id, result)
     }
