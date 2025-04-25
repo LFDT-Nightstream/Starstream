@@ -1,0 +1,124 @@
+Program ::= (Utxo | Script | Token)* eof
+
+Utxo ::= 'utxo' ident '{' (Abi | Main | Impl | Storage)* '}'
+Script ::= 'script' '{' FnDef* '}'
+
+Token ::= 'token' ident '{' (Abi | Bind | Unbind )* '}'
+
+Abi ::= 'abi' '{' (FnSig ';' | EffectSig ';')* '}'
+Impl ::= 'impl' ident '{' FnDef* '}'
+Main ::= 'main' ( '(' TypedBindings ')' )? Block
+Storage ::= 'storage' '{' (TypedBinding ';')* '}'
+
+Bind ::= 'bind' Block
+Unbind ::= 'unbind' Block
+
+TypedBinding ::= ident ( ':' Type )?
+TypedBindings ::= (TypedBinding (',' TypedBinding)*)?
+
+FnDef ::= 'fn' ident '(' TypedBindings ')' (':' Type)? Block
+
+Statement ::=
+	BindVar
+	| returnLike Expr? ';'
+	| ident '=' Expr ';'
+	| "try" Block ( "with" Effect Block ) +
+	| "if" "(" Expr ")" Block ( "else" Block )?
+	| "while" "(" Expr ")" LoopBody
+
+BindVar ::= ("let" | "const") ident (':' Type)? "=" Expr ';'
+LoopBody ::= Statement | (Block / Expr ';')
+
+Effect ::= ident '(' TypedBindings ')'
+
+Block ::= '{' BlockBody
+BlockBody ::=
+	  Statement ( BlockBody | '}' )
+	| Expr ( ';' BlockBody | ';'? '}' )
+
+Expr ::=
+    PrimaryExpr InfixOpTail?
+    | '!' Expr
+	| yield Expr?
+
+InfixOpTail ::=
+    InfixOp Expr
+
+PrimaryExpr ::=
+    number
+    | bool
+	| stringLiteral
+    | ident (Arguments / )
+	| '(' Expr ')'
+	| Block
+
+Arguments ::= '(' ( Expr ( ',' Expr )* )? ')'
+
+InfixOp ::=
+	  '+'
+	| '*'
+	| '=='
+	| '<'
+	| '<='
+	| '>='
+	| '!='
+	| '&&'
+	| '||'
+	| '.'
+	| '-'
+
+Sig ::= ident '(' (Type (',' Type)*)? ')' (':' Type)?
+
+FnSig ::= 'fn' Sig
+EffectSig ::= ( 'effect' | 'event' | 'error' ) Sig
+
+Type ::=
+	'(' TypedBindings ')' ('->' Type)?
+	| '&' Type
+	| '{' TypedBindings '}'
+	| ident ('<' Type (',' Type)* '>')?
+
+Ignorable
+         ::= whitespace^token |
+			 comment^token |
+			 commentLine^token
+          /* ws: definition */
+
+
+<?TOKENS?>
+
+eof      ::= $
+ident ::= [a-zA-Z] ([a-zA-Z0-9] | '_' | '::')+ | [a-zA-Z]
+whitespace
+         ::= [#x9#xA#xD#x20]+
+
+
+number   ::= '0' | '-' ? digitOneThroughNine digit* ( '.' digit* )?
+digit    ::= [0-9] | "_"
+digitOneThroughNine
+         ::= digit - '0'
+
+stringLiteral ::= '"' (. - '"')* '"'
+
+yield ::= "yield" | "raise" | "fail"
+returnLike ::= "resume" | "return"
+
+bool ::= true | false
+true ::= 'true'
+false ::= 'false'
+
+LF       ::= #x000A
+CR       ::= #x000D
+
+newline
+         ::= LF
+           | CR
+           | CR LF
+
+inputCharacter
+         ::= . - newline
+
+comment ::= '/*' (.* - (.* '*/' .*)) '*/'
+commentLine ::= '//' inputCharacter*
+
+ident << bool 'if' 'else' 'let' 'const' 'while' 'try' 'with' returnLike yield
