@@ -32,7 +32,7 @@ LoopBody ::= Statement | (Block / Expr ';')
 
 Effect ::= ident '(' TypedBindings ')'
 
-Block ::= '{' BlockBody
+Block ::= '{' BlockBody | '{' '}'
 BlockBody ::=
 	  Statement ( BlockBody | '}' )
 	| BlockBodyExpr
