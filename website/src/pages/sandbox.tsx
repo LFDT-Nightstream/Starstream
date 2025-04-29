@@ -1,21 +1,16 @@
+import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 import Layout from "@theme/Layout";
-import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-import {
-  PropsWithChildren,
-  ReactNode,
-  Ref,
-  useEffect,
-  useImperativeHandle,
-  useRef,
-  useState,
-} from "react";
+import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+import { ReactNode, Ref, useEffect, useRef, useState } from "react";
 
-window.MonacoEnvironment = {
-  getWorkerUrl(_moduleId: any, label: string): string {
-    console.log("getWorkerUrl", _moduleId, label);
-    return "";
-  },
-};
+if (ExecutionEnvironment.canUseDOM) {
+  window.MonacoEnvironment = {
+    getWorkerUrl(_moduleId: any, label: string): string {
+      console.log("getWorkerUrl", _moduleId, label);
+      return "";
+    },
+  };
+}
 
 function setRef<T>(ref: Ref<T> | undefined, value: T) {
   if (ref === null || ref === undefined) {
@@ -31,12 +26,16 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
   const div = useRef<HTMLDivElement>(null);
   //const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
   useEffect(() => {
-    const editor = monaco.editor.create(div.current!, {
-      value: "Hello, world!",
-      language: "typescript",
-    });
-    setRef(props.ref, editor);
-    return () => editor.dispose();
+    let editor: monaco.editor.IStandaloneCodeEditor | undefined;
+    (async () => {
+      const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+      editor = monaco.editor.create(div.current!, {
+        value: "Hello, world!",
+        language: "typescript",
+      });
+      setRef(props.ref, editor);
+    })();
+    return () => editor?.dispose();
   }, []);
 
   return <div style={{ flexGrow: 1 }} ref={div} />;
