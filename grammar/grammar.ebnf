@@ -21,20 +21,26 @@ FnDef ::= 'fn' ident '(' TypedBindings ')' (':' Type)? Block
 Statement ::=
 	BindVar
 	| returnLike Expr? ';'
-	| ident '=' Expr ';'
-	| "try" Block ( "with" Effect Block ) +
-	| "if" "(" Expr ")" Block ( "else" Block )?
-	| "while" "(" Expr ")" LoopBody
+	| Assign ';'
+	| 'try' Block ( "with" Effect Block ) +
+	| 'while' '(' Expr ')' LoopBody
+	| 'loop' LoopBody
 
-BindVar ::= ("let" | "const") ident (':' Type)? "=" Expr ';'
+Assign ::= ident '=' Expr
+
+BindVar ::= ('let' | 'let mut') ident (':' Type)? '=' Expr ';'
 LoopBody ::= Statement | (Block / Expr ';')
 
 Effect ::= ident '(' TypedBindings ')'
 
-Block ::= '{' BlockBody
+Block ::= '{' BlockBody | '{' '}'
 BlockBody ::=
 	  Statement ( BlockBody | '}' )
-	| Expr ( ';' BlockBody | ';'? '}' )
+	| BlockBodyExpr
+
+BlockBodyExpr ::=
+	IfExpr ( BlockBody | ';'? '}' ) /
+	Expr ( ';' BlockBody | ';'? '}' )
 
 Expr ::=
     PrimaryExpr InfixOpTail?
@@ -51,6 +57,9 @@ PrimaryExpr ::=
     | ident (Arguments / )
 	| '(' Expr ')'
 	| Block
+	| IfExpr
+
+IfExpr ::= "if" "(" Expr ")" Block ( "else" Block )?
 
 Arguments ::= '(' ( Expr ( ',' Expr )* )? ')'
 
@@ -121,4 +130,4 @@ inputCharacter
 comment ::= '/*' (.* - (.* '*/' .*)) '*/'
 commentLine ::= '//' inputCharacter*
 
-ident << bool 'if' 'else' 'let' 'const' 'while' 'try' 'with' returnLike yield
+ident << bool 'if' 'else' 'let' 'let mut' 'while' 'loop' 'try' 'with' returnLike yield
