@@ -24,6 +24,7 @@ Statement ::=
 	| Assign ';'
 	| 'try' Block ( "with" Effect Block ) +
 	| 'while' '(' Expr ')' LoopBody
+	| 'loop' LoopBody
 
 Assign ::= ident '=' Expr
 
@@ -129,4 +130,4 @@ inputCharacter
 comment ::= '/*' (.* - (.* '*/' .*)) '*/'
 commentLine ::= '//' inputCharacter*
 
-ident << bool 'if' 'else' 'let' 'const' 'while' 'try' 'with' returnLike yield
+ident << bool 'if' 'else' 'let' 'const' 'while' 'loop' 'try' 'with' returnLike yield
