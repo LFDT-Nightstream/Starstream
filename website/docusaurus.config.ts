@@ -1,63 +1,64 @@
-import {themes as prismThemes} from 'prism-react-renderer';
-import type {Config} from '@docusaurus/types';
-import type * as Preset from '@docusaurus/preset-classic';
+import { themes as prismThemes } from "prism-react-renderer";
+import type { Config } from "@docusaurus/types";
+import type * as Preset from "@docusaurus/preset-classic";
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
 const config: Config = {
-  title: 'Starstream',
-  tagline: 'A blockchain and zero-knowledge VM concept built around delimited continuations',
+  title: "Starstream",
+  tagline:
+    "A blockchain and zero-knowledge VM concept built around delimited continuations",
   //favicon: 'img/favicon.ico',
 
   // Set the production url of your site here
-  url: 'https://paimastudios.github.io/',
+  url: "https://paimastudios.github.io/",
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/Starstream/',
+  baseUrl: "/Starstream/",
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'PaimaStudios', // Usually your GitHub org/user name.
-  projectName: 'Starstream', // Usually your repo name.
+  organizationName: "PaimaStudios", // Usually your GitHub org/user name.
+  projectName: "Starstream", // Usually your repo name.
 
-  onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenLinks: "throw",
+  onBrokenMarkdownLinks: "warn",
 
   // Even if you don't use internationalization, you can use this field to set
   // useful metadata like html lang. For example, if your site is Chinese, you
   // may want to replace "en" with "zh-Hans".
   i18n: {
-    defaultLocale: 'en',
-    locales: ['en'],
+    defaultLocale: "en",
+    locales: ["en"],
   },
 
   presets: [
     [
-      'classic',
+      "classic",
       {
         docs: {
-          routeBasePath: '/',
-          sidebarPath: './sidebars.ts',
+          routeBasePath: "/",
+          sidebarPath: "./sidebars.ts",
           editUrl:
-            'https://github.com/PaimaStudios/Starstream/tree/master/website/',
+            "https://github.com/PaimaStudios/Starstream/tree/master/website/",
         },
         blog: {
           showReadingTime: false,
           feedOptions: {
-            type: ['rss', 'atom'],
+            type: ["rss", "atom"],
             xslt: true,
           },
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/PaimaStudios/Starstream/tree/master/website/',
+            "https://github.com/PaimaStudios/Starstream/tree/master/website/",
           // Useful options to enforce blogging best practices
-          onInlineTags: 'warn',
-          onInlineAuthors: 'warn',
-          onUntruncatedBlogPosts: 'warn',
+          onInlineTags: "warn",
+          onInlineAuthors: "warn",
+          onUntruncatedBlogPosts: "warn",
         },
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: "./src/css/custom.css",
         },
       } satisfies Preset.Options,
     ],
@@ -67,34 +68,38 @@ const config: Config = {
     // Replace with your project's social card
     //image: 'img/docusaurus-social-card.jpg',
     navbar: {
-      title: 'Starstream',
+      title: "Starstream",
       /*logo: {
         alt: 'My Site Logo',
         src: 'img/logo.svg',
       },*/
       items: [
         {
-          href: 'https://github.com/PaimaStudios/Starstream',
-          label: 'GitHub',
+          href: "https://github.com/PaimaStudios/Starstream",
+          label: "GitHub",
         },
         {
-          href: 'https://discord.com/invite/9eZaheySZE',
-          label: 'Discord',
+          href: "https://discord.com/invite/9eZaheySZE",
+          label: "Discord",
         },
         {
-          type: 'docSidebar',
-          sidebarId: 'tutorialSidebar',
-          position: 'left',
-          label: 'Documentation',
+          type: "docSidebar",
+          sidebarId: "tutorialSidebar",
+          position: "left",
+          label: "Documentation",
         },
+        /*{
+          to: '/sandbox/',
+          label: 'Sandbox',
+        },*/
         {
-          to: '/blog',
-          label: 'Posts',
-        }
+          to: "/blog/",
+          label: "Posts",
+        },
       ],
     },
     footer: {
-      style: 'dark',
+      style: "dark",
       /*links: [
         {
           title: 'External',

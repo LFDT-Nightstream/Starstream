@@ -1,5 +1,5 @@
 root = true
 
-[*.yml]
+[*.yml,*.js,*.jsx,*.ts,*.tsx,*.json]
 indent_style = space
 indent_size = 2
