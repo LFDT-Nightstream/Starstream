@@ -1,7 +1,15 @@
 import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 import Layout from "@theme/Layout";
 import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-import { ReactNode, Ref, useEffect, useRef, useState } from "react";
+import {
+  Dispatch,
+  ReactNode,
+  Ref,
+  SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -41,16 +49,71 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
   return <div style={{ flexGrow: 1 }} ref={div} />;
 }
 
-function Tabs(props: { tabs: Record<string, ReactNode> }) {
-  const [tab, setTab] = useState("");
+function Tabs(props: {
+  current: string;
+  setCurrent: Dispatch<SetStateAction<string>>;
+  className?: string;
+  style?: React.CSSProperties;
+  tabs: { key: string; title?: ReactNode; body?: ReactNode }[];
+  extra?: ReactNode;
+}) {
+  const { current, setCurrent } = props;
+  useEffect(() => {
+    setCurrent((current) => {
+      if (!props.tabs.some((tab) => current === tab.key)) {
+        current = props.tabs[0].key;
+      }
+      return current;
+    });
+  }, [current, JSON.stringify(props.tabs.map((tab) => tab.key))]);
   return (
-    <div>
-      <div>
-        {Object.keys(props.tabs).map((k) => (
-          <button type="button" onClick={() => setTab(k)}>
-            {k}
+    <div
+      /* Ugly flex style stuff should be moved to a .css file later */
+      style={Object.assign(
+        { flexGrow: 1, display: "flex", flexDirection: "column" },
+        props.style
+      )}
+      className={props.className}
+    >
+      <div
+        style={{
+          lineHeight: 0,
+          display: "flex",
+        }}
+      >
+        {props.tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setCurrent(tab.key)}
+            style={{
+              border: "1px solid lightgray",
+              borderBottomColor: current === tab.key ? "white" : "lightgray",
+              background: current === tab.key ? "none" : "",
+              fontWeight: "bold",
+              fontSize: "inherit",
+              cursor: "pointer",
+            }}
+          >
+            {tab.title ?? tab.key}
           </button>
         ))}
+        <div style={{ borderBottom: "1px solid lightgray", flexGrow: 1 }}>
+          {props.extra}
+        </div>
+      </div>
+      <div
+        style={{
+          border: "1px solid lightgray",
+          borderTop: "none",
+          display: "flex",
+          flexGrow: 1,
+          flexBasis: 0,
+          overflowY: "auto",
+        }}
+        key={current}
+      >
+        {props.tabs.find((tab) => current === tab.key)?.body}
       </div>
     </div>
   );
@@ -58,29 +121,85 @@ function Tabs(props: { tabs: Record<string, ReactNode> }) {
 
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
+  const [outputTab, setOutputTab] = useState("");
+  const [compilerLog, setCompilerLog] = useState("");
+
   return (
     <div style={{ flexGrow: 1, display: "flex" }}>
       <div
         className="margin-horiz--md"
         style={{ flex: 1, display: "flex", flexDirection: "column" }}
       >
-        <h4>Contract Code</h4>
-        <Editor ref={editor} />
+        <Tabs
+          current="Contract Code"
+          setCurrent={(_: string) => {}}
+          tabs={[
+            {
+              key: "Contract Code",
+              body: <Editor ref={editor} />,
+            },
+          ]}
+          extra={
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setCompilerLog(editor.current?.getModel()?.getValue() ?? "");
+                  setOutputTab("Compile log");
+                }}
+              >
+                Fribitz
+              </button>
+            </>
+          }
+        />
       </div>
-      <div className="margin-horiz--md" style={{ flex: 1, overflowY: "auto" }}>
-        <button
-          type="button"
-          onClick={() => {
-            console.log(editor.current?.getModel()?.getValue());
-          }}
-        >
-          Fribitz
-        </button>
-        <h4>AST</h4>
-        <h4>WAT</h4>
-        <h4>Output log (compiler and VM)</h4>
-        <h4>Sequence diagram</h4>
-        <h4>Final ledger state</h4>
+      <div
+        className="margin-horiz--md"
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <Tabs
+          current={outputTab}
+          setCurrent={setOutputTab}
+          tabs={[
+            {
+              key: "About",
+              body: (
+                <div className="margin-horiz--sm">
+                  <h1>Starstream Sandbox</h1>
+                </div>
+              ),
+            },
+            {
+              key: "Compile log",
+              body: (
+                <div className="margin-horiz--sm margin-vert--sm">
+                  <pre>{compilerLog}</pre>
+                </div>
+              ),
+            },
+            {
+              key: "AST",
+            },
+            {
+              key: "WASM",
+            },
+            {
+              key: "Run log",
+            },
+            {
+              key: "Sequence diagram",
+            },
+            {
+              key: "Ledger state",
+            },
+          ]}
+        />
       </div>
     </div>
   );
