@@ -28,7 +28,7 @@ Statement ::=
 
 Assign ::= ident '=' Expr
 
-BindVar ::= ('let' | 'const') ident (':' Type)? '=' Expr ';'
+BindVar ::= ('let' | 'let mut') ident (':' Type)? '=' Expr ';'
 LoopBody ::= Statement | (Block / Expr ';')
 
 Effect ::= ident '(' TypedBindings ')'
@@ -130,4 +130,4 @@ inputCharacter
 comment ::= '/*' (.* - (.* '*/' .*)) '*/'
 commentLine ::= '//' inputCharacter*
 
-ident << bool 'if' 'else' 'let' 'const' 'while' 'loop' 'try' 'with' returnLike yield
+ident << bool 'if' 'else' 'let' 'let mut' 'while' 'loop' 'try' 'with' returnLike yield
