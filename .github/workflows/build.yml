@@ -11,8 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup target add wasm32-unknown-unknown
+      # Enforce lockfile correctness.
+      - run: cargo check --locked
+      # Build crates and whatever else.
       - run: make
+      # Test all crates, except those that force-target WASM.
+      - run: cargo test --workspace --exclude example_contract --exclude example_contract_permissioned --exclude starstream_sys
+      # Run split test scripts.
       - run: ./test
+      - run: ./test_permissioned
+      # Cosmetic checks.
+      - run: cargo clippy
+      - run: cargo fmt --check
 
   website:
     name: Website
