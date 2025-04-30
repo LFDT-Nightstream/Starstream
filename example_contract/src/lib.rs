@@ -57,6 +57,12 @@ utxo_import! {
     ();
 }
 
+impl Default for MyMain {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MyMain {
     #[inline]
     pub fn new() -> Self {

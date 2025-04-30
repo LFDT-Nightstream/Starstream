@@ -131,6 +131,7 @@ unsafe extern "C" {
 }
 
 #[doc(hidden)]
+#[allow(clippy::empty_loop)]
 pub fn _panic_handler(info: &PanicInfo) -> ! {
     unsafe {
         eprintln!("{info}");

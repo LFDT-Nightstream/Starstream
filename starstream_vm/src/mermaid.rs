@@ -29,8 +29,8 @@ impl Transaction {
             }
             let _ = writeln!(
                 output,
-                "{}->>{}: {}{:?}",
-                witness.from_program.0, witness.to_program.0, "", witness.values
+                "{}->>{}: {:?}",
+                witness.from_program.0, witness.to_program.0, witness.values
             );
         }
 

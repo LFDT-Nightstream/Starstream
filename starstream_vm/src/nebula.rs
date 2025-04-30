@@ -1,4 +1,4 @@
-use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, Value, core::TrapCode};
+use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, Value};
 use zk_engine::{
     error::ZKWASMError,
     nova::{
@@ -8,11 +8,11 @@ use zk_engine::{
     },
     utils::logging::init_logger,
     wasm_ctx::{WASMArgs, WASMArgsBuilder, ZKWASMCtx},
-    wasm_snark::{StepSize, WasmSNARK},
+    wasm_snark::WasmSNARK,
 };
 
 use crate::{
-    ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash, fake_import,
+    ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash,
     starstream_eprint,
 };
 
@@ -23,6 +23,7 @@ type S1 = spartan::batched::BatchedRelaxedR1CSSNARK<E, EE1>;
 type S2 = spartan::batched::BatchedRelaxedR1CSSNARK<Dual<E>, EE2>;
 type Snark = WasmSNARK<E, S1, S2>;
 
+#[allow(clippy::unused_unit)] // False positive. `clippy --fix` breaks the code.
 fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHash) {
     linker
         .func_wrap(module, "abort", || -> () {
@@ -30,13 +31,9 @@ fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHas
         })
         .unwrap();
     linker
-        .func_wrap(
-            module,
-            "eprint",
-            |caller: Caller<T>, ptr: u32, len: u32| -> () {
-                starstream_eprint(caller, ptr, len);
-            },
-        )
+        .func_wrap(module, "eprint", |caller: Caller<T>, ptr: u32, len: u32| {
+            starstream_eprint(caller, ptr, len);
+        })
         .unwrap();
 }
 

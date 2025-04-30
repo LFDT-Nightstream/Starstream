@@ -177,12 +177,13 @@ fn starstream_eprint<T>(mut caller: Caller<T>, ptr: u32, len: u32) {
     let slice = &memory[ptr as usize..(ptr + len) as usize];
 
     let mut stderr = StandardStream::stderr(termcolor::ColorChoice::Auto);
-    let _ = stderr.set_color(&ColorSpec::new().set_dimmed(true));
+    let _ = stderr.set_color(ColorSpec::new().set_dimmed(true));
     eprint!("{}", String::from_utf8_lossy(slice));
     let _ = stderr.reset();
 }
 
 /// Fulfiller of imports from `env`.
+#[allow(clippy::unused_unit)] // False positive. `clippy --fix` breaks the code.
 fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractCode) {
     let this_code = this_code.hash();
 
@@ -647,7 +648,7 @@ impl std::fmt::Debug for UtxoId {
     }
 }
 
-fn coordination_script_linker<'tx>(
+fn coordination_script_linker(
     engine: &Engine,
     code_cache: &Arc<CodeCache>,
     coordination_code: Arc<ContractCode>,
@@ -656,7 +657,7 @@ fn coordination_script_linker<'tx>(
 
     starstream_env(&mut linker, "env", &coordination_code);
 
-    for import in coordination_code.module(&engine).imports() {
+    for import in coordination_code.module(engine).imports() {
         if import.module() == "env" {
             // handled by starstream_env above
         } else if let Some(rest) = import.module().strip_prefix("starstream_utxo:") {
@@ -897,6 +898,12 @@ pub struct Transaction {
     code_cache: Arc<CodeCache>,
 }
 
+impl Default for Transaction {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Transaction {
     /// Begin a new transaction with no dependencies.
     pub fn new() -> Transaction {
@@ -981,7 +988,7 @@ impl Transaction {
                     if to_program == ProgramIdx::Root {
                         eprintln!("{from_program:?} -> {to_program:?}: {values:?}");
                         // Transform WASM-side values to .
-                        let result = if values.len() > 0 {
+                        let result = if !values.is_empty() {
                             if let Some(utxo) =
                                 UtxoId::from_wasm_i64(&values[0], self.store.as_context())
                             {
@@ -1458,7 +1465,7 @@ impl Transaction {
     }
 
     /// Instantiate a new contract instance.
-    fn start_program<'a>(
+    fn start_program(
         &mut self,
         from_program: ProgramIdx,
         linker: &Linker<TransactionInner>,

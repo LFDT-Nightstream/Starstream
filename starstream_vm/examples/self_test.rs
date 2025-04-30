@@ -10,14 +10,10 @@ pub fn main() {
     tx.run_coordination_script(&example_contract, "produce", vec![]);
     dbg!(&tx);
 
-    let a = tx.run_coordination_script(&example_contract, "star_mint", vec![Value::I64(17).into()]);
-    let b = tx.run_coordination_script(&example_contract, "star_mint", vec![Value::I64(20).into()]);
+    let a = tx.run_coordination_script(&example_contract, "star_mint", vec![Value::I64(17)]);
+    let b = tx.run_coordination_script(&example_contract, "star_mint", vec![Value::I64(20)]);
     let c = tx.run_coordination_script(&example_contract, "star_combine", vec![a, b]);
-    tx.run_coordination_script(
-        &example_contract,
-        "star_split",
-        vec![c, Value::I64(5).into()],
-    );
+    tx.run_coordination_script(&example_contract, "star_split", vec![c, Value::I64(5)]);
     dbg!(&tx);
 
     let nft_contract = tx.run_coordination_script(&example_contract, "new_nft", vec![]);
@@ -29,7 +25,7 @@ pub fn main() {
     tx.run_coordination_script(
         &example_contract,
         "star_nft_mint_count",
-        vec![nft_contract, /* owner, */ Value::I64(4).into()],
+        vec![nft_contract, /* owner, */ Value::I64(4)],
     );
     dbg!(&tx);
 }
