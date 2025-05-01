@@ -84,7 +84,11 @@ fn fn_def<'a>() -> impl Parser<'a, &'a str, FnDef, extra::Err<Rich<'a, char>>> {
         .padded()
         .ignore_then(identifier())
         .padded()
-        .then(optionally_typed_bindings(r#type()).delimited_by(just('('), just(')')))
+        .then(
+            optionally_typed_bindings(r#type())
+                .padded()
+                .delimited_by(just('('), just(')')),
+        )
         .then(just(':').ignore_then(r#type().padded()).or_not())
         .then(block())
         .map(|(((name, inputs), output), body)| FnDef {
@@ -306,6 +310,7 @@ fn optionally_typed_bindings<'a>(
 ) -> impl Parser<'a, &'a str, OptionallyTypedBindings, extra::Err<Rich<'a, char>>> {
     optionally_typed_binding(type_parser)
         .separated_by(just(',').padded())
+        .allow_trailing()
         .collect::<Vec<_>>()
         .map(|values| OptionallyTypedBindings { values })
 }
@@ -354,14 +359,23 @@ fn expr<'a>(
             infix(left(2), op('*'), |l, _, r, _| {
                 Expr::Mul(Box::new(l), Box::new(r))
             }),
+            infix(left(2), just("&&").padded(), |l, _, r, _| {
+                Expr::And(Box::new(l), Box::new(r))
+            }),
             infix(left(2), op('/'), |l, _, r, _| {
                 Expr::Div(Box::new(l), Box::new(r))
             }),
             infix(left(1), op('+'), |l, _, r, _| {
                 Expr::Add(Box::new(l), Box::new(r))
             }),
+            infix(left(1), just("||").padded(), |l, _, r, _| {
+                Expr::Or(Box::new(l), Box::new(r))
+            }),
             infix(left(1), op('-'), |l, _, r, _| {
                 Expr::Sub(Box::new(l), Box::new(r))
+            }),
+            infix(left(1), op('<'), |l, _, r, _| {
+                Expr::LessThan(Box::new(l), Box::new(r))
             }),
         ))
         .boxed()

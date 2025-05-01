@@ -137,10 +137,15 @@ pub enum LoopBody {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
+    Equals(Box<Self>, Box<Self>),
+    NotEquals(Box<Self>, Box<Self>),
+    LessThan(Box<Self>, Box<Self>),
     Add(Box<Self>, Box<Self>),
+    Or(Box<Self>, Box<Self>),
     Sub(Box<Self>, Box<Self>),
     Pow(Box<Self>, Box<Self>),
     Mul(Box<Self>, Box<Self>),
+    And(Box<Self>, Box<Self>),
     Div(Box<Self>, Box<Self>),
     Factorial(Box<Self>),
     PrimaryExpr(
