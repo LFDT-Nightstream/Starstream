@@ -423,7 +423,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
             .then(block_body.clone().padded().or(end_block))
             .boxed();
 
-        just('}')
+        let block_body_item = just('}')
             .to(Block::Close { semicolon: false })
             .padded()
             .or(
@@ -431,7 +431,9 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
                     head: Box::new(x),
                     tail: Box::new(xs),
                 }),
-            )
+            );
+
+        comment().boxed().ignore_then(block_body_item)
     });
 
     block_expr.define(just('{').padded().ignore_then(block_body));
@@ -549,6 +551,14 @@ fn r#type<'a>() -> impl Parser<'a, &'a str, Type, extra::Err<Rich<'a, char>>> {
     });
 
     type_parser
+}
+
+fn comment<'a>() -> impl Parser<'a, &'a str, (), extra::Err<Rich<'a, char>>> {
+    just("//")
+        .padded()
+        .then_ignore(none_of('\n').repeated())
+        .or_not()
+        .ignored()
 }
 
 #[cfg(test)]
