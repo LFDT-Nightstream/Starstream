@@ -1,7 +1,7 @@
 use crate::ast::*;
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::{
-    pratt::{infix, left, postfix, right},
+    pratt::{infix, left, prefix, right},
     prelude::*,
 };
 
@@ -353,7 +353,7 @@ fn expr<'a>(
             .or(block_expr(expr_parser, block_parser).map(Expr::BlockExpr));
 
         atom.pratt((
-            postfix(4, op('!'), |lhs, _, _| Expr::Factorial(Box::new(lhs))),
+            prefix(4, op('!'), |_, atom, _| Expr::Neg(Box::new(atom))),
             infix(right(3), op('^'), |l, _, r, _| {
                 Expr::Pow(Box::new(l), Box::new(r))
             }),

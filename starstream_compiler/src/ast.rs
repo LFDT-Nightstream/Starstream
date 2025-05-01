@@ -147,7 +147,7 @@ pub enum Expr {
     Mul(Box<Self>, Box<Self>),
     And(Box<Self>, Box<Self>),
     Div(Box<Self>, Box<Self>),
-    Factorial(Box<Self>),
+    Neg(Box<Self>),
     PrimaryExpr(
         PrimaryExpr,
         Option<Arguments>,
