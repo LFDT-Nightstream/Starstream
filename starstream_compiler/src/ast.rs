@@ -170,6 +170,7 @@ pub enum PrimaryExpr {
     Ident(Identifier),
     ParExpr(Box<Expr>),
     Yield(Box<Expr>),
+    Raise(Box<Expr>),
 }
 
 #[derive(Clone, Debug)]

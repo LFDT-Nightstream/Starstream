@@ -497,9 +497,13 @@ fn primary_expr<'a>(
         .ignore_then(expr_parser.clone().padded())
         .map(|expr| PrimaryExpr::Yield(Box::new(expr)));
 
+    let raise_expr = just("raise")
+        .ignore_then(expr_parser.clone().padded())
+        .map(|expr| PrimaryExpr::Raise(Box::new(expr)));
+
     let ident = identifier().map(PrimaryExpr::Ident);
 
-    choice((number, bool, par_expr, yield_expr, ident)).boxed()
+    choice((number, bool, par_expr, yield_expr, raise_expr, ident)).boxed()
 }
 
 fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, extra::Err<Rich<'a, char>>> {
