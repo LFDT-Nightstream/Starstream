@@ -1633,6 +1633,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream_sandbox"
+version = "0.0.0"
+dependencies = [
+ "starstream_compiler",
+]
+
+[[package]]
 name = "starstream_sys"
 version = "0.0.0"
 

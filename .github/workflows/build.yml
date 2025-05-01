@@ -16,7 +16,7 @@ jobs:
       # Build crates and whatever else.
       - run: make
       # Test all crates, except those that force-target WASM.
-      - run: cargo test --workspace --exclude example_contract --exclude example_contract_permissioned --exclude starstream_sys
+      - run: cargo test --workspace --exclude example_contract --exclude example_contract_permissioned --exclude starstream_sys --exclude starstream_sandbox
       # Run split test scripts.
       - run: ./test
       - run: ./test_permissioned
@@ -29,6 +29,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - run: rustup target add wasm32-unknown-unknown
+      - run: cargo build -p starstream_sandbox --release
       - run: cd website && npm i && npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

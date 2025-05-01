@@ -1,0 +1,11 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "starstream_sandbox"
+version = "0.0.0"
+edition = "2024"
+
+forced-target = "wasm32-unknown-unknown"
+
+[dependencies]
+starstream_compiler = { path = "../starstream_compiler" }

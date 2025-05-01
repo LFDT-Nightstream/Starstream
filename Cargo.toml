@@ -4,6 +4,7 @@ members = [
     "example_contract_permissioned",
     "starstream_cli",
     "starstream_compiler",
+    "starstream_sandbox",
     "starstream_sys",
     "starstream_vm",
 ]

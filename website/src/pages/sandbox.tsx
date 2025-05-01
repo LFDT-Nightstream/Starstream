@@ -1,5 +1,6 @@
 import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 import Layout from "@theme/Layout";
+import { AnsiHtml } from "fancy-ansi/react";
 import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import {
   Dispatch,
@@ -20,6 +21,48 @@ if (ExecutionEnvironment.canUseDOM) {
   };
 }
 
+interface SandboxWasmImports extends WebAssembly.ModuleImports {
+  read_input(ptr: number, len: number): void;
+  set_compiler_log(ptr: number, len: number): void;
+  set_ast(ptr: number, len: number): void;
+}
+
+interface SandboxWasmExports {
+  memory: WebAssembly.Memory;
+  run(input_len: number): void;
+}
+
+let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
+  null;
+async function getWasmInstance(
+  env: SandboxWasmImports
+): Promise<SandboxWasmExports> {
+  if (modulePromise === null) {
+    // First fetch gets instantiateStreaming privilege.
+    modulePromise = WebAssembly.instantiateStreaming(
+      fetch("../starstream_sandbox.wasm"),
+      { env }
+    );
+    const { instance } = await modulePromise;
+    return instance.exports as unknown as SandboxWasmExports;
+  } else {
+    // Future fetches use synchronous instantiation of fetched module.
+    const { module } = await modulePromise;
+    return new WebAssembly.Instance(module, { env })
+      .exports as unknown as SandboxWasmExports;
+  }
+}
+
+function useWasmInstance(
+  env: SandboxWasmImports
+): React.RefObject<SandboxWasmExports | null> {
+  const exports = useRef<SandboxWasmExports>(null);
+  useEffect(() => {
+    getWasmInstance(env).then((x) => (exports.current = x));
+  }, []);
+  return exports;
+}
+
 function setRef<T>(ref: Ref<T> | undefined, value: T) {
   if (ref === null || ref === undefined) {
     // Nothing to do.
@@ -38,7 +81,7 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
     (async () => {
       const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
       editor = monaco.editor.create(div.current!, {
-        value: "Hello, world!",
+        value: "script {\n    fn main() {}\n}",
         language: "typescript",
       });
       setRef(props.ref, editor);
@@ -123,6 +166,39 @@ export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
   const [outputTab, setOutputTab] = useState("");
   const [compilerLog, setCompilerLog] = useState("");
+  const [ast, setAst] = useState("");
+
+  const input = useRef<Uint8Array>(null);
+  const wasm = useWasmInstance({
+    read_input(ptr, len) {
+      console.log("read_input", ptr, len, "->", input.current);
+      new Uint8Array(wasm.current!.memory.buffer, ptr, len).set(input.current!);
+      console.log(new TextDecoder().decode(input.current!));
+      console.log(
+        new TextDecoder().decode(
+          wasm.current!.memory.buffer.slice(ptr, ptr + len)
+        )
+      );
+    },
+    set_compiler_log(ptr, len) {
+      console.log("set_compiler_log", ptr, len);
+      setOutputTab("Compile log");
+      setCompilerLog(
+        new TextDecoder().decode(
+          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
+        )
+      );
+    },
+    set_ast(ptr, len) {
+      console.log("set_ast", ptr, len);
+      setOutputTab("AST");
+      setAst(
+        new TextDecoder().decode(
+          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
+        )
+      );
+    },
+  });
 
   return (
     <div style={{ flexGrow: 1, display: "flex" }}>
@@ -144,11 +220,13 @@ export function Sandbox() {
               <button
                 type="button"
                 onClick={() => {
-                  setCompilerLog(editor.current?.getModel()?.getValue() ?? "");
-                  setOutputTab("Compile log");
+                  input.current = new TextEncoder().encode(
+                    editor.current?.getModel()?.getValue() ?? ""
+                  );
+                  wasm.current?.run(input.current.length);
                 }}
               >
-                Fribitz
+                Compile
               </button>
             </>
           }
@@ -179,12 +257,19 @@ export function Sandbox() {
               key: "Compile log",
               body: (
                 <div className="margin-horiz--sm margin-vert--sm">
-                  <pre>{compilerLog}</pre>
+                  <pre>
+                    <AnsiHtml text={compilerLog} />
+                  </pre>
                 </div>
               ),
             },
             {
               key: "AST",
+              body: (
+                <div className="margin-horiz--sm margin-vert--sm">
+                  <pre>{ast}</pre>
+                </div>
+              ),
             },
             {
               key: "WASM",

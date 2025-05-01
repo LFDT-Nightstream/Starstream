@@ -3,7 +3,7 @@ use chumsky::{
     prelude::*,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct StarstreamProgram {
     pub items: Vec<ProgramItem>,
 }
