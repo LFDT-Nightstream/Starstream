@@ -378,6 +378,9 @@ fn expr<'a>(
             infix(left(1), op('<'), |l, _, r, _| {
                 Expr::LessThan(Box::new(l), Box::new(r))
             }),
+            infix(left(1), just("==").padded(), |l, _, r, _| {
+                Expr::Equals(Box::new(l), Box::new(r))
+            }),
         ))
         .boxed()
     })
@@ -501,9 +504,24 @@ fn primary_expr<'a>(
         .ignore_then(expr_parser.clone().padded())
         .map(|expr| PrimaryExpr::Raise(Box::new(expr)));
 
+    let object = r#type()
+        .then(
+            identifier()
+                .then_ignore(just(":"))
+                .then(expr_parser.clone().padded())
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|(ty, values)| PrimaryExpr::Object(ty, values));
+
     let ident = identifier().map(PrimaryExpr::Ident);
 
-    choice((number, bool, par_expr, yield_expr, raise_expr, ident)).boxed()
+    choice((
+        number, bool, par_expr, yield_expr, raise_expr, object, ident,
+    ))
+    .boxed()
 }
 
 fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, extra::Err<Rich<'a, char>>> {
@@ -593,6 +611,9 @@ mod tests {
         test_with_diagnostics(input, expr(block().boxed()));
 
         let input = "foo.x.y(3, 4)";
+        test_with_diagnostics(input, expr(block().boxed()));
+
+        let input = "Type { x: 4, y: 5}";
         test_with_diagnostics(input, expr(block().boxed()));
     }
 
