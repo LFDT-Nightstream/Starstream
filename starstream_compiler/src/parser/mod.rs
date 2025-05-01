@@ -170,7 +170,8 @@ fn storage<'a>() -> impl Parser<'a, &'a str, Storage, extra::Err<Rich<'a, char>>
     just("storage")
         .ignore_then(
             typed_binding(r#type())
-                .separated_by(just(';').padded())
+                .then_ignore(just(';').padded())
+                .repeated()
                 .collect::<Vec<_>>()
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
@@ -621,7 +622,7 @@ mod tests {
 
     #[test]
     fn parse_storage() {
-        let input = "storage { x: BigInt; y: F32 }";
+        let input = "storage { x: BigInt; y: F32; }";
         test_with_diagnostics(input, storage());
     }
 
