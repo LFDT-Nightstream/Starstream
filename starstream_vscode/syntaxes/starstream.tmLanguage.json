@@ -1,32 +1,53 @@
 {
-	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-	"name": "Starstream",
-	"patterns": [
-		{
-			"include": "#keywords"
-		},
-		{
-			"include": "#strings"
-		}
-	],
-	"repository": {
-		"keywords": {
-			"patterns": [{
-				"name": "keyword.control.starstream",
-				"match": "\\b(if|while|for|return)\\b"
-			}]
-		},
-		"strings": {
-			"name": "string.quoted.double.starstream",
-			"begin": "\"",
-			"end": "\"",
-			"patterns": [
-				{
-					"name": "constant.character.escape.starstream",
-					"match": "\\\\."
-				}
-			]
-		}
-	},
-	"scopeName": "source.starstream"
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Starstream",
+  "patterns": [
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.starstream",
+          "match": "\\b(if|try|with|while|loop|yield|raise|fail|resume|return)\\b"
+        },
+        {
+          "name": "keyword.other.starstream",
+          "match": "\\b(utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|let mut|true|false)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.starstream",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.starstream",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.starstream",
+          "match": "//.*?$"
+        },
+        {
+          "name": "comment.block.starstream",
+          "match": "/\\*.*?\\*/"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.starstream"
 }

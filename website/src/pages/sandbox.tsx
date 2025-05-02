@@ -19,6 +19,35 @@ if (ExecutionEnvironment.canUseDOM) {
       return "";
     },
   };
+
+  const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+  monaco.languages.register({
+    id: "starstream",
+    extensions: [".star"],
+  });
+  monaco.languages.setMonarchTokensProvider("starstream", {
+    keywords:
+      "if|try|with|while|loop|yield|raise|fail|resume|return|utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|mut|true|false".split(
+        "|"
+      ),
+    tokenizer: {
+      root: [
+        [
+          // Lowercase identifiers and keywords
+          /[a-z_$][\w$]*/,
+          { cases: { "@keywords": "keyword", "@default": "identifier" } },
+        ],
+        [
+          // Capital identifiers get highlighted like types
+          /[A-Z][\w\$]*/,
+          "type.identifier",
+        ],
+        [/\/\*.*?\*\//, "comment"],
+        [/\/\/.*?$/, "comment"],
+      ],
+    },
+  } satisfies monaco.languages.IMonarchLanguage);
+  console.log("yup");
 }
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
@@ -81,8 +110,18 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
     (async () => {
       const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
       editor = monaco.editor.create(div.current!, {
-        value: "script {\n    fn main() {}\n}",
-        language: "typescript",
+        value: `token MyToken {
+
+}
+utxo MyUtxo {
+
+}
+script {
+    fn example() {
+        return;
+    }
+}`,
+        language: "starstream",
       });
       setRef(props.ref, editor);
     })();
