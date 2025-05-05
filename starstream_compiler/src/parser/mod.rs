@@ -599,8 +599,8 @@ fn r#type<'a>() -> impl Parser<'a, &'a str, Type, extra::Err<Rich<'a, char>>> {
 fn comment<'a>() -> impl Parser<'a, &'a str, (), extra::Err<Rich<'a, char>>> {
     just("//")
         .padded()
-        .then_ignore(none_of('\n').repeated())
-        .then_ignore(just('\n'))
+        .then_ignore(any().and_is(text::newline().not()).repeated())
+        .then_ignore(text::newline())
         .repeated()
         .or_not()
         .ignored()
