@@ -1,28 +1,24 @@
+//! Compiler from the Starstream language to WASM modules for the Starstream runtime.
+
 pub mod ast;
+mod codegen;
 mod parser;
 
-use ariadne::{Color, Label, Report, ReportKind, Source};
+use ariadne::Source;
 use ast::StarstreamProgram;
 use chumsky::Parser as _;
+pub use codegen::compile;
 pub use parser::starstream_program;
 
 pub fn parse(source_code: &str) -> (StarstreamProgram, String) {
     let (ast, errors) = starstream_program().parse(source_code).into_output_errors();
 
     let mut report = Vec::new();
-    errors.into_iter().for_each(|e| {
-        Report::build(ReportKind::Error, ((), e.span().into_range()))
-            .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-            .with_message(e.to_string())
-            .with_label(
-                Label::new(((), e.span().into_range()))
-                    .with_message(e.reason().to_string())
-                    .with_color(Color::Red),
-            )
-            .finish()
+    for e in errors {
+        parser::error_to_report(e)
             .write(Source::from(&source_code), &mut report)
             .unwrap()
-    });
+    }
 
     (
         ast.unwrap_or_default(),
@@ -34,21 +30,13 @@ pub fn parse(source_code: &str) -> (StarstreamProgram, String) {
 pub fn starstream_to_wasm(source_code: &str) -> Result<Vec<u8>, String> {
     let (ast, errors) = starstream_program().parse(source_code).into_output_errors();
 
-    errors.into_iter().for_each(|e| {
-        Report::build(ReportKind::Error, ((), e.span().into_range()))
-            .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-            .with_message(e.to_string())
-            .with_label(
-                Label::new(((), e.span().into_range()))
-                    .with_message(e.reason().to_string())
-                    .with_color(Color::Red),
-            )
-            .finish()
-            .print(Source::from(&source_code))
-            .unwrap()
-    });
+    for e in errors {
+        parser::error_to_report(e)
+            .eprint(Source::from(&source_code))
+            .unwrap();
+    }
 
-    dbg!(ast);
+    dbg!(&ast);
 
-    todo!()
+    codegen::compile(&ast.unwrap())
 }

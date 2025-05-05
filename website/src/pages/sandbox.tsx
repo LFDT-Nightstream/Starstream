@@ -55,6 +55,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   read_input(ptr: number, len: number): void;
   set_compiler_log(ptr: number, len: number): void;
   set_ast(ptr: number, len: number): void;
+  set_wat(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -207,6 +208,7 @@ export function Sandbox() {
   const [outputTab, setOutputTab] = useState("");
   const [compilerLog, setCompilerLog] = useState("");
   const [ast, setAst] = useState("");
+  const [wat, setWat] = useState("");
 
   const input = useRef<Uint8Array>(null);
   const wasm = useWasmInstance({
@@ -233,6 +235,14 @@ export function Sandbox() {
       console.log("set_ast", ptr, len);
       setOutputTab("AST");
       setAst(
+        new TextDecoder().decode(
+          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
+        )
+      );
+    },
+    set_wat(ptr, len) {
+      setOutputTab("WASM");
+      setWat(
         new TextDecoder().decode(
           new Uint8Array(wasm.current!.memory.buffer, ptr, len)
         )
@@ -313,6 +323,11 @@ export function Sandbox() {
             },
             {
               key: "WASM",
+              body: (
+                <div className="margin-horiz--sm margin-vert--sm">
+                  <pre>{wat}</pre>
+                </div>
+              ),
             },
             {
               key: "Run log",
