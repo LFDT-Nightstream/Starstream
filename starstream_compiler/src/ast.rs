@@ -43,6 +43,7 @@ pub enum TokenItem {
     Bind(Bind),
     Unbind(Unbind),
     Abi(Abi),
+    Mint(Mint),
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +51,9 @@ pub struct Bind(pub Block);
 
 #[derive(Clone, Debug)]
 pub struct Unbind(pub Block);
+
+#[derive(Clone, Debug)]
+pub struct Mint(pub Block);
 
 #[derive(Clone, Debug)]
 pub struct Impl {
