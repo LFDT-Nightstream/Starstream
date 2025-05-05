@@ -386,6 +386,9 @@ fn expr<'a>(
             infix(left(1), just("==").padded(), |l, _, r, _| {
                 Expr::Equals(Box::new(l), Box::new(r))
             }),
+            infix(left(1), just("!=").padded(), |l, _, r, _| {
+                Expr::NotEquals(Box::new(l), Box::new(r))
+            }),
         ))
         .boxed()
     })
