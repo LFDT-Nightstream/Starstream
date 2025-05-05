@@ -20,34 +20,35 @@ if (ExecutionEnvironment.canUseDOM) {
     },
   };
 
-  const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
-  monaco.languages.register({
-    id: "starstream",
-    extensions: [".star"],
-  });
-  monaco.languages.setMonarchTokensProvider("starstream", {
-    keywords:
-      "if|try|with|while|loop|yield|raise|fail|resume|return|utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|mut|true|false".split(
-        "|"
-      ),
-    tokenizer: {
-      root: [
-        [
-          // Lowercase identifiers and keywords
-          /[a-z_$][\w$]*/,
-          { cases: { "@keywords": "keyword", "@default": "identifier" } },
+  (async () => {
+    const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+    monaco.languages.register({
+      id: "starstream",
+      extensions: [".star"],
+    });
+    monaco.languages.setMonarchTokensProvider("starstream", {
+      keywords:
+        "if|try|with|while|loop|yield|raise|fail|resume|return|utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|mut|true|false".split(
+          "|"
+        ),
+      tokenizer: {
+        root: [
+          [
+            // Lowercase identifiers and keywords
+            /[a-z_$][\w$]*/,
+            { cases: { "@keywords": "keyword", "@default": "identifier" } },
+          ],
+          [
+            // Capital identifiers get highlighted like types
+            /[A-Z][\w\$]*/,
+            "type.identifier",
+          ],
+          [/\/\*.*?\*\//, "comment"],
+          [/\/\/.*?$/, "comment"],
         ],
-        [
-          // Capital identifiers get highlighted like types
-          /[A-Z][\w\$]*/,
-          "type.identifier",
-        ],
-        [/\/\*.*?\*\//, "comment"],
-        [/\/\/.*?$/, "comment"],
-      ],
-    },
-  } satisfies monaco.languages.IMonarchLanguage);
-  console.log("yup");
+      },
+    } satisfies monaco.languages.IMonarchLanguage);
+  })();
 }
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
