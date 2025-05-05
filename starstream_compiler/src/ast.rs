@@ -171,7 +171,7 @@ pub enum PrimaryExpr {
     Null,
     Number(f64),
     Bool(bool),
-    Ident(Identifier),
+    Ident(Vec<Identifier>),
     ParExpr(Box<Expr>),
     Yield(Box<Expr>),
     Raise(Box<Expr>),

@@ -528,7 +528,16 @@ fn primary_expr<'a>(
         )
         .map(|(ty, values)| PrimaryExpr::Object(ty, values));
 
-    let ident = identifier().map(PrimaryExpr::Ident);
+    let ident = identifier()
+        .map(|i| vec![i])
+        .foldl(
+            just("::").ignore_then(identifier()).repeated(),
+            |mut accum, new| {
+                accum.push(new);
+                accum
+            },
+        )
+        .map(PrimaryExpr::Ident);
 
     choice((
         number, bool, par_expr, yield_expr, raise_expr, object, ident,
@@ -626,6 +635,9 @@ mod tests {
         test_with_diagnostics(input, expr(block().boxed()));
 
         let input = "Type { x: 4, y: 5}";
+        test_with_diagnostics(input, expr(block().boxed()));
+
+        let input = "Type::func(3)";
         test_with_diagnostics(input, expr(block().boxed()));
     }
 
