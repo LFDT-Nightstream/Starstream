@@ -600,6 +600,8 @@ fn comment<'a>() -> impl Parser<'a, &'a str, (), extra::Err<Rich<'a, char>>> {
     just("//")
         .padded()
         .then_ignore(none_of('\n').repeated())
+        .then_ignore(just('\n'))
+        .repeated()
         .or_not()
         .ignored()
 }
