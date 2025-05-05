@@ -1,8 +1,10 @@
-pub mod parser;
+pub mod ast;
+mod parser;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
+use ast::StarstreamProgram;
 use chumsky::Parser as _;
-use parser::{StarstreamProgram, starstream_program};
+pub use parser::starstream_program;
 
 pub fn parse(source_code: &str) -> (StarstreamProgram, String) {
     let (ast, errors) = starstream_program().parse(source_code).into_output_errors();
