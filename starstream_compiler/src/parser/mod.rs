@@ -474,8 +474,12 @@ fn if_expr<'a>(
                 .delimited_by(just("(").padded(), just(")").padded()),
         )
         .then(block_parser.clone().padded())
-        .then_ignore(just("else").padded())
-        .then(block_parser.padded().or_not())
+        .then(
+            just("else")
+                .padded()
+                .ignore_then(block_parser.padded())
+                .or_not(),
+        )
         .map(|((expr1, expr2), expr3)| {
             BlockExpr::IfThenElse(Box::new(expr1), Box::new(expr2), expr3.map(Box::new))
         })
