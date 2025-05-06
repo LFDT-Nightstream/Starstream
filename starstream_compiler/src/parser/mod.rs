@@ -731,4 +731,10 @@ mod tests {
         let input = "(x: Int)";
         test_with_diagnostics(input, r#type());
     }
+
+    #[test]
+    fn parse_usdc_example() {
+        let input = include_str!("../../../grammar/examples/permissioned_usdc.st");
+        test_with_diagnostics(input, starstream_program());
+    }
 }
