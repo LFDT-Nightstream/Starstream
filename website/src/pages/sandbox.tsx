@@ -3,6 +3,7 @@ import Layout from "@theme/Layout";
 import { AnsiHtml } from "fancy-ansi/react";
 import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import {
+  cache,
   Dispatch,
   ReactNode,
   Ref,
@@ -11,6 +12,8 @@ import {
   useRef,
   useState,
 } from "react";
+import permissionedTokenExample from 'file-loader!../../../grammar/examples/permissioned_usdc.st';
+import oracleExample from 'file-loader!../../../grammar/examples/oracle.st';
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -28,7 +31,7 @@ if (ExecutionEnvironment.canUseDOM) {
     });
     monaco.languages.setMonarchTokensProvider("starstream", {
       keywords:
-        "if|try|with|while|loop|yield|raise|fail|resume|return|utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|mut|true|false".split(
+        "if|else|try|with|while|loop|yield|raise|fail|resume|return|utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|mut|true|false".split(
           "|"
         ),
       tokenizer: {
@@ -104,15 +107,7 @@ function setRef<T>(ref: Ref<T> | undefined, value: T) {
   }
 }
 
-function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
-  const div = useRef<HTMLDivElement>(null);
-  //const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
-  useEffect(() => {
-    let editor: monaco.editor.IStandaloneCodeEditor | undefined;
-    (async () => {
-      const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
-      editor = monaco.editor.create(div.current!, {
-        value: `token MyToken {
+const defaultExample = `token MyToken {
 
 }
 utxo MyUtxo {
@@ -122,7 +117,17 @@ script {
     fn example() {
         return;
     }
-}`,
+}`;
+
+function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
+  const div = useRef<HTMLDivElement>(null);
+  //const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
+  useEffect(() => {
+    let editor: monaco.editor.IStandaloneCodeEditor | undefined;
+    (async () => {
+      const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+      editor = monaco.editor.create(div.current!, {
+        value: defaultExample,
         language: "starstream",
       });
       setRef(props.ref, editor);
@@ -203,6 +208,51 @@ function Tabs(props: {
   );
 }
 
+const fetchCode = (url: string) => async (): Promise<string> => {
+  try {
+    const response = await fetch(url);
+    return response.text();
+  }
+  catch (error) {
+    console.error('Error fetching source file:', error);
+    return "";
+  }
+};
+
+const getOracleCode = cache(fetchCode(oracleExample));
+const getPermissionedUsdcCode = cache(fetchCode(permissionedTokenExample));
+
+function Builtins({ onChange }: { onChange: (code: string) => void }) {
+  const [selectedOption, setSelectedOption] = useState('');
+
+  const handleChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = event.target.value;
+    setSelectedOption(value);
+
+    if (value === "usdc") {
+      onChange(await getPermissionedUsdcCode());
+    } else if (value == "oracle") {
+      onChange(await getOracleCode());
+    }
+    else {
+      onChange(defaultExample);
+    }
+  };
+  return (
+    <div className="builtins-container">
+      <select
+        value={selectedOption}
+        onChange={handleChange}
+        className="builtins-select"
+      >
+        <option value="default">Simple token</option>
+        <option value="usdc">Permissioned token</option>
+        <option value="oracle">Oracle</option>
+      </select>
+    </div>
+  );
+};
+
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
   const [outputTab, setOutputTab] = useState("");
@@ -256,6 +306,9 @@ export function Sandbox() {
         className="margin-horiz--md"
         style={{ flex: 1, display: "flex", flexDirection: "column" }}
       >
+        <Builtins onChange={(value) => {
+          editor.current?.setValue(value);
+        }} />
         <Tabs
           current="Contract Code"
           setCurrent={(_: string) => {}}
