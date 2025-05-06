@@ -539,8 +539,21 @@ fn primary_expr<'a>(
         )
         .map(PrimaryExpr::Ident);
 
+    let string_literal = none_of('"')
+        .repeated()
+        .collect::<String>()
+        .padded_by(just('"'))
+        .map(PrimaryExpr::StringLiteral);
+
     choice((
-        number, bool, par_expr, yield_expr, raise_expr, object, ident,
+        number,
+        bool,
+        par_expr,
+        yield_expr,
+        raise_expr,
+        object,
+        ident,
+        string_literal,
     ))
     .boxed()
 }

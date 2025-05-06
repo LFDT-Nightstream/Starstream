@@ -176,6 +176,7 @@ pub enum PrimaryExpr {
     Yield(Box<Expr>),
     Raise(Box<Expr>),
     Object(Type, Vec<(Identifier, Expr)>),
+    StringLiteral(String),
 }
 
 #[derive(Clone, Debug)]
