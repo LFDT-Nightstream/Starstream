@@ -750,4 +750,10 @@ mod tests {
         let input = include_str!("../../../grammar/examples/permissioned_usdc.st");
         test_with_diagnostics(input, starstream_program());
     }
+
+    #[test]
+    fn parse_oracle_example() {
+        let input = include_str!("../../../grammar/examples/oracle.st");
+        test_with_diagnostics(input, starstream_program());
+    }
 }

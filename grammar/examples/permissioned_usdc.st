@@ -142,7 +142,8 @@ script {
 
 token PermissionedUSDC {
   abi {
-    effect IsBlacklisted(PublicKey);
+    effect IsBlacklisted(PublicKey): Bool;
+    effect CallerOwner(): PublicKey;
   }
 
   mint {
