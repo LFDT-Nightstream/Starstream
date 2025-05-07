@@ -30,3 +30,46 @@
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
+
+.flex {
+  display: flex;
+}
+
+.flex--column {
+  display: flex;
+  flex-direction: column;
+}
+
+.flex--grow {
+  flex-grow: 1;
+}
+
+.sandbox-tabs__list {
+  display: flex;
+  line-height: 0;
+}
+
+.sandbox-tabs__list > * {
+  border-bottom: 1px solid lightgray;
+}
+
+.sandbox-tabs__button {
+  border: 1px solid lightgray;
+  font-weight: bold;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.sandbox-tabs__list > .sandbox-tabs__button--current {
+  border-bottom-color: transparent;
+  background-color: transparent;
+}
+
+.sandbox-tabs__area {
+  flex-grow: 1;
+  flex-basis: 0;
+  border: 1px solid lightgray;
+  border-top: none;
+  display: flex;
+  overflow-y: auto;
+}

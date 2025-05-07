@@ -4,6 +4,7 @@ import { AnsiHtml } from "fancy-ansi/react";
 import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import {
   cache,
+  CSSProperties,
   Dispatch,
   ReactNode,
   Ref,
@@ -57,7 +58,12 @@ if (ExecutionEnvironment.canUseDOM) {
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
   read_input(ptr: number, len: number): void;
-  set_compiler_log(ptr: number, len: number): void;
+  set_compiler_log(
+    ptr: number,
+    len: number,
+    warnings: number,
+    errors: number
+  ): void;
   set_ast(ptr: number, len: number): void;
   set_wat(ptr: number, len: number): void;
 }
@@ -128,6 +134,8 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
     (async () => {
       const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
       editor = monaco.editor.create(div.current!, {
+        automaticLayout: true,
+
         value: defaultExample,
         language: "starstream",
       });
@@ -136,7 +144,7 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
     return () => editor?.dispose();
   }, []);
 
-  return <div style={{ flexGrow: 1 }} ref={div} />;
+  return <div className="flex--grow" ref={div} />;
 }
 
 function Tabs(props: {
@@ -145,7 +153,8 @@ function Tabs(props: {
   className?: string;
   style?: React.CSSProperties;
   tabs: { key: string; title?: ReactNode; body?: ReactNode }[];
-  extra?: ReactNode;
+  after?: ReactNode;
+  right?: ReactNode;
 }) {
   const { current, setCurrent } = props;
   useEffect(() => {
@@ -158,51 +167,26 @@ function Tabs(props: {
   }, [current, JSON.stringify(props.tabs.map((tab) => tab.key))]);
   return (
     <div
-      /* Ugly flex style stuff should be moved to a .css file later */
-      style={Object.assign(
-        { flexGrow: 1, display: "flex", flexDirection: "column" },
-        props.style
-      )}
-      className={props.className}
+      className={`flex--grow flex--column ${props.className}`}
+      style={props.style}
     >
-      <div
-        style={{
-          lineHeight: 0,
-          display: "flex",
-        }}
-      >
+      <div className="sandbox-tabs__list">
         {props.tabs.map((tab) => (
           <button
             key={tab.key}
             type="button"
             onClick={() => setCurrent(tab.key)}
-            style={{
-              border: "1px solid lightgray",
-              borderBottomColor: current === tab.key ? "white" : "lightgray",
-              background: current === tab.key ? "none" : "",
-              fontWeight: "bold",
-              fontSize: "inherit",
-              cursor: "pointer",
-            }}
+            className={`sandbox-tabs__button ${
+              current === tab.key ? "sandbox-tabs__button--current" : ""
+            }`}
           >
             {tab.title ?? tab.key}
           </button>
         ))}
-        <div style={{ borderBottom: "1px solid lightgray", flexGrow: 1 }}>
-          {props.extra}
-        </div>
+        <div className="flex--grow">{props.after}</div>
+        <div>{props.right}</div>
       </div>
-      <div
-        style={{
-          border: "1px solid lightgray",
-          borderTop: "none",
-          display: "flex",
-          flexGrow: 1,
-          flexBasis: 0,
-          overflowY: "auto",
-        }}
-        key={current}
-      >
+      <div className="sandbox-tabs__area" key={current}>
         {props.tabs.find((tab) => current === tab.key)?.body}
       </div>
     </div>
@@ -255,7 +239,11 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
   const [outputTab, setOutputTab] = useState("");
-  const [compilerLog, setCompilerLog] = useState("");
+  const [compilerLog, setCompilerLog] = useState({
+    log: "",
+    warnings: 0,
+    errors: 0,
+  });
   const [ast, setAst] = useState("");
   const [wat, setWat] = useState("");
 
@@ -264,21 +252,17 @@ export function Sandbox() {
     read_input(ptr, len) {
       console.log("read_input", ptr, len, "->", input.current);
       new Uint8Array(wasm.current!.memory.buffer, ptr, len).set(input.current!);
-      console.log(new TextDecoder().decode(input.current!));
-      console.log(
-        new TextDecoder().decode(
-          wasm.current!.memory.buffer.slice(ptr, ptr + len)
-        )
-      );
     },
-    set_compiler_log(ptr, len) {
+    set_compiler_log(ptr, len, warnings, errors) {
       console.log("set_compiler_log", ptr, len);
       setOutputTab("Compile log");
-      setCompilerLog(
-        new TextDecoder().decode(
+      setCompilerLog({
+        log: new TextDecoder().decode(
           new Uint8Array(wasm.current!.memory.buffer, ptr, len)
-        )
-      );
+        ),
+        warnings,
+        errors,
+      });
     },
     set_ast(ptr, len) {
       console.log("set_ast", ptr, len);
@@ -290,7 +274,7 @@ export function Sandbox() {
       );
     },
     set_wat(ptr, len) {
-      setOutputTab("WASM");
+      //setOutputTab("WASM");
       setWat(
         new TextDecoder().decode(
           new Uint8Array(wasm.current!.memory.buffer, ptr, len)
@@ -300,16 +284,8 @@ export function Sandbox() {
   });
 
   return (
-    <div style={{ flexGrow: 1, display: "flex" }}>
-      <div
-        className="margin-horiz--md"
-        style={{ flex: 1, display: "flex", flexDirection: "column" }}
-      >
-        <Builtins
-          onChange={(value) => {
-            editor.current?.setValue(value);
-          }}
-        />
+    <div className="flex--grow row">
+      <div className="col col--6 flex--column">
         <Tabs
           current="Contract Code"
           setCurrent={(_: string) => {}}
@@ -319,7 +295,14 @@ export function Sandbox() {
               body: <Editor ref={editor} />,
             },
           ]}
-          extra={
+          after={
+            <Builtins
+              onChange={(value) => {
+                editor.current?.setValue(value);
+              }}
+            />
+          }
+          right={
             <>
               <button
                 type="button"
@@ -336,15 +319,7 @@ export function Sandbox() {
           }
         />
       </div>
-      <div
-        className="margin-horiz--md"
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
+      <div className="col col--6 flex--column">
         <Tabs
           current={outputTab}
           setCurrent={setOutputTab}
@@ -352,17 +327,42 @@ export function Sandbox() {
             {
               key: "About",
               body: (
-                <div className="margin-horiz--sm">
+                <div className="margin--sm">
                   <h1>Starstream Sandbox</h1>
                 </div>
               ),
             },
             {
               key: "Compile log",
+              title: (
+                <span
+                  style={
+                    { "--ifm-badge-padding-vertical": "1px" } as CSSProperties
+                  }
+                >
+                  Compile log
+                  {compilerLog.warnings ? (
+                    <>
+                      {" "}
+                      <span className="badge badge--warning">
+                        {compilerLog.warnings}
+                      </span>
+                    </>
+                  ) : null}
+                  {compilerLog.errors ? (
+                    <>
+                      {" "}
+                      <span className="badge badge--danger">
+                        {compilerLog.errors}
+                      </span>
+                    </>
+                  ) : null}
+                </span>
+              ),
               body: (
-                <div className="margin-horiz--sm margin-vert--sm">
+                <div className="margin--sm">
                   <pre>
-                    <AnsiHtml text={compilerLog} />
+                    <AnsiHtml text={compilerLog.log} />
                   </pre>
                 </div>
               ),
@@ -370,19 +370,22 @@ export function Sandbox() {
             {
               key: "AST",
               body: (
-                <div className="margin-horiz--sm margin-vert--sm">
+                <div className="margin--sm">
                   <pre>{ast}</pre>
                 </div>
               ),
             },
+            /*
             {
               key: "WASM",
               body: (
-                <div className="margin-horiz--sm margin-vert--sm">
+                <div className="margin--sm">
                   <pre>{wat}</pre>
                 </div>
               ),
             },
+            */
+            /*
             {
               key: "Run log",
             },
@@ -392,6 +395,7 @@ export function Sandbox() {
             {
               key: "Ledger state",
             },
+            */
           ]}
         />
       </div>
@@ -402,7 +406,7 @@ export function Sandbox() {
 export default function SandboxPage() {
   return (
     <Layout title="Sandbox">
-      <div className="margin-vert--md" style={{ flexGrow: 1, display: "flex" }}>
+      <div className="flex--grow margin-vert--md margin-horiz--md flex--column">
         <Sandbox />
       </div>
     </Layout>

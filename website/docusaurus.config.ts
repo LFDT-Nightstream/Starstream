@@ -88,10 +88,10 @@ const config: Config = {
           position: "left",
           label: "Documentation",
         },
-        /*{
-          to: '/sandbox/',
-          label: 'Sandbox',
-        },*/
+        {
+          to: "/sandbox/",
+          label: "Sandbox",
+        },
         {
           to: "/blog/",
           label: "Posts",

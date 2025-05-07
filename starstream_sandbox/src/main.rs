@@ -3,7 +3,7 @@
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
     unsafe fn read_input(ptr: *mut u8, len: usize);
-    unsafe fn set_compiler_log(ptr: *const u8, len: usize);
+    unsafe fn set_compiler_log(ptr: *const u8, len: usize, warnings: u32, errors: u32);
     unsafe fn set_ast(ptr: *const u8, len: usize);
     unsafe fn set_wat(ptr: *const u8, len: usize);
 }
@@ -18,9 +18,16 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     // Parse to AST and format for the AST tab.
     let (ast, mut errors) = starstream_compiler::parse(input);
-    unsafe { set_compiler_log(errors.as_ptr(), errors.len()) };
+    unsafe {
+        set_compiler_log(
+            errors.as_ptr(),
+            errors.len(),
+            0,
+            // TODO: get real warning and error counts.
+            if errors.is_empty() { 0 } else { 1 },
+        )
+    };
     if !errors.is_empty() {
-        //unsafe { set_error() };
         return;
     }
 
@@ -33,7 +40,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
         Err(e) => {
             errors.push('\n');
             errors.push_str(&e);
-            unsafe { set_compiler_log(errors.as_ptr(), errors.len()) };
+            // TODO: get real error and warning counts.
+            unsafe { set_compiler_log(errors.as_ptr(), errors.len(), 0, 1) };
             return;
         }
     };
