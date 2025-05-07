@@ -12,8 +12,9 @@ import {
   useRef,
   useState,
 } from "react";
-import permissionedTokenExample from 'file-loader!../../../grammar/examples/permissioned_usdc.st';
-import oracleExample from 'file-loader!../../../grammar/examples/oracle.st';
+import permissionedTokenExample from "file-loader!../../../grammar/examples/permissioned_usdc.st";
+import oracleExample from "file-loader!../../../grammar/examples/oracle.st";
+import starstreamSandboxWasm from "file-loader!../../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -74,7 +75,7 @@ async function getWasmInstance(
   if (modulePromise === null) {
     // First fetch gets instantiateStreaming privilege.
     modulePromise = WebAssembly.instantiateStreaming(
-      fetch("../starstream_sandbox.wasm"),
+      fetch(starstreamSandboxWasm),
       { env }
     );
     const { instance } = await modulePromise;
@@ -114,9 +115,9 @@ utxo MyUtxo {
 
 }
 script {
-    fn example() {
-        return;
-    }
+  fn example() {
+    return;
+  }
 }`;
 
 function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
@@ -212,9 +213,8 @@ const fetchCode = (url: string) => async (): Promise<string> => {
   try {
     const response = await fetch(url);
     return response.text();
-  }
-  catch (error) {
-    console.error('Error fetching source file:', error);
+  } catch (error) {
+    console.error("Error fetching source file:", error);
     return "";
   }
 };
@@ -223,7 +223,7 @@ const getOracleCode = cache(fetchCode(oracleExample));
 const getPermissionedUsdcCode = cache(fetchCode(permissionedTokenExample));
 
 function Builtins({ onChange }: { onChange: (code: string) => void }) {
-  const [selectedOption, setSelectedOption] = useState('');
+  const [selectedOption, setSelectedOption] = useState("");
 
   const handleChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
@@ -233,8 +233,7 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
       onChange(await getPermissionedUsdcCode());
     } else if (value == "oracle") {
       onChange(await getOracleCode());
-    }
-    else {
+    } else {
       onChange(defaultExample);
     }
   };
@@ -251,7 +250,7 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
       </select>
     </div>
   );
-};
+}
 
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
@@ -306,9 +305,11 @@ export function Sandbox() {
         className="margin-horiz--md"
         style={{ flex: 1, display: "flex", flexDirection: "column" }}
       >
-        <Builtins onChange={(value) => {
-          editor.current?.setValue(value);
-        }} />
+        <Builtins
+          onChange={(value) => {
+            editor.current?.setValue(value);
+          }}
+        />
         <Tabs
           current="Contract Code"
           setCurrent={(_: string) => {}}
