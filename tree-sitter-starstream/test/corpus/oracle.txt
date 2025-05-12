@@ -1,0 +1,108 @@
+==================
+utxo
+==================
+utxo OracleContract {
+  storage {
+    data: Data;
+  }
+
+  main(data: Data) {
+    loop { yield; }
+  }
+
+  impl OracleContract {
+    fn get_data(self): Data {
+        let caller = raise Caller();
+        let this_contract = raise ThisCode();
+
+        if (caller != this_contract) {
+            // oracle data can only be called from a coordination script in
+            // this contract, that ensures data is paid for
+            raise Error("InvalidContext");
+        }
+
+        return self.data; // note: this non-mutable, so it's just a reference input
+    }
+  }
+}
+---
+(Program
+  (Utxo
+    (Type (ident))
+    (Storage
+      (TypedBinding
+        (ident)
+        (Type
+          (ident))))
+    (Main
+      (TypedBindings
+        (TypedBinding
+          (ident)
+          (Type
+            (ident))))
+      (Block
+        (Statement
+          (LoopBody
+            (Block
+              (Expr
+                (yield)))))))
+    (Impl
+      (Type (ident))
+      (FnDef
+        (ident)
+        (TypedBindings
+          (TypedBinding
+            (ident)))
+        (Type
+          (ident))
+        (Block
+          (Statement
+            (BindVar
+              (ident)
+              (Expr
+                (yield)
+                (Expr
+                  (PrimaryExpr
+                    (ident)
+                    (Arguments))))))
+          (Statement
+            (BindVar
+              (ident)
+              (Expr
+                (yield)
+                (Expr
+                  (PrimaryExpr
+                    (ident)
+                    (Arguments))))))
+          (IfExpr
+            (Expr
+              (PrimaryExpr
+                (ident))
+              (InfixOpTail
+                (InfixOp)
+                (Expr
+                  (PrimaryExpr
+                    (ident)))))
+            (Block
+              (commentLine)
+              (commentLine)
+              (Expr
+                (yield)
+                (Expr
+                  (PrimaryExpr
+                    (ident)
+                    (Arguments
+                      (Expr
+                        (PrimaryExpr
+                          (stringLiteral)))))))))
+          (Statement
+            (returnLike)
+            (Expr
+              (PrimaryExpr
+                (ident))
+              (InfixOpTail
+                (InfixOp)
+                (Expr
+                  (PrimaryExpr
+                    (ident))))))
+          (commentLine))))))
