@@ -16,6 +16,7 @@ import {
 import permissionedTokenExample from "file-loader!../../../grammar/examples/permissioned_usdc.st";
 import oracleExample from "file-loader!../../../grammar/examples/oracle.st";
 import starstreamSandboxWasm from "file-loader!../../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
+import { useDocusaurusTheme } from "../hooks";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -126,15 +127,18 @@ script {
   }
 }`;
 
-function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
+function Editor(props: {
+  ref?: Ref<monaco.editor.IStandaloneCodeEditor>;
+  theme?: string;
+}) {
   const div = useRef<HTMLDivElement>(null);
-  //const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
   useEffect(() => {
     let editor: monaco.editor.IStandaloneCodeEditor | undefined;
     (async () => {
       const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
       editor = monaco.editor.create(div.current!, {
         automaticLayout: true,
+        theme: props.theme,
 
         value: defaultExample,
         language: "starstream",
@@ -143,6 +147,15 @@ function Editor(props: { ref?: Ref<monaco.editor.IStandaloneCodeEditor> }) {
     })();
     return () => editor?.dispose();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
+      if (props.theme) {
+        monaco.editor.setTheme(props.theme);
+      }
+    })();
+  }, [props.theme]);
 
   return <div className="flex--grow" ref={div} />;
 }
@@ -283,6 +296,8 @@ export function Sandbox() {
     },
   });
 
+  const theme = useDocusaurusTheme();
+
   return (
     <div className="flex--grow row">
       <div className="col col--6 flex--column">
@@ -292,7 +307,12 @@ export function Sandbox() {
           tabs={[
             {
               key: "Contract Code",
-              body: <Editor ref={editor} />,
+              body: (
+                <Editor
+                  ref={editor}
+                  theme={theme === "dark" ? "vs-dark" : "vs"}
+                />
+              ),
             },
           ]}
           after={
