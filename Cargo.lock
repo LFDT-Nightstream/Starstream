@@ -812,6 +812,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "impact_vm_example"
+version = "0.0.0"
+dependencies = [
+ "stack_dst",
+ "starstream_sys",
+]
+
+[[package]]
 name = "indexmap"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

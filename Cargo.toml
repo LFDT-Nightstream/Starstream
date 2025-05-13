@@ -2,6 +2,7 @@
 members = [
     "example_contract",
     "example_contract_permissioned",
+    "impact_vm_example",
     "starstream_cli",
     "starstream_compiler",
     "starstream_sandbox",

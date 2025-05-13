@@ -1,0 +1,12 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "impact_vm_example"
+version = "0.0.0"
+edition = "2024"
+
+forced-target = "wasm32-unknown-unknown"
+
+[dependencies]
+stack_dst = { version = "0.8.1", default-features = false, features = ["const_generics"] }
+starstream_sys = { path = "../starstream_sys" }

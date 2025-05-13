@@ -13,3 +13,5 @@ vsc:
 target/debug/examples/self_test: cargo
 
 target/debug/examples/self_test_permissioned: cargo
+
+target/debug/examples/impact_vm: cargo
