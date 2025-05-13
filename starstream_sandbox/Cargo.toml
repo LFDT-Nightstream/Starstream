@@ -9,4 +9,4 @@ forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
 starstream_compiler = { path = "../starstream_compiler" }
-wasmprinter = "0.230.0"
+wasmprinter = "0.229.0"
