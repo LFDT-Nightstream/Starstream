@@ -12,7 +12,7 @@ use zk_engine::{
 };
 
 use crate::{
-    ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash,
+    ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash, memory,
     starstream_eprint,
 };
 
@@ -35,6 +35,21 @@ fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHas
             starstream_eprint(caller, ptr, len);
         })
         .unwrap();
+    // TODO: starstream_coordination_code
+    linker
+        .func_wrap(
+            module,
+            "starstream_this_code",
+            move |mut caller: Caller<T>, return_addr: u32| {
+                eprintln!("starstream_this_code({return_addr:#x})");
+                let (memory, _) = memory(&mut caller);
+                let hash = this_code.raw();
+                memory[return_addr as usize..return_addr as usize + hash.len()]
+                    .copy_from_slice(&hash);
+            },
+        )
+        .unwrap();
+    // TODO: effect handler stuff
 }
 
 #[derive(Clone)]
