@@ -1,4 +1,7 @@
+//! WebAssembly bindings for the Starstream compiler.
 #![no_main]
+
+use starstream_compiler::write_errors;
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
@@ -17,35 +20,40 @@ pub unsafe extern "C" fn run(input_len: usize) {
     let input = std::str::from_utf8(&input).unwrap();
 
     // Parse to AST and format for the AST tab.
-    let (ast, mut errors) = starstream_compiler::parse(input);
+    let (ast, errors) = starstream_compiler::parse(input);
+    let mut compiler_output = Vec::new();
+    let mut error_count = errors.len() as u32;
+    write_errors(&mut compiler_output, input, &errors);
     unsafe {
         set_compiler_log(
-            errors.as_ptr(),
-            errors.len(),
+            compiler_output.as_ptr(),
+            compiler_output.len(),
+            // TODO: get real warning count.
             0,
-            // TODO: get real warning and error counts.
-            if errors.is_empty() { 0 } else { 1 },
+            error_count,
         )
     };
-    if !errors.is_empty() {
-        return;
-    }
+    let Some(ast) = ast else { return };
 
     let str_ast = format!("{:#?}", ast);
     unsafe { set_ast(str_ast.as_ptr(), str_ast.len()) };
 
-    // Compile to WASM and format to WAT for the WASM tab.
-    let wasm = match starstream_compiler::compile(&ast) {
-        Ok(wasm) => wasm,
-        Err(e) => {
-            errors.push('\n');
-            errors.push_str(&e);
-            // TODO: get real error and warning counts.
-            unsafe { set_compiler_log(errors.as_ptr(), errors.len(), 0, 1) };
-            return;
-        }
-    };
+    // Compile to WASM.
+    let (wasm, errors) = starstream_compiler::compile(&ast);
+    error_count += errors.len() as u32;
+    write_errors(&mut compiler_output, input, &errors);
+    unsafe {
+        set_compiler_log(
+            compiler_output.as_ptr(),
+            compiler_output.len(),
+            // TODO: get real warning count.
+            0,
+            error_count,
+        )
+    }
+    let Some(wasm) = wasm else { return };
 
+    // Format to WAT from the WASM project.
     match wasmprinter::print_bytes(&wasm) {
         Ok(wat) => {
             unsafe { set_wat(wat.as_ptr(), wat.len()) };

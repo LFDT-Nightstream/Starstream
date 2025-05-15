@@ -24,11 +24,26 @@ fn main() {
             compile_file,
             output_file,
         } => {
-            let source =
+            let source_code =
                 std::fs::read_to_string(&compile_file).expect("Error reading Starstream input");
-            let wasm = starstream_compiler::starstream_to_wasm(&source)
-                .expect("Error compiling Starstream code");
-            std::fs::write(&output_file, wasm).expect("Error writing WASM output");
+
+            let (ast, errors) = starstream_compiler::parse(&source_code);
+            for error in errors {
+                error.eprint(ariadne::Source::from(&source_code)).unwrap();
+            }
+            let Some(ast) = ast else {
+                std::process::exit(1);
+            };
+
+            let (module, errors) = starstream_compiler::compile(&ast);
+            for error in errors {
+                error.eprint(ariadne::Source::from(&source_code)).unwrap();
+            }
+            let Some(module) = module else {
+                std::process::exit(1);
+            };
+
+            std::fs::write(&output_file, module).expect("Error writing WASM output");
         }
     }
 }

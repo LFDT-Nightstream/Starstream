@@ -1,3 +1,4 @@
+use ariadne::Report;
 use wasm_encoder::{
     CodeSection, ExportSection, FunctionSection, ImportSection, Module, TypeSection,
 };
@@ -5,13 +6,15 @@ use wasm_encoder::{
 use crate::ast::*;
 
 /// Compile a Starstream AST to a binary WebAssembly module.
-pub fn compile(program: &StarstreamProgram) -> Result<Vec<u8>, String> {
+pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
     // Prepare sections.
     let types = TypeSection::new();
     let imports = ImportSection::new();
     let functions = FunctionSection::new();
     let exports = ExportSection::new();
     let code = CodeSection::new();
+
+    let errors = Vec::new();
 
     // TODO(#6) WASM code generation
     let _ = program;
@@ -37,6 +40,5 @@ pub fn compile(program: &StarstreamProgram) -> Result<Vec<u8>, String> {
         module.section(&code);
     }
 
-    dbg!(&module);
-    Ok(module.finish())
+    (Some(module.finish()), errors)
 }

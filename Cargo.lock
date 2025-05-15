@@ -1619,6 +1619,7 @@ dependencies = [
 name = "starstream_cli"
 version = "0.0.0"
 dependencies = [
+ "ariadne",
  "clap",
  "starstream_compiler",
  "starstream_vm",
