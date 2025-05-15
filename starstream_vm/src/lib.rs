@@ -1,4 +1,5 @@
 //! Starstream VM as a library.
+#![allow(dead_code)] // We're WIP enough that some dead code is to be expected.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -320,7 +321,7 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
              name: u32,
              name_len: u32,
              data: u32,
-             data_len: u32,
+             _data_len: u32,
              resume_arg: u32,
              resume_arg_len: u32|
              -> Result<(), WasmiError> {
