@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
-use ariadne::Report;
+use ariadne::{Report, ReportBuilder, ReportKind};
 use wasm_encoder::{
     CodeSection, ConstExpr, DataSection, EntityType, ExportSection, FuncType, Function,
     FunctionSection, ImportSection, MemorySection, MemoryType, Module, TypeSection, ValType,
@@ -16,9 +16,12 @@ pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
 }
 
 /// Typed intermediate value.
+#[derive(Debug)]
 enum Intermediate {
     /// Nothing! Absolutely nothing!
     Void,
+    /// An error intermediate. Suppress further typechecking errors.
+    Error,
     /// `()` An imported or local function by ID.
     StaticFunction(u32),
     /// `(i32 i32)` A string reference.
@@ -110,6 +113,15 @@ impl Compiler {
     }
 
     // ------------------------------------------------------------------------
+    // Diagnostics
+
+    fn todo(&mut self, why: String) {
+        Report::build(ReportKind::Custom("Todo", ariadne::Color::Red), 0..0)
+            .with_message(why)
+            .push(self);
+    }
+
+    // ------------------------------------------------------------------------
     // Memory management
 
     fn alloc_constant(&mut self, bytes: &[u8]) -> u32 {
@@ -163,7 +175,7 @@ impl Compiler {
     fn visit_item(&mut self, item: &ProgramItem) {
         match item {
             ProgramItem::Script(script) => self.visit_script(script),
-            _ => todo!(),
+            _ => self.todo(format!("ProgramItem::{:?}", item)),
         }
     }
 
@@ -206,8 +218,7 @@ impl Compiler {
 
     fn drop_intermediate(&mut self, func: &mut Function, im: Intermediate) {
         match im {
-            Intermediate::Void => {}
-            Intermediate::StaticFunction(_) => {}
+            Intermediate::Void | Intermediate::Error | Intermediate::StaticFunction(_) => {}
             Intermediate::Str => {
                 func.instructions().drop().drop();
             }
@@ -224,9 +235,8 @@ impl Compiler {
                 }
                 func.instructions().return_();
             }
-            _ => todo!(),
+            _ => self.todo(format!("Statement::{:?}", statement)),
         }
-        todo!()
     }
 
     fn visit_expr(&mut self, func: &mut Function, expr: &Expr) -> Intermediate {
@@ -244,7 +254,10 @@ impl Compiler {
                 }
                 im
             }
-            _ => todo!(),
+            _ => {
+                self.todo(format!("Expr::{:?}", expr));
+                Intermediate::Error
+            }
         }
     }
 
@@ -254,7 +267,8 @@ impl Compiler {
                 if idents.len() == 1 && idents[0].0 == "print" {
                     Intermediate::StaticFunction(self.global_scope_functions["print"])
                 } else {
-                    todo!()
+                    self.todo(format!("PrimaryExpr::{:?}", primary));
+                    Intermediate::Error
                 }
             }
             PrimaryExpr::StringLiteral(string) => {
@@ -265,12 +279,16 @@ impl Compiler {
                     .i32_const(u32::try_from(len).unwrap().cast_signed());
                 Intermediate::Str
             }
-            _ => todo!(),
+            _ => {
+                self.todo(format!("PrimaryExpr::{:?}", primary));
+                Intermediate::Error
+            }
         }
     }
 
     fn visit_call(&mut self, func: &mut Function, im: Intermediate, args: &[Expr]) -> Intermediate {
         match im {
+            Intermediate::Error => Intermediate::Error,
             Intermediate::StaticFunction(id) => {
                 // TODO: typechecking
                 for arg in args {
@@ -281,15 +299,38 @@ impl Compiler {
                 Intermediate::Void
             }
             _ => {
+                Report::build(ReportKind::Error, 0..0)
+                    .with_message(format_args!("attempting to call non-function {:?}", im))
+                    .push(self);
                 self.drop_intermediate(func, im);
-                // TODO: push error
-                Intermediate::Void
+                Intermediate::Error
             }
         }
     }
 
     fn visit_field(&mut self, func: &mut Function, im: Intermediate, name: &str) -> Intermediate {
-        _ = (func, im, name);
-        todo!()
+        if let Intermediate::Error = im {
+            return Intermediate::Error;
+        }
+
+        _ = func;
+        self.todo(format!("Field {:?}.{:?}", im, name));
+        Intermediate::Error
+    }
+}
+
+trait ReportExt {
+    fn push(self, c: &mut Compiler);
+}
+
+impl ReportExt for Report<'static> {
+    fn push(self, c: &mut Compiler) {
+        c.errors.push(self);
+    }
+}
+
+impl ReportExt for ReportBuilder<'static, Range<usize>> {
+    fn push(self, c: &mut Compiler) {
+        c.errors.push(self.finish());
     }
 }

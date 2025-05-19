@@ -350,7 +350,7 @@ export function Sandbox() {
               ),
               body: (
                 <div className="margin--sm">
-                  <pre>
+                  <pre style={{ whiteSpace: "pre-wrap" }}>
                     <AnsiHtml text={compilerLog.log} />
                   </pre>
                 </div>
