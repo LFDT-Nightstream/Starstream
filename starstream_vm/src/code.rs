@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{Arc, RwLock},
 };
 
@@ -79,9 +80,7 @@ pub struct CodeCache {
 }
 
 impl CodeCache {
-    /// Load code by crate name from the Rust `target/` directory.
-    pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
-        let path = format!("target/wasm32-unknown-unknown/debug/{name}.wasm");
+    pub fn load_file(&self, path: &Path) -> Arc<ContractCode> {
         let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
 
         self.by_hash
@@ -89,6 +88,13 @@ impl CodeCache {
             .unwrap()
             .insert(result.hash(), result.clone());
         result
+    }
+
+    /// Load code by crate name from the Rust `target/` directory.
+    pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
+        self.load_file(Path::new(&format!(
+            "target/wasm32-unknown-unknown/debug/{name}.wasm"
+        )))
     }
 
     pub fn get(&self, hash: CodeHash) -> Arc<ContractCode> {

@@ -27,6 +27,8 @@ enum Intermediate {
 
 #[derive(Default)]
 struct Compiler {
+    errors: Vec<Report<'static>>,
+
     types: TypeSection,
     imports: ImportSection,
     functions: FunctionSection,
@@ -36,17 +38,29 @@ struct Compiler {
     data: DataSection,
 
     func_types: HashMap<FuncType, u32>,
+    global_scope_functions: HashMap<String, u32>,
     bump_ptr: u32,
-
-    errors: Vec<Report<'static>>,
 }
 
 impl Compiler {
     fn new() -> Compiler {
         let mut this = Compiler::default();
+
+        // Function indices in calls, exports, etc. are based on the combined
+        // imports + declared functions list. The easiest way to handle this is
+        // to know the whole list of imported functions before compiling. Do
+        // that here for now.
+        let eprint_ty = this.add_func_type(FuncType::new([ValType::I32, ValType::I32], []));
+        let import_id: u32 = this.imports.len();
+        this.imports
+            .import("env", "eprint", EntityType::Function(eprint_ty));
+        this.global_scope_functions
+            .insert("print".to_owned(), import_id);
+
         // Always export memory 0. It's created in finish().
         this.exports
             .export("memory", wasm_encoder::ExportKind::Memory, 0);
+
         this
     }
 
@@ -160,8 +174,11 @@ impl Compiler {
             self.visit_block(&mut function, &fndef.body);
             function.instructions().end();
             let index = self.add_function(ty, &function);
-            self.exports
-                .export(&fndef.name.0, wasm_encoder::ExportKind::Func, index);
+            self.exports.export(
+                &fndef.name.0,
+                wasm_encoder::ExportKind::Func,
+                self.imports.len() + index,
+            );
         }
     }
 
@@ -235,13 +252,7 @@ impl Compiler {
         match primary {
             PrimaryExpr::Ident(idents) => {
                 if idents.len() == 1 && idents[0].0 == "print" {
-                    // TODO: real import system, deduplication
-                    let eprint_ty =
-                        self.add_func_type(FuncType::new([ValType::I32, ValType::I32], []));
-                    let import_id = self.imports.len();
-                    self.imports
-                        .import("env", "eprint", EntityType::Function(eprint_ty));
-                    Intermediate::StaticFunction(import_id)
+                    Intermediate::StaticFunction(self.global_scope_functions["print"])
                 } else {
                     todo!()
                 }
