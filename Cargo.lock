@@ -1638,7 +1638,9 @@ dependencies = [
 name = "starstream_sandbox"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.2.16",
  "starstream_compiler",
+ "starstream_vm",
  "wasmprinter",
 ]
 

@@ -8,5 +8,7 @@ edition = "2024"
 forced-target = "wasm32-unknown-unknown"
 
 [dependencies]
+getrandom = { version = "0.2.16", features = ["custom"] }
 starstream_compiler = { path = "../starstream_compiler" }
+starstream_vm = { path = "../starstream_vm" }
 wasmprinter = "0.229.0"

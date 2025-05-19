@@ -5,11 +5,24 @@ use starstream_compiler::write_errors;
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
+    unsafe fn getrandom(ptr: *mut u8, len: usize);
+
     unsafe fn read_input(ptr: *mut u8, len: usize);
     unsafe fn set_compiler_log(ptr: *const u8, len: usize, warnings: u32, errors: u32);
     unsafe fn set_ast(ptr: *const u8, len: usize);
     unsafe fn set_wat(ptr: *const u8, len: usize);
 }
+
+// Register a getrandom implementation for wasm32-unknown-unknown.
+// Not using getrandom's "js" feature because it somehow causes Cargo to panic
+// during feature resolution.
+fn our_getrandom(dest: &mut [u8]) -> Result<(), getrandom::Error> {
+    unsafe {
+        getrandom(dest.as_mut_ptr(), dest.len());
+    }
+    Ok(())
+}
+getrandom::register_custom_getrandom!(our_getrandom);
 
 // Exports to do work, called by the JS page.
 #[unsafe(no_mangle)]

@@ -58,6 +58,8 @@ if (ExecutionEnvironment.canUseDOM) {
 }
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
+  getrandom(ptr: number, len: number): void;
+
   read_input(ptr: number, len: number): void;
   set_compiler_log(
     ptr: number,
@@ -231,6 +233,12 @@ export function Sandbox() {
 
   const input = useRef<Uint8Array>(null);
   const wasm = useWasmInstance({
+    getrandom(ptr, len) {
+      crypto.getRandomValues(
+        new Uint8Array(wasm.current!.memory.buffer, ptr, len)
+      );
+    },
+
     read_input(ptr, len) {
       console.log("read_input", ptr, len, "->", input.current);
       new Uint8Array(wasm.current!.memory.buffer, ptr, len).set(input.current!);
