@@ -11,6 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup target add wasm32-unknown-unknown
+      - run: rustup component add clippy rustfmt
       # Enforce lockfile correctness.
       - run: cargo check --locked
       # Build crates and whatever else.
