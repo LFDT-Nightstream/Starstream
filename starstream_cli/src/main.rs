@@ -23,7 +23,7 @@ enum Args {
         #[arg(short = 'm')]
         module: PathBuf,
         /// The entry point name.
-        #[arg(short = 'e')]
+        #[arg(short = 'e', default_value = "main")]
         entry: String,
     },
 }

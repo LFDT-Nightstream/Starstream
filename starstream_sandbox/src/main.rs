@@ -1,7 +1,11 @@
 //! WebAssembly bindings for the Starstream compiler.
+#![feature(internal_output_capture)]
 #![no_main]
 
+use std::sync::Arc;
+
 use starstream_compiler::write_errors;
+use starstream_vm::Transaction;
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
@@ -11,6 +15,7 @@ unsafe extern "C" {
     unsafe fn set_compiler_log(ptr: *const u8, len: usize, warnings: u32, errors: u32);
     unsafe fn set_ast(ptr: *const u8, len: usize);
     unsafe fn set_wat(ptr: *const u8, len: usize);
+    unsafe fn set_run_log(ptr: *const u8, len: usize);
 }
 
 // Register a getrandom implementation for wasm32-unknown-unknown.
@@ -26,7 +31,7 @@ getrandom::register_custom_getrandom!(our_getrandom);
 
 // Exports to do work, called by the JS page.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn run(input_len: usize) {
+pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     // Fetch the input.
     let mut input = vec![0; input_len];
     unsafe { read_input(input.as_mut_ptr(), input.len()) };
@@ -51,7 +56,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
     let str_ast = format!("{:#?}", ast);
     unsafe { set_ast(str_ast.as_ptr(), str_ast.len()) };
 
-    // Compile to WASM.
+    // Compile to Wasm.
     let (wasm, errors) = starstream_compiler::compile(&ast);
     error_count += errors.len() as u32;
     write_errors(&mut compiler_output, input, &errors);
@@ -66,7 +71,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
     }
     let Some(wasm) = wasm else { return };
 
-    // Format to WAT from the WASM project.
+    // Format to WAT.
     match wasmprinter::print_bytes(&wasm) {
         Ok(wat) => {
             unsafe { set_wat(wat.as_ptr(), wat.len()) };
@@ -76,4 +81,28 @@ pub unsafe extern "C" fn run(input_len: usize) {
             unsafe { set_wat(wat_err.as_ptr(), wat_err.len()) };
         }
     }
+
+    if !run {
+        return;
+    }
+
+    // Execute.
+    let ((), captured) = capture(|| {
+        let mut transaction = Transaction::new();
+        let coordination_code = transaction.code_cache().load(wasm);
+        transaction.run_coordination_script(&coordination_code, "main", Vec::new());
+    });
+    let captured = captured.trim_start();
+    unsafe { set_run_log(captured.as_ptr(), captured.len()) };
+}
+
+fn capture<R>(f: impl FnOnce() -> R) -> (R, String) {
+    std::io::set_output_capture(Some(Default::default()));
+    let r = f();
+    let captured = std::io::set_output_capture(None);
+    let captured = captured.unwrap();
+    let captured = Arc::try_unwrap(captured).unwrap();
+    let captured = captured.into_inner().unwrap();
+    let captured = String::from_utf8(captured).unwrap();
+    (r, captured)
 }

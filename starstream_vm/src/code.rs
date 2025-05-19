@@ -80,14 +80,17 @@ pub struct CodeCache {
 }
 
 impl CodeCache {
-    pub fn load_file(&self, path: &Path) -> Arc<ContractCode> {
-        let result = Arc::new(ContractCode::load(std::fs::read(path).unwrap()));
-
+    pub fn load(&self, wasm: Vec<u8>) -> Arc<ContractCode> {
+        let result = Arc::new(ContractCode::load(wasm));
         self.by_hash
             .write()
             .unwrap()
             .insert(result.hash(), result.clone());
         result
+    }
+
+    pub fn load_file(&self, path: &Path) -> Arc<ContractCode> {
+        self.load(std::fs::read(path).expect("CodeCache::load_file"))
     }
 
     /// Load code by crate name from the Rust `target/` directory.

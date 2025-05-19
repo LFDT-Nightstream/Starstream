@@ -69,11 +69,12 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   ): void;
   set_ast(ptr: number, len: number): void;
   set_wat(ptr: number, len: number): void;
+  set_run_log(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
   memory: WebAssembly.Memory;
-  run(input_len: number): void;
+  run(input_len: number, run: boolean): void;
 }
 
 let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
@@ -213,7 +214,9 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
         className="builtins-select"
       >
         {Object.keys(examples).map((k) => (
-          <option value={k}>{k}</option>
+          <option key={k} value={k}>
+            {k}
+          </option>
         ))}
       </select>
     </div>
@@ -230,6 +233,7 @@ export function Sandbox() {
   });
   const [ast, setAst] = useState("");
   const [wat, setWat] = useState("");
+  const [runLog, setRunLog] = useState("");
 
   const input = useRef<Uint8Array>(null);
   const wasm = useWasmInstance({
@@ -240,7 +244,7 @@ export function Sandbox() {
     },
 
     read_input(ptr, len) {
-      console.log("read_input", ptr, len, "->", input.current);
+      console.log("read_input", ptr, len);
       new Uint8Array(wasm.current!.memory.buffer, ptr, len).set(input.current!);
     },
     set_compiler_log(ptr, len, warnings, errors) {
@@ -264,8 +268,18 @@ export function Sandbox() {
       );
     },
     set_wat(ptr, len) {
+      console.log("set_wat", ptr, len);
       setOutputTab("Wasm");
       setWat(
+        new TextDecoder().decode(
+          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
+        )
+      );
+    },
+    set_run_log(ptr, len) {
+      console.log("set_run_log", ptr, len);
+      setOutputTab("Run log");
+      setRunLog(
         new TextDecoder().decode(
           new Uint8Array(wasm.current!.memory.buffer, ptr, len)
         )
@@ -307,7 +321,7 @@ export function Sandbox() {
                   input.current = new TextEncoder().encode(
                     editor.current?.getModel()?.getValue() ?? ""
                   );
-                  wasm.current?.run(input.current.length);
+                  wasm.current?.run(input.current.length, true);
                 }}
               >
                 Compile
@@ -380,10 +394,17 @@ export function Sandbox() {
                 </div>
               ),
             },
-            /*
             {
               key: "Run log",
+              body: (
+                <div className="margin--sm">
+                  <pre style={{ whiteSpace: "pre-wrap" }}>
+                    <AnsiHtml text={runLog} />
+                  </pre>
+                </div>
+              ),
             },
+            /*
             {
               key: "Sequence diagram",
             },
