@@ -153,8 +153,11 @@ pub enum Expr {
     Div(Box<Self>, Box<Self>),
     Neg(Box<Self>),
     PrimaryExpr(
+        /// Starter expression.
         PrimaryExpr,
+        /// If followed by a function call `(args...)`.
         Option<Arguments>,
+        /// Following fields `.ident` or method calls `.ident(args...)`.
         Vec<(Identifier, Option<Arguments>)>,
     ),
     BlockExpr(BlockExpr),

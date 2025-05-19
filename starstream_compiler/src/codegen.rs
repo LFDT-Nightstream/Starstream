@@ -2,17 +2,27 @@ use std::collections::HashMap;
 
 use ariadne::Report;
 use wasm_encoder::{
-    CodeSection, ExportSection, FuncType, Function, FunctionSection, ImportSection,
-    InstructionSink, Module, TypeSection,
+    CodeSection, ConstExpr, DataSection, EntityType, ExportSection, FuncType, Function,
+    FunctionSection, ImportSection, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
 
 use crate::ast::*;
 
 /// Compile a Starstream AST to a binary WebAssembly module.
 pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
-    let mut compiler = Compiler::default();
+    let mut compiler = Compiler::new();
     compiler.visit_program(program);
     compiler.finish()
+}
+
+/// Typed intermediate value.
+enum Intermediate {
+    /// Nothing! Absolutely nothing!
+    Void,
+    /// `()` An imported or local function by ID.
+    StaticFunction(u32),
+    /// `(i32 i32)` A string reference.
+    Str,
 }
 
 #[derive(Default)]
@@ -20,16 +30,36 @@ struct Compiler {
     types: TypeSection,
     imports: ImportSection,
     functions: FunctionSection,
+    memory: MemorySection,
     exports: ExportSection,
     code: CodeSection,
+    data: DataSection,
 
     func_types: HashMap<FuncType, u32>,
+    bump_ptr: u32,
 
     errors: Vec<Report<'static>>,
 }
 
 impl Compiler {
-    fn finish(self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
+    fn new() -> Compiler {
+        let mut this = Compiler::default();
+        // Always export memory 0. It's created in finish().
+        this.exports
+            .export("memory", wasm_encoder::ExportKind::Memory, 0);
+        this
+    }
+
+    fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
+        let page_size = 64 * 1024;
+        self.memory.memory(MemoryType {
+            minimum: u64::try_from((self.bump_ptr + page_size - 1) / page_size).unwrap(),
+            maximum: None,
+            memory64: false,
+            shared: false,
+            page_size_log2: None,
+        });
+
         // TODO: return None if the errors were fatal.
         let module = self.to_module();
         (Some(module.finish()), self.errors)
@@ -50,14 +80,42 @@ impl Compiler {
         if !self.functions.is_empty() {
             module.section(&self.functions);
         }
+        if !self.memory.is_empty() {
+            module.section(&self.memory);
+        }
         if !self.exports.is_empty() {
             module.section(&self.exports);
         }
         if !self.code.is_empty() {
             module.section(&self.code);
         }
+        if !self.data.is_empty() {
+            module.section(&self.data);
+        }
         module
     }
+
+    // ------------------------------------------------------------------------
+    // Memory management
+
+    fn alloc_constant(&mut self, bytes: &[u8]) -> u32 {
+        if self.bump_ptr == 0 {
+            // Leave 1K of zeroes at the bottom.
+            self.bump_ptr = 1024;
+        }
+
+        let ptr = self.bump_ptr;
+        self.data.active(
+            0,
+            &ConstExpr::i32_const(ptr.cast_signed()),
+            bytes.iter().copied(),
+        );
+        self.bump_ptr += u32::try_from(bytes.len()).unwrap();
+        ptr
+    }
+
+    // ------------------------------------------------------------------------
+    // Table management
 
     fn add_func_type(&mut self, ty: FuncType) -> u32 {
         match self.func_types.get(&ty) {
@@ -79,6 +137,9 @@ impl Compiler {
         func_index
     }
 
+    // ------------------------------------------------------------------------
+    // Visitors
+
     fn visit_program(&mut self, program: &StarstreamProgram) {
         for item in &program.items {
             self.visit_item(item);
@@ -88,7 +149,7 @@ impl Compiler {
     fn visit_item(&mut self, item: &ProgramItem) {
         match item {
             ProgramItem::Script(script) => self.visit_script(script),
-            _ => unimplemented!(),
+            _ => todo!(),
         }
     }
 
@@ -96,7 +157,7 @@ impl Compiler {
         for fndef in &script.definitions {
             let ty = FuncType::new([], []);
             let mut function = Function::new([]);
-            self.visit_block(function.instructions(), &fndef.body);
+            self.visit_block(&mut function, &fndef.body);
             function.instructions().end();
             let index = self.add_function(ty, &function);
             self.exports
@@ -104,7 +165,120 @@ impl Compiler {
         }
     }
 
-    fn visit_block(&mut self, mut sink: InstructionSink, block: &Block) {
-        // TODO
+    fn visit_block(&mut self, func: &mut Function, mut block: &Block) {
+        loop {
+            match block {
+                Block::Chain { head, tail } => {
+                    match &**head {
+                        ExprOrStatement::Statement(statement) => {
+                            self.visit_statement(func, statement)
+                        }
+                        ExprOrStatement::Expr(expr) => {
+                            let im = self.visit_expr(func, expr);
+                            self.drop_intermediate(func, im);
+                        }
+                    }
+                    block = &tail;
+                }
+                Block::Close { semicolon: _ } => {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn drop_intermediate(&mut self, func: &mut Function, im: Intermediate) {
+        match im {
+            Intermediate::Void => {}
+            Intermediate::StaticFunction(_) => {}
+            Intermediate::Str => {
+                func.instructions().drop().drop();
+            }
+        }
+    }
+
+    fn visit_statement(&mut self, func: &mut Function, statement: &Statement) {
+        match statement {
+            Statement::Return(expr) => {
+                if let Some(expr) = expr {
+                    let im = self.visit_expr(func, expr);
+                    // TODO: allow actually returning things
+                    self.drop_intermediate(func, im);
+                }
+                func.instructions().return_();
+            }
+            _ => todo!(),
+        }
+        todo!()
+    }
+
+    fn visit_expr(&mut self, func: &mut Function, expr: &Expr) -> Intermediate {
+        match expr {
+            Expr::PrimaryExpr(primary, args, methods) => {
+                let mut im = self.visit_primary_expr(func, primary);
+                if let Some(args) = args {
+                    im = self.visit_call(func, im, &args.xs);
+                }
+                for (name, args) in methods {
+                    im = self.visit_field(func, im, &name.0);
+                    if let Some(args) = args {
+                        im = self.visit_call(func, im, &args.xs);
+                    }
+                }
+                im
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
+        match primary {
+            PrimaryExpr::Ident(idents) => {
+                if idents.len() == 1 && idents[0].0 == "print" {
+                    // TODO: real import system, deduplication
+                    let eprint_ty =
+                        self.add_func_type(FuncType::new([ValType::I32, ValType::I32], []));
+                    let import_id = self.imports.len();
+                    self.imports
+                        .import("env", "eprint", EntityType::Function(eprint_ty));
+                    Intermediate::StaticFunction(import_id)
+                } else {
+                    todo!()
+                }
+            }
+            PrimaryExpr::StringLiteral(string) => {
+                let ptr = self.alloc_constant(string.as_bytes());
+                let len = string.len();
+                func.instructions()
+                    .i32_const(ptr.cast_signed())
+                    .i32_const(u32::try_from(len).unwrap().cast_signed());
+                Intermediate::Str
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn visit_call(&mut self, func: &mut Function, im: Intermediate, args: &[Expr]) -> Intermediate {
+        match im {
+            Intermediate::StaticFunction(id) => {
+                // TODO: typechecking
+                for arg in args {
+                    self.visit_expr(func, arg);
+                }
+                func.instructions().call(id);
+                // TODO: intermediates corresponding to function's result types
+                Intermediate::Void
+            }
+            _ => {
+                self.drop_intermediate(func, im);
+                // TODO: push error
+                Intermediate::Void
+            }
+        }
+    }
+
+    fn visit_field(&mut self, func: &mut Function, im: Intermediate, name: &str) -> Intermediate {
+        _ = (func, im, name);
+        todo!()
     }
 }
