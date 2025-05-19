@@ -1,0 +1,20 @@
+import hello from "file-loader!../../grammar/examples/hello_world.star";
+import oracle from "file-loader!../../grammar/examples/oracle.st";
+import permissionedToken from "file-loader!../../grammar/examples/permissioned_usdc.st";
+import { cache } from "react";
+
+const fetchCode = (url: string) => async (): Promise<string> => {
+  try {
+    const response = await fetch(url);
+    return response.text();
+  } catch (error) {
+    console.error("Error fetching source file:", error);
+    return `/* Error: ${error} */`;
+  }
+};
+
+export default {
+  "Hello World": cache(fetchCode(hello)),
+  "Permissioned Token": cache(fetchCode(permissionedToken)),
+  Oracle: cache(fetchCode(oracle)),
+} as Record<string, () => Promise<string>>;

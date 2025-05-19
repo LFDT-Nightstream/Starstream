@@ -1,5 +1,5 @@
 script {
-    fn example() {
-        print("Hello, world!");
-    }
+  fn example() {
+    print("Hello, world!");
+  }
 }

@@ -13,10 +13,10 @@ import {
   useRef,
   useState,
 } from "react";
-import permissionedTokenExample from "file-loader!../../../grammar/examples/permissioned_usdc.st";
-import oracleExample from "file-loader!../../../grammar/examples/oracle.st";
-import starstreamSandboxWasm from "file-loader!../../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
+import examples from "../examples";
 import { useDocusaurusTheme } from "../hooks";
+
+import starstreamSandboxWasm from "file-loader!../../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -115,18 +115,6 @@ function setRef<T>(ref: Ref<T> | undefined, value: T) {
   }
 }
 
-const defaultExample = `token MyToken {
-
-}
-utxo MyUtxo {
-
-}
-script {
-  fn example() {
-    return;
-  }
-}`;
-
 function Editor(props: {
   ref?: Ref<monaco.editor.IStandaloneCodeEditor>;
   theme?: string;
@@ -140,7 +128,7 @@ function Editor(props: {
         automaticLayout: true,
         theme: props.theme,
 
-        value: defaultExample,
+        value: await Object.values(examples)[0](),
         language: "starstream",
       });
       setRef(props.ref, editor);
@@ -206,19 +194,6 @@ function Tabs(props: {
   );
 }
 
-const fetchCode = (url: string) => async (): Promise<string> => {
-  try {
-    const response = await fetch(url);
-    return response.text();
-  } catch (error) {
-    console.error("Error fetching source file:", error);
-    return "";
-  }
-};
-
-const getOracleCode = cache(fetchCode(oracleExample));
-const getPermissionedUsdcCode = cache(fetchCode(permissionedTokenExample));
-
 function Builtins({ onChange }: { onChange: (code: string) => void }) {
   const [selectedOption, setSelectedOption] = useState("");
 
@@ -226,13 +201,7 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
     const value = event.target.value;
     setSelectedOption(value);
 
-    if (value === "usdc") {
-      onChange(await getPermissionedUsdcCode());
-    } else if (value == "oracle") {
-      onChange(await getOracleCode());
-    } else {
-      onChange(defaultExample);
-    }
+    examples[value]().then(onChange);
   };
   return (
     <div className="builtins-container">
@@ -241,9 +210,9 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
         onChange={handleChange}
         className="builtins-select"
       >
-        <option value="default">Simple token</option>
-        <option value="usdc">Permissioned token</option>
-        <option value="oracle">Oracle</option>
+        {Object.keys(examples).map((k) => (
+          <option value={k}>{k}</option>
+        ))}
       </select>
     </div>
   );
@@ -287,7 +256,7 @@ export function Sandbox() {
       );
     },
     set_wat(ptr, len) {
-      //setOutputTab("WASM");
+      setOutputTab("Wasm");
       setWat(
         new TextDecoder().decode(
           new Uint8Array(wasm.current!.memory.buffer, ptr, len)
@@ -395,16 +364,14 @@ export function Sandbox() {
                 </div>
               ),
             },
-            /*
             {
-              key: "WASM",
+              key: "Wasm",
               body: (
                 <div className="margin--sm">
                   <pre>{wat}</pre>
                 </div>
               ),
             },
-            */
             /*
             {
               key: "Run log",
