@@ -1,0 +1,37 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "starstream",
+      "camelcase": "Starstream",
+      "scope": "source.starstream",
+      "file-types": [
+        "st"
+      ],
+      "injection-regex": "^starstream$",
+      "class-name": "TreeSitterStarstream"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Tree Sitter grammar for Starstream",
+    "authors": [
+      {
+        "name": "enzo@dcspark.io"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/PaimaStudios/Starstream"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": false,
+    "node": true,
+    "python": false,
+    "rust": true,
+    "swift": false,
+    "zig": false
+  }
+}

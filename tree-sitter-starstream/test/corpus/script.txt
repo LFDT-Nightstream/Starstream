@@ -1,0 +1,61 @@
+==================
+script
+==================
+script {
+  fn test(input: Value) {
+    yield 1 + 1;
+    yield 3;
+    if(input == 3) {
+      // comment
+      return 4;
+    }
+    yield 5
+  }
+}
+---
+(Program
+  (Script
+    (FnDef
+      (ident)
+      (TypedBindings
+        (TypedBinding
+          (ident)
+          (Type
+            (ident))))
+      (Block
+        (Expr
+          (yield)
+          (Expr
+            (PrimaryExpr
+              (number))
+            (InfixOpTail
+              (InfixOp)
+              (Expr
+                (PrimaryExpr
+                  (number))))))
+        (Expr
+          (yield)
+          (Expr
+            (PrimaryExpr
+              (number))))
+        (IfExpr
+          (Expr
+            (PrimaryExpr
+              (ident))
+            (InfixOpTail
+              (InfixOp)
+              (Expr
+                (PrimaryExpr
+                  (number)))))
+          (Block
+            (commentLine)
+            (Statement
+              (returnLike)
+              (Expr
+                (PrimaryExpr
+                  (number))))))
+        (Expr
+          (yield)
+          (Expr
+            (PrimaryExpr
+              (number))))))))

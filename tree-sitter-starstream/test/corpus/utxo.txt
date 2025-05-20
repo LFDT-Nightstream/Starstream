@@ -1,0 +1,13 @@
+==================
+utxo test
+==================
+utxo Contract { abi {} main {} }
+---
+(Program
+	(Utxo
+		(Type (ident))
+		(Abi)
+		(Main
+			(Block))
+	)
+)
