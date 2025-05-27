@@ -4,6 +4,7 @@ cargo-features = ["per-package-target"]
 name = "starstream_sandbox"
 version = "0.0.0"
 edition = "2024"
+license = "MIT"
 
 forced-target = "wasm32-unknown-unknown"
 
