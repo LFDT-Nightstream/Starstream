@@ -1,3 +1,4 @@
+use log::{debug, info, trace};
 use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, Value};
 use zk_engine::{
     error::ZKWASMError,
@@ -41,7 +42,7 @@ fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHas
             module,
             "starstream_this_code",
             move |mut caller: Caller<T>, return_addr: u32| {
-                eprintln!("starstream_this_code({return_addr:#x})");
+                trace!("starstream_this_code({return_addr:#x})");
                 let (memory, _) = memory(&mut caller);
                 let hash = this_code.raw();
                 memory[return_addr as usize..return_addr as usize + hash.len()]
@@ -95,10 +96,10 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
                     move |mut caller, inputs, outputs| -> Result<(), WasmiError> {
                         let data = caller.data_mut();
                         // This call corresponds to a witness FROM us, so find that.
-                        eprintln!("{}{:?}", desc, inputs);
+                        debug!("{}{:?}", desc, inputs);
                         while data.witness < data.tx.witnesses.len() {
                             if data.tx.witnesses[data.witness].from_program == data.program_idx {
-                                eprintln!("  -> {:?}", &data.tx.witnesses[data.witness]);
+                                debug!("  -> {:?}", &data.tx.witnesses[data.witness]);
                                 break;
                             }
                             data.witness += 1;
@@ -107,7 +108,7 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
                         // TODO: explicitly store this rather than guessing.
                         while data.witness < data.tx.witnesses.len() {
                             if data.tx.witnesses[data.witness].to_program == data.program_idx {
-                                eprintln!("  <- {:?}", &data.tx.witnesses[data.witness]);
+                                debug!("  <- {:?}", &data.tx.witnesses[data.witness]);
 
                                 outputs.clone_from_slice(&data.tx.witnesses[data.witness].values);
                                 // TODO: copy memory registered in witness
@@ -134,11 +135,11 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
 
 impl Transaction {
     pub fn do_nebula_stuff(&self) {
-        eprintln!();
+        debug!("do_nebula_stuff");
         init_logger();
 
         let inner = self.store.data();
-        eprintln!(
+        info!(
             "Programs: {}\nWitnesses: {}",
             inner.programs.len(),
             inner.witnesses.len()
@@ -146,22 +147,24 @@ impl Transaction {
 
         // Start with the very first witness, which should always be Root->0.
         for witness in &inner.witnesses {
-            eprintln!("{witness:?}");
+            debug!("{witness:?}");
         }
 
         let step_size = StepSize::new(1000).set_memory_step_size(50_000);
+        info!("Setting up...");
         let public_params = Snark::setup(step_size);
+        info!("Snark::setup complete");
 
         for (i, program) in inner.programs.iter().enumerate() {
             let program_idx = ProgramIdx(i);
-            eprintln!("\n{:?} {program:?}", program_idx);
+            debug!("\n{:?} {program:?}", program_idx);
 
             // Scan for first witness TO our program to be the func_args.
             let mut witness = 0;
             let mut func_args = Vec::new();
             while witness < inner.witnesses.len() {
                 if inner.witnesses[witness].to_program == program_idx {
-                    eprintln!("  -> {:?}", &inner.witnesses[witness]);
+                    debug!("  -> {:?}", &inner.witnesses[witness]);
                     func_args = inner.witnesses[witness]
                         .values
                         .iter()
@@ -193,7 +196,7 @@ impl Transaction {
                 },
             };
             let trace = wasm_ctx.execution_trace().unwrap();
-            eprintln!(
+            debug!(
                 "Trace: {} {} {} {}",
                 trace.0.len(),
                 trace.1.len(),
@@ -201,8 +204,8 @@ impl Transaction {
                 trace.2.stack_len()
             );
             let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
-            eprintln!("  snark: {snark:?}");
-            eprintln!("  instance: {instance:?}");
+            debug!("Snark: {snark:?}");
+            debug!("Instance: {instance:?}");
             //snark.verify(&public_params, &instance).unwrap();
         }
     }

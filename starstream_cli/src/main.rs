@@ -29,6 +29,15 @@ enum Args {
 }
 
 fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "info"
+        },
+    ))
+    .init();
+
     match Args::parse() {
         Args::Compile {
             compile_file,

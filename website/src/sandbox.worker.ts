@@ -24,6 +24,9 @@ export type SandboxWorkerResponse = {
       run_log: string;
     }
   | {
+      append_run_log: string;
+    }
+  | {
       idle: true;
     }
 );
@@ -41,6 +44,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_ast(ptr: number, len: number): void;
   set_wat(ptr: number, len: number): void;
   set_run_log(ptr: number, len: number): void;
+  append_run_log(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -73,6 +77,10 @@ function utf8(wasm: SandboxWasmExports, ptr: number, len: number): string {
   return new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, len));
 }
 
+function send(r: SandboxWorkerResponse) {
+  self.postMessage(r);
+}
+
 self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
   const request_id = data.request_id;
   const input = new TextEncoder().encode(data.input);
@@ -85,35 +93,41 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
       new Uint8Array(wasm.memory.buffer, ptr, len).set(input);
     },
     set_compiler_log(ptr, len, warnings, errors) {
-      self.postMessage({
+      send({
         request_id,
         compiler_log: utf8(wasm, ptr, len),
         warnings,
         errors,
-      } satisfies SandboxWorkerResponse);
+      });
     },
     set_ast(ptr, len) {
-      self.postMessage({
+      send({
         request_id,
         ast: utf8(wasm, ptr, len),
-      } satisfies SandboxWorkerResponse);
+      });
     },
     set_wat(ptr, len) {
-      self.postMessage({
+      send({
         request_id,
         wat: utf8(wasm, ptr, len),
-      } satisfies SandboxWorkerResponse);
+      });
     },
     set_run_log(ptr, len) {
-      self.postMessage({
+      send({
         request_id,
         run_log: utf8(wasm, ptr, len),
-      } satisfies SandboxWorkerResponse);
+      });
+    },
+    append_run_log(ptr, len) {
+      send({
+        request_id,
+        append_run_log: utf8(wasm, ptr, len),
+      });
     },
   });
   wasm.run(input.length, data.run);
-  self.postMessage({
+  send({
     request_id,
     idle: true,
-  } satisfies SandboxWorkerResponse);
+  });
 };

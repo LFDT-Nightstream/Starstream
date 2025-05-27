@@ -6,6 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use byteorder::{LittleEndian, ReadBytesExt};
 pub use code::ContractCode;
 use code::{CodeCache, CodeHash};
+use log::{debug, info, trace};
 use rand::RngCore;
 use tiny_keccak::Hasher;
 use util::DisplayHex;
@@ -172,15 +173,9 @@ impl std::fmt::Display for Interrupt {
 impl HostError for Interrupt {}
 
 fn starstream_eprint<T>(mut caller: Caller<T>, ptr: u32, len: u32) {
-    use termcolor::{ColorSpec, StandardStream, WriteColor};
-
     let (memory, _) = memory(&mut caller);
     let slice = &memory[ptr as usize..(ptr + len) as usize];
-
-    let mut stderr = StandardStream::stderr(termcolor::ColorChoice::Auto);
-    let _ = stderr.set_color(ColorSpec::new().set_dimmed(true));
-    eprint!("{}", String::from_utf8_lossy(slice));
-    let _ = stderr.reset();
+    info!(target: "program", "{}", String::from_utf8_lossy(slice));
 }
 
 /// Fulfiller of imports from `env`.
@@ -207,7 +202,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
             module,
             "starstream_coordination_code",
             move |return_addr: u32| -> Result<(), WasmiError> {
-                eprintln!("starstream_coordination_code({return_addr:#x})");
+                trace!("starstream_coordination_code({return_addr:#x})");
                 host(Interrupt::CoordinationCode { return_addr })
             },
         )
@@ -217,7 +212,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
             module,
             "starstream_this_code",
             move |mut caller: Caller<T>, return_addr: u32| {
-                eprintln!("starstream_this_code({return_addr:#x})");
+                trace!("starstream_this_code({return_addr:#x})");
                 let (memory, _) = memory(&mut caller);
                 let hash = this_code.raw();
                 memory[return_addr as usize..return_addr as usize + hash.len()]
@@ -325,7 +320,7 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
              resume_arg: u32,
              resume_arg_len: u32|
              -> Result<(), WasmiError> {
-                eprintln!("starstream_yield()");
+                trace!("starstream_yield()");
                 host(Interrupt::Yield {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
@@ -352,7 +347,7 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
              resume_arg: u32,
              resume_arg_len: u32|
              -> Result<(), WasmiError> {
-                eprintln!("starstream_raise()");
+                trace!("starstream_raise()");
                 host(Interrupt::Raise {
                     name: std::str::from_utf8(
                         &memory(&mut caller).0[name as usize..(name + name_len) as usize],
@@ -461,7 +456,7 @@ fn utxo_linker(
                             import.name(),
                             func_ty.clone(),
                             move |_caller, inputs, _outputs| {
-                                eprintln!("{rest}::{name}{inputs:?}");
+                                trace!("{rest}::{name}{inputs:?}");
                                 let code = code_cache.load_debug(&rest).hash();
                                 host(Interrupt::TokenBind {
                                     code,
@@ -480,7 +475,7 @@ fn utxo_linker(
                             import.name(),
                             func_ty.clone(),
                             move |caller, inputs, _outputs| {
-                                eprintln!("{rest}::{name}{inputs:?}");
+                                trace!("{rest}::{name}{inputs:?}");
                                 let token_id =
                                     TokenId::from_wasm(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::TokenUnbind {
@@ -673,7 +668,7 @@ fn coordination_script_linker(
                             import.name(),
                             func_ty.clone(),
                             move |_caller, inputs: &[Value], _outputs| -> Result<(), WasmiError> {
-                                eprintln!("{rest}::{name}{inputs:?}");
+                                trace!("{rest}::{name}{inputs:?}");
                                 let code = code_cache.load_debug(&rest).hash();
                                 host(Interrupt::UtxoNew {
                                     code,
@@ -692,7 +687,7 @@ fn coordination_script_linker(
                             import.name(),
                             func_ty.clone(),
                             move |caller, inputs, _outputs| {
-                                eprintln!("{name}{inputs:?}");
+                                trace!("{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoResume {
@@ -709,7 +704,7 @@ fn coordination_script_linker(
                             import.name(),
                             func_ty.clone(),
                             move |caller, inputs, _outputs| {
-                                eprintln!("{rest}::{name}{inputs:?}");
+                                trace!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoQuery {
@@ -727,7 +722,7 @@ fn coordination_script_linker(
                             import.name(),
                             func_ty.clone(),
                             move |caller, inputs, _outputs| {
-                                eprintln!("{rest}::{name}{inputs:?}");
+                                trace!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoMutate {
@@ -745,7 +740,7 @@ fn coordination_script_linker(
                             import.name(),
                             func_ty.clone(),
                             move |caller, inputs, _outputs| {
-                                eprintln!("{rest}::{name}{inputs:?}");
+                                trace!("{rest}::{name}{inputs:?}");
                                 let utxo_id =
                                     UtxoId::from_wasm_i64(&inputs[0], caller.as_context()).unwrap();
                                 host(Interrupt::UtxoConsume {
@@ -956,7 +951,7 @@ impl Transaction {
         entry_point: &str,
         mut inputs: Vec<Value>,
     ) -> Value {
-        eprintln!(); //"run_transaction({entry_point:?}, {inputs:?})");
+        debug!("run_coordination_script({entry_point:?}, {inputs:?})");
 
         let linker = coordination_script_linker(
             &self.store.engine().clone(),
@@ -987,7 +982,7 @@ impl Transaction {
                     // Program returned.
                     let to_program = self.store.data_mut().programs[from_program.0].return_to;
                     if to_program == ProgramIdx::Root {
-                        eprintln!("{from_program:?} -> {to_program:?}: {values:?}");
+                        debug!("{from_program:?} -> {to_program:?}: {values:?}");
                         // Transform WASM-side values to .
                         let result = if !values.is_empty() {
                             if let Some(utxo) =
@@ -1482,7 +1477,7 @@ impl Transaction {
             .unwrap();
 
         let id = ProgramIdx(self.store.data_mut().programs.len());
-        eprintln!("start: {from_program:?} -> {id:?} = {entry_point}{inputs:?}");
+        debug!("start: {from_program:?} -> {id:?} = {entry_point}{inputs:?}");
 
         let fuel = self.store.fuel_consumed().unwrap();
         let main = instance.get_func(&mut self.store, entry_point).unwrap();
@@ -1504,7 +1499,7 @@ impl Transaction {
                 .unwrap()
                 .clone()),
         };
-        eprintln!("= {result:?}");
+        debug!("= {result:?}");
         self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,
             return_is_token: false,
@@ -1547,7 +1542,7 @@ impl Transaction {
         ) {
             ResumableCall::Finished => panic!("attempt to resume finished program"),
             ResumableCall::Resumable(invocation) => {
-                eprintln!("resume: {from_program:?} -> {to_program:?} {inputs:?}");
+                debug!("resume: {from_program:?} -> {to_program:?} {inputs:?}");
 
                 if !write_to_memory.is_empty() {
                     // Commit memory writes.
@@ -1561,7 +1556,7 @@ impl Transaction {
                     for &MemorySegment { address, ref data } in &write_to_memory {
                         memory[address as usize..address as usize + data.len()]
                             .copy_from_slice(data);
-                        eprintln!("  {:#x}: {}", address, DisplayHex(data));
+                        debug!("  {:#x}: {}", address, DisplayHex(data));
                     }
                 }
 
@@ -1579,7 +1574,7 @@ impl Transaction {
                         .unwrap()
                         .clone()),
                 };
-                eprintln!("= {result:?}");
+                debug!("= {result:?}");
                 self.store.data_mut().programs[to_program.0].resumable = resumable;
                 self.store.data_mut().witnesses.push(TxWitness {
                     fuel,
@@ -1609,7 +1604,7 @@ impl Transaction {
         let instance = self.store.data().programs[to_program.0].instance;
 
         let id = ProgramIdx(self.store.data_mut().programs.len());
-        eprintln!("call: {from_program:?} -> {to_program:?} -> {id:?} = {method}{inputs:?}");
+        debug!("call: {from_program:?} -> {to_program:?} -> {id:?} = {method}{inputs:?}");
 
         let main = instance
             .get_func(&mut self.store, &method)
@@ -1633,7 +1628,7 @@ impl Transaction {
                 .unwrap()
                 .clone()),
         };
-        eprintln!("= {result:?}");
+        debug!("= {result:?}");
         let utxo = self.store.data().programs[to_program.0].utxo;
         self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,

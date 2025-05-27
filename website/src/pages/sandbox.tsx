@@ -59,21 +59,26 @@ if (ExecutionEnvironment.canUseDOM) {
   })();
 }
 
-let worker: Worker;
 function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   request(r: SandboxWorkerRequest): void;
+  terminate(): void;
 } {
-  worker ??= new Worker(new URL("../sandbox.worker", import.meta.url));
+  const [worker, setWorker] = useState(
+    () => new Worker(new URL("../sandbox.worker", import.meta.url))
+  );
   useEffect(() => {
-    function onMessage({ data }: { data: SandboxWorkerResponse }) {
-      onResponse(data);
-    }
-    worker.addEventListener("message", onMessage);
-    return () => worker.removeEventListener("message", onMessage);
+    worker.addEventListener("message", ({ data }) => onResponse(data));
+    return () => worker.terminate();
   }, []);
   return {
     request(r) {
       worker.postMessage(r);
+    },
+    terminate() {
+      setWorker((worker) => {
+        worker.terminate();
+        return new Worker(new URL("../sandbox.worker", import.meta.url));
+      });
     },
   };
 }
@@ -230,8 +235,13 @@ export function Sandbox() {
     } else if ("run_log" in response) {
       setOutputTab("Run log");
       setRunLog(response.run_log);
+    } else if ("append_run_log" in response) {
+      // TODO: perf
+      setRunLog((l) => l + response.append_run_log);
     } else if ("idle" in response) {
       setBusy(false);
+    } else {
+      response satisfies never;
     }
   });
 
@@ -318,7 +328,20 @@ export function Sandbox() {
           }
           right={
             <>
-              {busy ? <>Working... </> : null}
+              {busy ? (
+                <>
+                  Working...
+                  <button
+                    type="button"
+                    onClick={() => {
+                      worker.terminate();
+                      setBusy(false);
+                    }}
+                  >
+                    Stop
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {

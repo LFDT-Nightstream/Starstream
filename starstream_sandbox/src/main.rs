@@ -2,8 +2,6 @@
 #![feature(internal_output_capture)]
 #![no_main]
 
-use std::sync::Arc;
-
 use starstream_compiler::write_errors;
 use starstream_vm::Transaction;
 
@@ -16,6 +14,7 @@ unsafe extern "C" {
     unsafe fn set_ast(ptr: *const u8, len: usize);
     unsafe fn set_wat(ptr: *const u8, len: usize);
     unsafe fn set_run_log(ptr: *const u8, len: usize);
+    unsafe fn append_run_log(ptr: *const u8, len: usize);
 }
 
 // Register a getrandom implementation for wasm32-unknown-unknown.
@@ -32,6 +31,9 @@ getrandom::register_custom_getrandom!(our_getrandom);
 // Exports to do work, called by the JS page.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn run(input_len: usize, run: bool) {
+    _ = log::set_logger(&LOGGER);
+    _ = log::set_max_level(log::LevelFilter::Trace);
+
     // Fetch the input.
     let mut input = vec![0; input_len];
     unsafe { read_input(input.as_mut_ptr(), input.len()) };
@@ -87,24 +89,33 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     }
 
     // Execute.
-    let ((), captured) = capture(|| {
-        let mut transaction = Transaction::new();
-        let coordination_code = transaction.code_cache().load(wasm);
-        transaction.run_coordination_script(&coordination_code, "main", Vec::new());
+    unsafe { set_run_log("".as_ptr(), 0) };
 
-        transaction.do_nebula_stuff();
-    });
-    let captured = captured.trim_start();
-    unsafe { set_run_log(captured.as_ptr(), captured.len()) };
+    let mut transaction = Transaction::new();
+    let coordination_code = transaction.code_cache().load(wasm);
+    transaction.run_coordination_script(&coordination_code, "main", Vec::new());
+
+    transaction.do_nebula_stuff();
 }
 
-fn capture<R>(f: impl FnOnce() -> R) -> (R, String) {
-    std::io::set_output_capture(Some(Default::default()));
-    let r = f();
-    let captured = std::io::set_output_capture(None);
-    let captured = captured.unwrap();
-    let captured = Arc::try_unwrap(captured).unwrap();
-    let captured = captured.into_inner().unwrap();
-    let captured = String::from_utf8(captured).unwrap();
-    (r, captured)
+static LOGGER: Logger = Logger;
+
+struct Logger;
+
+impl log::Log for Logger {
+    fn enabled(&self, _metadata: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        let line = format!(
+            "[{} {}] {}\n",
+            record.level(),
+            record.target(),
+            record.args()
+        );
+        unsafe { append_run_log(line.as_ptr(), line.len()) };
+    }
+
+    fn flush(&self) {}
 }
