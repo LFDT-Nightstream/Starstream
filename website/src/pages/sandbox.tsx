@@ -15,7 +15,10 @@ import {
 } from "react";
 import examples from "../examples";
 import { useDocusaurusTheme } from "../hooks";
-import { SandboxWasmExports, SandboxWasmImports, getWasmInstance } from "../sandbox-worker";
+import type {
+  SandboxWorkerRequest,
+  SandboxWorkerResponse,
+} from "../sandbox.worker";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -56,14 +59,23 @@ if (ExecutionEnvironment.canUseDOM) {
   })();
 }
 
-function useWasmInstance(
-  env: SandboxWasmImports
-): React.RefObject<SandboxWasmExports | null> {
-  const exports = useRef<SandboxWasmExports>(null);
+let worker: Worker;
+function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
+  request(r: SandboxWorkerRequest): void;
+} {
+  worker ??= new Worker(new URL("../sandbox.worker", import.meta.url));
   useEffect(() => {
-    getWasmInstance(env).then((x) => (exports.current = x));
+    function onMessage({ data }: { data: SandboxWorkerResponse }) {
+      onResponse(data);
+    }
+    worker.addEventListener("message", onMessage);
+    return () => worker.removeEventListener("message", onMessage);
   }, []);
-  return exports;
+  return {
+    request(r) {
+      worker.postMessage(r);
+    },
+  };
 }
 
 function setRef<T>(ref: Ref<T> | undefined, value: T) {
@@ -138,8 +150,9 @@ function Tabs(props: {
             key={tab.key}
             type="button"
             onClick={() => setCurrent(tab.key)}
-            className={`sandbox-tabs__button ${current === tab.key ? "sandbox-tabs__button--current" : ""
-              }`}
+            className={`sandbox-tabs__button ${
+              current === tab.key ? "sandbox-tabs__button--current" : ""
+            }`}
           >
             {tab.title ?? tab.key}
           </button>
@@ -182,7 +195,9 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
 
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
+
   const [outputTab, setOutputTab] = useState("");
+  const [busy, setBusy] = useState(false);
   const [compilerLog, setCompilerLog] = useState({
     log: "",
     warnings: 0,
@@ -192,7 +207,37 @@ export function Sandbox() {
   const [wat, setWat] = useState("");
   const [runLog, setRunLog] = useState("");
 
+  const request_id = useRef(0);
+  const worker = useSandboxWorker((response) => {
+    if (response.request_id != request_id.current) {
+      console.log("discarding response for old request", response);
+      return;
+    }
+
+    if ("compiler_log" in response) {
+      setOutputTab("Compile log");
+      setCompilerLog({
+        log: response.compiler_log,
+        warnings: response.warnings,
+        errors: response.errors,
+      });
+    } else if ("ast" in response) {
+      setOutputTab("AST");
+      setAst(response.ast);
+    } else if ("wat" in response) {
+      setOutputTab("Wasm");
+      setWat(response.wat);
+    } else if ("run_log" in response) {
+      setOutputTab("Run log");
+      setRunLog(response.run_log);
+    } else if ("idle" in response) {
+      setBusy(false);
+    }
+  });
+
+  /*
   const input = useRef<Uint8Array>(null);
+  con;
   const wasm = useWasmInstance({
     getrandom(ptr, len) {
       crypto.getRandomValues(
@@ -243,6 +288,7 @@ export function Sandbox() {
       );
     },
   });
+  */
 
   const theme = useDocusaurusTheme();
 
@@ -251,7 +297,7 @@ export function Sandbox() {
       <div className="col col--6 flex--column">
         <Tabs
           current="Contract Code"
-          setCurrent={(_: string) => { }}
+          setCurrent={(_: string) => {}}
           tabs={[
             {
               key: "Contract Code",
@@ -272,16 +318,20 @@ export function Sandbox() {
           }
           right={
             <>
+              {busy ? <>Working... </> : null}
               <button
                 type="button"
                 onClick={() => {
-                  input.current = new TextEncoder().encode(
-                    editor.current?.getModel()?.getValue() ?? ""
-                  );
-                  wasm.current?.run(input.current.length, true);
+                  request_id.current += 1;
+                  setBusy(true);
+                  worker.request({
+                    request_id: request_id.current,
+                    input: editor.current?.getModel()?.getValue() ?? "",
+                    run: true,
+                  });
                 }}
               >
-                Compile
+                Compile & Run
               </button>
             </>
           }

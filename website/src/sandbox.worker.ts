@@ -1,0 +1,119 @@
+import starstreamSandboxWasm from "file-loader!../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
+
+export interface SandboxWorkerRequest {
+  request_id: number;
+  input: string;
+  run: boolean;
+}
+
+export type SandboxWorkerResponse = {
+  request_id: number;
+} & (
+  | {
+      compiler_log: string;
+      warnings: number;
+      errors: number;
+    }
+  | {
+      ast: string;
+    }
+  | {
+      wat: string;
+    }
+  | {
+      run_log: string;
+    }
+  | {
+      idle: true;
+    }
+);
+
+interface SandboxWasmImports extends WebAssembly.ModuleImports {
+  getrandom(ptr: number, len: number): void;
+
+  read_input(ptr: number, len: number): void;
+  set_compiler_log(
+    ptr: number,
+    len: number,
+    warnings: number,
+    errors: number
+  ): void;
+  set_ast(ptr: number, len: number): void;
+  set_wat(ptr: number, len: number): void;
+  set_run_log(ptr: number, len: number): void;
+}
+
+interface SandboxWasmExports {
+  memory: WebAssembly.Memory;
+  run(input_len: number, run: boolean): void;
+}
+
+let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
+  null;
+export async function getWasmInstance(
+  env: SandboxWasmImports
+): Promise<SandboxWasmExports> {
+  if (modulePromise === null) {
+    // First fetch gets instantiateStreaming privilege.
+    modulePromise = WebAssembly.instantiateStreaming(
+      fetch(starstreamSandboxWasm),
+      { env }
+    );
+    const { instance } = await modulePromise;
+    return instance.exports as unknown as SandboxWasmExports;
+  } else {
+    // Future fetches use synchronous instantiation of fetched module.
+    const { module } = await modulePromise;
+    return new WebAssembly.Instance(module, { env })
+      .exports as unknown as SandboxWasmExports;
+  }
+}
+
+function utf8(wasm: SandboxWasmExports, ptr: number, len: number): string {
+  return new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, len));
+}
+
+self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
+  const request_id = data.request_id;
+  const input = new TextEncoder().encode(data.input);
+  const wasm = await getWasmInstance({
+    getrandom(ptr, len) {
+      crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, ptr, len));
+    },
+
+    read_input(ptr, len) {
+      new Uint8Array(wasm.memory.buffer, ptr, len).set(input);
+    },
+    set_compiler_log(ptr, len, warnings, errors) {
+      self.postMessage({
+        request_id,
+        compiler_log: utf8(wasm, ptr, len),
+        warnings,
+        errors,
+      } satisfies SandboxWorkerResponse);
+    },
+    set_ast(ptr, len) {
+      self.postMessage({
+        request_id,
+        ast: utf8(wasm, ptr, len),
+      } satisfies SandboxWorkerResponse);
+    },
+    set_wat(ptr, len) {
+      self.postMessage({
+        request_id,
+        wat: utf8(wasm, ptr, len),
+      } satisfies SandboxWorkerResponse);
+    },
+    set_run_log(ptr, len) {
+      self.postMessage({
+        request_id,
+        run_log: utf8(wasm, ptr, len),
+      } satisfies SandboxWorkerResponse);
+    },
+  });
+  wasm.run(input.length, data.run);
+  self.postMessage({
+    request_id,
+    idle: true,
+  } satisfies SandboxWorkerResponse);
+};
