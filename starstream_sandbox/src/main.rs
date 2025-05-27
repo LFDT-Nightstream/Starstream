@@ -14,7 +14,13 @@ unsafe extern "C" {
     unsafe fn set_ast(ptr: *const u8, len: usize);
     unsafe fn set_wat(ptr: *const u8, len: usize);
     unsafe fn set_run_log(ptr: *const u8, len: usize);
-    unsafe fn append_run_log(ptr: *const u8, len: usize);
+    unsafe fn append_run_log(
+        level: u32,
+        target: *const u8,
+        target_len: usize,
+        body: *const u8,
+        body_len: usize,
+    );
 }
 
 // Register a getrandom implementation for wasm32-unknown-unknown.
@@ -32,7 +38,7 @@ getrandom::register_custom_getrandom!(our_getrandom);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     _ = log::set_logger(&LOGGER);
-    _ = log::set_max_level(log::LevelFilter::Trace);
+    log::set_max_level(log::LevelFilter::Trace);
 
     // Fetch the input.
     let mut input = vec![0; input_len];
@@ -108,13 +114,16 @@ impl log::Log for Logger {
     }
 
     fn log(&self, record: &log::Record) {
-        let line = format!(
-            "[{} {}] {}\n",
-            record.level(),
-            record.target(),
-            record.args()
-        );
-        unsafe { append_run_log(line.as_ptr(), line.len()) };
+        let body = record.args().to_string();
+        unsafe {
+            append_run_log(
+                record.level() as u32,
+                record.target().as_ptr(),
+                record.target().len(),
+                body.as_ptr(),
+                body.len(),
+            )
+        };
     }
 
     fn flush(&self) {}

@@ -24,7 +24,9 @@ export type SandboxWorkerResponse = {
       run_log: string;
     }
   | {
-      append_run_log: string;
+      append_run_log: number;
+      target: string;
+      body: string;
     }
   | {
       idle: true;
@@ -44,7 +46,13 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_ast(ptr: number, len: number): void;
   set_wat(ptr: number, len: number): void;
   set_run_log(ptr: number, len: number): void;
-  append_run_log(ptr: number, len: number): void;
+  append_run_log(
+    level: number,
+    target: number,
+    target_len: number,
+    body: number,
+    body_len: number
+  ): void;
 }
 
 interface SandboxWasmExports {
@@ -118,14 +126,25 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         run_log: utf8(wasm, ptr, len),
       });
     },
-    append_run_log(ptr, len) {
+    append_run_log(level, target, target_len, body, body_len) {
       send({
         request_id,
-        append_run_log: utf8(wasm, ptr, len),
+        append_run_log: level,
+        target: utf8(wasm, target, target_len),
+        body: utf8(wasm, body, body_len),
       });
     },
   });
-  wasm.run(input.length, data.run);
+  try {
+    wasm.run(input.length, data.run);
+  } catch (crash) {
+    send({
+      request_id,
+      append_run_log: 1,
+      target: "sandbox",
+      body: String(crash),
+    });
+  }
   send({
     request_id,
     idle: true,

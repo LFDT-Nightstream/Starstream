@@ -63,22 +63,27 @@ function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   request(r: SandboxWorkerRequest): void;
   terminate(): void;
 } {
-  const [worker, setWorker] = useState(
-    () => new Worker(new URL("../sandbox.worker", import.meta.url))
-  );
+  const worker = useRef<Worker>(null);
   useEffect(() => {
-    worker.addEventListener("message", ({ data }) => onResponse(data));
-    return () => worker.terminate();
+    worker.current = new Worker(new URL("../sandbox.worker", import.meta.url));
+    return () => worker.current!.terminate();
   }, []);
+  useEffect(() => {
+    function onMessage({ data }: { data: SandboxWorkerResponse }) {
+      onResponse(data);
+    }
+    worker.current!.addEventListener("message", onMessage);
+    return () => worker.current!.removeEventListener("message", onMessage);
+  }, [onResponse]);
   return {
     request(r) {
-      worker.postMessage(r);
+      worker.current!.postMessage(r);
     },
     terminate() {
-      setWorker((worker) => {
-        worker.terminate();
-        return new Worker(new URL("../sandbox.worker", import.meta.url));
-      });
+      worker.current!.terminate();
+      worker.current = new Worker(
+        new URL("../sandbox.worker", import.meta.url)
+      );
     },
   };
 }
@@ -198,6 +203,24 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
   );
 }
 
+const LOG_PREFIX = ["ERROR", "WARN ", "INFO ", "DEBUG", "TRACE"];
+
+function formatDuration(ms: number) {
+  const s = Math.floor(ms / 1000);
+  const parts = ["", "", "", "", s % 60, "s"];
+  const m = Math.floor(s / 60);
+  if (m > 0) {
+    parts[3] = "m";
+    parts[2] = m % 60;
+  }
+  const h = Math.floor(m / 60);
+  if (h > 0) {
+    parts[1] = "h";
+    parts[0] = h;
+  }
+  return parts.join("");
+}
+
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
 
@@ -210,9 +233,11 @@ export function Sandbox() {
   });
   const [ast, setAst] = useState("");
   const [wat, setWat] = useState("");
-  const [runLog, setRunLog] = useState("");
+  const [runLog, setRunLog] = useState<string[]>([]);
 
+  const startTime = useRef(0);
   const request_id = useRef(0);
+
   const worker = useSandboxWorker((response) => {
     if (response.request_id != request_id.current) {
       console.log("discarding response for old request", response);
@@ -234,10 +259,12 @@ export function Sandbox() {
       setWat(response.wat);
     } else if ("run_log" in response) {
       setOutputTab("Run log");
-      setRunLog(response.run_log);
+      setRunLog([]);
     } else if ("append_run_log" in response) {
-      // TODO: perf
-      setRunLog((l) => l + response.append_run_log);
+      const formatted = `[${formatDuration(Date.now() - startTime.current)}] [${
+        LOG_PREFIX[response.append_run_log]
+      } ${response.target}] ${response.body}`;
+      setRunLog((l) => [...l, formatted]);
     } else if ("idle" in response) {
       setBusy(false);
     } else {
@@ -346,6 +373,7 @@ export function Sandbox() {
                 type="button"
                 onClick={() => {
                   request_id.current += 1;
+                  startTime.current = Date.now();
                   setBusy(true);
                   worker.request({
                     request_id: request_id.current,
@@ -429,7 +457,7 @@ export function Sandbox() {
               body: (
                 <div className="margin--sm">
                   <pre style={{ whiteSpace: "pre-wrap" }}>
-                    <AnsiHtml text={runLog} />
+                    <AnsiHtml text={runLog.join("\n")} />
                   </pre>
                 </div>
               ),
