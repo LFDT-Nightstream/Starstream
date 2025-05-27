@@ -8,7 +8,7 @@ use zk_engine::{
     },
     utils::logging::init_logger,
     wasm_ctx::{WASMArgs, WASMArgsBuilder, ZKWASMCtx},
-    wasm_snark::WasmSNARK,
+    wasm_snark::{StepSize, WasmSNARK},
 };
 
 use crate::{
@@ -149,8 +149,8 @@ impl Transaction {
             eprintln!("{witness:?}");
         }
 
-        //let step_size = StepSize::new(1000).set_memory_step_size(50_000);
-        //let public_params = Snark::setup(step_size);
+        let step_size = StepSize::new(1000).set_memory_step_size(50_000);
+        let public_params = Snark::setup(step_size);
 
         for (i, program) in inner.programs.iter().enumerate() {
             let program_idx = ProgramIdx(i);
@@ -200,7 +200,9 @@ impl Transaction {
                 trace.2.mem_len(),
                 trace.2.stack_len()
             );
-            //let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
+            let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
+            eprintln!("  snark: {snark:?}");
+            eprintln!("  instance: {instance:?}");
             //snark.verify(&public_params, &instance).unwrap();
         }
     }

@@ -91,6 +91,8 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
         let mut transaction = Transaction::new();
         let coordination_code = transaction.code_cache().load(wasm);
         transaction.run_coordination_script(&coordination_code, "main", Vec::new());
+
+        transaction.do_nebula_stuff();
     });
     let captured = captured.trim_start();
     unsafe { set_run_log(captured.as_ptr(), captured.len()) };
