@@ -15,8 +15,7 @@ import {
 } from "react";
 import examples from "../examples";
 import { useDocusaurusTheme } from "../hooks";
-
-import starstreamSandboxWasm from "file-loader!../../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
+import { SandboxWasmExports, SandboxWasmImports, getWasmInstance } from "../sandbox-worker";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -55,47 +54,6 @@ if (ExecutionEnvironment.canUseDOM) {
       },
     } satisfies monaco.languages.IMonarchLanguage);
   })();
-}
-
-interface SandboxWasmImports extends WebAssembly.ModuleImports {
-  getrandom(ptr: number, len: number): void;
-
-  read_input(ptr: number, len: number): void;
-  set_compiler_log(
-    ptr: number,
-    len: number,
-    warnings: number,
-    errors: number
-  ): void;
-  set_ast(ptr: number, len: number): void;
-  set_wat(ptr: number, len: number): void;
-  set_run_log(ptr: number, len: number): void;
-}
-
-interface SandboxWasmExports {
-  memory: WebAssembly.Memory;
-  run(input_len: number, run: boolean): void;
-}
-
-let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
-  null;
-async function getWasmInstance(
-  env: SandboxWasmImports
-): Promise<SandboxWasmExports> {
-  if (modulePromise === null) {
-    // First fetch gets instantiateStreaming privilege.
-    modulePromise = WebAssembly.instantiateStreaming(
-      fetch(starstreamSandboxWasm),
-      { env }
-    );
-    const { instance } = await modulePromise;
-    return instance.exports as unknown as SandboxWasmExports;
-  } else {
-    // Future fetches use synchronous instantiation of fetched module.
-    const { module } = await modulePromise;
-    return new WebAssembly.Instance(module, { env })
-      .exports as unknown as SandboxWasmExports;
-  }
 }
 
 function useWasmInstance(
@@ -180,9 +138,8 @@ function Tabs(props: {
             key={tab.key}
             type="button"
             onClick={() => setCurrent(tab.key)}
-            className={`sandbox-tabs__button ${
-              current === tab.key ? "sandbox-tabs__button--current" : ""
-            }`}
+            className={`sandbox-tabs__button ${current === tab.key ? "sandbox-tabs__button--current" : ""
+              }`}
           >
             {tab.title ?? tab.key}
           </button>
@@ -294,7 +251,7 @@ export function Sandbox() {
       <div className="col col--6 flex--column">
         <Tabs
           current="Contract Code"
-          setCurrent={(_: string) => {}}
+          setCurrent={(_: string) => { }}
           tabs={[
             {
               key: "Contract Code",
