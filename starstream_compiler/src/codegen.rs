@@ -3,7 +3,8 @@ use std::{collections::HashMap, ops::Range};
 use ariadne::{Report, ReportBuilder, ReportKind};
 use wasm_encoder::{
     CodeSection, ConstExpr, DataSection, EntityType, ExportSection, FuncType, Function,
-    FunctionSection, ImportSection, MemorySection, MemoryType, Module, TypeSection, ValType,
+    FunctionSection, ImportSection, MemorySection, MemoryType, Module, RefType, TypeSection,
+    ValType,
 };
 
 use crate::ast::*;
@@ -16,16 +17,55 @@ pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
 }
 
 /// Typed intermediate value.
+///
+/// A product of static type, stack slot size, and
 #[derive(Debug)]
 enum Intermediate {
     /// Nothing! Absolutely nothing!
     Void,
     /// An error intermediate. Suppress further typechecking errors.
     Error,
+    /// `()` The null constant.
+    ConstNull,
+    /// `()` The true constant.
+    ConstTrue,
+    /// `()` The false constant.
+    ConstFalse,
+    /// `()` A constant f64.
+    ConstF64(f64),
     /// `()` An imported or local function by ID.
-    StaticFunction(u32),
-    /// `(i32 i32)` A string reference.
-    Str,
+    ConstFunction(u32),
+    /// `(i32)` 0 is false, anything else is true.
+    StackBool,
+    /// `(i32)`
+    StackI32,
+    /// `(i32)` But use unsigned math where relevant.
+    StackU32,
+    /// `(i64)`
+    StackI64,
+    /// `(i64)` But use unsigned math where relevant.
+    StackU64,
+    /// `(f32)`
+    StackF32,
+    /// `(f64)`
+    StackF64,
+    StackExternRef,
+    /// `(i32 i32)` A string reference, pointer and length.
+    StackStrRef,
+}
+
+impl From<ValType> for Intermediate {
+    fn from(value: ValType) -> Self {
+        match value {
+            ValType::I32 => Intermediate::StackI32,
+            ValType::I64 => Intermediate::StackI64,
+            ValType::F32 => Intermediate::StackF32,
+            ValType::F64 => Intermediate::StackF64,
+            ValType::V128 => todo!(),
+            ValType::Ref(RefType::EXTERNREF) => Intermediate::StackExternRef,
+            ValType::Ref(_) => todo!(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -40,6 +80,7 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
+    reverse_func_types: Vec<FuncType>,
     func_types: HashMap<FuncType, u32>,
     global_scope_functions: HashMap<String, u32>,
     bump_ptr: u32,
@@ -53,12 +94,19 @@ impl Compiler {
         // imports + declared functions list. The easiest way to handle this is
         // to know the whole list of imported functions before compiling. Do
         // that here for now.
-        let eprint_ty = this.add_func_type(FuncType::new([ValType::I32, ValType::I32], []));
-        let import_id: u32 = this.imports.len();
-        this.imports
-            .import("env", "eprint", EntityType::Function(eprint_ty));
+        let print = this.import_function(
+            "env",
+            "eprint",
+            FuncType::new([ValType::I32, ValType::I32], []),
+        );
         this.global_scope_functions
-            .insert("print".to_owned(), import_id);
+            .insert("print".to_owned(), print);
+        let print_f64 =
+            this.import_function("starstream_debug", "f64", FuncType::new([ValType::F64], []));
+        this.global_scope_functions
+            .insert("print_f64".to_owned(), print_f64);
+
+        //
 
         // Always export memory 0. It's created in finish().
         this.exports
@@ -147,8 +195,10 @@ impl Compiler {
         match self.func_types.get(&ty) {
             Some(&index) => index,
             None => {
+                debug_assert_eq!(self.types.len() as usize, self.reverse_func_types.len());
                 let index = self.types.len();
                 self.types.ty().func_type(&ty);
+                self.reverse_func_types.push(ty.clone());
                 self.func_types.insert(ty, index);
                 index
             }
@@ -161,6 +211,14 @@ impl Compiler {
         self.functions.function(type_index);
         self.code.function(code);
         func_index
+    }
+
+    fn import_function(&mut self, module: &str, field: &str, ty: FuncType) -> u32 {
+        let eprint_ty = self.add_func_type(ty);
+        let import_id: u32 = self.imports.len();
+        self.imports
+            .import(module, field, EntityType::Function(eprint_ty));
+        import_id
     }
 
     // ------------------------------------------------------------------------
@@ -218,8 +276,27 @@ impl Compiler {
 
     fn drop_intermediate(&mut self, func: &mut Function, im: Intermediate) {
         match im {
-            Intermediate::Void | Intermediate::Error | Intermediate::StaticFunction(_) => {}
-            Intermediate::Str => {
+            // 0
+            Intermediate::Void
+            | Intermediate::Error
+            | Intermediate::ConstFunction(_)
+            | Intermediate::ConstNull
+            | Intermediate::ConstTrue
+            | Intermediate::ConstFalse
+            | Intermediate::ConstF64(_) => {}
+            // 1
+            Intermediate::StackBool
+            | Intermediate::StackI32
+            | Intermediate::StackU32
+            | Intermediate::StackI64
+            | Intermediate::StackU64
+            | Intermediate::StackF32
+            | Intermediate::StackF64
+            | Intermediate::StackExternRef => {
+                func.instructions().drop();
+            }
+            // 2
+            Intermediate::StackStrRef => {
                 func.instructions().drop().drop();
             }
         }
@@ -254,6 +331,35 @@ impl Compiler {
                 }
                 im
             }
+            Expr::Add(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::ConstF64(a), Intermediate::ConstF64(b)) => {
+                        Intermediate::ConstF64(a + b)
+                    }
+                    (Intermediate::ConstF64(a), Intermediate::StackF64) => {
+                        // NOTE: Okay because IEEE 754 addition is commutative.
+                        func.instructions().f64_const(a);
+                        func.instructions().f64_add();
+                        Intermediate::StackF64
+                    }
+                    (Intermediate::StackF64, Intermediate::ConstF64(b)) => {
+                        func.instructions().f64_const(b);
+                        func.instructions().f64_add();
+                        Intermediate::StackF64
+                    }
+                    (Intermediate::StackF64, Intermediate::StackF64) => {
+                        func.instructions().f64_add();
+                        Intermediate::StackF64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Expr::Add({:?}, {:?})", lhs, rhs));
+                        Intermediate::Error
+                    }
+                }
+            }
             _ => {
                 self.todo(format!("Expr::{:?}", expr));
                 Intermediate::Error
@@ -263,9 +369,15 @@ impl Compiler {
 
     fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
         match primary {
+            PrimaryExpr::Null => Intermediate::ConstNull,
+            PrimaryExpr::Number(number) => Intermediate::ConstF64(*number),
+            PrimaryExpr::Bool(true) => Intermediate::ConstTrue,
+            PrimaryExpr::Bool(false) => Intermediate::ConstFalse,
             PrimaryExpr::Ident(idents) => {
                 if idents.len() == 1 && idents[0].0 == "print" {
-                    Intermediate::StaticFunction(self.global_scope_functions["print"])
+                    Intermediate::ConstFunction(self.global_scope_functions["print"])
+                } else if idents.len() == 1 && idents[0].0 == "print_f64" {
+                    Intermediate::ConstFunction(self.global_scope_functions["print_f64"])
                 } else {
                     self.todo(format!("PrimaryExpr::{:?}", primary));
                     Intermediate::Error
@@ -277,7 +389,7 @@ impl Compiler {
                 func.instructions()
                     .i32_const(ptr.cast_signed())
                     .i32_const(u32::try_from(len).unwrap().cast_signed());
-                Intermediate::Str
+                Intermediate::StackStrRef
             }
             _ => {
                 self.todo(format!("PrimaryExpr::{:?}", primary));
@@ -289,14 +401,25 @@ impl Compiler {
     fn visit_call(&mut self, func: &mut Function, im: Intermediate, args: &[Expr]) -> Intermediate {
         match im {
             Intermediate::Error => Intermediate::Error,
-            Intermediate::StaticFunction(id) => {
+            Intermediate::ConstFunction(id) => {
+                let func_type = self.reverse_func_types[id as usize].clone();
                 // TODO: typechecking
                 for arg in args {
-                    self.visit_expr(func, arg);
+                    let arg = self.visit_expr(func, arg);
+                    match arg {
+                        Intermediate::ConstF64(f) => {
+                            func.instructions().f64_const(f);
+                        }
+                        _ => {}
+                    }
                 }
                 func.instructions().call(id);
-                // TODO: intermediates corresponding to function's result types
-                Intermediate::Void
+                // TODO: use a Starstream-type-system return type rather than the WASM return type
+                match func_type.results() {
+                    [] => Intermediate::Void,
+                    [a] => Intermediate::from(*a),
+                    _ => todo!(),
+                }
             }
             _ => {
                 Report::build(ReportKind::Error, 0..0)
