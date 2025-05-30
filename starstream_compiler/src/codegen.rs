@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::Range};
 
 use ariadne::{Report, ReportBuilder, ReportKind};
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataSection, Encode, EntityType, ExportSection, FuncType,
+    BlockType, CodeSection, ConstExpr, DataSection, Encode, EntityType, ExportSection, FuncType,
     FunctionSection, ImportSection, InstructionSink, MemorySection, MemoryType, Module, RefType,
     TypeSection, ValType,
 };
@@ -88,7 +88,7 @@ enum Intermediate {
     ConstF64(f64),
     /// `()` An imported or local function by ID.
     ConstFunction(u32),
-    /// `(i32)` 0 is false, anything else is true.
+    /// `(i32)` 0 is false, 1 is true, other values are disallowed.
     StackBool,
     /// `(i32)`
     StackI32,
@@ -487,6 +487,83 @@ impl Compiler {
                     }
                 }
             }
+            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
+                // Short-circuiting.
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::ConstTrue => self.visit_expr(func, rhs),
+                Intermediate::ConstFalse => Intermediate::ConstFalse,
+                Intermediate::StackBool => {
+                    func.instructions().if_(BlockType::Result(ValType::I32));
+                    match self.visit_expr(func, rhs) {
+                        Intermediate::Error => return Intermediate::Error,
+                        Intermediate::ConstTrue => {
+                            func.instructions().i32_const(1);
+                        }
+                        Intermediate::ConstFalse => {
+                            func.instructions().i32_const(0);
+                        }
+                        Intermediate::StackBool => {}
+                        rhs => {
+                            Report::build(ReportKind::Error, 0..0)
+                                .with_message(format_args!(
+                                    "type mismatch: `&&` requires bools, but right side was {rhs:?}"
+                                ))
+                                .push(self);
+                            return Intermediate::Error;
+                        }
+                    }
+                    func.instructions().else_().i32_const(0).end();
+                    Intermediate::StackBool
+                }
+                lhs => {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message(format_args!(
+                            "type mismatch: `&&` requires bools, but left side was {lhs:?}"
+                        ))
+                        .push(self);
+                    Intermediate::Error
+                }
+            },
+            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs) {
+                // Short-circuiting.
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::ConstTrue => Intermediate::ConstTrue,
+                Intermediate::ConstFalse => self.visit_expr(func, rhs),
+                Intermediate::StackBool => {
+                    func.instructions()
+                        .if_(BlockType::Result(ValType::I32))
+                        .i32_const(1)
+                        .else_();
+                    match self.visit_expr(func, rhs) {
+                        Intermediate::Error => return Intermediate::Error,
+                        Intermediate::ConstTrue => {
+                            func.instructions().i32_const(1);
+                        }
+                        Intermediate::ConstFalse => {
+                            func.instructions().i32_const(0);
+                        }
+                        Intermediate::StackBool => {}
+                        rhs => {
+                            Report::build(ReportKind::Error, 0..0)
+                                .with_message(format_args!(
+                                    "type mismatch: `&&` requires bools, but right side was {rhs:?}"
+                                ))
+                                .push(self);
+                            return Intermediate::Error;
+                        }
+                    }
+                    func.instructions().end();
+                    Intermediate::StackBool
+                }
+                lhs => {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message(format_args!(
+                            "type mismatch: `&&` requires bools, but left side was {lhs:?}"
+                        ))
+                        .push(self);
+                    Intermediate::Error
+                }
+            },
             Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, block),
             Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
                 match self.visit_expr(func, cond) {
@@ -502,7 +579,7 @@ impl Compiler {
                     }
                     Intermediate::StackBool => {
                         // TODO: handle non-Void if blocks.
-                        func.instructions().if_(wasm_encoder::BlockType::Empty);
+                        func.instructions().if_(BlockType::Empty);
                         let im = self.visit_block(func, if_);
                         self.drop_intermediate(func, im);
                         if let Some(else_) = else_ {
