@@ -72,6 +72,7 @@ impl StaticType {
 ///
 /// A product of static type, stack slot size, and constness.
 #[derive(Debug, Clone)]
+#[must_use]
 enum Intermediate {
     /// Nothing! Absolutely nothing!
     Void,
@@ -204,7 +205,7 @@ impl Compiler {
             "starstream_debug",
             "f64",
             StarFunctionType {
-                result: StaticType::Void,
+                result: StaticType::F64,
                 params: vec![StaticType::F64],
             },
         );
@@ -352,7 +353,9 @@ impl Compiler {
             };
             let lower_ty = ty.lower();
             let mut function = Function::new(lower_ty.params());
-            self.visit_block(&mut function, &fndef.body);
+            let return_value = self.visit_block(&mut function, &fndef.body);
+            // TODO: handle non-void return values
+            self.drop_intermediate(&mut function, return_value);
             function.instructions().end();
             let index = self.add_function(ty, &function);
             self.exports
@@ -360,23 +363,28 @@ impl Compiler {
         }
     }
 
-    fn visit_block(&mut self, func: &mut Function, mut block: &Block) {
+    fn visit_block(&mut self, func: &mut Function, mut block: &Block) -> Intermediate {
+        let mut last = Intermediate::Void;
         loop {
             match block {
                 Block::Chain { head, tail } => {
                     match &**head {
                         ExprOrStatement::Statement(statement) => {
-                            self.visit_statement(func, statement)
+                            self.visit_statement(func, statement);
                         }
                         ExprOrStatement::Expr(expr) => {
-                            let im = self.visit_expr(func, expr);
-                            self.drop_intermediate(func, im);
+                            self.drop_intermediate(func, last);
+                            last = self.visit_expr(func, expr);
                         }
                     }
                     block = &tail;
                 }
-                Block::Close { semicolon: _ } => {
-                    break;
+                Block::Close { semicolon: true } => {
+                    self.drop_intermediate(func, last);
+                    return Intermediate::Void;
+                }
+                Block::Close { semicolon: false } => {
+                    return last;
                 }
             }
         }
@@ -417,6 +425,39 @@ impl Compiler {
                 }
                 im
             }
+            Expr::Equals(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::ConstF64(a), Intermediate::ConstF64(b)) => {
+                        if a == b {
+                            Intermediate::ConstTrue
+                        } else {
+                            Intermediate::ConstFalse
+                        }
+                    }
+                    (Intermediate::ConstF64(a), Intermediate::StackF64) => {
+                        // NOTE: Okay because IEEE 754 equality is commutative.
+                        func.instructions().f64_const(a);
+                        func.instructions().f64_eq();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackF64, Intermediate::ConstF64(b)) => {
+                        func.instructions().f64_const(b);
+                        func.instructions().f64_eq();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackF64, Intermediate::StackF64) => {
+                        func.instructions().f64_eq();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Expr::Equals({:?}, {:?})", lhs, rhs));
+                        Intermediate::Error
+                    }
+                }
+            }
             Expr::Add(lhs, rhs) => {
                 let lhs = self.visit_expr(func, lhs);
                 let rhs = self.visit_expr(func, rhs);
@@ -446,6 +487,42 @@ impl Compiler {
                     }
                 }
             }
+            Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, block),
+            Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
+                match self.visit_expr(func, cond) {
+                    Intermediate::Error => Intermediate::Error,
+                    // Constant true and false don't even compile the other side.
+                    Intermediate::ConstTrue => self.visit_block(func, &if_),
+                    Intermediate::ConstFalse => {
+                        if let Some(else_) = else_ {
+                            self.visit_block(func, &else_)
+                        } else {
+                            Intermediate::Void
+                        }
+                    }
+                    Intermediate::StackBool => {
+                        // TODO: handle non-Void if blocks.
+                        func.instructions().if_(wasm_encoder::BlockType::Empty);
+                        let im = self.visit_block(func, if_);
+                        self.drop_intermediate(func, im);
+                        if let Some(else_) = else_ {
+                            func.instructions().else_();
+                            let im = self.visit_block(func, else_);
+                            self.drop_intermediate(func, im);
+                        }
+                        func.instructions().end();
+                        Intermediate::Void
+                    }
+                    other => {
+                        Report::build(ReportKind::Error, 0..0)
+                            .with_message(format_args!(
+                                "type mismatch: `if` requires bool, got {other:?}"
+                            ))
+                            .push(self);
+                        Intermediate::Error
+                    }
+                }
+            }
             _ => {
                 self.todo(format!("Expr::{:?}", expr));
                 Intermediate::Error
@@ -469,6 +546,7 @@ impl Compiler {
                     Intermediate::Error
                 }
             }
+            PrimaryExpr::ParExpr(expr) => self.visit_expr(func, expr),
             PrimaryExpr::StringLiteral(string) => {
                 let ptr = self.alloc_constant(string.as_bytes());
                 let len = string.len();
