@@ -1,10 +1,11 @@
+#![allow(dead_code)]
 use std::{collections::HashMap, ops::Range};
 
 use ariadne::{Report, ReportBuilder, ReportKind};
 use wasm_encoder::{
-    CodeSection, ConstExpr, DataSection, EntityType, ExportSection, FuncType, Function,
-    FunctionSection, ImportSection, MemorySection, MemoryType, Module, RefType, TypeSection,
-    ValType,
+    CodeSection, ConstExpr, DataSection, Encode, EntityType, ExportSection, FuncType,
+    FunctionSection, ImportSection, InstructionSink, MemorySection, MemoryType, Module, RefType,
+    TypeSection, ValType,
 };
 
 use crate::ast::*;
@@ -16,10 +17,61 @@ pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
     compiler.finish()
 }
 
+/// A static type in the Starstream type system.
+#[derive(Debug, Clone)]
+enum StaticType {
+    Void,
+    Bool,
+    I32,
+    U32,
+    I64,
+    U64,
+    F32,
+    F64,
+    StrRef,
+    // TODO: add info on the Starstream type of the ref.
+    ExternRef,
+    Function(Box<StarFunctionType>),
+}
+
+impl StaticType {
+    fn stack_intermediate(&self) -> Intermediate {
+        match self {
+            StaticType::Void => Intermediate::Void,
+            StaticType::Bool => Intermediate::StackBool,
+            StaticType::I32 => Intermediate::StackI32,
+            StaticType::U32 => Intermediate::StackU32,
+            StaticType::I64 => Intermediate::StackI64,
+            StaticType::U64 => Intermediate::StackU64,
+            StaticType::F32 => Intermediate::StackF32,
+            StaticType::F64 => Intermediate::StackF64,
+            StaticType::StrRef => Intermediate::StackStrRef,
+            StaticType::ExternRef => Intermediate::StackExternRef,
+            StaticType::Function(_) => todo!(),
+        }
+    }
+
+    fn lower(&self) -> &'static [ValType] {
+        match self {
+            StaticType::Void => &[],
+            StaticType::Bool => &[ValType::I32],
+            StaticType::I32 => &[ValType::I32],
+            StaticType::U32 => &[ValType::I32],
+            StaticType::I64 => &[ValType::I64],
+            StaticType::U64 => &[ValType::I64],
+            StaticType::F32 => &[ValType::F32],
+            StaticType::F64 => &[ValType::F64],
+            StaticType::StrRef => &[ValType::I32, ValType::I32],
+            StaticType::ExternRef => &[ValType::EXTERNREF],
+            _ => todo!(),
+        }
+    }
+}
+
 /// Typed intermediate value.
 ///
-/// A product of static type, stack slot size, and
-#[derive(Debug)]
+/// A product of static type, stack slot size, and constness.
+#[derive(Debug, Clone)]
 enum Intermediate {
     /// Nothing! Absolutely nothing!
     Void,
@@ -54,6 +106,32 @@ enum Intermediate {
     StackStrRef,
 }
 
+impl Intermediate {
+    fn stack_size(&self) -> usize {
+        match self {
+            // 0
+            Intermediate::Void
+            | Intermediate::Error
+            | Intermediate::ConstFunction(_)
+            | Intermediate::ConstNull
+            | Intermediate::ConstTrue
+            | Intermediate::ConstFalse
+            | Intermediate::ConstF64(_) => 0,
+            // 1
+            Intermediate::StackBool
+            | Intermediate::StackI32
+            | Intermediate::StackU32
+            | Intermediate::StackI64
+            | Intermediate::StackU64
+            | Intermediate::StackF32
+            | Intermediate::StackF64
+            | Intermediate::StackExternRef => 1,
+            // 2
+            Intermediate::StackStrRef => 2,
+        }
+    }
+}
+
 impl From<ValType> for Intermediate {
     fn from(value: ValType) -> Self {
         match value {
@@ -68,10 +146,26 @@ impl From<ValType> for Intermediate {
     }
 }
 
+#[derive(Debug, Clone)]
+struct StarFunctionType {
+    result: StaticType,
+    params: Vec<StaticType>,
+}
+
+impl StarFunctionType {
+    fn lower(&self) -> FuncType {
+        FuncType::new(
+            self.params.iter().flat_map(|p| p.lower()).copied(),
+            self.result.lower().iter().copied(),
+        )
+    }
+}
+
 #[derive(Default)]
 struct Compiler {
+    // Diagnostic output.
     errors: Vec<Report<'static>>,
-
+    // Wasm binary output.
     types: TypeSection,
     imports: ImportSection,
     functions: FunctionSection,
@@ -80,10 +174,12 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
-    reverse_func_types: Vec<FuncType>,
-    func_types: HashMap<FuncType, u32>,
-    global_scope_functions: HashMap<String, u32>,
+    // Compiler state.
     bump_ptr: u32,
+    raw_func_type_cache: HashMap<FuncType, u32>,
+    function_types: Vec<StarFunctionType>,
+
+    global_scope_functions: HashMap<String, u32>,
 }
 
 impl Compiler {
@@ -97,12 +193,21 @@ impl Compiler {
         let print = this.import_function(
             "env",
             "eprint",
-            FuncType::new([ValType::I32, ValType::I32], []),
+            StarFunctionType {
+                result: StaticType::Void,
+                params: vec![StaticType::StrRef],
+            },
         );
         this.global_scope_functions
             .insert("print".to_owned(), print);
-        let print_f64 =
-            this.import_function("starstream_debug", "f64", FuncType::new([ValType::F64], []));
+        let print_f64 = this.import_function(
+            "starstream_debug",
+            "f64",
+            StarFunctionType {
+                result: StaticType::Void,
+                params: vec![StaticType::F64],
+            },
+        );
         this.global_scope_functions
             .insert("print_f64".to_owned(), print_f64);
 
@@ -191,34 +296,36 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Table management
 
-    fn add_func_type(&mut self, ty: FuncType) -> u32 {
-        match self.func_types.get(&ty) {
+    fn add_raw_func_type(&mut self, ty: FuncType) -> u32 {
+        match self.raw_func_type_cache.get(&ty) {
             Some(&index) => index,
             None => {
-                debug_assert_eq!(self.types.len() as usize, self.reverse_func_types.len());
                 let index = self.types.len();
                 self.types.ty().func_type(&ty);
-                self.reverse_func_types.push(ty.clone());
-                self.func_types.insert(ty, index);
+                self.raw_func_type_cache.insert(ty, index);
                 index
             }
         }
     }
 
-    fn add_function(&mut self, ty: FuncType, code: &Function) -> u32 {
-        let type_index = self.add_func_type(ty);
-        let func_index = self.functions.len();
+    fn add_function(&mut self, ty: StarFunctionType, code: &Function) -> u32 {
+        let type_index = self.add_raw_func_type(ty.lower());
+        let func_index = u32::try_from(self.function_types.len()).unwrap();
+        self.function_types.push(ty);
         self.functions.function(type_index);
-        self.code.function(code);
+        let mut sink = Vec::new();
+        code.encode(&mut sink);
+        self.code.raw(&sink);
         func_index
     }
 
-    fn import_function(&mut self, module: &str, field: &str, ty: FuncType) -> u32 {
-        let eprint_ty = self.add_func_type(ty);
-        let import_id: u32 = self.imports.len();
+    fn import_function(&mut self, module: &str, field: &str, ty: StarFunctionType) -> u32 {
+        let type_index = self.add_raw_func_type(ty.lower());
+        let func_index = u32::try_from(self.function_types.len()).unwrap();
+        self.function_types.push(ty);
         self.imports
-            .import(module, field, EntityType::Function(eprint_ty));
-        import_id
+            .import(module, field, EntityType::Function(type_index));
+        func_index
     }
 
     // ------------------------------------------------------------------------
@@ -239,16 +346,17 @@ impl Compiler {
 
     fn visit_script(&mut self, script: &Script) {
         for fndef in &script.definitions {
-            let ty = FuncType::new([], []);
-            let mut function = Function::new([]);
+            let ty = StarFunctionType {
+                result: StaticType::Void,
+                params: vec![],
+            };
+            let lower_ty = ty.lower();
+            let mut function = Function::new(lower_ty.params());
             self.visit_block(&mut function, &fndef.body);
             function.instructions().end();
             let index = self.add_function(ty, &function);
-            self.exports.export(
-                &fndef.name.0,
-                wasm_encoder::ExportKind::Func,
-                self.imports.len() + index,
-            );
+            self.exports
+                .export(&fndef.name.0, wasm_encoder::ExportKind::Func, index);
         }
     }
 
@@ -275,30 +383,8 @@ impl Compiler {
     }
 
     fn drop_intermediate(&mut self, func: &mut Function, im: Intermediate) {
-        match im {
-            // 0
-            Intermediate::Void
-            | Intermediate::Error
-            | Intermediate::ConstFunction(_)
-            | Intermediate::ConstNull
-            | Intermediate::ConstTrue
-            | Intermediate::ConstFalse
-            | Intermediate::ConstF64(_) => {}
-            // 1
-            Intermediate::StackBool
-            | Intermediate::StackI32
-            | Intermediate::StackU32
-            | Intermediate::StackI64
-            | Intermediate::StackU64
-            | Intermediate::StackF32
-            | Intermediate::StackF64
-            | Intermediate::StackExternRef => {
-                func.instructions().drop();
-            }
-            // 2
-            Intermediate::StackStrRef => {
-                func.instructions().drop().drop();
-            }
+        for _ in 0..im.stack_size() {
+            func.instructions().drop();
         }
     }
 
@@ -402,28 +488,40 @@ impl Compiler {
         match im {
             Intermediate::Error => Intermediate::Error,
             Intermediate::ConstFunction(id) => {
-                let func_type = self.reverse_func_types[id as usize].clone();
-                // TODO: typechecking
-                for arg in args {
+                let func_type = self.function_types[id as usize].clone();
+                for (param, arg) in func_type.params.iter().zip(args) {
                     let arg = self.visit_expr(func, arg);
-                    match arg {
-                        Intermediate::ConstF64(f) => {
+                    match (param, arg) {
+                        (StaticType::Void, Intermediate::Void) => {}
+                        (StaticType::F64, Intermediate::StackF64) => {}
+                        (StaticType::F64, Intermediate::ConstF64(f)) => {
                             func.instructions().f64_const(f);
                         }
-                        _ => {}
+                        (StaticType::StrRef, Intermediate::StackStrRef) => {}
+                        (param, arg) => {
+                            Report::build(ReportKind::Error, 0..0)
+                                .with_message(format_args!(
+                                    "parameter type mismatch: expected {param:?}, got {arg:?}"
+                                ))
+                                .push(self);
+                        }
                     }
                 }
-                func.instructions().call(id);
-                // TODO: use a Starstream-type-system return type rather than the WASM return type
-                match func_type.results() {
-                    [] => Intermediate::Void,
-                    [a] => Intermediate::from(*a),
-                    _ => todo!(),
+                if func_type.params.len() > args.len() {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message("not enough arguments to function call")
+                        .push(self);
+                } else if func_type.params.len() < args.len() {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message("too many arguments to function call")
+                        .push(self);
                 }
+                func.instructions().call(id);
+                func_type.result.stack_intermediate()
             }
             _ => {
                 Report::build(ReportKind::Error, 0..0)
-                    .with_message(format_args!("attempting to call non-function {:?}", im))
+                    .with_message(format_args!("attempting to call non-function {im:?}"))
                     .push(self);
                 self.drop_intermediate(func, im);
                 Intermediate::Error
@@ -455,5 +553,51 @@ impl ReportExt for Report<'static> {
 impl ReportExt for ReportBuilder<'static, Range<usize>> {
     fn push(self, c: &mut Compiler) {
         c.errors.push(self.finish());
+    }
+}
+
+/// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
+#[derive(Default)]
+pub struct Function {
+    num_locals: u32,
+    locals: Vec<(u32, ValType)>,
+    bytes: Vec<u8>,
+}
+
+impl Function {
+    fn new(params: &[ValType]) -> Function {
+        let mut this = Function::default();
+        for param in params {
+            this.add_local(*param);
+        }
+        this
+    }
+
+    fn add_local(&mut self, ty: ValType) -> u32 {
+        let id = self.num_locals;
+        self.num_locals += 1;
+        if let Some((last_count, last_type)) = self.locals.last_mut() {
+            if ty == *last_type {
+                *last_count += 1;
+                return id;
+            }
+        }
+        self.locals.push((1, ty));
+        id
+    }
+
+    fn instructions(&mut self) -> InstructionSink {
+        InstructionSink::new(&mut self.bytes)
+    }
+}
+
+impl wasm_encoder::Encode for Function {
+    fn encode(&self, sink: &mut Vec<u8>) {
+        self.locals.len().encode(sink);
+        for (count, ty) in &self.locals {
+            count.encode(sink);
+            ty.encode(sink);
+        }
+        sink.extend_from_slice(&self.bytes);
     }
 }
