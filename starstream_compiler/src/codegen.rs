@@ -80,12 +80,6 @@ enum Intermediate {
     Error,
     /// `()` The null constant.
     ConstNull,
-    /// `()` The true constant.
-    ConstTrue,
-    /// `()` The false constant.
-    ConstFalse,
-    /// `()` A constant f64.
-    ConstF64(f64),
     /// `()` An imported or local function by ID.
     ConstFunction(u32),
     /// `(i32)` 0 is false, 1 is true, other values are disallowed.
@@ -114,10 +108,7 @@ impl Intermediate {
             Intermediate::Void
             | Intermediate::Error
             | Intermediate::ConstFunction(_)
-            | Intermediate::ConstNull
-            | Intermediate::ConstTrue
-            | Intermediate::ConstFalse
-            | Intermediate::ConstF64(_) => 0,
+            | Intermediate::ConstNull => 0,
             // 1
             Intermediate::StackBool
             | Intermediate::StackI32
@@ -430,24 +421,6 @@ impl Compiler {
                 let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::ConstF64(a), Intermediate::ConstF64(b)) => {
-                        if a == b {
-                            Intermediate::ConstTrue
-                        } else {
-                            Intermediate::ConstFalse
-                        }
-                    }
-                    (Intermediate::ConstF64(a), Intermediate::StackF64) => {
-                        // NOTE: Okay because IEEE 754 equality is commutative.
-                        func.instructions().f64_const(a);
-                        func.instructions().f64_eq();
-                        Intermediate::StackBool
-                    }
-                    (Intermediate::StackF64, Intermediate::ConstF64(b)) => {
-                        func.instructions().f64_const(b);
-                        func.instructions().f64_eq();
-                        Intermediate::StackBool
-                    }
                     (Intermediate::StackF64, Intermediate::StackF64) => {
                         func.instructions().f64_eq();
                         Intermediate::StackBool
@@ -463,20 +436,6 @@ impl Compiler {
                 let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::ConstF64(a), Intermediate::ConstF64(b)) => {
-                        Intermediate::ConstF64(a + b)
-                    }
-                    (Intermediate::ConstF64(a), Intermediate::StackF64) => {
-                        // NOTE: Okay because IEEE 754 addition is commutative.
-                        func.instructions().f64_const(a);
-                        func.instructions().f64_add();
-                        Intermediate::StackF64
-                    }
-                    (Intermediate::StackF64, Intermediate::ConstF64(b)) => {
-                        func.instructions().f64_const(b);
-                        func.instructions().f64_add();
-                        Intermediate::StackF64
-                    }
                     (Intermediate::StackF64, Intermediate::StackF64) => {
                         func.instructions().f64_add();
                         Intermediate::StackF64
@@ -490,18 +449,10 @@ impl Compiler {
             Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
-                Intermediate::ConstTrue => self.visit_expr(func, rhs),
-                Intermediate::ConstFalse => Intermediate::ConstFalse,
                 Intermediate::StackBool => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
                     match self.visit_expr(func, rhs) {
                         Intermediate::Error => return Intermediate::Error,
-                        Intermediate::ConstTrue => {
-                            func.instructions().i32_const(1);
-                        }
-                        Intermediate::ConstFalse => {
-                            func.instructions().i32_const(0);
-                        }
                         Intermediate::StackBool => {}
                         rhs => {
                             Report::build(ReportKind::Error, 0..0)
@@ -527,8 +478,6 @@ impl Compiler {
             Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
-                Intermediate::ConstTrue => Intermediate::ConstTrue,
-                Intermediate::ConstFalse => self.visit_expr(func, rhs),
                 Intermediate::StackBool => {
                     func.instructions()
                         .if_(BlockType::Result(ValType::I32))
@@ -536,12 +485,6 @@ impl Compiler {
                         .else_();
                     match self.visit_expr(func, rhs) {
                         Intermediate::Error => return Intermediate::Error,
-                        Intermediate::ConstTrue => {
-                            func.instructions().i32_const(1);
-                        }
-                        Intermediate::ConstFalse => {
-                            func.instructions().i32_const(0);
-                        }
                         Intermediate::StackBool => {}
                         rhs => {
                             Report::build(ReportKind::Error, 0..0)
@@ -568,15 +511,6 @@ impl Compiler {
             Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
                 match self.visit_expr(func, cond) {
                     Intermediate::Error => Intermediate::Error,
-                    // Constant true and false don't even compile the other side.
-                    Intermediate::ConstTrue => self.visit_block(func, &if_),
-                    Intermediate::ConstFalse => {
-                        if let Some(else_) = else_ {
-                            self.visit_block(func, &else_)
-                        } else {
-                            Intermediate::Void
-                        }
-                    }
                     Intermediate::StackBool => {
                         // TODO: handle non-Void if blocks.
                         func.instructions().if_(BlockType::Empty);
@@ -610,9 +544,18 @@ impl Compiler {
     fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
         match primary {
             PrimaryExpr::Null => Intermediate::ConstNull,
-            PrimaryExpr::Number(number) => Intermediate::ConstF64(*number),
-            PrimaryExpr::Bool(true) => Intermediate::ConstTrue,
-            PrimaryExpr::Bool(false) => Intermediate::ConstFalse,
+            PrimaryExpr::Number(number) => {
+                func.instructions().f64_const(*number);
+                Intermediate::StackF64
+            }
+            PrimaryExpr::Bool(true) => {
+                func.instructions().i32_const(1);
+                Intermediate::StackBool
+            }
+            PrimaryExpr::Bool(false) => {
+                func.instructions().i32_const(0);
+                Intermediate::StackBool
+            }
             PrimaryExpr::Ident(idents) => {
                 if idents.len() == 1 && idents[0].0 == "print" {
                     Intermediate::ConstFunction(self.global_scope_functions["print"])
@@ -649,9 +592,6 @@ impl Compiler {
                     match (param, arg) {
                         (StaticType::Void, Intermediate::Void) => {}
                         (StaticType::F64, Intermediate::StackF64) => {}
-                        (StaticType::F64, Intermediate::ConstF64(f)) => {
-                            func.instructions().f64_const(f);
-                        }
                         (StaticType::StrRef, Intermediate::StackStrRef) => {}
                         (param, arg) => {
                             Report::build(ReportKind::Error, 0..0)
