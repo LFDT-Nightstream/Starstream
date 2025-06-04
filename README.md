@@ -19,7 +19,12 @@ Starstream working group on Discord: https://discord.gg/9eZaheySZE
 
 * `make` to build everything
     * `cargo build` to build Rust crates
-* `./starstream` to run Starstream compiler CLI
+* `./starstream` to run Starstream CLI
+    * Hello world example: `./starstream compile -c grammar/examples/hello_world.star -o target/hello.wasm`
+        * Run: `./starstream run -m target/hello.wasm`
+    * Rust example: `cargo build -p example_contract`
+        * Run Rust example: `./starstream run -m target/wasm32-unknown-unknown/debug/example_contract.wasm -e new_nft`
+        * Other `-e` entry points: `produce`
 * `./test` to run the VM in test/example configuration
 * `starstream_vscode/install_dev` to install extension working directory into VSC
     * Reload VSC after running
