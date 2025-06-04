@@ -1,6 +1,6 @@
 import hello from "file-loader!../../grammar/examples/hello_world.star";
-import oracle from "file-loader!../../grammar/examples/oracle.st";
-import permissionedToken from "file-loader!../../grammar/examples/permissioned_usdc.st";
+import oracle from "file-loader!../../grammar/examples/oracle.star";
+import permissionedToken from "file-loader!../../grammar/examples/permissioned_usdc.star";
 import { cache } from "react";
 
 const fetchCode = (url: string) => async (): Promise<string> => {

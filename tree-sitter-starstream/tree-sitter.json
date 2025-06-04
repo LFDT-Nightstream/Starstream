@@ -6,7 +6,7 @@
       "camelcase": "Starstream",
       "scope": "source.starstream",
       "file-types": [
-        "st"
+        "star"
       ],
       "injection-regex": "^starstream$",
       "class-name": "TreeSitterStarstream"

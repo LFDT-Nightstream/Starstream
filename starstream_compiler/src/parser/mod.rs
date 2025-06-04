@@ -747,13 +747,13 @@ mod tests {
 
     #[test]
     fn parse_usdc_example() {
-        let input = include_str!("../../../grammar/examples/permissioned_usdc.st");
+        let input = include_str!("../../../grammar/examples/permissioned_usdc.star");
         test_with_diagnostics(input, starstream_program());
     }
 
     #[test]
     fn parse_oracle_example() {
-        let input = include_str!("../../../grammar/examples/oracle.st");
+        let input = include_str!("../../../grammar/examples/oracle.star");
         test_with_diagnostics(input, starstream_program());
     }
 }
