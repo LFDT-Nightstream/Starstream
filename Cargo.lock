@@ -1705,6 +1705,7 @@ dependencies = [
  "log",
  "starstream_compiler",
  "starstream_vm",
+ "termcolor",
  "wasmprinter",
 ]
 

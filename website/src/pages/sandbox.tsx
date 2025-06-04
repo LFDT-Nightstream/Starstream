@@ -460,7 +460,9 @@ export function Sandbox() {
               key: "Wasm",
               body: (
                 <div className="margin--sm">
-                  <pre>{wat}</pre>
+                  <pre>
+                    <AnsiHtml text={wat} />
+                  </pre>
                 </div>
               ),
             },

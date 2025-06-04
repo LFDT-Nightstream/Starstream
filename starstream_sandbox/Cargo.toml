@@ -13,4 +13,5 @@ getrandom = { version = "0.2.16", features = ["custom"] }
 log = "0.4.27"
 starstream_compiler = { path = "../starstream_compiler" }
 starstream_vm = { path = "../starstream_vm" }
+termcolor = "1.4.1"
 wasmprinter = "0.229.0"

@@ -80,8 +80,12 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     let Some(wasm) = wasm else { return };
 
     // Format to WAT.
-    match wasmprinter::print_bytes(&wasm) {
-        Ok(wat) => {
+    let mut wat = Vec::new();
+    match wasmprinter::Config::new().fold_instructions(true).print(
+        &wasm,
+        &mut wasmprinter::PrintTermcolor(termcolor::Ansi::new(&mut wat)),
+    ) {
+        Ok(()) => {
             unsafe { set_wat(wat.as_ptr(), wat.len()) };
         }
         Err(wat_err) => {

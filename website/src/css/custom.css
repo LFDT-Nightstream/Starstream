@@ -17,6 +17,10 @@
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 
   --ifm-footer-padding-vertical: 1rem;
+
+  --ansi-bright-yellow: var(--ifm-color-warning-darker);
+  --ansi-bright-green: var(--ifm-color-success-lighter);
+  --ansi-red: var(--ifm-color-danger);
 }
 
 /* For readability concerns, you should choose a lighter palette in dark mode. */
