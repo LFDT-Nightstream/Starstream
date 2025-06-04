@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::{collections::HashMap, ops::Range};
+use std::{cmp::Ordering, collections::HashMap, ops::Range};
 
 use ariadne::{Report, ReportBuilder, ReportKind};
 use wasm_encoder::{
@@ -215,7 +215,7 @@ impl Compiler {
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
         let page_size = 64 * 1024;
         self.memory.memory(MemoryType {
-            minimum: u64::try_from((self.bump_ptr + page_size - 1) / page_size).unwrap(),
+            minimum: u64::from(self.bump_ptr.div_ceil(page_size)),
             maximum: None,
             memory64: false,
             shared: false,
@@ -368,7 +368,7 @@ impl Compiler {
                             last = self.visit_expr(func, expr);
                         }
                     }
-                    block = &tail;
+                    block = tail;
                 }
                 Block::Close { semicolon: true } => {
                     self.drop_intermediate(func, last);
@@ -602,14 +602,18 @@ impl Compiler {
                         }
                     }
                 }
-                if func_type.params.len() > args.len() {
-                    Report::build(ReportKind::Error, 0..0)
-                        .with_message("not enough arguments to function call")
-                        .push(self);
-                } else if func_type.params.len() < args.len() {
-                    Report::build(ReportKind::Error, 0..0)
-                        .with_message("too many arguments to function call")
-                        .push(self);
+                match func_type.params.len().cmp(&args.len()) {
+                    Ordering::Equal => {}
+                    Ordering::Less => {
+                        Report::build(ReportKind::Error, 0..0)
+                            .with_message("not enough arguments to function call")
+                            .push(self);
+                    }
+                    Ordering::Greater => {
+                        Report::build(ReportKind::Error, 0..0)
+                            .with_message("too many arguments to function call")
+                            .push(self);
+                    }
                 }
                 func.instructions().call(id);
                 func_type.result.stack_intermediate()
