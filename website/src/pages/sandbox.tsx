@@ -203,7 +203,7 @@ function Builtins({ onChange }: { onChange: (code: string) => void }) {
   );
 }
 
-const LOG_PREFIX = ["ERROR", "WARN ", "INFO ", "DEBUG", "TRACE"];
+const LOG_PREFIX = ["", "ERROR", "WARN ", "INFO ", "DEBUG", "TRACE"];
 
 function formatDuration(ms: number) {
   const s = Math.floor(ms / 1000);
@@ -221,6 +221,13 @@ function formatDuration(ms: number) {
   return parts.join("");
 }
 
+interface RunLog {
+  time: string;
+  level: number;
+  target: string;
+  body: string;
+}
+
 export function Sandbox() {
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
 
@@ -233,7 +240,7 @@ export function Sandbox() {
   });
   const [ast, setAst] = useState("");
   const [wat, setWat] = useState("");
-  const [runLog, setRunLog] = useState<string[]>([]);
+  const [runLog, setRunLog] = useState<RunLog[]>([]);
 
   const startTime = useRef(0);
   const request_id = useRef(0);
@@ -261,10 +268,15 @@ export function Sandbox() {
       setOutputTab("Run log");
       setRunLog([]);
     } else if ("append_run_log" in response) {
-      const formatted = `[${formatDuration(Date.now() - startTime.current)}] [${
-        LOG_PREFIX[response.append_run_log]
-      } ${response.target}] ${response.body}`;
-      setRunLog((l) => [...l, formatted]);
+      setRunLog((l) => [
+        ...l,
+        {
+          time: formatDuration(Date.now() - startTime.current),
+          level: response.append_run_log,
+          target: response.target.replaceAll("::", "\u200B::"),
+          body: response.body,
+        },
+      ]);
     } else if ("idle" in response) {
       setBusy(false);
     } else {
@@ -455,11 +467,36 @@ export function Sandbox() {
             {
               key: "Run log",
               body: (
-                <div className="margin--sm">
-                  <pre style={{ whiteSpace: "pre-wrap" }}>
-                    <AnsiHtml text={runLog.join("\n")} />
-                  </pre>
-                </div>
+                <table className="margin--sm log-table">
+                  <thead>
+                    <tr>
+                      <td></td>
+                      <td>Level</td>
+                      <td>Module</td>
+                      <td>Message</td>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runLog.map((l, i) => (
+                      <tr key={i}>
+                        <td className="log-table__time">{l.time}</td>
+                        <td
+                          className={`log-table__level log-table__level--${l.level}`}
+                        >
+                          {LOG_PREFIX[l.level]}
+                        </td>
+                        <td className="log-table__target">{l.target}</td>
+                        <td className="log-table__body">{l.body}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td></td>
+                      <td colSpan={3}>{busy ? "Working..." : "Done"}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               ),
             },
             /*

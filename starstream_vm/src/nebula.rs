@@ -135,12 +135,13 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
 
 impl Transaction {
     pub fn do_nebula_stuff(&self) {
-        debug!("do_nebula_stuff");
+        // Throw away `tracing` logs for now. Maybe if we determine they have
+        // anything useful, we can use them later.
         init_logger();
 
         let inner = self.store.data();
         info!(
-            "Programs: {}\nWitnesses: {}",
+            "Preparing to prove: {} programs, {} witnesses",
             inner.programs.len(),
             inner.witnesses.len()
         );
@@ -157,7 +158,7 @@ impl Transaction {
 
         for (i, program) in inner.programs.iter().enumerate() {
             let program_idx = ProgramIdx(i);
-            debug!("\n{:?} {program:?}", program_idx);
+            debug!("{:?} {program:?}", program_idx);
 
             // Scan for first witness TO our program to be the func_args.
             let mut witness = 0;
