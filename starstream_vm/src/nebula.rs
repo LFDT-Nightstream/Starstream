@@ -196,14 +196,6 @@ impl Transaction {
                     witness,
                 },
             };
-            let trace = wasm_ctx.execution_trace().unwrap();
-            debug!(
-                "Trace: {} {} {} {}",
-                trace.0.len(),
-                trace.1.len(),
-                trace.2.mem_len(),
-                trace.2.stack_len()
-            );
             let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
             debug!("Snark: {snark:?}");
             debug!("Instance: {instance:?}");
