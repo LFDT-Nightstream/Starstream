@@ -10,5 +10,6 @@ forced-target = "wasm32-unknown-unknown"
 
 [lib]
 name = "starstream"
+test = false
 
 [dependencies]

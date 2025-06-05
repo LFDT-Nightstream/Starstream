@@ -17,7 +17,7 @@ jobs:
       # Build crates and whatever else.
       - run: make
       # Test all crates, except those that force-target WASM.
-      - run: cargo test --workspace --exclude example_contract --exclude example_contract_permissioned --exclude starstream_sys --exclude starstream_sandbox
+      - run: cargo test --workspace
       # Run split test scripts.
       - run: ./test
       - run: ./test_permissioned

@@ -8,6 +8,10 @@ license = "MIT"
 
 forced-target = "wasm32-unknown-unknown"
 
+[[bin]]
+name = "starstream_sandbox"
+test = false
+
 [dependencies]
 getrandom = { version = "0.2.16", features = ["custom"] }
 log = "0.4.27"

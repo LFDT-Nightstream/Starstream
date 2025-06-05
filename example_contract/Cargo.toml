@@ -8,6 +8,13 @@ license = "MIT"
 
 forced-target = "wasm32-unknown-unknown"
 
+[lib]
+test = false
+
+[[bin]]
+name = "example_contract"
+test = false
+
 [dependencies]
 stack_dst = { version = "0.8.1", default-features = false, features = ["const_generics"] }
 starstream_sys = { path = "../starstream_sys" }
