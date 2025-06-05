@@ -706,7 +706,7 @@ impl wasm_encoder::Encode for Function {
 
 #[cfg(test)]
 mod tests {
-    use crate::{parse, compile};
+    use crate::{compile, parse};
     use wasmparser::{Parser, Payload};
 
     /// Collect all export names from a WASM module.
@@ -731,7 +731,10 @@ mod tests {
         let program = program.expect("parse failed");
 
         let (wasm, compile_errors) = compile(&program);
-        assert!(compile_errors.is_empty(), "compile errors: {compile_errors:?}");
+        assert!(
+            compile_errors.is_empty(),
+            "compile errors: {compile_errors:?}"
+        );
         let wasm = wasm.expect("compilation failed");
 
         let exports = export_names(&wasm);
