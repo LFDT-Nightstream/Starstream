@@ -700,3 +700,58 @@ impl wasm_encoder::Encode for Function {
         sink.extend_from_slice(&self.bytes);
     }
 }
+
+// -----------------------------------------------------------------------------
+// Tests
+
+#[cfg(test)]
+mod tests {
+    use crate::{parse, compile};
+    use wasmparser::{Parser, Payload};
+
+    /// Collect all export names from a WASM module.
+    fn export_names(bytes: &[u8]) -> Vec<String> {
+        let mut names = Vec::new();
+        for payload in Parser::new(0).parse_all(bytes) {
+            if let Ok(Payload::ExportSection(reader)) = payload {
+                for export in reader {
+                    let export = export.unwrap();
+                    names.push(export.name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn compile_hello_world() {
+        let src = include_str!("../../grammar/examples/hello_world.star");
+        let (program, parse_errors) = parse(src);
+        assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+        let program = program.expect("parse failed");
+
+        let (wasm, compile_errors) = compile(&program);
+        assert!(compile_errors.is_empty(), "compile errors: {compile_errors:?}");
+        let wasm = wasm.expect("compilation failed");
+
+        let exports = export_names(&wasm);
+        assert!(exports.iter().any(|e| e == "main"), "exports: {exports:?}");
+    }
+
+    #[test]
+    fn type_mismatch_error() {
+        let src = r#"
+            script {
+                fn main() {
+                    print(1);
+                }
+            }
+        "#;
+        let (program, parse_errors) = parse(src);
+        assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
+        let program = program.expect("parse failed");
+
+        let (_wasm, compile_errors) = compile(&program);
+        assert!(!compile_errors.is_empty(), "expected error");
+    }
+}

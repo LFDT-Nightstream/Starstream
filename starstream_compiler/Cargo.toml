@@ -8,3 +8,6 @@ license = "MIT"
 ariadne = "0.5.1"
 chumsky = { version = "0.10.1", features = ["pratt"] }
 wasm-encoder = "0.229.0"
+
+[dev-dependencies]
+wasmparser = "0.229.0"
