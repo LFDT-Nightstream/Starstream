@@ -95,9 +95,11 @@ impl CodeCache {
 
     /// Load code by crate name from the Rust `target/` directory.
     pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
-        self.load_file(Path::new(&format!(
+        let mut current = std::env::current_dir().unwrap();
+        while !current.join("target").exists() && current.pop() {}
+        self.load_file(&current.join(Path::new(&format!(
             "target/wasm32-unknown-unknown/debug/{name}.wasm"
-        )))
+        ))))
     }
 
     pub fn get(&self, hash: CodeHash) -> Arc<ContractCode> {

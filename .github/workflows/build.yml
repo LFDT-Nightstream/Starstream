@@ -18,9 +18,6 @@ jobs:
       - run: make
       # Test all crates, except those that force-target WASM.
       - run: cargo test --workspace
-      # Run split test scripts.
-      - run: ./test
-      - run: ./test_permissioned
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check

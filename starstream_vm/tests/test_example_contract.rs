@@ -1,9 +1,16 @@
 use starstream_vm::*;
 use wasmi::Value;
 
+#[test]
 pub fn main() {
+    std::process::Command::new("cargo")
+        .arg("build")
+        .arg("-p")
+        .arg("example_contract")
+        .status()
+        .unwrap();
+
     let mut tx = Transaction::new();
-    dbg!(&tx);
 
     let example_contract = tx.code_cache().load_debug("example_contract");
 
