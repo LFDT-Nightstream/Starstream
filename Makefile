@@ -9,3 +9,4 @@ cargo:
 all: vsc
 vsc:
 	@cd starstream_vscode && npm i && npx vsce package
+

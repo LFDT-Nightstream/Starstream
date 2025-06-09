@@ -2,6 +2,8 @@
 members = [
     "example_contract",
     "example_contract_permissioned",
+    "example_toy_vm/example",
+    "example_toy_vm/toy_vm",
     "starstream_cli",
     "starstream_compiler",
     "starstream_sandbox",

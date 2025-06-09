@@ -304,6 +304,35 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
             },
         )
         .unwrap();
+
+    linker
+        .func_wrap(
+            "env",
+            "starstream_run_unconstrained",
+            |caller: Caller<T>, fptr: u32, args: u32| {
+                run_unconstrained(caller, fptr, args);
+            },
+        )
+        .unwrap();
+}
+
+pub(crate) fn run_unconstrained<T>(mut caller: Caller<'_, T>, fptr: u32, args: u32) {
+    let table = caller
+        .get_export("__indirect_function_table")
+        .unwrap()
+        .into_table()
+        .unwrap();
+
+    let indirect_table = table.get(&caller, fptr).unwrap();
+    let f = indirect_table.funcref().unwrap().func().unwrap();
+
+    // TODO: we need some way to guarantee that the function only uses the
+    // memory it needs.
+    //
+    // otherwise it's not really possible for the caller to verify the result
+    // properly.
+    f.call(&mut caller, &[Value::I32(args as i32)], &mut [])
+        .unwrap();
 }
 
 /// Fulfiller of imports from `starstream_utxo_env`.

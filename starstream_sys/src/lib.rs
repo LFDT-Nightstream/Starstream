@@ -171,6 +171,9 @@ unsafe extern "C" {
 
     #[link_name = "starstream_keccak256"]
     unsafe fn precompile_keccak256(buf: *const u8, len: usize, result: *mut u8);
+
+    #[link_name = "starstream_run_unconstrained"]
+    pub unsafe fn starstream_run_unconstrained(f_ptr: *const (), args: *const ());
 }
 
 #[inline]

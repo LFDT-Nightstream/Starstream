@@ -1,0 +1,29 @@
+cargo-features = ["per-package-target"]
+
+[package]
+name = "example_toy_vm"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+
+forced-target = "wasm32-unknown-unknown"
+
+[lib]
+test = false
+
+[[bin]]
+name = "example_toy_vm"
+test = false
+
+[dependencies]
+stack_dst = { version = "0.8.1", default-features = false, features = ["const_generics"] }
+starstream_sys = { path = "../../starstream_sys" }
+toy_vm = { path = "../toy_vm", features = ["starstream"] }
+talc = "4.4.2"
+spin = "0.10.0"
+rand = { version = "0.9.1", default-features = false }
+rand_chacha = { version = "0.9.0", default-features = false }
+
+[dev-dependencies]
+starstream_vm = { path = "../../starstream_vm" }
+wasmi = { git = "https://github.com/ICME-Lab/zkEngine_dev" }
