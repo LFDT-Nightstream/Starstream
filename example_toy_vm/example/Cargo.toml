@@ -15,10 +15,18 @@ test = false
 name = "example_toy_vm"
 test = false
 
+# do this only so that `cargo test --workspace` doesn't fail by trying to
+# link with starstream functions, since outside of wasm those are not imported
+# dynamically.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+toy_vm = { path = "../toy_vm", features = [] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+toy_vm = { path = "../toy_vm", features = ["starstream"] }
+
 [dependencies]
 stack_dst = { version = "0.8.1", default-features = false, features = ["const_generics"] }
 starstream_sys = { path = "../../starstream_sys" }
-toy_vm = { path = "../toy_vm", features = ["starstream"] }
 talc = "4.4.2"
 spin = "0.10.0"
 rand = { version = "0.9.1", default-features = false }
