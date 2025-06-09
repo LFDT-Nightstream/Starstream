@@ -1,7 +1,12 @@
 #![no_std]
+#![feature(coroutine_trait)]
 
 use core::{fmt::Write, marker::PhantomData, mem::MaybeUninit, panic::PanicInfo};
+#[doc(hidden)]
+#[macro_use]
+pub mod static_coroutine;
 mod effects;
+
 pub use effects::*;
 
 #[macro_export]
