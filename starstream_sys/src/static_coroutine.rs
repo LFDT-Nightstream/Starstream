@@ -36,13 +36,15 @@ macro_rules! static_coroutine {
             pub const HOLDER: *mut () = &raw mut HOLDER_ as *mut ();
         }
 
-        fn $init( $($start_arg: $start_arg_ty),* ) {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $init( $($start_arg: $start_arg_ty),* ) {
             unsafe {
                 core::ptr::write($coro::HOLDER as *mut _, $coro( $($start_arg),* ));
             }
         }
 
-        fn $resume( $(resume_arg: $resume_arg_ty),* ) {
+        #[unsafe(no_mangle)]
+        pub extern "C" fn $resume( $(resume_arg: $resume_arg_ty),* ) {
             unsafe {
                 $crate::static_coroutine::__resume_by_result(
                     &|| $coro( $($crate::static_coroutine::__unreachable::<$start_arg_ty>()),* ),

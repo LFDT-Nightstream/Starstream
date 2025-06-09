@@ -1,6 +1,9 @@
 #![no_std]
 #![no_main]
 #![allow(dead_code)]
+#![feature(coroutines, coroutine_trait)]
+
+use core::ops::Coroutine;
 
 use example_contract::{StarNft, StarNftIntermediate};
 use starstream::{
@@ -39,6 +42,15 @@ unsafe extern "C" {
     safe fn my_error(supply: u32);
 }
 */
+
+starstream::static_coroutine! {
+    #[static_coroutine(init = dummy_init, resume = dummy_resume)]
+    fn dummy(start_arg: usize) -> impl Coroutine<u16> {
+        let start_arg = start_arg * 2;
+        #[coroutine]
+        move |resume_arg: u16| return yield resume_arg as usize * start_arg
+    }
+}
 
 pub struct PayToPublicKeyHash {
     owner: PublicKey,
