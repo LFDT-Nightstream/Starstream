@@ -1,7 +1,13 @@
 use starstream_vm::*;
 
+#[test]
 pub fn main() {
-    env_logger::Builder::new().init();
+    std::process::Command::new("cargo")
+        .arg("build")
+        .arg("-p")
+        .arg("example_toy_vm")
+        .status()
+        .unwrap();
 
     let mut tx = Transaction::new();
     dbg!(&tx);
