@@ -50,6 +50,15 @@ fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHas
             },
         )
         .unwrap();
+    linker
+        .func_wrap(
+            "env",
+            "starstream_run_unconstrained",
+            |caller: Caller<T>, fptr: u32, args: u32| {
+                crate::run_unconstrained(caller, fptr, args);
+            },
+        )
+        .unwrap();
     // TODO: effect handler stuff
 }
 

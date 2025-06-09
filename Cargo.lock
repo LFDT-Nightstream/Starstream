@@ -113,9 +113,9 @@ dependencies = [
  "pairing",
  "pasta_curves",
  "proptest",
- "rand",
- "rand_chacha",
- "rand_core",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
  "rayon",
  "rayon-scan",
  "ref-cast",
@@ -306,7 +306,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d14b9606aa9550d34651bc481443203bc014237bdb992d201d2afa62d2ec6dea"
 dependencies = [
  "ambient-authority",
- "rand",
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -603,6 +603,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "example_toy_vm"
+version = "0.0.0"
+dependencies = [
+ "rand 0.9.1",
+ "rand_chacha 0.9.0",
+ "spin 0.10.0",
+ "stack_dst",
+ "starstream_sys",
+ "starstream_vm",
+ "talc",
+ "toy_vm",
+ "wasmi",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -617,7 +632,7 @@ dependencies = [
  "bitvec",
  "byteorder",
  "ff_derive",
- "rand_core",
+ "rand_core 0.6.4",
  "subtle",
 ]
 
@@ -722,7 +737,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
 dependencies = [
  "ff",
- "rand_core",
+ "rand_core 0.6.4",
  "subtle",
 ]
 
@@ -736,8 +751,8 @@ dependencies = [
  "getrandom 0.2.16",
  "halo2curves",
  "pasta_curves",
- "rand",
- "rand_chacha",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "rayon",
  "semolina",
  "sppark",
@@ -760,8 +775,8 @@ dependencies = [
  "pairing",
  "pasta_curves",
  "paste",
- "rand",
- "rand_core",
+ "rand 0.8.5",
+ "rand_core 0.6.4",
  "rayon",
  "serde",
  "serde_arrays",
@@ -969,7 +984,7 @@ version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 dependencies = [
- "spin",
+ "spin 0.9.8",
 ]
 
 [[package]]
@@ -1096,7 +1111,7 @@ checksum = "a5e44f723f1133c9deac646763579fdb3ac745e418f2a7af9cd0c431da1f20b9"
 dependencies = [
  "num-integer",
  "num-traits",
- "rand",
+ "rand 0.8.5",
  "serde",
 ]
 
@@ -1183,7 +1198,7 @@ dependencies = [
  "group",
  "hex",
  "lazy_static",
- "rand",
+ "rand 0.8.5",
  "serde",
  "static_assertions",
  "subtle",
@@ -1245,8 +1260,8 @@ dependencies = [
  "bitflags 2.9.0",
  "lazy_static",
  "num-traits",
- "rand",
- "rand_chacha",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
  "rand_xorshift",
  "regex-syntax 0.8.5",
  "rusty-fork",
@@ -1297,8 +1312,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
 dependencies = [
  "libc",
- "rand_chacha",
- "rand_core",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9fbfd9d094a40bf3ae768db9361049ace4c0e04a4fd6b359518bd7b73a73dd97"
+dependencies = [
+ "rand_core 0.9.3",
 ]
 
 [[package]]
@@ -1308,7 +1332,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c10a63a0fa32252be49d21e7709d4d4baf8d231c2dbce1eaa8141b9b127d88"
 dependencies = [
  "ppv-lite86",
- "rand_core",
+ "rand_core 0.6.4",
+]
+
+[[package]]
+name = "rand_chacha"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
+dependencies = [
+ "ppv-lite86",
+ "rand_core 0.9.3",
 ]
 
 [[package]]
@@ -1321,12 +1355,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_core"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
+
+[[package]]
 name = "rand_xorshift"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d25bf25ec5ae4a3f1b92f929810509a2f53d7dca2f50b794ff57e3face536c8f"
 dependencies = [
- "rand_core",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -1649,6 +1689,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6980e8d7511241f8acf4aebddbb1ff938df5eebe98691418c4468d0b72a96a67"
 
 [[package]]
+name = "spin"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5fe4ccb98d9c292d56fec89a5e07da7fc4cf0dc11e156b41793132775d3e591"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
 name = "sppark"
 version = "0.1.6"
 source = "git+https://github.com/lurk-lab/sppark?branch=mont_t-abs#8b1a04918b88b6c8b11587efc0d9d92abab701a2"
@@ -1722,7 +1771,7 @@ version = "0.0.0"
 dependencies = [
  "byteorder",
  "log",
- "rand",
+ "rand 0.8.5",
  "sha2",
  "tiny-keccak",
  "wasmi",
@@ -1783,6 +1832,15 @@ dependencies = [
  "rustix 0.35.16",
  "windows-sys 0.36.1",
  "winx",
+]
+
+[[package]]
+name = "talc"
+version = "4.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fcad3be1cfe36eb7d716a04791eba36a197da9d9b6ea1e28e64ac569da3701d"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]
@@ -1869,6 +1927,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c9d3793400a45f954c52e73d068316d76b6f4e36977e3fcebb13a2721e80237"
 dependencies = [
  "crunchy",
+]
+
+[[package]]
+name = "toy_vm"
+version = "0.0.0"
+dependencies = [
+ "rand 0.9.1",
+ "rand_chacha 0.9.0",
+ "spin 0.10.0",
+ "starstream_sys",
+ "talc",
 ]
 
 [[package]]
@@ -2145,7 +2214,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smallvec",
- "spin",
+ "spin 0.9.8",
  "wasmi_arena",
  "wasmi_core",
  "wasmparser-nostd",
@@ -2599,7 +2668,7 @@ dependencies = [
  "ff",
  "getrandom 0.2.16",
  "itertools 0.12.1",
- "rand",
+ "rand 0.8.5",
  "serde",
  "serde_json",
  "thiserror",
