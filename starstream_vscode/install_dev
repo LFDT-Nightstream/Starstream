@@ -1,3 +1,11 @@
 #!/bin/sh
 set -eu
-ln -sTf "$(realpath "$(dirname "$0")")" ~/.vscode/extensions/starstream-dev
+target="$(realpath "$(dirname "$0")")"
+check() {
+    if test -d "$1"; then
+        ln -sTf "$target" "$1/starstream-dev"
+        echo "Installed to $1"
+    fi
+}
+check ~/.vscode/extensions
+check ~/.vscode-oss/extensions
