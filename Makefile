@@ -13,4 +13,5 @@ vsc:
 .PHONY: website
 all: website
 website:
+	@cargo build -p starstream_sandbox --release
 	@cd website && npm i && npm run build
