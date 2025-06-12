@@ -2136,7 +2136,7 @@ dependencies = [
 [[package]]
 name = "wasmi"
 version = "0.31.0"
-source = "git+https://github.com/SpaceManiac/zkEngine_dev?branch=starstream#94900e88a34c9a96e7076daeadd4a874056541be"
+source = "git+https://github.com/ICME-Lab/zkEngine_dev#e23abd8882dcfc196073af08547e654737022ba5"
 dependencies = [
  "anyhow",
  "hex",
@@ -2155,12 +2155,12 @@ dependencies = [
 [[package]]
 name = "wasmi_arena"
 version = "0.4.0"
-source = "git+https://github.com/SpaceManiac/zkEngine_dev?branch=starstream#94900e88a34c9a96e7076daeadd4a874056541be"
+source = "git+https://github.com/ICME-Lab/zkEngine_dev#e23abd8882dcfc196073af08547e654737022ba5"
 
 [[package]]
 name = "wasmi_core"
 version = "0.13.0"
-source = "git+https://github.com/SpaceManiac/zkEngine_dev?branch=starstream#94900e88a34c9a96e7076daeadd4a874056541be"
+source = "git+https://github.com/ICME-Lab/zkEngine_dev#e23abd8882dcfc196073af08547e654737022ba5"
 dependencies = [
  "downcast-rs",
  "libm",
@@ -2172,7 +2172,7 @@ dependencies = [
 [[package]]
 name = "wasmi_wasi"
 version = "0.31.0"
-source = "git+https://github.com/SpaceManiac/zkEngine_dev?branch=starstream#94900e88a34c9a96e7076daeadd4a874056541be"
+source = "git+https://github.com/ICME-Lab/zkEngine_dev#e23abd8882dcfc196073af08547e654737022ba5"
 dependencies = [
  "wasi-cap-std-sync",
  "wasi-common",
@@ -2592,7 +2592,7 @@ dependencies = [
 [[package]]
 name = "zk-engine"
 version = "0.1.0"
-source = "git+https://github.com/SpaceManiac/zkEngine_dev?branch=starstream#94900e88a34c9a96e7076daeadd4a874056541be"
+source = "git+https://github.com/ICME-Lab/zkEngine_dev#e23abd8882dcfc196073af08547e654737022ba5"
 dependencies = [
  "anyhow",
  "arecibo",
