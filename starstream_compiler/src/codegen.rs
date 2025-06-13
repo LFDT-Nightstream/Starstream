@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use std::{cmp::Ordering, collections::HashMap, ops::Range};
+use std::{cmp::Ordering, collections::HashMap, ops::Range, rc::Rc};
 
 use ariadne::{Report, ReportBuilder, ReportKind};
 use wasm_encoder::{
@@ -21,17 +21,41 @@ pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
 #[derive(Debug, Clone)]
 enum StaticType {
     Void,
+
+    // Built-in types: primitive types
+    // https://component-model.bytecodealliance.org/design/wit.html#primitive-types
     Bool,
+    // S8,
+    // S16,
     I32,
-    U32,
     I64,
+    // U8,
+    // U16,
+    U32,
     U64,
     F32,
     F64,
+    // Char,
     StrRef,
-    // TODO: add info on the Starstream type of the ref.
-    ExternRef,
-    Function(Box<StarFunctionType>),
+
+    // Built-in types: lists, options, results, tuples
+    // https://component-model.bytecodealliance.org/design/wit.html#lists
+    // List(Box<StaticType>),
+    // https://component-model.bytecodealliance.org/design/wit.html#options
+    // Option(Box<StaticType>),
+    // https://component-model.bytecodealliance.org/design/wit.html#results
+    // Result(Box<StaticType>, Box<StaticType>),
+    // https://component-model.bytecodealliance.org/design/wit.html#tuples
+    // Tuple(Vec<StaticType>),
+
+    // User-defined types
+    // Record(Record),
+    // Variant(Variant),
+    // Enum(Enum),
+    Resource(Rc<ResourceType>),
+
+    //
+    Function(Rc<StarFunctionType>),
 }
 
 impl StaticType {
@@ -40,31 +64,19 @@ impl StaticType {
             StaticType::Void => Intermediate::Void,
             StaticType::Bool => Intermediate::StackBool,
             StaticType::I32 => Intermediate::StackI32,
-            StaticType::U32 => Intermediate::StackU32,
             StaticType::I64 => Intermediate::StackI64,
+            StaticType::U32 => Intermediate::StackU32,
             StaticType::U64 => Intermediate::StackU64,
             StaticType::F32 => Intermediate::StackF32,
             StaticType::F64 => Intermediate::StackF64,
             StaticType::StrRef => Intermediate::StackStrRef,
-            StaticType::ExternRef => Intermediate::StackExternRef,
-            StaticType::Function(_) => todo!(),
+            StaticType::Resource(_) => Intermediate::StackExternRef,
+            _ => todo!(),
         }
     }
 
     fn lower(&self) -> &'static [ValType] {
-        match self {
-            StaticType::Void => &[],
-            StaticType::Bool => &[ValType::I32],
-            StaticType::I32 => &[ValType::I32],
-            StaticType::U32 => &[ValType::I32],
-            StaticType::I64 => &[ValType::I64],
-            StaticType::U64 => &[ValType::I64],
-            StaticType::F32 => &[ValType::F32],
-            StaticType::F64 => &[ValType::F64],
-            StaticType::StrRef => &[ValType::I32, ValType::I32],
-            StaticType::ExternRef => &[ValType::EXTERNREF],
-            _ => todo!(),
-        }
+        self.stack_intermediate().stack_types()
     }
 }
 
@@ -102,25 +114,24 @@ enum Intermediate {
 }
 
 impl Intermediate {
-    fn stack_size(&self) -> usize {
+    fn stack_types(&self) -> &'static [ValType] {
         match self {
-            // 0
-            Intermediate::Void
-            | Intermediate::Error
-            | Intermediate::ConstFunction(_)
-            | Intermediate::ConstNull => 0,
-            // 1
-            Intermediate::StackBool
-            | Intermediate::StackI32
-            | Intermediate::StackU32
-            | Intermediate::StackI64
-            | Intermediate::StackU64
-            | Intermediate::StackF32
-            | Intermediate::StackF64
-            | Intermediate::StackExternRef => 1,
-            // 2
-            Intermediate::StackStrRef => 2,
+            Intermediate::Void => &[],
+            Intermediate::StackBool => &[ValType::I32],
+            Intermediate::StackI32 => &[ValType::I32],
+            Intermediate::StackI64 => &[ValType::I64],
+            Intermediate::StackU32 => &[ValType::I32],
+            Intermediate::StackU64 => &[ValType::I64],
+            Intermediate::StackF32 => &[ValType::F32],
+            Intermediate::StackF64 => &[ValType::F64],
+            Intermediate::StackStrRef => &[ValType::I32, ValType::I32],
+            Intermediate::StackExternRef => &[ValType::EXTERNREF],
+            _ => todo!(),
         }
+    }
+
+    fn stack_size(&self) -> usize {
+        self.stack_types().len()
     }
 }
 
@@ -140,17 +151,31 @@ impl From<ValType> for Intermediate {
 
 #[derive(Debug, Clone)]
 struct StarFunctionType {
-    result: StaticType,
     params: Vec<StaticType>,
+    results: Vec<StaticType>,
 }
 
 impl StarFunctionType {
     fn lower(&self) -> FuncType {
         FuncType::new(
             self.params.iter().flat_map(|p| p.lower()).copied(),
-            self.result.lower().iter().copied(),
+            self.results.iter().flat_map(|p| p.lower()).copied(),
         )
     }
+}
+
+// https://component-model.bytecodealliance.org/design/wit.html#resources
+#[derive(Debug, Clone)]
+struct ResourceType {
+    // WIT splits this out... maybe we'll just say a method literally named "constructor" is the constructor.
+    constructor: Option<StarFunctionType>,
+    methods: HashMap<String, (MethodType, StarFunctionType)>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MethodType {
+    Static,
+    BorrowSelf,
 }
 
 #[derive(Default)]
@@ -186,8 +211,8 @@ impl Compiler {
             "env",
             "eprint",
             StarFunctionType {
-                result: StaticType::Void,
                 params: vec![StaticType::StrRef],
+                results: vec![],
             },
         );
         this.global_scope_functions
@@ -196,8 +221,8 @@ impl Compiler {
             "starstream_debug",
             "f64",
             StarFunctionType {
-                result: StaticType::F64,
                 params: vec![StaticType::F64],
+                results: vec![StaticType::F64],
             },
         );
         this.global_scope_functions
@@ -339,8 +364,8 @@ impl Compiler {
     fn visit_script(&mut self, script: &Script) {
         for fndef in &script.definitions {
             let ty = StarFunctionType {
-                result: StaticType::Void,
                 params: vec![],
+                results: vec![],
             };
             let lower_ty = ty.lower();
             let mut function = Function::new(lower_ty.params());
@@ -616,7 +641,11 @@ impl Compiler {
                     }
                 }
                 func.instructions().call(id);
-                func_type.result.stack_intermediate()
+                match func_type.results.get(0) {
+                    // TODO: handle functions with multiple results
+                    Some(r) => r.stack_intermediate(),
+                    None => Intermediate::Void,
+                }
             }
             _ => {
                 Report::build(ReportKind::Error, 0..0)
