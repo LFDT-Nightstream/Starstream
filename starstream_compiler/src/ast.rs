@@ -1,17 +1,21 @@
 //! AST types describing a Starstream source file.
 
+/// The root type of a Starstream source file.
 #[derive(Clone, Debug, Default)]
 pub struct StarstreamProgram {
     pub items: Vec<ProgramItem>,
 }
 
+/// A coordination script, UTXO, or token definition block.
 #[derive(Clone, Debug)]
 pub enum ProgramItem {
-    Utxo(Utxo),
+    // TODO: Import
     Script(Script),
+    Utxo(Utxo),
     Token(Token),
 }
 
+/// `utxo Name { ... }`
 #[derive(Clone, Debug)]
 pub struct Utxo {
     pub name: Identifier,
@@ -119,16 +123,23 @@ pub enum Type {
 
 #[derive(Clone, Debug)]
 pub enum Statement {
+    /// `let [mut] a = b;`
     BindVar {
         var: Identifier,
-        value: Expr,
         mutable: bool,
+        value: Expr,
     },
+    /// `return a;`
     Return(Option<Expr>),
+    /// `resume a;`
     Resume(Option<Expr>),
+    /// `a = b;`
     Assign(Identifier, Expr),
+    /// `with { a... } catch (b) { c... } ...`
     With(Block, Vec<(Effect, Block)>),
+    /// `while (a) { b... }`
     While(Expr, LoopBody),
+    /// `loop { a... }`
     Loop(LoopBody),
 }
 
@@ -141,17 +152,6 @@ pub enum LoopBody {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    Equals(Box<Self>, Box<Self>),
-    NotEquals(Box<Self>, Box<Self>),
-    LessThan(Box<Self>, Box<Self>),
-    Add(Box<Self>, Box<Self>),
-    Or(Box<Self>, Box<Self>),
-    Sub(Box<Self>, Box<Self>),
-    Pow(Box<Self>, Box<Self>),
-    Mul(Box<Self>, Box<Self>),
-    And(Box<Self>, Box<Self>),
-    Div(Box<Self>, Box<Self>),
-    Neg(Box<Self>),
     PrimaryExpr(
         /// Starter expression.
         PrimaryExpr,
@@ -161,11 +161,43 @@ pub enum Expr {
         Vec<(Identifier, Option<Arguments>)>,
     ),
     BlockExpr(BlockExpr),
+    // Comparison operators
+    /// `a == b`
+    Equals(Box<Self>, Box<Self>),
+    /// `a != b`
+    NotEquals(Box<Self>, Box<Self>),
+    /// `a < b`
+    LessThan(Box<Self>, Box<Self>),
+    // TODO: GreaterThan, LessEq, GreaterEq
+    // Arithmetic operators
+    /// `-a`
+    Neg(Box<Self>),
+    /// `a + b`
+    Add(Box<Self>, Box<Self>),
+    /// `a - b`
+    Sub(Box<Self>, Box<Self>),
+    /// `a * b`
+    Mul(Box<Self>, Box<Self>),
+    /// `a / b`
+    Div(Box<Self>, Box<Self>),
+    /// `a ** b`
+    Pow(Box<Self>, Box<Self>),
+    // TODO: Mod
+    // Bitwise operators
+    // TODO: BitNot, BitAnd, BitOr, BitXor, LShift, RShift
+    // Boolean operators
+    // TODO: Not
+    /// `a && b`
+    And(Box<Self>, Box<Self>),
+    /// `a || b`
+    Or(Box<Self>, Box<Self>),
 }
 
 #[derive(Clone, Debug)]
 pub enum BlockExpr {
+    /// `if (a) { b } else { c }`
     IfThenElse(Box<Expr>, Box<Block>, Option<Box<Block>>),
+    /// `{ a... }`
     Block(Block),
 }
 
@@ -173,11 +205,16 @@ pub enum BlockExpr {
 pub enum PrimaryExpr {
     Null,
     Number(f64),
+    /// `true` or `false` literal
     Bool(bool),
     Ident(Vec<Identifier>),
+    /// `(a)`
     ParExpr(Box<Expr>),
+    /// `yield a`
     Yield(Box<Expr>),
+    /// `raise a`
     Raise(Box<Expr>),
+    /// `a { b: c, ... }`
     Object(Type, Vec<(Identifier, Expr)>),
     StringLiteral(String),
 }
