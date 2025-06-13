@@ -446,8 +446,39 @@ impl Compiler {
                 let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI32, Intermediate::StackI32) => {
+                        func.instructions().i32_eq();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_eq();
+                        Intermediate::StackBool
+                    }
                     (Intermediate::StackF64, Intermediate::StackF64) => {
                         func.instructions().f64_eq();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Expr::Equals({:?}, {:?})", lhs, rhs));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::NotEquals(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI32, Intermediate::StackI32) => {
+                        func.instructions().i32_ne();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_ne();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackF64, Intermediate::StackF64) => {
+                        func.instructions().f64_ne();
                         Intermediate::StackBool
                     }
                     (lhs, rhs) => {
