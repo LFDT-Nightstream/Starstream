@@ -168,10 +168,13 @@ pub enum Expr {
     NotEquals(Box<Self>, Box<Self>),
     /// `a < b`
     LessThan(Box<Self>, Box<Self>),
-    // TODO: GreaterThan, LessEq, GreaterEq
+    /// `a > b`
+    GreaterThan(Box<Self>, Box<Self>),
+    /// `a <= b`
+    LessEq(Box<Self>, Box<Self>),
+    /// `a >= b`
+    GreaterEq(Box<Self>, Box<Self>),
     // Arithmetic operators
-    /// `-a`
-    Neg(Box<Self>),
     /// `a + b`
     Add(Box<Self>, Box<Self>),
     /// `a - b`
@@ -180,13 +183,24 @@ pub enum Expr {
     Mul(Box<Self>, Box<Self>),
     /// `a / b`
     Div(Box<Self>, Box<Self>),
-    /// `a ** b`
-    Pow(Box<Self>, Box<Self>),
-    // TODO: Mod
+    /// `a % b`
+    Mod(Box<Self>, Box<Self>),
     // Bitwise operators
-    // TODO: BitNot, BitAnd, BitOr, BitXor, LShift, RShift
+    /// `~a`
+    BitNot(Box<Self>),
+    /// `a & b`
+    BitAnd(Box<Self>, Box<Self>),
+    /// `a | b`
+    BitOr(Box<Self>, Box<Self>),
+    /// `a ^ b`
+    BitXor(Box<Self>, Box<Self>),
+    /// `a << b`
+    LShift(Box<Self>, Box<Expr>),
+    /// `a >> b`
+    RShift(Box<Self>, Box<Expr>),
     // Boolean operators
-    // TODO: Not
+    /// `!a`
+    Not(Box<Self>),
     /// `a && b`
     And(Box<Self>, Box<Self>),
     /// `a || b`
