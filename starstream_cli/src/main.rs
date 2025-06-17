@@ -68,7 +68,7 @@ fn main() {
             let mut transaction = Transaction::new();
             let coordination_code = transaction.code_cache().load_file(&module);
             transaction.run_coordination_script(&coordination_code, &entry, Vec::new());
-            transaction.do_nebula_stuff();
+            transaction.prove(); // TODO: save proof somewhere
         }
     }
 }

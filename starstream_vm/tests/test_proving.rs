@@ -19,5 +19,5 @@ pub fn main() {
     dbg!(&tx);
 
     // TODO: how do we auto-test this without eating infinite GitHub Actions runner time?
-    //tx.do_nebula_stuff();
+    //tx.prove();
 }

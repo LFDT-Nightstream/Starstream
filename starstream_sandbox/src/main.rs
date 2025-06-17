@@ -2,6 +2,7 @@
 #![feature(internal_output_capture)]
 #![no_main]
 
+use log::info;
 use starstream_compiler::write_errors;
 use starstream_vm::Transaction;
 
@@ -105,7 +106,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     let coordination_code = transaction.code_cache().load(wasm);
     transaction.run_coordination_script(&coordination_code, "main", Vec::new());
 
-    transaction.do_nebula_stuff();
+    info!("Proof: {:?}", transaction.prove());
 }
 
 static LOGGER: Logger = Logger;

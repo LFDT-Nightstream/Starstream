@@ -12,7 +12,7 @@ use wasmi::{Engine, Module};
 use crate::util::DisplayHex;
 
 /// A raw ID describing a contract in a content-addressible way.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CodeHash([u8; 32]);
 
 impl CodeHash {

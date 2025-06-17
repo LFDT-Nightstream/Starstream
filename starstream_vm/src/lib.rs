@@ -898,7 +898,7 @@ struct TxWitness {
 }
 
 /// A row in the continuation table describing UTXO evolution.
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ContinuationEntry {
     /// Hash of the contract the UTXO belongs to.
     code: CodeHash,
@@ -908,10 +908,57 @@ struct ContinuationEntry {
     /// The entry point function, such as X_init or X_resume.
     entry_point: String,
     /// The arguments passed to the UTXO.
+    #[serde(with = "serde_value_vec")]
     input: Vec<Value>,
     /// Hash of the UTXO's memory and attached state after the call.
     /// All zeroes means an ended UTXO.
     state_after: MemoryHash,
+}
+
+mod serde_value_vec {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use wasmi::{
+        Value,
+        core::{F32, F64},
+    };
+
+    // TODO: actually serialize here. The hard parts are FuncRef (we don't use it)
+    // and ExternRef (we'd *like* to use it for UTXOs, but maybe this isn't practical).
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    enum Value2 {
+        I32(i32),
+        I64(i64),
+        F32(u32),
+        F64(u64),
+    }
+
+    pub fn serialize<S: Serializer>(value: &Vec<Value>, ser: S) -> Result<S::Ok, S::Error> {
+        let vec2 = value
+            .iter()
+            .map(|v| match v {
+                Value::I32(i) => Value2::I32(*i),
+                Value::I64(i) => Value2::I64(*i),
+                Value::F32(i) => Value2::F32(i.to_bits()),
+                Value::F64(i) => Value2::F64(i.to_bits()),
+                _ => todo!(),
+            })
+            .collect::<Vec<_>>();
+        vec2.serialize(ser)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(de: D) -> Result<Vec<Value>, D::Error> {
+        let vec2 = Vec::<Value2>::deserialize(de)?;
+        Ok(vec2
+            .into_iter()
+            .map(|v| match v {
+                Value2::I32(i) => Value::I32(i),
+                Value2::I64(i) => Value::I64(i),
+                Value2::F32(i) => Value::F32(F32::from_bits(i)),
+                Value2::F64(i) => Value::F64(F64::from_bits(i)),
+            })
+            .collect())
+    }
 }
 
 // NOTE: TxWitness and ContinuationEntry are currently partially redundant.
@@ -1778,6 +1825,10 @@ impl Transaction {
         });
         (id, result)
     }
+
+    pub fn prove(&self) -> TransactionProof {
+        self.do_nebula_stuff()
+    }
 }
 
 impl std::fmt::Debug for Transaction {
@@ -1792,11 +1843,25 @@ impl std::fmt::Debug for Transaction {
     }
 }
 
+/// A proof of a transaction that can be passed around and derived later.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TransactionProof {
+    continuations: Vec<ContinuationEntry>,
+}
+
+impl TransactionProof {
+    /// Verify
+    pub fn verify(&self) -> Result<(), String> {
+        // TODO: actually verify something.
+        Ok(())
+    }
+}
+
 // TODO: Universe or World type which can spawn transactions (loading a subset
 // of UTXOs into WASM memories) and commit them (verify, flush WASM instances).
 // In the long term it should be possible to commit ZK proofs of transactions.
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MemoryHash([u8; 32]);
 
 impl MemoryHash {

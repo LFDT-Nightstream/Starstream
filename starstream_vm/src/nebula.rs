@@ -13,8 +13,8 @@ use zk_engine::{
 };
 
 use crate::{
-    ProgramIdx, Transaction, TransactionInner, TxProgram, WasmiError, code::CodeHash, memory,
-    starstream_eprint,
+    ProgramIdx, Transaction, TransactionInner, TransactionProof, TxProgram, WasmiError,
+    code::CodeHash, memory, starstream_eprint,
 };
 
 type E = Bn256EngineIPA;
@@ -134,7 +134,7 @@ impl<'a> ZKWASMCtx for StarstreamWasmCtx<'a> {
 }
 
 impl Transaction {
-    pub fn do_nebula_stuff(&self) {
+    pub(crate) fn do_nebula_stuff(&self) -> TransactionProof {
         // Throw away `tracing` logs for now. Maybe if we determine they have
         // anything useful, we can use them later.
         init_logger();
@@ -208,5 +208,8 @@ impl Transaction {
         // HUGE TODO: prove that the program traces and the continuation table actually correspond.
 
         // TODO: return (serialized?) proof instead of throwing it away.
+        TransactionProof {
+            continuations: self.store.data().continuations.clone(),
+        }
     }
 }

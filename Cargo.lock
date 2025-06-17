@@ -1724,6 +1724,7 @@ dependencies = [
  "env_logger",
  "log",
  "rand",
+ "serde",
  "sha2",
  "tiny-keccak",
  "wasmi",
