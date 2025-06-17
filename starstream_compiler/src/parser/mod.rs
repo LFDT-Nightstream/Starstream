@@ -1,7 +1,7 @@
 use crate::ast::*;
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::{
-    pratt::{infix, left, prefix, right},
+    pratt::{infix, left, prefix},
     prelude::*,
 };
 
@@ -324,7 +324,7 @@ fn optionally_typed_bindings<'a>(
 fn expr<'a>(
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> {
-    let op = |c| just(c).padded();
+    let op = |c: &'static str| just(c).padded();
 
     recursive(|expr_parser| {
         let function_call = expr_parser
@@ -358,36 +358,73 @@ fn expr<'a>(
             .or(block_expr(expr_parser, block_parser).map(Expr::BlockExpr));
 
         atom.pratt((
-            prefix(4, op('!'), |_, atom, _| Expr::Neg(Box::new(atom))),
-            infix(right(3), op('^'), |l, _, r, _| {
-                Expr::Pow(Box::new(l), Box::new(r))
-            }),
-            infix(left(2), op('*'), |l, _, r, _| {
+            // prec = 10
+            prefix(10, op("-"), |_, atom, _| Expr::Neg(Box::new(atom))),
+            prefix(10, op("!"), |_, atom, _| Expr::Not(Box::new(atom))),
+            prefix(10, op("~"), |_, atom, _| Expr::BitNot(Box::new(atom))),
+            // prec = 9
+            infix(left(9), op("*"), |l, _, r, _| {
                 Expr::Mul(Box::new(l), Box::new(r))
             }),
-            infix(left(2), just("&&").padded(), |l, _, r, _| {
-                Expr::And(Box::new(l), Box::new(r))
-            }),
-            infix(left(2), op('/'), |l, _, r, _| {
+            infix(left(9), op("/"), |l, _, r, _| {
                 Expr::Div(Box::new(l), Box::new(r))
             }),
-            infix(left(1), op('+'), |l, _, r, _| {
+            infix(left(9), op("%"), |l, _, r, _| {
+                Expr::Div(Box::new(l), Box::new(r))
+            }),
+            // prec = 8
+            infix(left(8), op("+"), |l, _, r, _| {
                 Expr::Add(Box::new(l), Box::new(r))
             }),
-            infix(left(1), just("||").padded(), |l, _, r, _| {
-                Expr::Or(Box::new(l), Box::new(r))
-            }),
-            infix(left(1), op('-'), |l, _, r, _| {
+            infix(left(8), op("-"), |l, _, r, _| {
                 Expr::Sub(Box::new(l), Box::new(r))
             }),
-            infix(left(1), op('<'), |l, _, r, _| {
+            // prec = 7
+            infix(left(7), op("<<"), |l, _, r, _| {
+                Expr::LShift(Box::new(l), Box::new(r))
+            }),
+            infix(left(7), op(">>"), |l, _, r, _| {
+                Expr::RShift(Box::new(l), Box::new(r))
+            }),
+            // prec = 6
+            infix(left(6), op("<"), |l, _, r, _| {
                 Expr::LessThan(Box::new(l), Box::new(r))
             }),
-            infix(left(1), just("==").padded(), |l, _, r, _| {
+            infix(left(6), op(">"), |l, _, r, _| {
+                Expr::GreaterThan(Box::new(l), Box::new(r))
+            }),
+            infix(left(6), op("<="), |l, _, r, _| {
+                Expr::LessEq(Box::new(l), Box::new(r))
+            }),
+            infix(left(6), op(">="), |l, _, r, _| {
+                Expr::LessThan(Box::new(l), Box::new(r))
+            }),
+            // prec = 5
+            infix(left(5), op("=="), |l, _, r, _| {
                 Expr::Equals(Box::new(l), Box::new(r))
             }),
-            infix(left(1), just("!=").padded(), |l, _, r, _| {
+            infix(left(5), op("!="), |l, _, r, _| {
                 Expr::NotEquals(Box::new(l), Box::new(r))
+            }),
+            // prec = 4
+            infix(left(4), op("&"), |l, _, r, _| {
+                Expr::BitAnd(Box::new(l), Box::new(r))
+            }),
+            // prec = 3
+            infix(left(3), op("^"), |l, _, r, _| {
+                Expr::BitXor(Box::new(l), Box::new(r))
+            }),
+            // prec = 2
+            infix(left(2), op("|"), |l, _, r, _| {
+                Expr::BitOr(Box::new(l), Box::new(r))
+            }),
+            // prec = 1
+            infix(left(1), op("&&"), |l, _, r, _| {
+                Expr::And(Box::new(l), Box::new(r))
+            }),
+            // prec = 0
+            infix(left(0), just("||").padded(), |l, _, r, _| {
+                Expr::Or(Box::new(l), Box::new(r))
             }),
         ))
         .boxed()
