@@ -359,6 +359,7 @@ fn expr<'a>(
 
         atom.pratt((
             // prec = 10
+            prefix(10, op("-"), |_, atom, _| Expr::Neg(Box::new(atom))),
             prefix(10, op("!"), |_, atom, _| Expr::Not(Box::new(atom))),
             prefix(10, op("~"), |_, atom, _| Expr::BitNot(Box::new(atom))),
             // prec = 9

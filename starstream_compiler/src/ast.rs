@@ -185,6 +185,8 @@ pub enum Expr {
     Div(Box<Self>, Box<Self>),
     /// `a % b`
     Mod(Box<Self>, Box<Self>),
+    /// `-a`
+    Neg(Box<Self>),
     // Bitwise operators
     /// `~a`
     BitNot(Box<Self>),
