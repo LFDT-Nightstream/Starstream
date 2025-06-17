@@ -156,6 +156,9 @@ impl Transaction {
         let public_params = Snark::setup(step_size);
         info!("Snark::setup complete");
 
+        // TODO: Stuff the continuation table into a proof.
+
+        // Prove the traces of each program.
         for (i, program) in inner.programs.iter().enumerate() {
             let program_idx = ProgramIdx(i);
             debug!("{:?} {program:?}", program_idx);
@@ -201,5 +204,9 @@ impl Transaction {
             debug!("Instance: {instance:?}");
             //snark.verify(&public_params, &instance).unwrap();
         }
+
+        // HUGE TODO: prove that the program traces and the continuation table actually correspond.
+
+        // TODO: return (serialized?) proof instead of throwing it away.
     }
 }

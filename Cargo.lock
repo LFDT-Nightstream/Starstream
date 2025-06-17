@@ -1721,6 +1721,7 @@ name = "starstream_vm"
 version = "0.0.0"
 dependencies = [
  "byteorder",
+ "env_logger",
  "log",
  "rand",
  "sha2",

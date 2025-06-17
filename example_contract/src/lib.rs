@@ -23,6 +23,8 @@ unsafe extern "C" {
         utxo: PayToPublicKeyHash,
         i: StarNftIntermediate,
     );
+
+    safe fn starstream_new_Stackless_new(start_arg: u32) -> Stackless;
 }
 
 effect!(pub effect MyEffect(supply: u32) -> ());
@@ -136,4 +138,19 @@ token_import! {
     }
     bind fn starstream_bind_StarNft;
     unbind fn starstream_unbind_StarNft;
+}
+
+utxo_import! {
+    "starstream_utxo:example_contract";
+    Stackless;
+    starstream_status_Stackless;
+    starstream_resume_Stackless;
+    ();
+}
+
+impl Stackless {
+    #[inline]
+    pub fn new(start_arg: u32) -> Self {
+        starstream_new_Stackless_new(start_arg)
+    }
 }

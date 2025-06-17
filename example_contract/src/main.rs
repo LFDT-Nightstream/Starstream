@@ -43,15 +43,6 @@ unsafe extern "C" {
 }
 */
 
-starstream::static_coroutine! {
-    #[static_coroutine(init = dummy_init, resume = dummy_resume)]
-    fn dummy(start_arg: usize) -> impl Coroutine<u16> {
-        let start_arg = start_arg * 2;
-        #[coroutine]
-        move |resume_arg: u16| return yield resume_arg as usize * start_arg
-    }
-}
-
 pub struct PayToPublicKeyHash {
     owner: PublicKey,
 }
@@ -375,7 +366,13 @@ pub extern "C" fn star_split(from: Utxo<StarToken>, amount: u64) -> Utxo<StarTok
      */
 
 #[unsafe(no_mangle)]
-pub extern "C" fn produce() {
+pub extern "C" fn produce_and_consume() {
+    let utxo = example_contract::PayToPublicKeyHash::new(PublicKey::zero());
+    utxo.resume(());
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn produce_effect() {
     // All UTXOs that aren't exhausted are implicitly part of the output.
     example_contract::MyEffect::handle(
         || {
@@ -392,4 +389,18 @@ pub extern "C" fn produce() {
 pub extern "C" fn consume(utxo: example_contract::MyMain) {
     utxo.get_supply();
     utxo.next();
+}
+
+starstream::static_coroutine! {
+    #[static_coroutine(init = stackless_init, resume = stackless_resume)]
+    fn stackless(start_arg: u32) -> impl Coroutine<u16> {
+        let start_arg = start_arg * 2;
+        #[coroutine]
+        move |resume_arg: u16| return yield resume_arg as u32 * start_arg
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn stackless_main() {
+    let _stackless = example_contract::Stackless::new(17);
 }

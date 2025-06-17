@@ -8,6 +8,7 @@ pub use code::ContractCode;
 use code::{CodeCache, CodeHash};
 use log::{debug, info, trace};
 use rand::RngCore;
+use sha2::{Sha256, digest::DynDigest};
 use tiny_keccak::Hasher;
 use util::DisplayHex;
 use wasmi::{
@@ -820,6 +821,30 @@ impl TxProgram {
             _ => None,
         }
     }
+
+    fn hash(&self, store: &Store<TransactionInner>) -> MemoryHash {
+        // Currently this is just sha256 of the whole WASM file. There might
+        // be stuff in the WASM file that we don't want to count or that isn't
+        // reproducible and should exclude here, but that seems tricky.
+        let mut hash = [0; 32];
+        let mut hasher = Sha256::default();
+
+        // Hash linear memory.
+        hasher.update(
+            self.instance
+                .get_export(store, "memory")
+                .unwrap()
+                .into_memory()
+                .unwrap()
+                .data(store),
+        );
+
+        // TODO: include other things than just linear memory in the hash.
+        // For stackful UTXOs, we'd need to hash in `self.resumable`.
+
+        hasher.finalize_into(&mut hash[..]).unwrap();
+        MemoryHash(hash)
+    }
 }
 
 impl std::fmt::Debug for TxProgram {
@@ -872,6 +897,26 @@ struct TxWitness {
     is_destroy: bool,
 }
 
+/// A row in the continuation table describing UTXO evolution.
+#[derive(Debug)]
+struct ContinuationEntry {
+    /// Hash of the contract the UTXO belongs to.
+    code: CodeHash,
+    /// Hash of the UTXO's memory and attached state before the call.
+    /// All zeroes means a freshly-created UTXO.
+    state_before: MemoryHash,
+    /// The entry point function, such as X_init or X_resume.
+    entry_point: String,
+    /// The arguments passed to the UTXO.
+    input: Vec<Value>,
+    /// Hash of the UTXO's memory and attached state after the call.
+    /// All zeroes means an ended UTXO.
+    state_after: MemoryHash,
+}
+
+// NOTE: TxWitness and ContinuationEntry are currently partially redundant.
+// Maybe they could be combined somehow in the future.
+
 /// State inside a transaction. The Transaction itself keeps the wasm Store.
 #[derive(Default)]
 struct TransactionInner {
@@ -883,6 +928,8 @@ struct TransactionInner {
     programs: Vec<TxProgram>,
     /// Call and return values between programs, logged for future ZK use.
     witnesses: Vec<TxWitness>,
+    /// UTXO states.
+    continuations: Vec<ContinuationEntry>,
 
     registered_effect_handler: HashMap<String, Vec<(ProgramIdx, u32)>>,
     raised_effects: HashMap<String, ProgramIdx>,
@@ -912,6 +959,10 @@ impl Transaction {
         }
     }
 
+    pub fn code_cache(&self) -> &Arc<CodeCache> {
+        &self.code_cache
+    }
+
     pub fn utxos(&mut self) -> Vec<(Value, String)> {
         let data = self.store.data();
 
@@ -939,10 +990,6 @@ impl Transaction {
         }
 
         res
-    }
-
-    pub fn code_cache(&self) -> &Arc<CodeCache> {
-        &self.code_cache
     }
 
     pub fn run_coordination_script(
@@ -983,7 +1030,7 @@ impl Transaction {
                     let to_program = self.store.data_mut().programs[from_program.0].return_to;
                     if to_program == ProgramIdx::Root {
                         debug!("{from_program:?} -> {to_program:?}: {values:?}");
-                        // Transform WASM-side values to .
+                        // Transform WASM-side values to UTXO IDs if needed.
                         let result = if !values.is_empty() {
                             if let Some(utxo) =
                                 UtxoId::from_wasm_i64(&values[0], self.store.as_context())
@@ -1051,6 +1098,22 @@ impl Transaction {
                             .tokens
                             .insert(token_id, token);
                         values = vec![token_id.to_wasm_i64(self.store.as_context_mut())];
+                    }
+
+                    if self.store.data_mut().programs[from_program.0]
+                        .utxo
+                        .is_some()
+                    {
+                        // TODO: double-check that this actually reliably sets the right thing.
+                        self.store
+                            .data_mut()
+                            .continuations
+                            .iter_mut()
+                            .rev()
+                            .filter(|c| c.state_after == MemoryHash::UNFINISHED)
+                            .next()
+                            .unwrap()
+                            .state_after = MemoryHash::NOTHING;
                     }
 
                     self.resume(from_program, to_program, values, read_from_memory, vec![])
@@ -1196,13 +1259,22 @@ impl Transaction {
                 // ------------------------------------------------------------
                 // Coordination scripts can call into UTXOs
                 Err(Interrupt::UtxoNew {
-                    code,
+                    code: code_hash,
                     entry_point,
                     inputs,
                 }) => {
-                    let code = self.code_cache.get(code);
+                    let code = self.code_cache.get(code_hash);
                     let linker = utxo_linker(self.store.engine(), &self.code_cache, &code);
                     let id = UtxoId::random();
+
+                    self.store.data_mut().continuations.push(ContinuationEntry {
+                        code: code_hash,
+                        state_before: MemoryHash::NOTHING,
+                        entry_point: entry_point.clone(),
+                        input: inputs.clone(),
+                        state_after: MemoryHash::UNFINISHED,
+                    });
+
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].yield_to = Some(from_program);
@@ -1222,6 +1294,17 @@ impl Transaction {
                 }
                 Err(Interrupt::UtxoResume { utxo_id, inputs }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
+
+                    let code = self.store.data().programs[to_program.0].code;
+                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
+                    self.store.data_mut().continuations.push(ContinuationEntry {
+                        code,
+                        state_before,
+                        // TODO: Stackful resume()s don't have an entry point, so this is a placeholder.
+                        entry_point: "__resume__".to_owned(),
+                        input: inputs.clone(),
+                        state_after: MemoryHash::UNFINISHED,
+                    });
 
                     // TODO: I think this is correct if the utxo is resumed
                     // from a coordination script, because there is a chance the
@@ -1271,6 +1354,17 @@ impl Transaction {
                     mut inputs,
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
+
+                    let code = self.store.data().programs[to_program.0].code;
+                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
+                    self.store.data_mut().continuations.push(ContinuationEntry {
+                        code,
+                        state_before,
+                        entry_point: method.clone(),
+                        input: inputs.clone(),
+                        state_after: MemoryHash::UNFINISHED,
+                    });
+
                     // Insert address of yielded object.
                     let address = match self.store.data().programs[to_program.0].interrupt() {
                         Some(Interrupt::Yield { data, .. }) => *data,
@@ -1286,6 +1380,17 @@ impl Transaction {
                     mut inputs,
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
+
+                    let code = self.store.data().programs[to_program.0].code;
+                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
+                    self.store.data_mut().continuations.push(ContinuationEntry {
+                        code,
+                        state_before,
+                        entry_point: method.clone(),
+                        input: inputs.clone(),
+                        state_after: MemoryHash::UNFINISHED,
+                    });
+
                     // Insert address of yielded object.
                     let address = match self.store.data().programs[to_program.0].interrupt() {
                         Some(Interrupt::Yield { data, .. }) => *data,
@@ -1300,6 +1405,17 @@ impl Transaction {
                     mut inputs,
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
+
+                    let code = self.store.data().programs[to_program.0].code;
+                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
+                    self.store.data_mut().continuations.push(ContinuationEntry {
+                        code,
+                        state_before,
+                        entry_point: method.clone(),
+                        input: inputs.clone(),
+                        state_after: MemoryHash::UNFINISHED,
+                    });
+
                     // Insert address of yielded object.
                     let address = match self.store.data().programs[to_program.0].interrupt() {
                         Some(Interrupt::Yield { data, .. }) => *data,
@@ -1315,6 +1431,11 @@ impl Transaction {
                 // ------------------------------------------------------------
                 // UTXOs can yield and call into tokens
                 Err(Interrupt::Yield { .. }) => {
+                    let state_after = self.store.data().programs[from_program.0].hash(&self.store);
+                    let last = self.store.data_mut().continuations.last_mut().unwrap();
+                    assert_eq!(last.state_after, MemoryHash::UNFINISHED);
+                    last.state_after = state_after;
+
                     let utxo_scrambled_id = self.store.data_mut().programs[from_program.0]
                         .yield_to_constructor
                         .take();
@@ -1480,7 +1601,9 @@ impl Transaction {
         debug!("start: {from_program:?} -> {id:?} = {entry_point}{inputs:?}");
 
         let fuel = self.store.fuel_consumed().unwrap();
-        let main = instance.get_func(&mut self.store, entry_point).unwrap();
+        let main = instance
+            .get_func(&mut self.store, entry_point)
+            .expect(&entry_point);
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
         let resumable = main
@@ -1662,6 +1785,7 @@ impl std::fmt::Debug for Transaction {
         let inner = self.store.data();
         f.debug_struct("Transaction")
             .field("utxos", &inner.utxos)
+            .field("continuations", &inner.continuations)
             .field("programs", &inner.programs)
             .field("witnesses", &inner.witnesses)
             .finish()
@@ -1671,3 +1795,19 @@ impl std::fmt::Debug for Transaction {
 // TODO: Universe or World type which can spawn transactions (loading a subset
 // of UTXOs into WASM memories) and commit them (verify, flush WASM instances).
 // In the long term it should be possible to commit ZK proofs of transactions.
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MemoryHash([u8; 32]);
+
+impl MemoryHash {
+    /// Represents "before" a UTXO new or "after" a UTXO end.
+    pub const NOTHING: MemoryHash = MemoryHash([0; 32]);
+    /// Represents a "null" in the table where a value hasn't yet been filled.
+    pub const UNFINISHED: MemoryHash = MemoryHash([0xff; 32]);
+}
+
+impl std::fmt::Debug for MemoryHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MemoryHash({})", DisplayHex(&self.0[..]))
+    }
+}

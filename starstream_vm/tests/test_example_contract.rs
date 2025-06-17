@@ -3,6 +3,8 @@ use wasmi::Value;
 
 #[test]
 pub fn main() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+
     std::process::Command::new("cargo")
         .arg("build")
         .arg("-p")
@@ -14,7 +16,7 @@ pub fn main() {
 
     let example_contract = tx.code_cache().load_debug("example_contract");
 
-    tx.run_coordination_script(&example_contract, "produce", vec![]);
+    tx.run_coordination_script(&example_contract, "produce_effect", vec![]);
     dbg!(&tx);
 
     let a = tx.run_coordination_script(&example_contract, "star_mint", vec![Value::I64(17)]);
