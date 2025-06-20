@@ -132,6 +132,7 @@ impl Visitor {
             "Caller",
             "PayToPublicKeyHash",
             "List",
+            "print",
         ]
     }
 

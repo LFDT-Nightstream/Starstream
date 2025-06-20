@@ -10,7 +10,7 @@ pub use self::codegen::compile;
 pub use self::parser::starstream_program;
 use ariadne::{Report, Source};
 use chumsky::Parser as _;
-use scope_resolution::do_scope_analysis;
+pub use scope_resolution::do_scope_analysis;
 
 pub fn write_errors(output: &mut Vec<u8>, source_code: &str, errors: &[Report]) {
     for report in errors {
