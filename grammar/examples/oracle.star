@@ -1,6 +1,15 @@
+token FeeToken {}
+
+typedef Data = String
+
+const ORACLE_FEE = 10;
+const PAYMENT_ADDRESS = 10;
+
 utxo OracleContract {
   abi {
     error Error(string);
+
+    fn get_data(): Data;
   }
 
   storage {
@@ -29,7 +38,7 @@ utxo OracleContract {
 
 script {
   fn get_oracle_data(input: PayToPublicKeyHash, oracle: OracleContract): Data {
-    let change_utxo = PayToPublicKeyHash::new(fee.get_owner());
+    let change_utxo = PayToPublicKeyHash::new(context.tx.caller);
 
     let fee_utxo = PayToPublicKeyHash::new(PAYMENT_ADDRESS);
 

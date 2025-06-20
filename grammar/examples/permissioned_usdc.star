@@ -1,7 +1,10 @@
+const PERMISSIONED_TOKEN_ID = 42;
+const ADMIN = 42;
+
 utxo LinkedListNode {
   abi {
-    fn get_key(self): PublicKey;
-    fn get_next(self): PublicKey;
+    fn get_key(): PublicKey;
+    fn get_next(): PublicKey;
   }
 
   storage {
@@ -27,13 +30,13 @@ utxo LinkedListNode {
 
 script {
   fn is_in_range(proof: LinkedListNode, address: PublicKey) {
-    if (proof.get_key() == None) {
+    if (proof.get_key().is_none()) {
       // empty list
       false
     }
     else {
       let next = proof.get_next();
-      proof.get_key() < addr && ( next == None || next < next.unwrap() )
+      proof.get_key() < address && ( next.is_none() || next < next.unwrap() )
     }
   }
 
@@ -71,7 +74,7 @@ script {
     let output_intermediate = PermissionedUSDC::mint(output_amount);
 
     let change_utxo = PayToPublicKeyHash::new(from);
-    let change_intermediate = PermissionedUSDC::mint(input - output_amount);
+    let change_intermediate = PermissionedUSDC::mint(input_amount - output_amount);
 
     while(!change_tokens.is_empty()) {
       let non_usdc_token_intermediate = change_tokens.pop();
@@ -104,7 +107,7 @@ script {
       prev: LinkedListNode,
       new: PublicKey,
   ): LinkedListNode {
-    assert(tx.context.is_signed_by(ADMIN));
+    assert(context.tx.is_signed_by(ADMIN));
 
     let prev_next = prev.get_next();
     let prev_key = prev.get_key();
@@ -147,6 +150,7 @@ token PermissionedUSDC {
   }
 
   mint {
+    assert(context.tx.is_signed_by(ADMIN));
     assert(context.tx.is_signed_by(ADMIN));
   }
 
