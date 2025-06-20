@@ -375,7 +375,7 @@ impl Compiler {
             function.instructions().end();
             let index = self.add_function(ty, &function);
             self.exports
-                .export(&fndef.name.0, wasm_encoder::ExportKind::Func, index);
+                .export(&fndef.ident.raw, wasm_encoder::ExportKind::Func, index);
         }
     }
 
@@ -434,7 +434,7 @@ impl Compiler {
                     im = self.visit_call(func, im, &args.xs);
                 }
                 for (name, args) in methods {
-                    im = self.visit_field(func, im, &name.0);
+                    im = self.visit_field(func, im, &name.raw);
                     if let Some(args) = args {
                         im = self.visit_call(func, im, &args.xs);
                     }
@@ -599,7 +599,6 @@ impl Compiler {
 
     fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
         match primary {
-            PrimaryExpr::Null => Intermediate::ConstNull,
             PrimaryExpr::Number(number) => {
                 func.instructions().f64_const(*number);
                 Intermediate::StackF64
@@ -613,9 +612,9 @@ impl Compiler {
                 Intermediate::StackBool
             }
             PrimaryExpr::Ident(idents) => {
-                if idents.len() == 1 && idents[0].0 == "print" {
+                if idents.len() == 1 && idents[0].raw == "print" {
                     Intermediate::ConstFunction(self.global_scope_functions["print"])
-                } else if idents.len() == 1 && idents[0].0 == "print_f64" {
+                } else if idents.len() == 1 && idents[0].raw == "print_f64" {
                     Intermediate::ConstFunction(self.global_scope_functions["print_f64"])
                 } else {
                     self.todo(format!("PrimaryExpr::{:?}", primary));

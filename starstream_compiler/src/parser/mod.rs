@@ -25,6 +25,8 @@ pub fn starstream_program<'a>()
         .map(ProgramItem::Utxo)
         .or(script().map(ProgramItem::Script))
         .or(token().map(ProgramItem::Token))
+        .or(typedef().map(ProgramItem::TypeDef))
+        .or(constant().map(|(name, value)| ProgramItem::Constant { name, value }))
         .padded()
         .repeated()
         .collect::<Vec<_>>()
@@ -49,15 +51,15 @@ fn utxo<'a>() -> impl Parser<'a, &'a str, Utxo, extra::Err<Rich<'a, char>>> {
         .map(|(name, items)| Utxo { name, items })
 }
 
-fn fn_sig<'a>() -> impl Parser<'a, &'a str, FnSig, extra::Err<Rich<'a, char>>> {
-    just("fn").ignore_then(sig()).map(FnSig)
+fn fn_sig<'a>() -> impl Parser<'a, &'a str, FnDecl, extra::Err<Rich<'a, char>>> {
+    just("fn").ignore_then(sig()).map(FnDecl)
 }
 
-fn effect_sig<'a>() -> impl Parser<'a, &'a str, EffectSig, extra::Err<Rich<'a, char>>> {
+fn effect_sig<'a>() -> impl Parser<'a, &'a str, EffectDecl, extra::Err<Rich<'a, char>>> {
     choice((
-        just("effect").ignore_then(sig()).map(EffectSig::EffectSig),
-        just("event").ignore_then(sig()).map(EffectSig::EventSig),
-        just("error").ignore_then(sig()).map(EffectSig::ErrorSig),
+        just("effect").ignore_then(sig()).map(EffectDecl::EffectSig),
+        just("event").ignore_then(sig()).map(EffectDecl::EventSig),
+        just("error").ignore_then(sig()).map(EffectDecl::ErrorSig),
     ))
 }
 
@@ -80,19 +82,29 @@ fn sig<'a>() -> impl Parser<'a, &'a str, Sig, extra::Err<Rich<'a, char>>> {
 }
 
 fn fn_def<'a>() -> impl Parser<'a, &'a str, FnDef, extra::Err<Rich<'a, char>>> {
+    let typed_bindings = typed_binding(r#type())
+        .map(|(name, ty)| FnArgDeclaration {
+            name,
+            ty: TypeOrSelf::Type(ty),
+        })
+        .or(just("self").map_with(|ident, extra| FnArgDeclaration {
+            name: Identifier::new(ident, Some(extra.span())),
+            ty: TypeOrSelf::_Self,
+        }))
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .boxed();
+
     just("fn")
         .padded()
         .ignore_then(identifier())
         .padded()
-        .then(
-            optionally_typed_bindings(r#type())
-                .padded()
-                .delimited_by(just('('), just(')')),
-        )
+        .then(typed_bindings.padded().delimited_by(just('('), just(')')))
         .then(just(':').ignore_then(r#type().padded()).or_not())
         .then(block())
         .map(|(((name, inputs), output), body)| FnDef {
-            name,
+            ident: name,
             inputs,
             output,
             body,
@@ -160,8 +172,8 @@ fn abi<'a>() -> impl Parser<'a, &'a str, Abi, extra::Err<Rich<'a, char>>> {
     just("abi")
         .ignore_then(
             choice((
-                fn_sig().map(AbiElem::FnSig),
-                effect_sig().map(AbiElem::EffectSig),
+                fn_sig().map(AbiElem::FnDecl),
+                effect_sig().map(AbiElem::EffectDecl),
             ))
             .then_ignore(just(';').padded())
             .repeated()
@@ -222,7 +234,7 @@ fn statement<'a>(
             .then_ignore(just('=').padded())
             .then(expr_parser.clone())
             .then_ignore(just(';'))
-            .map(|(var, expr)| Statement::Assign(var, expr))
+            .map(|(var, expr)| Statement::Assign { var, expr })
             .boxed();
 
         let loop_body = rec
@@ -256,7 +268,7 @@ fn statement<'a>(
             .ignore_then(block_parser.clone())
             .then(
                 just("with")
-                    .ignore_then(effect().padded())
+                    .ignore_then(effect_handler().padded())
                     .then(block_parser.clone().padded())
                     .repeated()
                     .collect::<Vec<_>>(),
@@ -286,12 +298,17 @@ fn statement<'a>(
     })
 }
 
-fn effect<'a>() -> impl Parser<'a, &'a str, Effect, extra::Err<Rich<'a, char>>> {
-    let typed_bindings = optionally_typed_bindings(r#type());
-
+fn effect_handler<'a>() -> impl Parser<'a, &'a str, EffectHandler, extra::Err<Rich<'a, char>>> {
     identifier()
-        .then(typed_bindings.delimited_by(just('('), just(')')))
-        .map(|(ident, type_sig)| Effect { ident, type_sig })
+        .then(optionally_typed_bindings(r#type()).delimited_by(just('('), just(')')))
+        .map(|(ident, args)| EffectHandler {
+            ident,
+            args: args
+                .values
+                .into_iter()
+                .map(|(name, ty)| EffectArgDeclaration { name, ty })
+                .collect(),
+        })
 }
 
 fn typed_binding<'a>(
@@ -546,8 +563,8 @@ fn primary_expr<'a>(
         .map(|expr| PrimaryExpr::ParExpr(Box::new(expr)));
 
     let yield_expr = just("yield")
-        .ignore_then(expr_parser.clone().padded())
-        .map(|expr| PrimaryExpr::Yield(Box::new(expr)));
+        .ignore_then(expr_parser.clone().padded().map(Box::new).or_not())
+        .map(PrimaryExpr::Yield);
 
     let raise_expr = just("raise")
         .ignore_then(expr_parser.clone().padded())
@@ -595,14 +612,58 @@ fn primary_expr<'a>(
     .boxed()
 }
 
+fn reserved_word<'a>() -> impl Parser<'a, &'a str, (), extra::Err<Rich<'a, char>>> {
+    choice((just("enum"), just("typedef"))).padded().ignored()
+}
+
 fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, extra::Err<Rich<'a, char>>> {
-    text::ident().map(|s: &'a str| Identifier(s.to_string()))
+    text::ident()
+        .and_is(reserved_word().not())
+        .map_with(|s: &'a str, extra| Identifier::new(s, Some(extra.span())))
+}
+
+fn typedef<'a>() -> impl Parser<'a, &'a str, TypeDef, extra::Err<Rich<'a, char>>> {
+    just("typedef")
+        .ignore_then(identifier().padded())
+        .then_ignore(just("=").padded())
+        .then(r#type())
+        .map(|(name, ty)| TypeDef { name, ty })
+}
+
+fn constant<'a>() -> impl Parser<'a, &'a str, (Identifier, f64), extra::Err<Rich<'a, char>>> {
+    just("const")
+        .ignore_then(identifier().padded())
+        .then_ignore(just("=").padded())
+        .then(text::int(10).to_slice().map(|s: &str| s.parse().unwrap()))
+        .then_ignore(just(";"))
 }
 
 fn r#type<'a>() -> impl Parser<'a, &'a str, Type, extra::Err<Rich<'a, char>>> {
     let mut type_parser = Recursive::declare();
 
     type_parser.define({
+        let bool = just("bool").to(Type::Bool);
+
+        let p_u32 = just("u32").to(Type::U32);
+        let p_u64 = just("u64").to(Type::U64);
+        let p_i32 = just("i32").to(Type::I32);
+        let p_i64 = just("i64").to(Type::I64);
+
+        let string = just("string").to(Type::String);
+
+        let intermediate = just("Intermediate")
+            .padded()
+            .ignore_then(
+                type_parser
+                    .clone()
+                    .map(Box::new)
+                    .then_ignore(just(',').padded())
+                    .then(type_parser.clone().map(Box::new))
+                    .delimited_by(just('<').padded(), just('>').padded())
+                    .clone(),
+            )
+            .map(|(abi, storage)| Type::Intermediate { abi, storage });
+
         let type_application = identifier()
             .padded()
             .then(
@@ -613,7 +674,7 @@ fn r#type<'a>() -> impl Parser<'a, &'a str, Type, extra::Err<Rich<'a, char>>> {
                     .delimited_by(just('<').padded(), just('>').padded())
                     .or_not(),
             )
-            .map(|(base, params)| Type::BaseType(base, params))
+            .map(|(base, params)| Type::TypeApplication(base, params))
             .boxed();
 
         let typed_bindings = typed_binding(type_parser.clone())
@@ -628,6 +689,7 @@ fn r#type<'a>() -> impl Parser<'a, &'a str, Type, extra::Err<Rich<'a, char>>> {
             .boxed();
 
         let fn_type = typed_bindings
+            .clone()
             .delimited_by(just('(').padded(), just(')').padded())
             .then(
                 just("->")
@@ -640,7 +702,36 @@ fn r#type<'a>() -> impl Parser<'a, &'a str, Type, extra::Err<Rich<'a, char>>> {
             })
             .boxed();
 
-        choice((type_application, object, fn_type)).clone()
+        let variant = just("enum")
+            .ignore_then(
+                identifier()
+                    .padded()
+                    .then(
+                        typed_bindings
+                            .map(|values| TypedBindings { values })
+                            .delimited_by(just('(').padded(), just(')').padded()),
+                    )
+                    .separated_by(just(',').padded())
+                    .collect::<Vec<_>>()
+                    .delimited_by(just('{').padded(), just('}').padded()),
+            )
+            .map(|values| Type::Variant { variants: values })
+            .boxed();
+
+        choice((
+            bool,
+            p_u32,
+            p_i32,
+            p_u64,
+            p_i64,
+            string,
+            intermediate,
+            variant,
+            object,
+            fn_type,
+            type_application,
+        ))
+        .clone()
     });
 
     type_parser
@@ -780,6 +871,21 @@ mod tests {
 
         let input = "(x: Int)";
         test_with_diagnostics(input, r#type());
+
+        let input = "enum { One(), Two(x:Int) }";
+        test_with_diagnostics(input, r#type());
+    }
+
+    #[test]
+    fn parse_type_def() {
+        let input = "typedef E = enum { One(), Two(x:Int) }";
+        test_with_diagnostics(input, typedef());
+
+        let input = "typedef E = { x: Int, y: String }";
+        test_with_diagnostics(input, typedef());
+
+        let input = "typedef A = Intermediate<T, any>";
+        test_with_diagnostics(input, typedef());
     }
 
     #[test]
