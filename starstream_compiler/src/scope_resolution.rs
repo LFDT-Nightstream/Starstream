@@ -5,7 +5,7 @@ use crate::ast::{
 };
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// This traverses the AST, and assigns an unique numeric ID to each identifier
 /// on declaration. The ids are stored inside of the Identifier node of the AST.
@@ -32,7 +32,10 @@ pub fn do_scope_analysis(
 }
 
 pub struct Symbols {
-    pub map: HashMap<SymbolId, SymbolInformation>,
+    pub vars: HashMap<SymbolId, SymbolInformation<VarInfo>>,
+    pub types: HashMap<SymbolId, SymbolInformation<TypeInfo>>,
+    pub functions: HashMap<SymbolId, SymbolInformation<FuncInfo>>,
+    pub constants: HashMap<SymbolId, SymbolInformation<ConstInfo>>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,17 +44,31 @@ pub struct VarInfo {
     pub mutable: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct TypeInfo {
+    pub declarations: HashSet<SymbolId>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FuncInfo {}
+
+#[derive(Debug, Clone)]
+pub struct ConstInfo {}
+
 #[derive(Debug)]
-pub struct SymbolInformation {
+pub struct SymbolInformation<T> {
     pub source: String,
     pub span: Option<SimpleSpan>,
-    pub variable: Option<VarInfo>,
+    pub info: T,
 }
 
 #[derive(Debug)]
 pub struct Scope {
-    declarations: HashMap<String, SymbolId>,
+    var_declarations: HashMap<String, SymbolId>,
+    function_declarations: HashMap<String, SymbolId>,
+    type_declarations: HashMap<String, SymbolId>,
     is_function_scope: bool,
+    is_type_scope: Option<SymbolId>,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, PartialOrd, Eq, Ord)]
@@ -71,8 +88,12 @@ struct Visitor {
     symbols: Symbols,
 }
 
-enum DeclarationKind {
-    Variable { mutable: bool },
+#[derive(Debug, Clone)]
+pub enum SymbolKind {
+    Variable,
+    Function,
+    Type,
+    Constant,
 }
 
 impl Visitor {
@@ -83,20 +104,44 @@ impl Visitor {
             symbol_counter: 0,
             errors: vec![],
             symbols: Symbols {
-                map: Default::default(),
+                vars: Default::default(),
+                types: Default::default(),
+                functions: Default::default(),
+                constants: Default::default(),
             },
         }
     }
 
-    fn push_scope(&mut self, is_function_scope: bool) {
+    fn push_type_scope(&mut self, type_id: SymbolId) {
         self.stack.push(Scope {
-            declarations: HashMap::new(),
-            is_function_scope,
+            var_declarations: HashMap::new(),
+            function_declarations: HashMap::new(),
+            type_declarations: HashMap::new(),
+            is_function_scope: false,
+            is_type_scope: Some(type_id),
+        });
+    }
+
+    fn push_function_scope(&mut self) {
+        self.stack.push(Scope {
+            var_declarations: HashMap::new(),
+            function_declarations: HashMap::new(),
+            type_declarations: HashMap::new(),
+            is_function_scope: true,
+            is_type_scope: None,
         });
 
-        if is_function_scope {
-            self.locals.push(0);
-        }
+        self.locals.push(0);
+    }
+
+    fn push_scope(&mut self) {
+        self.stack.push(Scope {
+            var_declarations: HashMap::new(),
+            function_declarations: HashMap::new(),
+            type_declarations: HashMap::new(),
+            is_function_scope: false,
+            is_type_scope: None,
+        });
     }
 
     fn pop_scope(&mut self) {
@@ -113,37 +158,60 @@ impl Visitor {
         (self.symbols, self.errors)
     }
 
-    fn builtins() -> Vec<&'static str> {
+    fn builtins() -> Vec<(&'static str, SymbolKind, Option<Vec<&'static str>>)> {
         // TODO: mostly just to get the examples working
         // these probably would have to be some sort of import?
         vec![
-            "CoordinationCode",
-            "ThisCode",
-            "assert",
-            "IsTxSignedBy",
-            "None",
-            "context",
-            "String",
-            "u32",
-            "u64",
-            "i32",
-            "i64",
-            "PublicKey",
-            "Caller",
-            "PayToPublicKeyHash",
-            "List",
-            "print",
+            ("CoordinationCode", SymbolKind::Function, None),
+            ("ThisCode", SymbolKind::Function, None),
+            ("assert", SymbolKind::Function, None),
+            ("IsTxSignedBy", SymbolKind::Function, None),
+            ("None", SymbolKind::Function, None),
+            ("context", SymbolKind::Constant, None),
+            ("String", SymbolKind::Type, None),
+            ("u32", SymbolKind::Type, None),
+            ("u64", SymbolKind::Type, None),
+            ("i32", SymbolKind::Type, None),
+            ("i64", SymbolKind::Type, None),
+            ("PublicKey", SymbolKind::Type, None),
+            ("Caller", SymbolKind::Function, None),
+            ("PayToPublicKeyHash", SymbolKind::Type, Some(vec![("new")])),
+            ("List", SymbolKind::Type, Some(vec!["new"])),
+            ("print", SymbolKind::Function, None),
         ]
     }
 
     fn add_builtins(&mut self) {
-        for builtin in Self::builtins() {
-            self.push_declaration(&mut Identifier::new(builtin, None), None);
+        for (builtin, kind, fns) in Self::builtins() {
+            match kind {
+                SymbolKind::Variable => {
+                    self.push_var_declaration(&mut Identifier::new(builtin, None), false);
+                }
+                SymbolKind::Type => {
+                    let type_id = self.push_type_declaration(&mut Identifier::new(builtin, None));
+
+                    self.push_type_scope(type_id);
+
+                    if let Some(fns) = fns {
+                        for f in fns {
+                            self.push_function_declaration(&mut Identifier::new(f, None));
+                        }
+                    }
+
+                    self.pop_scope();
+                }
+                SymbolKind::Function => {
+                    self.push_function_declaration(&mut Identifier::new(builtin, None));
+                }
+                SymbolKind::Constant => {
+                    self.push_constant_declaration(&mut Identifier::new(builtin, None));
+                }
+            }
         }
     }
 
     fn visit_program(&mut self, program: &mut StarstreamProgram) {
-        self.push_scope(false);
+        self.push_scope();
 
         self.add_builtins();
 
@@ -151,19 +219,29 @@ impl Visitor {
             match item {
                 ProgramItem::TypeDef(type_def) => self.visit_type_def(type_def),
                 ProgramItem::Token(token) => {
-                    self.push_declaration(&mut token.name, None);
+                    self.push_type_declaration(&mut token.name);
                 }
                 ProgramItem::Script(_script) => (),
                 ProgramItem::Utxo(utxo) => {
-                    self.push_declaration(&mut utxo.name, None);
+                    self.push_type_declaration(&mut utxo.name);
                 }
                 ProgramItem::Constant { name, value: _ } => {
-                    self.push_declaration(name, None);
+                    self.push_constant_declaration(name);
                 }
             }
         }
 
-        for item in &mut program.items {
+        let mut items = program.items.iter_mut().collect::<Vec<_>>();
+
+        items.sort_by_key(|item| match item {
+            ProgramItem::Token(_token) => 0,
+            ProgramItem::Utxo(_utxo) => 1,
+            ProgramItem::TypeDef(_type_def) => 2,
+            ProgramItem::Constant { name: _, value: _ } => 3,
+            ProgramItem::Script(_script) => 4,
+        });
+
+        for item in items {
             match item {
                 ProgramItem::Script(script) => {
                     self.visit_script(script);
@@ -183,14 +261,20 @@ impl Visitor {
 
     pub fn visit_script(&mut self, script: &mut Script) {
         for definition in &mut script.definitions {
-            self.visit_fn_def(definition, true);
+            self.push_function_declaration(&mut definition.ident);
+        }
+
+        for definition in &mut script.definitions {
+            self.visit_fn_def(definition);
         }
     }
 
     pub fn visit_utxo(&mut self, utxo: &mut Utxo) {
-        self.push_declaration(&mut utxo.name, None);
+        let uid = self.push_type_declaration(&mut utxo.name);
 
         // we need to put these into scope before doing anything else
+        self.push_type_scope(uid);
+
         for item in &mut utxo.items {
             if let UtxoItem::Abi(abi) = item {
                 self.visit_abi(abi);
@@ -201,73 +285,68 @@ impl Visitor {
             match item {
                 UtxoItem::Abi(_) => (),
                 UtxoItem::Main(main) => {
+                    // TODO: may actually want to get the "main" span
+                    self.push_function_declaration(&mut Identifier::new("new", None));
                     self.visit_block(&mut main.block, true);
                 }
                 UtxoItem::Impl(utxo_impl) => {
                     for definition in &mut utxo_impl.definitions {
-                        self.visit_fn_def(definition, false);
+                        self.visit_fn_def(definition);
                     }
                 }
                 UtxoItem::Storage(_) => {}
             }
         }
+
+        self.pop_scope();
     }
 
     pub fn visit_token(&mut self, token: &mut Token) {
-        self.push_declaration(&mut token.name, None);
+        let uid = self.push_type_declaration(&mut token.name);
+
+        self.push_type_scope(uid);
+
+        self.push_function_declaration(&mut Identifier::new("type", None));
 
         for item in &mut token.items {
             match item {
                 TokenItem::Abi(abi) => self.visit_abi(abi),
                 TokenItem::Bind(bind) => {
-                    self.push_scope(true);
-                    self.push_declaration(
-                        &mut Identifier::new("self", None),
-                        Some(DeclarationKind::Variable { mutable: true }),
-                    );
+                    self.push_function_scope();
+                    self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut bind.0, false);
                     self.pop_scope();
                 }
                 TokenItem::Unbind(unbind) => {
-                    self.push_scope(true);
-                    self.push_declaration(
-                        &mut Identifier::new("self", None),
-                        Some(DeclarationKind::Variable { mutable: true }),
-                    );
+                    self.push_function_scope();
+                    self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut unbind.0, false);
                     self.pop_scope();
                 }
                 TokenItem::Mint(mint) => {
-                    self.push_scope(true);
-                    self.push_declaration(
-                        &mut Identifier::new("self", None),
-                        Some(DeclarationKind::Variable { mutable: true }),
-                    );
+                    self.push_function_declaration(&mut Identifier::new("mint", None));
+                    self.push_function_scope();
+                    self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut mint.0, false);
                     self.pop_scope();
                 }
             }
         }
+
+        self.pop_scope();
     }
 
     pub fn visit_type_def(&mut self, type_def: &mut TypeDef) {
-        self.push_declaration(&mut type_def.name, None);
+        self.push_type_declaration(&mut type_def.name);
     }
 
-    fn visit_fn_def(&mut self, definition: &mut FnDef, is_declaration: bool) {
-        if is_declaration {
-            self.push_declaration(&mut definition.ident, None);
-        } else {
-            self.resolve_name(&mut definition.ident);
-        }
+    fn visit_fn_def(&mut self, definition: &mut FnDef) {
+        self.resolve_name(&mut definition.ident, SymbolKind::Function);
 
-        self.push_scope(true);
+        self.push_function_scope();
 
         for node in &mut definition.inputs {
-            self.push_declaration(
-                &mut node.name,
-                Some(DeclarationKind::Variable { mutable: false }),
-            );
+            self.push_var_declaration(&mut node.name, false);
         }
 
         self.visit_block(&mut definition.body, false);
@@ -275,36 +354,118 @@ impl Visitor {
         self.pop_scope();
     }
 
-    fn push_declaration(
-        &mut self,
-        ident: &mut Identifier,
-        kind: Option<DeclarationKind>,
-    ) -> SymbolId {
-        let scope = self.stack.last_mut().unwrap();
-
-        let symbol = SymbolId {
-            id: self.symbol_counter,
-        };
-
-        ident.uid.replace(symbol);
-
+    fn new_symbol(&mut self, ident: &mut Identifier) -> SymbolId {
+        let id = self.symbol_counter;
         self.symbol_counter += 1;
 
-        scope.declarations.insert(ident.raw.clone(), symbol);
+        let symbol = SymbolId { id };
+        ident.uid.replace(symbol);
+        symbol
+    }
 
-        self.symbols.map.insert(
+    fn push_var_declaration(&mut self, ident: &mut Identifier, mutable: bool) -> SymbolId {
+        let symbol = self.new_symbol(ident);
+
+        let scope = self.stack.last_mut().unwrap();
+        scope.var_declarations.insert(ident.raw.clone(), symbol);
+
+        // TODO: handle error
+        let fn_scope = self.locals.last_mut().unwrap();
+        let index = *fn_scope;
+        *fn_scope += 1;
+        let var_info = VarInfo { index, mutable };
+
+        self.symbols.vars.insert(
             symbol,
             SymbolInformation {
                 source: ident.raw.clone(),
                 span: ident.span,
-                variable: if let Some(DeclarationKind::Variable { mutable }) = kind {
-                    // TODO: handle error
-                    let fn_scope = self.locals.last_mut().unwrap();
-                    let index = *fn_scope;
-                    *fn_scope += 1;
-                    Some(VarInfo { index, mutable })
-                } else {
-                    None
+                info: var_info,
+            },
+        );
+
+        symbol
+    }
+
+    fn push_constant_declaration(&mut self, ident: &mut Identifier) -> SymbolId {
+        let symbol = self.new_symbol(ident);
+
+        let scope = self.stack.last_mut().unwrap();
+        scope.var_declarations.insert(ident.raw.clone(), symbol);
+
+        self.symbols.constants.insert(
+            symbol,
+            SymbolInformation {
+                source: ident.raw.clone(),
+                span: ident.span,
+                info: ConstInfo {},
+            },
+        );
+
+        symbol
+    }
+
+    fn push_function_declaration(&mut self, ident: &mut Identifier) -> SymbolId {
+        let symbol = self.new_symbol(ident);
+
+        self.symbols.functions.insert(
+            symbol,
+            SymbolInformation {
+                source: ident.raw.clone(),
+                span: ident.span,
+                info: FuncInfo {},
+            },
+        );
+
+        let scope = self.stack.last_mut().unwrap();
+
+        if let Some(prev) = scope
+            .function_declarations
+            .insert(ident.raw.clone(), symbol)
+        {
+            let prev = self.symbols.functions.get(&prev).unwrap().span.unwrap();
+
+            self.push_redeclaration_error(ident.span.unwrap(), prev);
+        }
+
+        let type_scope = self
+            .stack
+            .iter()
+            .rev()
+            .find_map(|scope| scope.is_type_scope);
+
+        if let Some(type_scope) = type_scope {
+            let type_information = self.symbols.types.get_mut(&type_scope).unwrap();
+
+            let inserted = type_information.info.declarations.insert(symbol);
+
+            if !inserted {
+                // fine to unwrap since otherwise inserted would be true
+                let prev = type_information.info.declarations.get(&symbol).unwrap();
+
+                // TODO: cleanup the panics (compiler error)
+                let prev = self.symbols.functions.get(prev).unwrap();
+
+                self.push_redeclaration_error(ident.span.unwrap(), prev.span.unwrap());
+            }
+        }
+
+        symbol
+    }
+
+    fn push_type_declaration(&mut self, ident: &mut Identifier) -> SymbolId {
+        let symbol = self.new_symbol(ident);
+
+        let scope = self.stack.last_mut().unwrap();
+        scope.type_declarations.insert(ident.raw.clone(), symbol);
+
+        self.symbols.types.insert(
+            symbol,
+            SymbolInformation {
+                source: ident.raw.clone(),
+                span: ident.span,
+                info: TypeInfo {
+                    declarations: HashSet::new(),
                 },
             },
         );
@@ -312,19 +473,31 @@ impl Visitor {
         symbol
     }
 
-    fn resolve_name(&mut self, identifier: &mut Identifier) {
-        let resolution = self
-            .stack
-            .iter()
-            .rev()
-            .find_map(|scope| scope.declarations.get(&identifier.raw).cloned());
+    fn resolve_name(
+        &mut self,
+        identifier: &mut Identifier,
+        symbol_kind: SymbolKind,
+    ) -> Option<SymbolId> {
+        let resolution = self.stack.iter().rev().find_map(|scope| match symbol_kind {
+            SymbolKind::Variable | SymbolKind::Constant => {
+                scope.var_declarations.get(&identifier.raw).cloned()
+            }
+            SymbolKind::Function => scope
+                .function_declarations
+                .get(&identifier.raw)
+                .cloned()
+                .or_else(|| scope.type_declarations.get(&identifier.raw).cloned()),
+            SymbolKind::Type => scope.type_declarations.get(&identifier.raw).cloned(),
+        });
 
         let Some(resolved_name) = resolution else {
-            self.push_error("not found in this scope", identifier.span.unwrap());
-            return;
+            self.push_not_found_error(identifier.span.unwrap());
+            return None;
         };
 
         identifier.uid.replace(resolved_name);
+
+        Some(resolved_name)
     }
 
     fn visit_block(&mut self, block: &mut Block, new_scope: bool) {
@@ -332,7 +505,7 @@ impl Visitor {
         // function definitions. We could create an inner scope for the function
         // definition, but it's probably better to not increase depth
         if new_scope {
-            self.push_scope(false);
+            self.push_scope();
         }
 
         let mut curr = block;
@@ -365,7 +538,7 @@ impl Visitor {
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
             Expr::PrimaryExpr(primary_expr, arguments, items) => {
-                self.visit_primary_expr(primary_expr);
+                self.visit_primary_expr(primary_expr, arguments.is_some());
 
                 if let Some(arguments) = arguments {
                     for expr in &mut arguments.xs {
@@ -429,7 +602,7 @@ impl Visitor {
                 mutable,
                 value,
             } => {
-                self.push_declaration(var, Some(DeclarationKind::Variable { mutable: *mutable }));
+                self.push_var_declaration(var, *mutable);
                 self.visit_expr(value);
             }
             Statement::Return(expr) | Statement::Resume(expr) => {
@@ -438,24 +611,21 @@ impl Visitor {
                 }
             }
             Statement::Assign { var, expr } => {
-                self.resolve_name(var);
+                self.resolve_name(var, SymbolKind::Variable);
 
                 self.visit_expr(expr);
             }
             Statement::With(block, items) => {
-                self.push_scope(false);
+                self.push_scope();
 
                 for (decl, body) in items {
                     // TODO: depending on whether we compile effect handlers as
                     // functions or not we may need to change this
                     // also to handle captures probably
-                    self.push_scope(true);
+                    self.push_function_scope();
 
                     for node in &mut decl.args {
-                        self.push_declaration(
-                            &mut node.name,
-                            Some(DeclarationKind::Variable { mutable: false }),
-                        );
+                        self.push_var_declaration(&mut node.name, false);
                     }
 
                     self.visit_block(body, false);
@@ -485,13 +655,60 @@ impl Visitor {
         }
     }
 
-    fn visit_primary_expr(&mut self, expr: &mut PrimaryExpr) {
+    fn visit_primary_expr(&mut self, expr: &mut PrimaryExpr, is_function_call: bool) {
         match expr {
             PrimaryExpr::Number(_) => (),
             PrimaryExpr::Bool(_) => (),
             PrimaryExpr::Ident(name) => {
-                // TODO: figure out namespaces
-                self.resolve_name(&mut name[0]);
+                if name.len() > 1 {
+                    let ident_index = name.len() - 1;
+                    let (tys, ident) = name.split_at_mut(ident_index);
+
+                    let mut namespace = None;
+
+                    for ty in tys {
+                        if let Some(type_id) = self.resolve_name(ty, SymbolKind::Type) {
+                            self.symbols.types.get(&type_id);
+
+                            namespace.replace(type_id);
+                        }
+                    }
+
+                    let Some(namespace) = namespace else {
+                        return;
+                    };
+
+                    let f = self
+                        .symbols
+                        .types
+                        .get(&namespace)
+                        .unwrap()
+                        .info
+                        .declarations
+                        .iter()
+                        .find(|uid| {
+                            self.symbols
+                                .functions
+                                .get(uid)
+                                .map(|finfo| finfo.source == ident[0].raw)
+                                .unwrap_or(false)
+                        });
+
+                    if let Some(f) = f {
+                        ident[0].uid.replace(*f);
+                    } else {
+                        self.push_not_found_error(ident[0].span.unwrap());
+                    }
+                } else {
+                    self.resolve_name(
+                        &mut name[0],
+                        if is_function_call {
+                            SymbolKind::Function
+                        } else {
+                            SymbolKind::Variable
+                        },
+                    );
+                }
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(expr),
             PrimaryExpr::Yield(expr) => {
@@ -499,7 +716,10 @@ impl Visitor {
                     self.visit_expr(expr)
                 }
             }
-            PrimaryExpr::Raise(expr) => self.visit_expr(expr),
+            PrimaryExpr::Raise(expr) => {
+                // dbg!(&self.stack);
+                self.visit_expr(expr)
+            }
             PrimaryExpr::Object(_, items) => {
                 for (_ident, item) in items {
                     self.visit_expr(item);
@@ -513,7 +733,7 @@ impl Visitor {
         for item in &mut abi.values {
             match item {
                 AbiElem::FnDecl(decl) => {
-                    self.push_declaration(&mut decl.0.name, None);
+                    self.push_function_declaration(&mut decl.0.name);
 
                     for ty in &mut decl.0.input_types {
                         self.visit_type(ty);
@@ -527,26 +747,11 @@ impl Visitor {
                     EffectDecl::EffectSig(decl)
                     | EffectDecl::EventSig(decl)
                     | EffectDecl::ErrorSig(decl) => {
-                        self.push_declaration(&mut decl.name, None);
+                        self.push_type_declaration(&mut decl.name);
                     }
                 },
             }
         }
-    }
-
-    fn push_error(&mut self, message: &'static str, span: SimpleSpan) {
-        self.errors.push(
-            Report::build(ReportKind::Error, span.into_range())
-                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-                // TODO: define error codes
-                .with_code(1)
-                .with_label(
-                    Label::new(span.into_range())
-                        .with_message(message)
-                        .with_color(Color::Red),
-                )
-                .finish(),
-        );
     }
 
     fn visit_type(&mut self, ty: &mut Type) {
@@ -562,7 +767,7 @@ impl Visitor {
                 self.visit_type(storage);
             }
             Type::TypeApplication(identifier, params) => {
-                self.resolve_name(identifier);
+                self.resolve_name(identifier, SymbolKind::Type);
 
                 if let Some(params) = params {
                     for ty in params {
@@ -579,7 +784,7 @@ impl Visitor {
             }
             Type::Variant { variants } => {
                 for (variant, _) in variants {
-                    self.push_declaration(variant, None);
+                    self.push_function_declaration(variant);
                 }
             }
             Type::FnType(typed_bindings, output_ty) => {
@@ -593,12 +798,45 @@ impl Visitor {
             }
         }
     }
+
+    fn push_not_found_error(&mut self, span: SimpleSpan) {
+        self.errors.push(
+            Report::build(ReportKind::Error, span.into_range())
+                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                // TODO: define error codes across the compiler
+                .with_code(1)
+                .with_label(
+                    Label::new(span.into_range())
+                        .with_message("not found in this scope")
+                        .with_color(Color::Red),
+                )
+                .finish(),
+        );
+    }
+
+    fn push_redeclaration_error(&mut self, prev: SimpleSpan, new: SimpleSpan) {
+        self.errors.push(
+            Report::build(ReportKind::Error, new.into_range())
+                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                // TODO: define error codes across the compiler
+                .with_code(2)
+                .with_label(
+                    Label::new(new.into_range())
+                        .with_message("function already declared")
+                        .with_color(Color::Red),
+                )
+                .with_label(
+                    Label::new(prev.into_range())
+                        .with_message("here")
+                        .with_color(Color::BrightRed),
+                )
+                .finish(),
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::scope_resolution::Visitor;
-
     use super::do_scope_analysis;
     use ariadne::Source;
     use chumsky::Parser as _;
@@ -727,30 +965,74 @@ mod tests {
             }
             Ok((_ast, table)) => {
                 let vars = table
-                    .map
+                    .vars
                     .values()
                     .filter(|info| info.source == "x")
                     .collect::<Vec<_>>();
 
                 assert_eq!(vars.len(), 2);
 
-                let first = vars
-                    .iter()
-                    .map(|info| info.variable.clone().unwrap())
-                    .find(|info| info.index == 0)
-                    .unwrap();
+                let first = vars.iter().find(|info| info.info.index == 0).unwrap();
 
-                let second = vars
-                    .iter()
-                    .map(|info| info.variable.clone().unwrap())
-                    .find(|info| info.index == 2)
-                    .unwrap();
+                let second = vars.iter().find(|info| info.info.index == 2).unwrap();
 
-                assert!(first.mutable);
-                assert!(!second.mutable);
+                assert!(first.info.mutable);
+                assert!(!second.info.mutable);
 
-                // 3 variables + the function name
-                assert_eq!(table.map.len(), 4 + Visitor::builtins().len());
+                assert_eq!(table.vars.len(), 3);
+            }
+        }
+    }
+
+    #[test]
+    fn script_function_order() {
+        let input = "
+            script {
+              fn foo() {
+                  bar();
+              }
+
+              fn bar() {
+              }
+            }
+        ";
+
+        let program = crate::starstream_program().parse(input).unwrap();
+
+        let ast = do_scope_analysis(program);
+
+        match ast {
+            Err(_errors) => {
+                unreachable!();
+            }
+            Ok((_ast, _table)) => {}
+        }
+    }
+
+    #[test]
+    fn script_function_same_name_fails() {
+        let input = "
+            script {
+              fn foo() {
+              }
+
+              fn foo() {
+              }
+            }
+        ";
+
+        let program = crate::starstream_program().parse(input).unwrap();
+
+        let ast = do_scope_analysis(program);
+
+        match ast {
+            Err(_errors) => {
+                // for e in _errors {
+                //     e.eprint(Source::from(input)).unwrap();
+                // }
+            }
+            Ok((_ast, _table)) => {
+                unreachable!();
             }
         }
     }
