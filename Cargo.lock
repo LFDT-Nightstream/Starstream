@@ -1728,6 +1728,7 @@ dependencies = [
  "sha2",
  "tiny-keccak",
  "wasmi",
+ "wat",
  "zk-engine",
 ]
 

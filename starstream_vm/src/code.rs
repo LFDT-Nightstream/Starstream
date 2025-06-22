@@ -97,9 +97,18 @@ impl CodeCache {
     pub fn load_debug(&self, name: &str) -> Arc<ContractCode> {
         let mut current = std::env::current_dir().unwrap();
         while !current.join("target").exists() && current.pop() {}
-        self.load_file(&current.join(Path::new(&format!(
-            "target/wasm32-unknown-unknown/debug/{name}.wasm"
-        ))))
+        if let Some(wat_name) = name.strip_prefix("wat:") {
+            let wat = std::fs::read_to_string(
+                &current.join(Path::new(&format!("starstream_vm/tests/{wat_name}.wat"))),
+            )
+            .expect("no such WAT file");
+            let wasm = wat::parse_str(&wat).expect("invalid WAT");
+            self.load(wasm)
+        } else {
+            self.load_file(&current.join(Path::new(&format!(
+                "target/wasm32-unknown-unknown/debug/{name}.wasm"
+            ))))
+        }
     }
 
     pub fn get(&self, hash: CodeHash) -> Arc<ContractCode> {
