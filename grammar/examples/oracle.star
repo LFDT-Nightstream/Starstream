@@ -1,4 +1,4 @@
-token FeeToken {}
+const FeeToken = 3;
 
 typedef Data = String
 

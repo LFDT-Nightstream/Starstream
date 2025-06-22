@@ -56,7 +56,7 @@ script {
       source.next();
     }
     with TokenUnbound(token: Intermediate<any, any>) {
-      if(token.type == PermissionedUSDC::type) {
+      if(token.type == PermissionedUSDC::type()) {
         input_amount = input_amount + token.amount;
       }
       else {
@@ -100,7 +100,7 @@ script {
 
   fn blacklist_empty(): LinkedListNode {
     assert(raise IsTxSignedBy(ADMIN));
-    LinkedListNode::new(None, None);
+    LinkedListNode::new(None(), None());
   }
 
   fn blacklist_insert(
@@ -114,10 +114,10 @@ script {
 
     prev.burn();
 
-    assert(prev_key == None || prev_key < new);
-    assert(prev_next == None || new < prev_next);
+    assert(prev_key == None() || prev_key < new);
+    assert(prev_next == None() || new < prev_next);
 
-    if (prev_key != None) {
+    if (prev_key != None()) {
       LinkedListNode::new(prev_key, new);
     }
 
@@ -157,7 +157,7 @@ token PermissionedUSDC {
   bind {
     assert(raise CoordinationCode() == raise ThisCode());
 
-    let owner = raise CallerOwner;
+    let owner = raise CallerOwner();
 
     let is_blacklisted = raise IsBlacklisted(owner);
 
@@ -172,7 +172,7 @@ token PermissionedUSDC {
   unbind {
     assert(raise CoordinationCode() == raise ThisCode());
 
-    let owner = raise CallerOwner;
+    let owner = raise CallerOwner();
 
     let is_blacklisted = raise IsBlacklisted(owner);
 
