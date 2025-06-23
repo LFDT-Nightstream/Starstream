@@ -654,9 +654,29 @@ fn coordination_script_linker(
 
     starstream_env(&mut linker, "env", &coordination_code);
 
+    linker
+        .func_wrap(
+            "starstream_utxo",
+            "starstream_status",
+            |caller: Caller<TransactionInner>, utxo_id: u64| -> Result<u32, WasmiError> {
+                trace!("starstream_status()");
+                let utxo_id =
+                    UtxoId::from_wasm_i64(&Value::I64(utxo_id as i64), caller.as_context())
+                        .expect("invalid utxo");
+                let to_program = caller.data().utxos[&utxo_id].program;
+                let n = if caller.data().programs[to_program.0].interrupt().is_some() {
+                    1
+                } else {
+                    0
+                };
+                Ok(n)
+            },
+        )
+        .unwrap();
+
     for import in coordination_code.module(engine).imports() {
         if import.module() == "env" {
-            // handled by starstream_env above
+            // already handled by code above
         } else if let Some(rest) = import.module().strip_prefix("starstream_utxo:") {
             let rest = rest.to_owned();
             if let ExternType::Func(func_ty) = import.ty() {
@@ -679,8 +699,6 @@ fn coordination_script_linker(
                             },
                         )
                         .unwrap();
-                } else if import.name().starts_with("starstream_status_") {
-                    // TODO
                 } else if import.name().starts_with("starstream_resume_") {
                     linker
                         .func_new(
