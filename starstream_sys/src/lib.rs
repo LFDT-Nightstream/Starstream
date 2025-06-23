@@ -221,10 +221,10 @@ macro_rules! effect {
             pub fn handle<Output, Body, Handler>(
                 body: Body,
                 handler: Handler,
-            ) -> Body::Output
+            ) -> Output
             where
                 Body: FnOnce() -> Output,
-                Handler: FnMut($($pty),*) -> Result<$return_ty, Body::Output>,
+                Handler: FnMut($($pty),*) -> Result<$return_ty, Output>,
             {
                 // TODO
                 body()
