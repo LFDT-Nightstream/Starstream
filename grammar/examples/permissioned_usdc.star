@@ -55,7 +55,7 @@ script {
     try {
       source.next();
     }
-    with TokenUnbound(token: Intermediate<any, any>) {
+    with Starstream::TokenUnbound(token: Intermediate<any, any>) {
       if(token.type == PermissionedUSDC::type()) {
         input_amount = input_amount + token.amount;
       }
@@ -63,7 +63,7 @@ script {
         change_tokens.push(token);
       }
     }
-    with IsBlacklisted(address: PublicKey) {
+    with PermissionedUSDC::IsBlacklisted(address: PublicKey) {
       let res1 = is_in_range(proof_from, address);
       let res2 = is_in_range(proof_to, address);
 
@@ -88,7 +88,7 @@ script {
       output_utxo.attach(output_intermediate);
       change_utxo.attach(change_intermediate);
     }
-    with IsBlacklisted(address: PublicKey) {
+    with PermissionedUSDC::IsBlacklisted(address: PublicKey) {
       let res1 = is_in_range(proof_from, address);
       let res2 = is_in_range(proof_to, address);
 
@@ -137,7 +137,7 @@ script {
 
       out
     }
-    with IsBlacklisted(address) {
+    with PermissionedUSDC::IsBlacklisted(address) {
       is_in_range(proof, address);
     }
   }

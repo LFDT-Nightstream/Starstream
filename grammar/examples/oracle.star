@@ -1,6 +1,6 @@
 const FeeToken = 3;
 
-typedef Data = String
+typedef Data = string
 
 const ORACLE_FEE = 10;
 const PAYMENT_ADDRESS = 10;
@@ -45,7 +45,7 @@ script {
     try {
       resume input;
     }
-    with TokenUnbound(intermediate: Intermediate<any, any>) {
+    with Starstream::TokenUnbound(intermediate: Intermediate<any, any>) {
       if(intermediate.type == FeeToken) {
         let change = intermediate.change_for(ORACLE_FEE);
         change_utxo.attach(change);
