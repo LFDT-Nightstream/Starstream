@@ -37,7 +37,7 @@ pub enum UtxoItem {
 
 #[derive(Clone, Debug)]
 pub struct Main {
-    pub type_sig: Option<OptionallyTypedBindings>,
+    pub type_sig: Option<TypedBindings>,
     pub block: Block,
 }
 
@@ -83,8 +83,8 @@ pub struct Storage {
 #[derive(Clone, Debug)]
 pub struct Sig {
     pub name: Identifier,
-    pub input_types: Vec<Type>,
-    pub output_type: Option<Type>,
+    pub input_types: Vec<TypeArg>,
+    pub output_type: Option<TypeArg>,
 }
 
 #[derive(Clone, Debug)]
@@ -92,7 +92,7 @@ pub struct FnDecl(pub Sig);
 
 #[derive(Clone, Debug)]
 pub enum TypeOrSelf {
-    Type(Type),
+    Type(TypeArg),
     _Self,
 }
 
@@ -106,7 +106,7 @@ pub struct FnArgDeclaration {
 pub struct FnDef {
     pub ident: Identifier,
     pub inputs: Vec<FnArgDeclaration>,
-    pub output: Option<Type>,
+    pub output: Option<TypeArg>,
     pub body: Block,
 }
 
@@ -145,30 +145,57 @@ impl Identifier {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct TypeDef {
-    pub name: Identifier,
-    pub ty: Type,
+impl AsMut<Identifier> for Identifier {
+    fn as_mut(&mut self) -> &mut Identifier {
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
-pub enum Type {
+pub struct TypeDef {
+    pub name: Identifier,
+    pub ty: TypeDefRhs,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeDefRhs {
+    TypeArg(TypeArg),
+    Object(TypedBindings),
+    Variant(Variant),
+}
+
+#[derive(Clone, Debug)]
+pub struct Object(pub TypedBindings);
+
+#[derive(Clone, Debug)]
+pub struct Variant(pub Vec<(Identifier, TypedBindings)>);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeRef(pub Identifier);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FnType {
+    pub inputs: TypedBindings,
+    pub output: Option<Box<TypeArg>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TypeArg {
     Bool,
+    F32,
+    F64,
     U32,
     I32,
     U64,
     I64,
     String,
     Intermediate {
-        abi: Box<Type>,
-        storage: Box<Type>,
+        abi: Box<TypeArg>,
+        storage: Box<TypeArg>,
     },
-    TypeApplication(Identifier, Option<Vec<Type>>),
-    Object(TypedBindings),
-    Variant {
-        variants: Vec<(Identifier, TypedBindings)>,
-    },
-    FnType(TypedBindings, Option<Box<Type>>),
+    TypeRef(TypeRef),
+    TypeApplication(TypeRef, Vec<TypeArg>),
+    FnType(FnType),
 }
 
 #[derive(Clone, Debug)]
@@ -281,7 +308,7 @@ pub enum PrimaryExpr {
     /// `raise a`
     Raise(Box<Expr>),
     /// `a { b: c, ... }`
-    Object(Type, Vec<(Identifier, Expr)>),
+    Object(TypeArg, Vec<(Identifier, Expr)>),
     StringLiteral(String),
 }
 
@@ -309,22 +336,23 @@ pub struct Arguments {
 
 #[derive(Clone, Debug)]
 pub struct OptionallyTypedBindings {
-    pub values: Vec<(Identifier, Option<Type>)>,
+    pub values: Vec<(Identifier, Option<TypeArg>)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TypedBindings {
-    pub values: Vec<(Identifier, Type)>,
+    pub values: Vec<(Identifier, TypeArg)>,
 }
 
 #[derive(Clone, Debug)]
 pub struct EffectArgDeclaration {
     pub name: Identifier,
-    pub ty: Option<Type>,
+    pub ty: Option<TypeArg>,
 }
 
 #[derive(Clone, Debug)]
 pub struct EffectHandler {
+    pub utxo: Identifier,
     pub ident: Identifier,
     pub args: Vec<EffectArgDeclaration>,
 }

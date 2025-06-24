@@ -1,7 +1,7 @@
 use crate::ast::{
-    Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FnDef, Identifier, LoopBody,
-    PrimaryExpr, ProgramItem, Script, StarstreamProgram, Statement, Token, TokenItem, Type,
-    TypeDef, Utxo, UtxoItem,
+    Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FnDef, FnType, Identifier,
+    LoopBody, PrimaryExpr, ProgramItem, Script, StarstreamProgram, Statement, Token, TokenItem,
+    TypeArg, TypeDef, TypeDefRhs, TypeOrSelf, TypeRef, Utxo, UtxoItem,
 };
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
@@ -31,6 +31,7 @@ pub fn do_scope_analysis(
     }
 }
 
+#[derive(Debug)]
 pub struct Symbols {
     pub vars: HashMap<SymbolId, SymbolInformation<VarInfo>>,
     pub types: HashMap<SymbolId, SymbolInformation<TypeInfo>>,
@@ -50,7 +51,10 @@ pub struct TypeInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct FuncInfo {}
+pub struct FuncInfo {
+    pub inputs_ty: Vec<TypeArg>,
+    pub output_ty: Option<TypeArg>,
+}
 
 #[derive(Debug, Clone)]
 pub struct ConstInfo {}
@@ -93,7 +97,6 @@ pub enum SymbolKind {
     Variable,
     Function,
     Type,
-    Constant,
 }
 
 impl Visitor {
@@ -158,55 +161,108 @@ impl Visitor {
         (self.symbols, self.errors)
     }
 
-    fn builtins() -> Vec<(&'static str, SymbolKind, Option<Vec<&'static str>>)> {
-        // TODO: mostly just to get the examples working
-        // these probably would have to be some sort of import?
-        vec![
-            ("CoordinationCode", SymbolKind::Function, None),
-            ("ThisCode", SymbolKind::Function, None),
-            ("assert", SymbolKind::Function, None),
-            ("IsTxSignedBy", SymbolKind::Function, None),
-            ("None", SymbolKind::Function, None),
-            ("context", SymbolKind::Constant, None),
-            ("String", SymbolKind::Type, None),
-            ("u32", SymbolKind::Type, None),
-            ("u64", SymbolKind::Type, None),
-            ("i32", SymbolKind::Type, None),
-            ("i64", SymbolKind::Type, None),
-            ("PublicKey", SymbolKind::Type, None),
-            ("Caller", SymbolKind::Function, None),
-            ("PayToPublicKeyHash", SymbolKind::Type, Some(vec![("new")])),
-            ("List", SymbolKind::Type, Some(vec!["new"])),
-            ("print", SymbolKind::Function, None),
-        ]
-    }
-
+    // TODO: mostly just to get the examples working
+    // these probably would have to be some sort of import?
     fn add_builtins(&mut self) {
-        for (builtin, kind, fns) in Self::builtins() {
-            match kind {
-                SymbolKind::Variable => {
-                    self.push_var_declaration(&mut Identifier::new(builtin, None), false);
-                }
-                SymbolKind::Type => {
-                    let type_id = self.push_type_declaration(&mut Identifier::new(builtin, None));
+        self.push_type_declaration(&mut Identifier::new("PublicKey", None));
+        self.push_type_declaration(&mut Identifier::new("any", None));
 
-                    self.push_type_scope(type_id);
+        self.push_function_declaration(
+            &mut Identifier::new("CoordinationCode", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                output_ty: Some(TypeArg::U32),
+            },
+        );
 
-                    if let Some(fns) = fns {
-                        for f in fns {
-                            self.push_function_declaration(&mut Identifier::new(f, None));
-                        }
-                    }
+        self.push_function_declaration(
+            &mut Identifier::new("ThisCode", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                output_ty: Some(TypeArg::U32),
+            },
+        );
 
-                    self.pop_scope();
-                }
-                SymbolKind::Function => {
-                    self.push_function_declaration(&mut Identifier::new(builtin, None));
-                }
-                SymbolKind::Constant => {
-                    self.push_constant_declaration(&mut Identifier::new(builtin, None));
-                }
-            }
+        self.push_function_declaration(
+            &mut Identifier::new("Caller", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                output_ty: Some(TypeArg::U32),
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("assert", None),
+            FuncInfo {
+                inputs_ty: vec![TypeArg::Bool],
+                output_ty: None,
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("IsTxSignedBy", None),
+            FuncInfo {
+                inputs_ty: vec![TypeArg::TypeRef(TypeRef(Identifier::new(
+                    "PublicKey",
+                    None,
+                )))],
+                output_ty: Some(TypeArg::Bool),
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("None", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                output_ty: None,
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("print", None),
+            FuncInfo {
+                inputs_ty: vec![TypeArg::String],
+                output_ty: None,
+            },
+        );
+
+        self.push_constant_declaration(&mut Identifier::new("context", None));
+
+        let namespaces = {
+            let any = Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None))));
+            vec![
+                // None in the 3rd element makes it a constructor
+                ("PayToPublicKeyHash", "new", None),
+                ("List", "new", None),
+                (
+                    // this is not really a type, but it makes no difference for now
+                    "Starstream",
+                    "TokenUnbound",
+                    Some(FuncInfo {
+                        inputs_ty: vec![TypeArg::Intermediate {
+                            abi: any.clone(),
+                            storage: any.clone(),
+                        }],
+                        output_ty: None,
+                    }),
+                ),
+            ]
+        };
+        for (builtin, f, ty) in namespaces {
+            let mut identifier = Identifier::new(builtin, None);
+            let type_id = self.push_type_declaration(&mut identifier);
+
+            self.push_type_scope(type_id);
+
+            self.push_function_declaration(
+                &mut Identifier::new(f, None),
+                ty.unwrap_or(FuncInfo {
+                    inputs_ty: vec![],
+                    output_ty: Some(TypeArg::TypeRef(TypeRef(identifier.clone()))),
+                }),
+            );
+
+            self.pop_scope();
         }
     }
 
@@ -261,7 +317,20 @@ impl Visitor {
 
     pub fn visit_script(&mut self, script: &mut Script) {
         for definition in &mut script.definitions {
-            self.push_function_declaration(&mut definition.ident);
+            self.push_function_declaration(
+                &mut definition.ident,
+                FuncInfo {
+                    inputs_ty: definition
+                        .inputs
+                        .iter()
+                        .map(|arg| match arg.ty.clone() {
+                            TypeOrSelf::Type(type_arg) => type_arg,
+                            TypeOrSelf::_Self => todo!(),
+                        })
+                        .collect(),
+                    output_ty: definition.output.clone(),
+                },
+            );
         }
 
         for definition in &mut script.definitions {
@@ -286,7 +355,18 @@ impl Visitor {
                 UtxoItem::Abi(_) => (),
                 UtxoItem::Main(main) => {
                     // TODO: may actually want to get the "main" span
-                    self.push_function_declaration(&mut Identifier::new("new", None));
+                    self.push_function_declaration(
+                        &mut Identifier::new("new", None),
+                        FuncInfo {
+                            // TODO: check that this matches the storage declaration
+                            inputs_ty: main
+                                .type_sig
+                                .as_ref()
+                                .map(|args| args.values.iter().map(|arg| arg.1.clone()).collect())
+                                .unwrap_or(vec![]),
+                            output_ty: Some(TypeArg::TypeRef(TypeRef(utxo.name.clone()))),
+                        },
+                    );
                     self.visit_block(&mut main.block, true);
                 }
                 UtxoItem::Impl(utxo_impl) => {
@@ -306,7 +386,14 @@ impl Visitor {
 
         self.push_type_scope(uid);
 
-        self.push_function_declaration(&mut Identifier::new("type", None));
+        self.push_function_declaration(
+            &mut Identifier::new("type", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                // TODO: something else
+                output_ty: Some(TypeArg::F64),
+            },
+        );
 
         for item in &mut token.items {
             match item {
@@ -324,7 +411,13 @@ impl Visitor {
                     self.pop_scope();
                 }
                 TokenItem::Mint(mint) => {
-                    self.push_function_declaration(&mut Identifier::new("mint", None));
+                    self.push_function_declaration(
+                        &mut Identifier::new("mint", None),
+                        FuncInfo {
+                            inputs_ty: vec![],
+                            output_ty: Some(TypeArg::TypeRef(TypeRef(token.name.clone()))),
+                        },
+                    );
                     self.push_function_scope();
                     self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut mint.0, false);
@@ -338,6 +431,28 @@ impl Visitor {
 
     pub fn visit_type_def(&mut self, type_def: &mut TypeDef) {
         self.push_type_declaration(&mut type_def.name);
+
+        match &mut type_def.ty {
+            TypeDefRhs::TypeArg(type_arg) => self.visit_type_arg(type_arg),
+            TypeDefRhs::Object(typed_bindings) => {
+                for (_name, ty) in &mut typed_bindings.values {
+                    // NOTE: we can't resolve field accesses without resolving
+                    // the type first.
+                    self.visit_type_arg(ty);
+                }
+            }
+            TypeDefRhs::Variant(variant) => {
+                for (variant, args) in &mut variant.0 {
+                    self.push_function_declaration(
+                        variant,
+                        FuncInfo {
+                            inputs_ty: args.values.iter().map(|arg| arg.1.clone()).collect(),
+                            output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
+                        },
+                    );
+                }
+            }
+        }
     }
 
     fn visit_fn_def(&mut self, definition: &mut FnDef) {
@@ -405,7 +520,7 @@ impl Visitor {
         symbol
     }
 
-    fn push_function_declaration(&mut self, ident: &mut Identifier) -> SymbolId {
+    fn push_function_declaration(&mut self, ident: &mut Identifier, info: FuncInfo) -> SymbolId {
         let symbol = self.new_symbol(ident);
 
         self.symbols.functions.insert(
@@ -413,7 +528,7 @@ impl Visitor {
             SymbolInformation {
                 source: ident.raw.clone(),
                 span: ident.span,
-                info: FuncInfo {},
+                info,
             },
         );
 
@@ -479,14 +594,8 @@ impl Visitor {
         symbol_kind: SymbolKind,
     ) -> Option<SymbolId> {
         let resolution = self.stack.iter().rev().find_map(|scope| match symbol_kind {
-            SymbolKind::Variable | SymbolKind::Constant => {
-                scope.var_declarations.get(&identifier.raw).cloned()
-            }
-            SymbolKind::Function => scope
-                .function_declarations
-                .get(&identifier.raw)
-                .cloned()
-                .or_else(|| scope.type_declarations.get(&identifier.raw).cloned()),
+            SymbolKind::Variable => scope.var_declarations.get(&identifier.raw).cloned(),
+            SymbolKind::Function => scope.function_declarations.get(&identifier.raw).cloned(),
             SymbolKind::Type => scope.type_declarations.get(&identifier.raw).cloned(),
         });
 
@@ -619,6 +728,9 @@ impl Visitor {
                 self.push_scope();
 
                 for (decl, body) in items {
+                    let mut namespace = [&mut decl.utxo];
+                    self.resolve_name_in_namespace(&mut namespace, &mut decl.ident);
+
                     // TODO: depending on whether we compile effect handlers as
                     // functions or not we may need to change this
                     // also to handle captures probably
@@ -664,41 +776,7 @@ impl Visitor {
                     let ident_index = name.len() - 1;
                     let (tys, ident) = name.split_at_mut(ident_index);
 
-                    let mut namespace = None;
-
-                    for ty in tys {
-                        if let Some(type_id) = self.resolve_name(ty, SymbolKind::Type) {
-                            self.symbols.types.get(&type_id);
-
-                            namespace.replace(type_id);
-                        }
-                    }
-
-                    let Some(namespace) = namespace else {
-                        return;
-                    };
-
-                    let f = self
-                        .symbols
-                        .types
-                        .get(&namespace)
-                        .unwrap()
-                        .info
-                        .declarations
-                        .iter()
-                        .find(|uid| {
-                            self.symbols
-                                .functions
-                                .get(uid)
-                                .map(|finfo| finfo.source == ident[0].raw)
-                                .unwrap_or(false)
-                        });
-
-                    if let Some(f) = f {
-                        ident[0].uid.replace(*f);
-                    } else {
-                        self.push_not_found_error(ident[0].span.unwrap());
-                    }
+                    self.resolve_name_in_namespace(tys, &mut ident[0]);
                 } else {
                     self.resolve_name(
                         &mut name[0],
@@ -716,10 +794,7 @@ impl Visitor {
                     self.visit_expr(expr)
                 }
             }
-            PrimaryExpr::Raise(expr) => {
-                // dbg!(&self.stack);
-                self.visit_expr(expr)
-            }
+            PrimaryExpr::Raise(expr) => self.visit_expr(expr),
             PrimaryExpr::Object(_, items) => {
                 for (_ident, item) in items {
                     self.visit_expr(item);
@@ -729,71 +804,111 @@ impl Visitor {
         }
     }
 
+    fn resolve_name_in_namespace<T>(&mut self, namespaces: &mut [T], ident: &mut Identifier)
+    where
+        T: AsMut<Identifier>,
+    {
+        let mut namespace = None;
+
+        for ty in namespaces {
+            if let Some(type_id) = self.resolve_name(ty.as_mut(), SymbolKind::Type) {
+                self.symbols.types.get(&type_id);
+
+                namespace.replace(type_id);
+            }
+        }
+
+        let Some(namespace) = namespace else {
+            return;
+        };
+
+        let f = self
+            .symbols
+            .types
+            .get(&namespace)
+            .unwrap()
+            .info
+            .declarations
+            .iter()
+            .find(|uid| {
+                self.symbols
+                    .functions
+                    .get(uid)
+                    .map(|finfo| finfo.source == ident.raw)
+                    .unwrap_or(false)
+            });
+
+        if let Some(f) = f {
+            ident.uid.replace(*f);
+        } else {
+            self.push_not_found_error(ident.span.unwrap());
+        }
+    }
+
     fn visit_abi(&mut self, abi: &mut Abi) {
         for item in &mut abi.values {
             match item {
                 AbiElem::FnDecl(decl) => {
-                    self.push_function_declaration(&mut decl.0.name);
+                    self.push_function_declaration(
+                        &mut decl.0.name,
+                        FuncInfo {
+                            inputs_ty: decl.0.input_types.clone(),
+                            output_ty: decl.0.output_type.clone(),
+                        },
+                    );
 
                     for ty in &mut decl.0.input_types {
-                        self.visit_type(ty);
+                        self.visit_type_arg(ty);
                     }
 
                     if let Some(output_ty) = &mut decl.0.output_type {
-                        self.visit_type(output_ty);
+                        self.visit_type_arg(output_ty);
                     }
                 }
                 AbiElem::EffectDecl(decl) => match decl {
                     EffectDecl::EffectSig(decl)
                     | EffectDecl::EventSig(decl)
                     | EffectDecl::ErrorSig(decl) => {
-                        self.push_type_declaration(&mut decl.name);
+                        self.push_function_declaration(
+                            &mut decl.name,
+                            FuncInfo {
+                                inputs_ty: decl.input_types.clone(),
+                                output_ty: decl.output_type.clone(),
+                            },
+                        );
                     }
                 },
             }
         }
     }
 
-    fn visit_type(&mut self, ty: &mut Type) {
+    fn visit_type_arg(&mut self, ty: &mut TypeArg) {
         match ty {
-            Type::Bool => (),
-            Type::String => (),
-            Type::U32 => (),
-            Type::I32 => (),
-            Type::U64 => (),
-            Type::I64 => (),
-            Type::Intermediate { abi, storage } => {
-                self.visit_type(abi);
-                self.visit_type(storage);
+            TypeArg::Bool => (),
+            TypeArg::String => (),
+            TypeArg::F32 => (),
+            TypeArg::F64 => (),
+            TypeArg::U32 => (),
+            TypeArg::I32 => (),
+            TypeArg::U64 => (),
+            TypeArg::I64 => (),
+            TypeArg::Intermediate { abi, storage } => {
+                self.visit_type_arg(abi);
+                self.visit_type_arg(storage);
             }
-            Type::TypeApplication(identifier, params) => {
-                self.resolve_name(identifier, SymbolKind::Type);
-
-                if let Some(params) = params {
-                    for ty in params {
-                        self.visit_type(ty);
-                    }
-                }
+            TypeArg::TypeRef(type_ref) => {
+                self.resolve_name(&mut type_ref.0, SymbolKind::Type);
             }
-            Type::Object(typed_bindings) => {
-                for (_name, ty) in &mut typed_bindings.values {
-                    // NOTE: we can't resolve field accesses without resolving
-                    // the type first.
-                    self.visit_type(ty);
-                }
+            TypeArg::TypeApplication(type_ref, _params) => {
+                self.push_todo_error(type_ref.0.span.unwrap());
             }
-            Type::Variant { variants } => {
-                for (variant, _) in variants {
-                    self.push_function_declaration(variant);
-                }
-            }
-            Type::FnType(typed_bindings, output_ty) => {
-                for (_, ty) in &mut typed_bindings.values {
-                    self.visit_type(ty);
+            TypeArg::FnType(FnType { inputs, output }) => {
+                for (_, ty) in &mut inputs.values {
+                    self.visit_type_arg(ty);
                 }
 
-                if let Some(output_ty) = output_ty {
-                    self.visit_type(output_ty);
+                if let Some(output_ty) = output {
+                    self.visit_type_arg(output_ty);
                 }
             }
         }
@@ -833,10 +948,27 @@ impl Visitor {
                 .finish(),
         );
     }
+
+    fn push_todo_error(&mut self, span: SimpleSpan) {
+        self.errors.push(
+            Report::build(ReportKind::Error, span.into_range())
+                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                // TODO: define error codes across the compiler
+                .with_code(3)
+                .with_label(
+                    Label::new(span.into_range())
+                        .with_message("not implemented")
+                        .with_color(Color::Red),
+                )
+                .finish(),
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::{TypeArg, TypeRef};
+
     use super::do_scope_analysis;
     use ariadne::Source;
     use chumsky::Parser as _;
@@ -1033,6 +1165,90 @@ mod tests {
             }
             Ok((_ast, _table)) => {
                 unreachable!();
+            }
+        }
+    }
+
+    #[test]
+    fn function_type_extraction() {
+        let input = "
+            token MyToken {
+                abi {
+                    effect Effect1(bool): u32;
+                }
+
+                mint {}
+            }
+
+            script {
+              fn foo(): u32 {}
+
+              fn bar(i: u64): bool {}
+
+              fn handler() {
+                try {}
+                with MyToken::Effect1(x) { yield 4; }
+              }
+            }
+        ";
+
+        let program = crate::starstream_program().parse(input).unwrap();
+
+        let ast = do_scope_analysis(program);
+
+        match ast {
+            Err(_errors) => {
+                for e in _errors {
+                    e.eprint(Source::from(input)).unwrap();
+                }
+                panic!();
+            }
+            Ok((_ast, table)) => {
+                // unreachable!();
+                // dbg!(&table.functions);
+                // panic!();
+                //
+                let eff = table
+                    .functions
+                    .values()
+                    .find(|f| f.source == "Effect1")
+                    .unwrap();
+
+                assert_eq!(eff.info.inputs_ty, vec![TypeArg::Bool]);
+                assert_eq!(eff.info.output_ty.clone().unwrap(), TypeArg::U32);
+
+                let foo = table
+                    .functions
+                    .values()
+                    .find(|f| f.source == "foo")
+                    .unwrap();
+
+                assert_eq!(foo.info.inputs_ty, vec![]);
+                assert_eq!(foo.info.output_ty.clone().unwrap(), TypeArg::U32);
+
+                let bar = table
+                    .functions
+                    .values()
+                    .find(|f| f.source == "bar")
+                    .unwrap();
+
+                assert_eq!(bar.info.inputs_ty, vec![TypeArg::U64]);
+                assert_eq!(bar.info.output_ty.clone().unwrap(), TypeArg::Bool);
+
+                let mint = table
+                    .functions
+                    .values()
+                    .find(|f| f.source == "mint")
+                    .unwrap();
+
+                assert_eq!(mint.info.inputs_ty, vec![]);
+
+                let TypeArg::TypeRef(TypeRef(ident)) = mint.info.output_ty.clone().unwrap() else {
+                    panic!()
+                };
+
+                assert_eq!(ident.raw, "MyToken");
+                assert_eq!(table.types[&ident.uid.unwrap()].source, "MyToken");
             }
         }
     }
