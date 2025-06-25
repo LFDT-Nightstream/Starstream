@@ -12,6 +12,8 @@ resolver = "2"
 
 [profile.dev]
 panic = "abort"
+# Work around https://github.com/ICME-Lab/zkEngine_dev/issues/48
+overflow-checks = false
 
 [profile.release]
 panic = "abort"
