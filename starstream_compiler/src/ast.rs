@@ -204,18 +204,21 @@ pub enum Statement {
     BindVar {
         var: Identifier,
         mutable: bool,
-        value: Expr,
+        value: Spanned<Expr>,
     },
     /// `return a;`
-    Return(Option<Expr>),
+    Return(Option<Spanned<Expr>>),
     /// `resume a;`
-    Resume(Option<Expr>),
+    Resume(Option<Spanned<Expr>>),
     /// `a = b;`
-    Assign { var: Identifier, expr: Expr },
+    Assign {
+        var: Identifier,
+        expr: Spanned<Expr>,
+    },
     /// `with { a... } catch (b) { c... } ...`
     With(Block, Vec<(EffectHandler, Block)>),
     /// `while (a) { b... }`
-    While(Expr, LoopBody),
+    While(Spanned<Expr>, LoopBody),
     /// `loop { a... }`
     Loop(LoopBody),
 }
@@ -224,7 +227,7 @@ pub enum Statement {
 pub enum LoopBody {
     Statement(Box<Statement>),
     Block(Block),
-    Expr(Expr),
+    Expr(Spanned<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -233,56 +236,56 @@ pub enum Expr {
     BlockExpr(BlockExpr),
     // Comparison operators
     /// `a == b`
-    Equals(Box<Self>, Box<Self>),
+    Equals(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a != b`
-    NotEquals(Box<Self>, Box<Self>),
+    NotEquals(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a < b`
-    LessThan(Box<Self>, Box<Self>),
+    LessThan(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a > b`
-    GreaterThan(Box<Self>, Box<Self>),
+    GreaterThan(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a <= b`
-    LessEq(Box<Self>, Box<Self>),
+    LessEq(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a >= b`
-    GreaterEq(Box<Self>, Box<Self>),
+    GreaterEq(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     // Arithmetic operators
     /// `a + b`
-    Add(Box<Self>, Box<Self>),
+    Add(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a - b`
-    Sub(Box<Self>, Box<Self>),
+    Sub(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a * b`
-    Mul(Box<Self>, Box<Self>),
+    Mul(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a / b`
-    Div(Box<Self>, Box<Self>),
+    Div(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a % b`
-    Mod(Box<Self>, Box<Self>),
+    Mod(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `-a`
-    Neg(Box<Self>),
+    Neg(Box<Spanned<Expr>>),
     // Bitwise operators
     /// `~a`
-    BitNot(Box<Self>),
+    BitNot(Box<Spanned<Expr>>),
     /// `a & b`
-    BitAnd(Box<Self>, Box<Self>),
+    BitAnd(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a | b`
-    BitOr(Box<Self>, Box<Self>),
+    BitOr(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a ^ b`
-    BitXor(Box<Self>, Box<Self>),
+    BitXor(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a << b`
-    LShift(Box<Self>, Box<Expr>),
+    LShift(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a >> b`
-    RShift(Box<Self>, Box<Expr>),
+    RShift(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     // Boolean operators
     /// `!a`
-    Not(Box<Self>),
+    Not(Box<Spanned<Expr>>),
     /// `a && b`
-    And(Box<Self>, Box<Self>),
+    And(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
     /// `a || b`
-    Or(Box<Self>, Box<Self>),
+    Or(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
 }
 
 #[derive(Clone, Debug)]
 pub enum BlockExpr {
     /// `if (a) { b } else { c }`
-    IfThenElse(Box<Expr>, Box<Block>, Option<Box<Block>>),
+    IfThenElse(Box<Spanned<Expr>>, Box<Block>, Option<Box<Block>>),
     /// `{ a... }`
     Block(Block),
 }
@@ -315,19 +318,19 @@ pub enum PrimaryExpr {
         ident: IdentifierExpr,
     },
     /// `(a)`
-    ParExpr(Box<Expr>),
+    ParExpr(Box<Spanned<Expr>>),
     /// `yield a`
-    Yield(Option<Box<Expr>>),
+    Yield(Option<Box<Spanned<Expr>>>),
     /// `raise a`
-    Raise(Box<Expr>),
+    Raise(Box<Spanned<Expr>>),
     /// `a { b: c, ... }`
-    Object(TypeArg, Vec<(Identifier, Expr)>),
+    Object(TypeArg, Vec<(Identifier, Spanned<Expr>)>),
     StringLiteral(String),
 }
 
 #[derive(Clone, Debug)]
 pub enum ExprOrStatement {
-    Expr(Expr),
+    Expr(Spanned<Expr>),
     Statement(Statement),
 }
 
@@ -344,7 +347,7 @@ pub enum Block {
 
 #[derive(Clone, Debug)]
 pub struct Arguments {
-    pub xs: Vec<Expr>,
+    pub xs: Vec<Spanned<Expr>>,
 }
 
 #[derive(Clone, Debug)]
@@ -374,4 +377,10 @@ pub struct EffectHandler {
 pub struct Effect {
     pub ident: Identifier,
     pub type_sig: TypedBindings,
+}
+
+#[derive(Clone, Debug)]
+pub struct Spanned<T> {
+    pub node: T,
+    pub span: SimpleSpan,
 }

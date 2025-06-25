@@ -214,7 +214,7 @@ fn main<'a>() -> impl Parser<'a, &'a str, Main, extra::Err<Rich<'a, char>>> {
 }
 
 fn statement<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Statement, extra::Err<Rich<'a, char>>> {
     recursive(|rec| {
@@ -347,82 +347,117 @@ fn optionally_typed_bindings<'a>(
 
 fn expr<'a>(
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> {
+) -> impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> {
     let op = |c: &'static str| just(c).padded();
 
     recursive(|expr_parser| {
         let atom = field_access_expr(expr_parser.clone())
-            .map(Expr::PrimaryExpr)
-            .or(block_expr(expr_parser, block_parser).map(Expr::BlockExpr));
+            .map_with(|e, extra| Spanned {
+                node: Expr::PrimaryExpr(e),
+                span: extra.span(),
+            })
+            .or(
+                block_expr(expr_parser, block_parser).map_with(|e, extra| Spanned {
+                    node: Expr::BlockExpr(e),
+                    span: extra.span(),
+                }),
+            );
 
         atom.pratt((
             // prec = 10
-            prefix(10, op("-"), |_, atom, _| Expr::Neg(Box::new(atom))),
-            prefix(10, op("!"), |_, atom, _| Expr::Not(Box::new(atom))),
-            prefix(10, op("~"), |_, atom, _| Expr::BitNot(Box::new(atom))),
+            prefix(10, op("-"), |_, atom, extra| Spanned {
+                node: Expr::Neg(Box::new(atom)),
+                span: extra.span(),
+            }),
+            prefix(10, op("!"), |_, atom, extra| Spanned {
+                node: Expr::Not(Box::new(atom)),
+                span: extra.span(),
+            }),
+            prefix(10, op("~"), |_, atom, extra| Spanned {
+                node: Expr::BitNot(Box::new(atom)),
+                span: extra.span(),
+            }),
             // prec = 9
-            infix(left(9), op("*"), |l, _, r, _| {
-                Expr::Mul(Box::new(l), Box::new(r))
+            infix(left(9), op("*"), |l, _, r, extra| Spanned {
+                node: Expr::Mul(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(9), op("/"), |l, _, r, _| {
-                Expr::Div(Box::new(l), Box::new(r))
+            infix(left(9), op("/"), |l, _, r, extra| Spanned {
+                node: Expr::Div(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(9), op("%"), |l, _, r, _| {
-                Expr::Div(Box::new(l), Box::new(r))
+            infix(left(9), op("%"), |l, _, r, extra| Spanned {
+                node: Expr::Div(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 8
-            infix(left(8), op("+"), |l, _, r, _| {
-                Expr::Add(Box::new(l), Box::new(r))
+            infix(left(8), op("+"), |l, _, r, extra| Spanned {
+                node: Expr::Add(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(8), op("-"), |l, _, r, _| {
-                Expr::Sub(Box::new(l), Box::new(r))
+            infix(left(8), op("-"), |l, _, r, extra| Spanned {
+                node: Expr::Sub(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 7
-            infix(left(7), op("<<"), |l, _, r, _| {
-                Expr::LShift(Box::new(l), Box::new(r))
+            infix(left(7), op("<<"), |l, _, r, extra| Spanned {
+                node: Expr::LShift(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(7), op(">>"), |l, _, r, _| {
-                Expr::RShift(Box::new(l), Box::new(r))
+            infix(left(7), op(">>"), |l, _, r, extra| Spanned {
+                node: Expr::RShift(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 6
-            infix(left(6), op("<"), |l, _, r, _| {
-                Expr::LessThan(Box::new(l), Box::new(r))
+            infix(left(6), op("<"), |l, _, r, extra| Spanned {
+                node: Expr::LessThan(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(6), op(">"), |l, _, r, _| {
-                Expr::GreaterThan(Box::new(l), Box::new(r))
+            infix(left(6), op(">"), |l, _, r, extra| Spanned {
+                node: Expr::GreaterThan(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(6), op("<="), |l, _, r, _| {
-                Expr::LessEq(Box::new(l), Box::new(r))
+            infix(left(6), op("<="), |l, _, r, extra| Spanned {
+                node: Expr::LessEq(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(6), op(">="), |l, _, r, _| {
-                Expr::LessThan(Box::new(l), Box::new(r))
+            infix(left(6), op(">="), |l, _, r, extra| Spanned {
+                node: Expr::LessThan(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 5
-            infix(left(5), op("=="), |l, _, r, _| {
-                Expr::Equals(Box::new(l), Box::new(r))
+            infix(left(5), op("=="), |l, _, r, extra| Spanned {
+                node: Expr::Equals(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(5), op("!="), |l, _, r, _| {
-                Expr::NotEquals(Box::new(l), Box::new(r))
+            infix(left(5), op("!="), |l, _, r, extra| Spanned {
+                node: Expr::NotEquals(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 4
-            infix(left(4), op("&"), |l, _, r, _| {
-                Expr::BitAnd(Box::new(l), Box::new(r))
+            infix(left(4), op("&"), |l, _, r, extra| Spanned {
+                node: Expr::BitAnd(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 3
-            infix(left(3), op("^"), |l, _, r, _| {
-                Expr::BitXor(Box::new(l), Box::new(r))
+            infix(left(3), op("^"), |l, _, r, extra| Spanned {
+                node: Expr::BitXor(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 2
-            infix(left(2), op("|"), |l, _, r, _| {
-                Expr::BitOr(Box::new(l), Box::new(r))
+            infix(left(2), op("|"), |l, _, r, extra| Spanned {
+                node: Expr::BitOr(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 1
-            infix(left(1), op("&&"), |l, _, r, _| {
-                Expr::And(Box::new(l), Box::new(r))
+            infix(left(1), op("&&"), |l, _, r, extra| Spanned {
+                node: Expr::And(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 0
-            infix(left(0), just("||").padded(), |l, _, r, _| {
-                Expr::Or(Box::new(l), Box::new(r))
+            infix(left(0), just("||").padded(), |l, _, r, extra| Spanned {
+                node: Expr::Or(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
         ))
         .boxed()
@@ -446,7 +481,10 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
 
         let if_branch = if_expr(expr_parser.clone(), block_expr.clone())
             .padded()
-            .map(Expr::BlockExpr)
+            .map_with(|block, extra| Spanned {
+                node: Expr::BlockExpr(block),
+                span: extra.span(),
+            })
             .map(ExprOrStatement::Expr)
             .then(end_block.or(block_body.clone()))
             .padded();
@@ -488,7 +526,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
 }
 
 fn block_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, BlockExpr, extra::Err<Rich<'a, char>>> {
     let parse_block = block_parser.clone().map(BlockExpr::Block);
@@ -498,7 +536,7 @@ fn block_expr<'a>(
 }
 
 fn if_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, BlockExpr, extra::Err<Rich<'a, char>>> + Clone {
     just("if")
@@ -523,7 +561,7 @@ fn if_expr<'a>(
 }
 
 fn field_access_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, FieldAccessExpression, extra::Err<Rich<'a, char>>> {
     primary_expr(expr_parser.clone())
         .map(FieldAccessExpression::PrimaryExpr)
@@ -540,7 +578,7 @@ fn field_access_expr<'a>(
 }
 
 fn application<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Arguments, extra::Err<Rich<'a, char>>> {
     expr_parser
         .clone()
@@ -552,7 +590,7 @@ fn application<'a>(
 }
 
 fn identifier_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, IdentifierExpr, extra::Err<Rich<'a, char>>> {
     identifier()
         .then(application(expr_parser).or_not())
@@ -560,7 +598,7 @@ fn identifier_expr<'a>(
 }
 
 fn primary_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, PrimaryExpr, extra::Err<Rich<'a, char>>> {
     let number = just('-')
         .or_not()

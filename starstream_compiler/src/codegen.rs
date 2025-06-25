@@ -416,7 +416,7 @@ impl Compiler {
         match statement {
             Statement::Return(expr) => {
                 if let Some(expr) = expr {
-                    let im = self.visit_expr(func, expr);
+                    let im = self.visit_expr(func, &expr);
                     // TODO: allow actually returning things
                     self.drop_intermediate(func, im);
                 }
@@ -426,12 +426,12 @@ impl Compiler {
         }
     }
 
-    fn visit_expr(&mut self, func: &mut Function, expr: &Expr) -> Intermediate {
-        match expr {
+    fn visit_expr(&mut self, func: &mut Function, expr: &Spanned<Expr>) -> Intermediate {
+        match &expr.node {
             Expr::PrimaryExpr(secondary) => self.visit_field_access_expr(func, secondary),
             Expr::Equals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, &lhs);
+                let rhs = self.visit_expr(func, &rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -453,8 +453,8 @@ impl Compiler {
                 }
             }
             Expr::NotEquals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, &lhs);
+                let rhs = self.visit_expr(func, &rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -476,8 +476,8 @@ impl Compiler {
                 }
             }
             Expr::Add(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, &lhs);
+                let rhs = self.visit_expr(func, &rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -490,12 +490,12 @@ impl Compiler {
                     }
                 }
             }
-            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
+            Expr::And(lhs, rhs) => match self.visit_expr(func, &lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
-                    match self.visit_expr(func, rhs) {
+                    match self.visit_expr(func, &rhs) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -519,7 +519,7 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs) {
+            Expr::Or(lhs, rhs) => match self.visit_expr(func, &lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
@@ -527,7 +527,7 @@ impl Compiler {
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
-                    match self.visit_expr(func, rhs) {
+                    match self.visit_expr(func, &rhs) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -551,18 +551,18 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, block),
+            Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, &block),
             Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
-                match self.visit_expr(func, cond) {
+                match self.visit_expr(func, &cond) {
                     Intermediate::Error => Intermediate::Error,
                     Intermediate::StackBool => {
                         // TODO: handle non-Void if blocks.
                         func.instructions().if_(BlockType::Empty);
-                        let im = self.visit_block(func, if_);
+                        let im = self.visit_block(func, &if_);
                         self.drop_intermediate(func, im);
                         if let Some(else_) = else_ {
                             func.instructions().else_();
-                            let im = self.visit_block(func, else_);
+                            let im = self.visit_block(func, &else_);
                             self.drop_intermediate(func, im);
                         }
                         func.instructions().end();
@@ -652,13 +652,18 @@ impl Compiler {
         }
     }
 
-    fn visit_call(&mut self, func: &mut Function, im: Intermediate, args: &[Expr]) -> Intermediate {
+    fn visit_call(
+        &mut self,
+        func: &mut Function,
+        im: Intermediate,
+        args: &[Spanned<Expr>],
+    ) -> Intermediate {
         match im {
             Intermediate::Error => Intermediate::Error,
             Intermediate::ConstFunction(id) => {
                 let func_type = self.function_types[id as usize].clone();
                 for (param, arg) in func_type.params.iter().zip(args) {
-                    let arg = self.visit_expr(func, arg);
+                    let arg = self.visit_expr(func, &arg);
                     match (param, arg) {
                         (StaticType::Void, Intermediate::Void) => {}
                         (StaticType::F64, Intermediate::StackF64) => {}

@@ -1,7 +1,8 @@
 use crate::ast::{
     Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
-    FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, StarstreamProgram,
-    Statement, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeOrSelf, TypeRef, Utxo, UtxoItem,
+    FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, Spanned,
+    StarstreamProgram, Statement, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeOrSelf,
+    TypeRef, Utxo, UtxoItem,
 };
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
@@ -741,14 +742,14 @@ impl Visitor {
         }
     }
 
-    fn visit_expr(&mut self, expr: &mut Expr) {
-        match expr {
+    fn visit_expr(&mut self, expr: &mut Spanned<Expr>) {
+        match &mut expr.node {
             Expr::PrimaryExpr(secondary) => {
                 self.visit_secondary_expr(secondary);
             }
             Expr::BlockExpr(block_expr) => match block_expr {
                 BlockExpr::IfThenElse(cond, _if, _else) => {
-                    self.visit_expr(cond);
+                    self.visit_expr(&mut *cond);
                     self.visit_block(&mut *_if, true);
                     if let Some(_else) = _else {
                         self.visit_block(&mut *_else, true);
