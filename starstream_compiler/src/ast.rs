@@ -204,6 +204,7 @@ pub enum Statement {
     BindVar {
         var: Identifier,
         mutable: bool,
+        ty: Option<TypeArg>,
         value: Spanned<Expr>,
     },
     /// `return a;`
@@ -307,7 +308,7 @@ pub struct IdentifierExpr {
 
 #[derive(Clone, Debug)]
 pub enum PrimaryExpr {
-    Number(f64),
+    Number(u32),
     /// `true` or `false` literal
     Bool(bool),
     /// `a`

@@ -222,11 +222,13 @@ fn statement<'a>(
             .padded()
             .ignore_then(just("mut").padded().or_not().map(|x| x.is_some()))
             .then(identifier())
+            .then(just(":").padded().ignore_then(type_arg()).or_not())
             .then_ignore(just('=').padded())
             .then(expr_parser.clone())
             .then_ignore(just(';').padded())
-            .map(|((mutable, binding), expr)| Statement::BindVar {
+            .map(|(((mutable, binding), ty), expr)| Statement::BindVar {
                 var: binding,
+                ty,
                 value: expr,
                 mutable,
             })
@@ -884,7 +886,7 @@ mod tests {
     #[test]
     fn parse_main() {
         let input = "main {
-            let y = 5;
+            let y: u32 = 5;
             while(true) yield 4 + 4;
             loop { let z = 4; }
             y = 3;

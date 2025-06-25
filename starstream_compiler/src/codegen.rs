@@ -602,7 +602,7 @@ impl Compiler {
     fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
         match primary {
             PrimaryExpr::Number(number) => {
-                func.instructions().f64_const(*number);
+                func.instructions().i32_const(*number as i32);
                 Intermediate::StackF64
             }
             PrimaryExpr::Bool(true) => {
