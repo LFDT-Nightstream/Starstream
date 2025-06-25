@@ -922,6 +922,8 @@ struct TxWitness {
 /// A row in the continuation table describing UTXO evolution.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ContinuationEntry {
+    program: usize,
+
     /// Hash of the contract the UTXO belongs to.
     code: CodeHash,
     /// Hash of the UTXO's memory and attached state before the call.
@@ -1809,6 +1811,7 @@ impl Transaction {
 
         let first_program = &self.store.data().programs[first.to_program.0];
         result.push(ContinuationEntry {
+            program: first.to_program.0,
             code: first_program.code,
             state_before: first.to_state_before,
             entry_point: first_program.entry_point.clone(),
@@ -1820,6 +1823,7 @@ impl Transaction {
             if each.to_program != ProgramIdx::Root {
                 let each_program = &self.store.data().programs[each.to_program.0];
                 result.push(ContinuationEntry {
+                    program: each.to_program.0,
                     code: each_program.code,
                     state_before: each.to_state_before,
                     entry_point: each_program.entry_point.clone(),
@@ -1848,17 +1852,19 @@ impl std::fmt::Debug for Transaction {
     }
 }
 
-/// A proof of a transaction that can be passed around and derived later.
+/// A proof of a transaction that can be passed around and verified later.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TransactionProof {
     pub continuations: Vec<ContinuationEntry>,
     pub program_proofs: Vec<nebula::ProgramProof>,
+    pub table_proof: nebula::TableProof,
 }
 
 impl TransactionProof {
-    /// Verify
+    /// Verify the proof.
     pub fn verify(&self) -> Result<(), String> {
         // TODO: actually verify continuations.
+        self.table_proof.verify();
         for pp in self.program_proofs.iter() {
             pp.verify(); // TODO: currently panics, should probably return a useful error.
         }
@@ -1878,6 +1884,15 @@ impl MemoryHash {
     pub const NOTHING: MemoryHash = MemoryHash([0; 32]);
     /// Represents a "null" in the table where a value hasn't yet been filled.
     pub const UNFINISHED: MemoryHash = MemoryHash([0xff; 32]);
+
+    pub fn as_u64s(&self) -> [u64; 4] {
+        [
+            u64::from_le_bytes(self.0[0..8].try_into().unwrap()),
+            u64::from_le_bytes(self.0[8..16].try_into().unwrap()),
+            u64::from_le_bytes(self.0[16..24].try_into().unwrap()),
+            u64::from_le_bytes(self.0[24..32].try_into().unwrap()),
+        ]
+    }
 }
 
 impl std::fmt::Debug for MemoryHash {

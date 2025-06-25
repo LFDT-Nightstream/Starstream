@@ -12,6 +12,8 @@ use zk_engine::{
     wasm_snark::{StepSize, WasmSNARK, ZKWASMInstance},
 };
 
+mod memory;
+
 use crate::{
     ProgramIdx, Transaction, TransactionInner, TransactionProof, TxProgram, WasmiError,
     code::CodeHash, memory, starstream_eprint,
@@ -62,6 +64,15 @@ impl ProgramProof {
             self.snark.verify(&pp.params, &self.instance).unwrap();
         });
     }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct TableProof {
+    // TODO
+}
+
+impl TableProof {
+    pub fn verify(&self) {}
 }
 
 #[allow(clippy::unused_unit)] // False positive. `clippy --fix` breaks the code.
@@ -241,10 +252,42 @@ impl Transaction {
 
             // HUGE TODO: prove that the program traces and the continuation table actually correspond.
 
-            // TODO: return (serialized?) proof instead of throwing it away.
+            // Memory-consistency-check the continuation table.
+            // TODO: this whole thing is of highly questionable soundness.
+            let continuations = self.map_continuations();
+
+            // Initial set (IS) is all zeroes for now. In real life, it would be made to include the input UTXO states.
+            let mut fs = Vec::new();
+            for i in 0..1024 {
+                fs.push((i, 0, 0));
+            }
+            //let is = fs.clone();
+            let mut rs = Vec::new();
+            let mut ws = Vec::new();
+            let mut global_ts = 0;
+            for each in continuations.iter() {
+                // A continuation is like a read of the old state + a write of the new state.
+                for (addr, &val) in each.state_after.as_u64s().iter().enumerate() {
+                    // Using this as the "address" probably isn't great; what we
+                    // really want is to use the UTXO's identity and act as if
+                    // its state is stored at that address somehow.
+                    // But this table also includes every continuation step, not
+                    // just UTXO-level stuff.
+                    memory::read_op(addr, &mut global_ts, &mut fs, &mut rs, &mut ws);
+                    memory::write_op(addr, val, &mut global_ts, &mut fs, &mut rs, &mut ws);
+                }
+
+                // TODO: Include `input`, `entry_point`, and the relevant entry from `program_proofs`.
+            }
+
+            // TODO: Turn IS, RS, WS, and FS into a real ZK circuit proving their correspondence.
+            // See "Prove grand products for MCC" in `zkEngine_dev/src/wasm_snark/mod.rs`.
+            let table_proof = TableProof {};
+
             TransactionProof {
-                continuations: self.map_continuations(),
+                continuations,
                 program_proofs,
+                table_proof,
             }
         })
     }
