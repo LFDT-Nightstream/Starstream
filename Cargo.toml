@@ -15,7 +15,3 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
-
-# https://github.com/lurk-lab/grumpkin-msm/pull/15
-[patch."https://github.com/lurk-lab/grumpkin-msm"]
-grumpkin-msm = { git = "https://github.com/SpaceManiac/grumpkin-msm", branch = "patch/rand-dependency" }
