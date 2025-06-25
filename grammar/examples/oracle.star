@@ -5,13 +5,13 @@ typedef Data = string
 const ORACLE_FEE = 10;
 const PAYMENT_ADDRESS = 10;
 
+abi Oracle {
+  error Error(string);
+
+  fn get_data(): Data;
+}
+
 utxo OracleContract {
-  abi {
-    error Error(string);
-
-    fn get_data(): Data;
-  }
-
   storage {
     data: Data;
   }
@@ -20,7 +20,7 @@ utxo OracleContract {
     loop { yield; }
   }
 
-  impl OracleContract {
+  impl Oracle {
     fn get_data(self): Data {
       let caller = raise Caller();
       let this_contract = raise ThisCode();
@@ -28,7 +28,7 @@ utxo OracleContract {
       if (caller != this_contract) {
         // oracle data can only be called from a coordination script in
         // this contract, that ensures data is paid for
-        raise Error("InvalidContext");
+        raise Oracle::Error("InvalidContext");
       }
 
       return self.data; // note: this non-mutable, so it's just a reference input

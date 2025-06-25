@@ -1,7 +1,7 @@
 use crate::ast::{
     Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FnDef, FnType, Identifier,
-    LoopBody, PrimaryExpr, ProgramItem, Script, StarstreamProgram, Statement, Token, TokenItem,
-    TypeArg, TypeDef, TypeDefRhs, TypeOrSelf, TypeRef, Utxo, UtxoItem,
+    LoopBody, PrimaryExpr, ProgramItem, Script, Sig, StarstreamProgram, Statement, Token,
+    TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeOrSelf, TypeRef, Utxo, UtxoItem,
 };
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
@@ -31,12 +31,13 @@ pub fn do_scope_analysis(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Symbols {
     pub vars: HashMap<SymbolId, SymbolInformation<VarInfo>>,
     pub types: HashMap<SymbolId, SymbolInformation<TypeInfo>>,
     pub functions: HashMap<SymbolId, SymbolInformation<FuncInfo>>,
     pub constants: HashMap<SymbolId, SymbolInformation<ConstInfo>>,
+    pub interfaces: HashMap<SymbolId, SymbolInformation<AbiInfo>>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +60,12 @@ pub struct FuncInfo {
 #[derive(Debug, Clone)]
 pub struct ConstInfo {}
 
+#[derive(Debug, Clone)]
+pub struct AbiInfo {
+    pub effects: HashSet<SymbolId>,
+    pub fns: HashMap<String, Sig>,
+}
+
 #[derive(Debug)]
 pub struct SymbolInformation<T> {
     pub source: String,
@@ -66,11 +73,12 @@ pub struct SymbolInformation<T> {
     pub info: T,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Scope {
     var_declarations: HashMap<String, SymbolId>,
     function_declarations: HashMap<String, SymbolId>,
     type_declarations: HashMap<String, SymbolId>,
+    abi_declarations: HashMap<String, SymbolId>,
     is_function_scope: bool,
     is_type_scope: Option<SymbolId>,
 }
@@ -97,6 +105,8 @@ pub enum SymbolKind {
     Variable,
     Function,
     Type,
+    Abi,
+    Namespace,
 }
 
 impl Visitor {
@@ -106,45 +116,28 @@ impl Visitor {
             locals: vec![],
             symbol_counter: 0,
             errors: vec![],
-            symbols: Symbols {
-                vars: Default::default(),
-                types: Default::default(),
-                functions: Default::default(),
-                constants: Default::default(),
-            },
+            symbols: Symbols::default(),
         }
     }
 
     fn push_type_scope(&mut self, type_id: SymbolId) {
         self.stack.push(Scope {
-            var_declarations: HashMap::new(),
-            function_declarations: HashMap::new(),
-            type_declarations: HashMap::new(),
-            is_function_scope: false,
             is_type_scope: Some(type_id),
+            ..Default::default()
         });
     }
 
     fn push_function_scope(&mut self) {
         self.stack.push(Scope {
-            var_declarations: HashMap::new(),
-            function_declarations: HashMap::new(),
-            type_declarations: HashMap::new(),
             is_function_scope: true,
-            is_type_scope: None,
+            ..Default::default()
         });
 
         self.locals.push(0);
     }
 
     fn push_scope(&mut self) {
-        self.stack.push(Scope {
-            var_declarations: HashMap::new(),
-            function_declarations: HashMap::new(),
-            type_declarations: HashMap::new(),
-            is_function_scope: false,
-            is_type_scope: None,
-        });
+        self.stack.push(Scope::default());
     }
 
     fn pop_scope(&mut self) {
@@ -166,6 +159,7 @@ impl Visitor {
     fn add_builtins(&mut self) {
         self.push_type_declaration(&mut Identifier::new("PublicKey", None));
         self.push_type_declaration(&mut Identifier::new("any", None));
+        self.push_type_declaration(&mut Identifier::new("Value", None));
 
         self.push_function_declaration(
             &mut Identifier::new("CoordinationCode", None),
@@ -284,17 +278,21 @@ impl Visitor {
                 ProgramItem::Constant { name, value: _ } => {
                     self.push_constant_declaration(name);
                 }
+                ProgramItem::Abi(abi) => {
+                    self.visit_abi(abi);
+                }
             }
         }
 
         let mut items = program.items.iter_mut().collect::<Vec<_>>();
 
         items.sort_by_key(|item| match item {
-            ProgramItem::Token(_token) => 0,
-            ProgramItem::Utxo(_utxo) => 1,
-            ProgramItem::TypeDef(_type_def) => 2,
-            ProgramItem::Constant { name: _, value: _ } => 3,
-            ProgramItem::Script(_script) => 4,
+            ProgramItem::Abi(_abi) => 0,
+            ProgramItem::Token(_token) => 1,
+            ProgramItem::Utxo(_utxo) => 2,
+            ProgramItem::TypeDef(_type_def) => 3,
+            ProgramItem::Constant { name: _, value: _ } => 4,
+            ProgramItem::Script(_script) => 5,
         });
 
         for item in items {
@@ -316,26 +314,7 @@ impl Visitor {
     }
 
     pub fn visit_script(&mut self, script: &mut Script) {
-        for definition in &mut script.definitions {
-            self.push_function_declaration(
-                &mut definition.ident,
-                FuncInfo {
-                    inputs_ty: definition
-                        .inputs
-                        .iter()
-                        .map(|arg| match arg.ty.clone() {
-                            TypeOrSelf::Type(type_arg) => type_arg,
-                            TypeOrSelf::_Self => todo!(),
-                        })
-                        .collect(),
-                    output_ty: definition.output.clone(),
-                },
-            );
-        }
-
-        for definition in &mut script.definitions {
-            self.visit_fn_def(definition);
-        }
+        self.visit_fn_defs(&mut script.definitions, None);
     }
 
     pub fn visit_utxo(&mut self, utxo: &mut Utxo) {
@@ -344,15 +323,10 @@ impl Visitor {
         // we need to put these into scope before doing anything else
         self.push_type_scope(uid);
 
-        for item in &mut utxo.items {
-            if let UtxoItem::Abi(abi) = item {
-                self.visit_abi(abi);
-            }
-        }
+        let self_ty = TypeArg::TypeRef(TypeRef(utxo.name.clone()));
 
         for item in &mut utxo.items {
             match item {
-                UtxoItem::Abi(_) => (),
                 UtxoItem::Main(main) => {
                     // TODO: may actually want to get the "main" span
                     self.push_function_declaration(
@@ -364,14 +338,61 @@ impl Visitor {
                                 .as_ref()
                                 .map(|args| args.values.iter().map(|arg| arg.1.clone()).collect())
                                 .unwrap_or(vec![]),
-                            output_ty: Some(TypeArg::TypeRef(TypeRef(utxo.name.clone()))),
+                            output_ty: Some(self_ty.clone()),
                         },
                     );
                     self.visit_block(&mut main.block, true);
                 }
                 UtxoItem::Impl(utxo_impl) => {
+                    let Some((abi, _)) = self.resolve_name(&mut utxo_impl.name, SymbolKind::Abi)
+                    else {
+                        return;
+                    };
+
+                    self.visit_fn_defs(&mut utxo_impl.definitions, Some(self_ty.clone()));
+
                     for definition in &mut utxo_impl.definitions {
-                        self.visit_fn_def(definition);
+                        let Some(abi_def) = self
+                            .symbols
+                            .interfaces
+                            .get(&abi)
+                            .unwrap()
+                            .info
+                            .fns
+                            .get(&definition.ident.raw)
+                        else {
+                            self.push_not_found_error(definition.ident.span.unwrap());
+                            return;
+                        };
+
+                        let impl_def = self
+                            .symbols
+                            .functions
+                            .get(&definition.ident.uid.unwrap())
+                            .unwrap()
+                            .info
+                            .clone();
+
+                        if !impl_def
+                            .inputs_ty
+                            .iter()
+                            // skip self, assume it's implied
+                            .skip(1)
+                            .chain(impl_def.output_ty.iter())
+                            .zip(abi_def.input_types.iter().chain(abi_def.output_type.iter()))
+                            .all(|(impl_def, abi_def)| match (impl_def, abi_def) {
+                                // TODO: may want to actually point to the faulty arg in the error
+                                (TypeArg::TypeRef(id1), TypeArg::TypeRef(id2)) => {
+                                    id1.0.uid.unwrap() == id2.0.uid.unwrap()
+                                }
+                                (t1, t2) => t1 == t2,
+                            })
+                        {
+                            self.push_abi_mismatch_error(
+                                definition.ident.span.unwrap(),
+                                abi_def.name.span.unwrap(),
+                            );
+                        }
                     }
                 }
                 UtxoItem::Storage(_) => {}
@@ -397,7 +418,6 @@ impl Visitor {
 
         for item in &mut token.items {
             match item {
-                TokenItem::Abi(abi) => self.visit_abi(abi),
                 TokenItem::Bind(bind) => {
                     self.push_function_scope();
                     self.push_var_declaration(&mut Identifier::new("self", None), true);
@@ -455,18 +475,48 @@ impl Visitor {
         }
     }
 
-    fn visit_fn_def(&mut self, definition: &mut FnDef) {
-        self.resolve_name(&mut definition.ident, SymbolKind::Function);
+    fn visit_fn_defs(&mut self, definitions: &mut [FnDef], self_ty: Option<TypeArg>) {
+        for definition in definitions.iter_mut() {
+            for arg in &mut definition.inputs {
+                match &mut arg.ty {
+                    TypeOrSelf::Type(type_arg) => self.visit_type_arg(type_arg),
+                    TypeOrSelf::_Self => (),
+                }
+            }
 
-        self.push_function_scope();
+            if let Some(output_ty) = &mut definition.output {
+                self.visit_type_arg(output_ty);
+            }
 
-        for node in &mut definition.inputs {
-            self.push_var_declaration(&mut node.name, false);
+            self.push_function_declaration(
+                &mut definition.ident,
+                FuncInfo {
+                    inputs_ty: definition
+                        .inputs
+                        .iter()
+                        .map(|arg| match arg.ty.clone() {
+                            TypeOrSelf::Type(type_arg) => type_arg,
+                            TypeOrSelf::_Self => self_ty.clone().unwrap(),
+                        })
+                        .collect(),
+                    output_ty: definition.output.clone(),
+                },
+            );
         }
 
-        self.visit_block(&mut definition.body, false);
+        for definition in definitions {
+            self.resolve_name(&mut definition.ident, SymbolKind::Function);
 
-        self.pop_scope();
+            self.push_function_scope();
+
+            for node in &mut definition.inputs {
+                self.push_var_declaration(&mut node.name, false);
+            }
+
+            self.visit_block(&mut definition.body, false);
+
+            self.pop_scope();
+        }
     }
 
     fn new_symbol(&mut self, ident: &mut Identifier) -> SymbolId {
@@ -588,25 +638,72 @@ impl Visitor {
         symbol
     }
 
+    fn push_interface_declaration(&mut self, ident: &mut Identifier, info: AbiInfo) -> SymbolId {
+        let symbol = self.new_symbol(ident);
+
+        let scope = self.stack.last_mut().unwrap();
+        scope.abi_declarations.insert(ident.raw.clone(), symbol);
+
+        self.symbols.interfaces.insert(
+            symbol,
+            SymbolInformation {
+                source: ident.raw.clone(),
+                span: ident.span,
+                info,
+            },
+        );
+
+        symbol
+    }
+
     fn resolve_name(
         &mut self,
         identifier: &mut Identifier,
         symbol_kind: SymbolKind,
-    ) -> Option<SymbolId> {
+    ) -> Option<(SymbolId, SymbolKind)> {
         let resolution = self.stack.iter().rev().find_map(|scope| match symbol_kind {
-            SymbolKind::Variable => scope.var_declarations.get(&identifier.raw).cloned(),
-            SymbolKind::Function => scope.function_declarations.get(&identifier.raw).cloned(),
-            SymbolKind::Type => scope.type_declarations.get(&identifier.raw).cloned(),
+            SymbolKind::Variable => scope
+                .var_declarations
+                .get(&identifier.raw)
+                .cloned()
+                .zip(Some(SymbolKind::Variable)),
+            SymbolKind::Function => scope
+                .function_declarations
+                .get(&identifier.raw)
+                .cloned()
+                .zip(Some(SymbolKind::Function)),
+            SymbolKind::Type => scope
+                .type_declarations
+                .get(&identifier.raw)
+                .cloned()
+                .zip(Some(SymbolKind::Type)),
+            SymbolKind::Abi => scope
+                .abi_declarations
+                .get(&identifier.raw)
+                .cloned()
+                .zip(Some(SymbolKind::Abi)),
+            SymbolKind::Namespace => scope
+                .abi_declarations
+                .get(&identifier.raw)
+                .cloned()
+                .zip(Some(SymbolKind::Abi))
+                .or_else(|| {
+                    scope
+                        .type_declarations
+                        .get(&identifier.raw)
+                        .cloned()
+                        .zip(Some(SymbolKind::Type))
+                }),
         });
 
-        let Some(resolved_name) = resolution else {
+        let Some((resolved_name, symbol_kind)) = resolution else {
             self.push_not_found_error(identifier.span.unwrap());
             return None;
         };
 
         identifier.uid.replace(resolved_name);
 
-        Some(resolved_name)
+        Some((resolved_name, symbol_kind))
     }
 
     fn visit_block(&mut self, block: &mut Block, new_scope: bool) {
@@ -808,35 +905,44 @@ impl Visitor {
     where
         T: AsMut<Identifier>,
     {
-        let mut namespace = None;
+        let mut last_namespace = None;
 
-        for ty in namespaces {
-            if let Some(type_id) = self.resolve_name(ty.as_mut(), SymbolKind::Type) {
-                self.symbols.types.get(&type_id);
-
-                namespace.replace(type_id);
+        for namespace in namespaces {
+            if let Some(namespace) = self.resolve_name(namespace.as_mut(), SymbolKind::Namespace) {
+                last_namespace.replace(namespace);
             }
         }
 
-        let Some(namespace) = namespace else {
+        let Some((namespace, kind)) = last_namespace else {
             return;
         };
 
-        let f = self
-            .symbols
-            .types
-            .get(&namespace)
-            .unwrap()
-            .info
-            .declarations
-            .iter()
-            .find(|uid| {
-                self.symbols
-                    .functions
-                    .get(uid)
-                    .map(|finfo| finfo.source == ident.raw)
-                    .unwrap_or(false)
-            });
+        let f = match kind {
+            SymbolKind::Type => self
+                .symbols
+                .types
+                .get(&namespace)
+                .unwrap()
+                .info
+                .declarations
+                .iter(),
+            SymbolKind::Abi => self
+                .symbols
+                .interfaces
+                .get(&namespace)
+                .unwrap()
+                .info
+                .effects
+                .iter(),
+            _ => unreachable!(),
+        }
+        .find(|uid| {
+            self.symbols
+                .functions
+                .get(uid)
+                .map(|finfo| finfo.source == ident.raw)
+                .unwrap_or(false)
+        });
 
         if let Some(f) = f {
             ident.uid.replace(*f);
@@ -846,17 +952,12 @@ impl Visitor {
     }
 
     fn visit_abi(&mut self, abi: &mut Abi) {
+        let mut effects = HashSet::new();
+        let mut fns = HashMap::new();
+
         for item in &mut abi.values {
             match item {
                 AbiElem::FnDecl(decl) => {
-                    self.push_function_declaration(
-                        &mut decl.0.name,
-                        FuncInfo {
-                            inputs_ty: decl.0.input_types.clone(),
-                            output_ty: decl.0.output_type.clone(),
-                        },
-                    );
-
                     for ty in &mut decl.0.input_types {
                         self.visit_type_arg(ty);
                     }
@@ -864,22 +965,34 @@ impl Visitor {
                     if let Some(output_ty) = &mut decl.0.output_type {
                         self.visit_type_arg(output_ty);
                     }
+
+                    fns.insert(decl.0.name.raw.clone(), decl.0.clone());
                 }
                 AbiElem::EffectDecl(decl) => match decl {
                     EffectDecl::EffectSig(decl)
                     | EffectDecl::EventSig(decl)
                     | EffectDecl::ErrorSig(decl) => {
-                        self.push_function_declaration(
-                            &mut decl.name,
-                            FuncInfo {
-                                inputs_ty: decl.input_types.clone(),
-                                output_ty: decl.output_type.clone(),
+                        let symbol = self.new_symbol(&mut decl.name);
+
+                        self.symbols.functions.insert(
+                            symbol,
+                            SymbolInformation {
+                                source: decl.name.raw.clone(),
+                                span: decl.name.span,
+                                info: FuncInfo {
+                                    inputs_ty: decl.input_types.clone(),
+                                    output_ty: decl.output_type.clone(),
+                                },
                             },
                         );
+
+                        effects.insert(symbol);
                     }
                 },
             }
         }
+
+        self.push_interface_declaration(&mut abi.name, AbiInfo { effects, fns });
     }
 
     fn visit_type_arg(&mut self, ty: &mut TypeArg) {
@@ -963,6 +1076,26 @@ impl Visitor {
                 .finish(),
         );
     }
+
+    fn push_abi_mismatch_error(&mut self, def_span: SimpleSpan, abi_span: SimpleSpan) {
+        self.errors.push(
+            Report::build(ReportKind::Error, def_span.into_range())
+                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+                // TODO: define error codes across the compiler
+                .with_code(4)
+                .with_label(
+                    Label::new(def_span.into_range())
+                        .with_message("function definition doesn't match abi")
+                        .with_color(Color::Red),
+                )
+                .with_label(
+                    Label::new(abi_span.into_range())
+                        .with_message("defined here")
+                        .with_color(Color::Green),
+                )
+                .finish(),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1010,12 +1143,12 @@ mod tests {
     #[test]
     fn resolve_abi_undeclared_fails() {
         let input = "
-            utxo Utxo {
-                abi {
-                    fn foo(): u32;
-                }
+            abi Abi {
+                fn foo(): u32;
+            }
 
-                impl Utxo {
+            utxo Utxo {
+                impl Abi {
                     fn bar(self) {}
                 }
             }
@@ -1026,12 +1159,28 @@ mod tests {
         assert!(ast.is_err());
 
         let input = "
-            utxo Utxo {
-                abi {
-                    fn foo(): u32;
-                }
+            abi Abi {
+                fn foo(): u32;
+            }
 
-                impl Utxo {
+            utxo Utxo {
+                impl Abi {
+                    fn foo(self): u64 {}
+                }
+            }
+        ";
+
+        let ast = do_scope_analysis(crate::starstream_program().parse(input).unwrap());
+
+        assert!(ast.is_err());
+
+        let input = "
+            abi Abi {
+                fn foo(): u32;
+            }
+
+            utxo Utxo {
+                impl Abi {
                     fn foo(self): u32 {}
                 }
             }
@@ -1124,8 +1273,7 @@ mod tests {
                   bar();
               }
 
-              fn bar() {
-              }
+              fn bar() {}
             }
         ";
 
@@ -1135,6 +1283,9 @@ mod tests {
 
         match ast {
             Err(_errors) => {
+                for e in _errors {
+                    e.eprint(Source::from(input)).unwrap();
+                }
                 unreachable!();
             }
             Ok((_ast, _table)) => {}
@@ -1172,11 +1323,11 @@ mod tests {
     #[test]
     fn function_type_extraction() {
         let input = "
-            token MyToken {
-                abi {
-                    effect Effect1(bool): u32;
-                }
+            abi Abi {
+                effect Effect1(bool): u32;
+            }
 
+            token MyToken {
                 mint {}
             }
 
@@ -1187,7 +1338,7 @@ mod tests {
 
               fn handler() {
                 try {}
-                with MyToken::Effect1(x) { yield 4; }
+                with Abi::Effect1(x) { yield 4; }
               }
             }
         ";

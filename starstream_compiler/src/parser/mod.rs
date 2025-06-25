@@ -27,6 +27,7 @@ pub fn starstream_program<'a>()
         .or(token().map(ProgramItem::Token))
         .or(typedef().map(ProgramItem::TypeDef))
         .or(constant().map(|(name, value)| ProgramItem::Constant { name, value }))
+        .or(abi().map(ProgramItem::Abi))
         .padded()
         .repeated()
         .collect::<Vec<_>>()
@@ -38,9 +39,8 @@ fn utxo<'a>() -> impl Parser<'a, &'a str, Utxo, extra::Err<Rich<'a, char>>> {
     just("utxo")
         .ignore_then(identifier().padded())
         .then(
-            abi()
-                .map(UtxoItem::Abi)
-                .or(main().map(UtxoItem::Main))
+            main()
+                .map(UtxoItem::Main)
                 .or(r#impl().map(UtxoItem::Impl))
                 .or(storage().map(UtxoItem::Storage))
                 .padded()
@@ -116,13 +116,11 @@ fn token<'a>() -> impl Parser<'a, &'a str, Token, extra::Err<Rich<'a, char>>> {
         .padded()
         .ignore_then(identifier())
         .then(
-            abi()
-                .map(TokenItem::Abi)
-                .or(just("bind")
-                    .padded()
-                    .ignore_then(block())
-                    .map(Bind)
-                    .map(TokenItem::Bind))
+            just("bind")
+                .padded()
+                .ignore_then(block())
+                .map(Bind)
+                .map(TokenItem::Bind)
                 .or(just("unbind")
                     .padded()
                     .ignore_then(block())
@@ -170,7 +168,8 @@ fn script<'a>() -> impl Parser<'a, &'a str, Script, extra::Err<Rich<'a, char>>> 
 
 fn abi<'a>() -> impl Parser<'a, &'a str, Abi, extra::Err<Rich<'a, char>>> {
     just("abi")
-        .ignore_then(
+        .ignore_then(identifier().padded())
+        .then(
             choice((
                 fn_sig().map(AbiElem::FnDecl),
                 effect_sig().map(AbiElem::EffectDecl),
@@ -180,7 +179,7 @@ fn abi<'a>() -> impl Parser<'a, &'a str, Abi, extra::Err<Rich<'a, char>>> {
             .collect::<Vec<_>>()
             .delimited_by(just('{').padded(), just('}').padded()),
         )
-        .map(|values| Abi { values })
+        .map(|(name, values)| Abi { name, values })
 }
 
 fn storage<'a>() -> impl Parser<'a, &'a str, Storage, extra::Err<Rich<'a, char>>> {
@@ -852,7 +851,7 @@ mod tests {
 
     #[test]
     fn parse_abi() {
-        let input = "abi { fn foo(): number; fn bar(Value); effect Effect1(Value): number; }";
+        let input = "abi Abi { fn foo(): number; fn bar(Value); effect Effect1(Value): number; }";
         test_with_diagnostics(input, abi());
     }
 
@@ -870,13 +869,13 @@ mod tests {
 
     #[test]
     fn parse_utxo() {
-        let input = "utxo Contract { abi {} main {} }";
+        let input = "utxo Contract { main {} }";
         test_with_diagnostics(input, utxo());
     }
 
     #[test]
     fn parse_program() {
-        let input = "utxo Contract { abi {} main {} } token Token {}";
+        let input = "abi Abi {} utxo Contract {  main {} } token Token {}";
         test_with_diagnostics(input, starstream_program());
     }
 

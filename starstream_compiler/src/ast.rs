@@ -13,6 +13,7 @@ pub struct StarstreamProgram {
 #[derive(Clone, Debug)]
 pub enum ProgramItem {
     // TODO: Import
+    Abi(Abi),
     Script(Script),
     Utxo(Utxo),
     Token(Token),
@@ -29,7 +30,6 @@ pub struct Utxo {
 
 #[derive(Clone, Debug)]
 pub enum UtxoItem {
-    Abi(Abi),
     Main(Main),
     Impl(Impl),
     Storage(Storage),
@@ -51,7 +51,6 @@ pub struct Token {
 pub enum TokenItem {
     Bind(Bind),
     Unbind(Unbind),
-    Abi(Abi),
     Mint(Mint),
 }
 
@@ -125,6 +124,7 @@ pub enum AbiElem {
 
 #[derive(Clone, Debug)]
 pub struct Abi {
+    pub name: Identifier,
     pub values: Vec<AbiElem>,
 }
 

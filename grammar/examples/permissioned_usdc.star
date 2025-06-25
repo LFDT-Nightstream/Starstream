@@ -1,12 +1,12 @@
 const PERMISSIONED_TOKEN_ID = 42;
 const ADMIN = 42;
 
-utxo LinkedListNode {
-  abi {
+abi LinkedListNodeAbi {
     fn get_key(): PublicKey;
     fn get_next(): PublicKey;
-  }
+}
 
+utxo LinkedListNode {
   storage {
     key: Option<PublicKey>;
     next: Option<PublicKey>;
@@ -17,7 +17,7 @@ utxo LinkedListNode {
     loop { yield; }
   }
 
-  impl LinkedListNode {
+  impl LinkedListNodeAbi {
     fn get_key(self): PublicKey {
       self.key
     }
@@ -63,7 +63,7 @@ script {
         change_tokens.push(token);
       }
     }
-    with PermissionedUSDC::IsBlacklisted(address: PublicKey) {
+    with PermissionedToken::IsBlacklisted(address: PublicKey) {
       let res1 = is_in_range(proof_from, address);
       let res2 = is_in_range(proof_to, address);
 
@@ -88,7 +88,7 @@ script {
       output_utxo.attach(output_intermediate);
       change_utxo.attach(change_intermediate);
     }
-    with PermissionedUSDC::IsBlacklisted(address: PublicKey) {
+    with PermissionedToken::IsBlacklisted(address: PublicKey) {
       let res1 = is_in_range(proof_from, address);
       let res2 = is_in_range(proof_to, address);
 
@@ -137,18 +137,18 @@ script {
 
       out
     }
-    with PermissionedUSDC::IsBlacklisted(address) {
+    with PermissionedToken::IsBlacklisted(address) {
       is_in_range(proof, address);
     }
   }
 }
 
-token PermissionedUSDC {
-  abi {
-    effect IsBlacklisted(PublicKey): Bool;
-    effect CallerOwner(): PublicKey;
-  }
+abi PermissionedToken {
+  effect IsBlacklisted(PublicKey): Bool;
+  effect CallerOwner(): PublicKey;
+}
 
+token PermissionedUSDC {
   mint {
     assert(context.tx.is_signed_by(ADMIN));
     assert(context.tx.is_signed_by(ADMIN));
@@ -157,9 +157,9 @@ token PermissionedUSDC {
   bind {
     assert(raise CoordinationCode() == raise ThisCode());
 
-    let owner = raise CallerOwner();
+    let owner = raise PermissionedToken::CallerOwner();
 
-    let is_blacklisted = raise IsBlacklisted(owner);
+    let is_blacklisted = raise PermissionedToken::IsBlacklisted(owner);
 
     assert(!is_blacklisted);
 
@@ -172,9 +172,9 @@ token PermissionedUSDC {
   unbind {
     assert(raise CoordinationCode() == raise ThisCode());
 
-    let owner = raise CallerOwner();
+    let owner = raise PermissionedToken::CallerOwner();
 
-    let is_blacklisted = raise IsBlacklisted(owner);
+    let is_blacklisted = raise PermissionedToken::IsBlacklisted(owner);
 
     assert(!is_blacklisted);
   }
