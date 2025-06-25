@@ -1755,7 +1755,7 @@ impl Transaction {
         let mut outputs = [Value::from(ExternRef::null())];
         let fuel = self.store.fuel_consumed().unwrap();
         let from_state_after = self.hash_program(from_program);
-        let to_state_before = self.hash_program(id);
+        let to_state_before = self.hash_program(to_program);
         let resumable = main
             .call_resumable(&mut self.store, &inputs, &mut outputs[..num_outputs])
             .unwrap();
