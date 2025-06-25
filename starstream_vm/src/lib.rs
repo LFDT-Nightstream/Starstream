@@ -1851,13 +1851,17 @@ impl std::fmt::Debug for Transaction {
 /// A proof of a transaction that can be passed around and derived later.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TransactionProof {
-    continuations: Vec<ContinuationEntry>,
+    pub continuations: Vec<ContinuationEntry>,
+    pub program_proofs: Vec<nebula::ProgramProof>,
 }
 
 impl TransactionProof {
     /// Verify
     pub fn verify(&self) -> Result<(), String> {
-        // TODO: actually verify something.
+        // TODO: actually verify continuations.
+        for pp in self.program_proofs.iter() {
+            pp.verify(); // TODO: currently panics, should probably return a useful error.
+        }
         Ok(())
     }
 }

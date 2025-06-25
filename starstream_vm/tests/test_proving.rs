@@ -20,5 +20,9 @@ pub fn main() {
     dbg!(tx.map_continuations());
 
     // TODO: how do we auto-test this without eating infinite GitHub Actions runner time?
-    //tx.prove();
+    if false {
+        let proof = tx.prove();
+        dbg!(format!("{:?}", proof).len());
+        proof.verify().unwrap();
+    }
 }

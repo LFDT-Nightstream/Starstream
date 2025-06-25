@@ -9,7 +9,7 @@ use zk_engine::{
     },
     utils::logging::init_logger,
     wasm_ctx::{WASMArgs, WASMArgsBuilder, ZKWASMCtx},
-    wasm_snark::{StepSize, WasmSNARK},
+    wasm_snark::{StepSize, WasmSNARK, ZKWASMInstance},
 };
 
 use crate::{
@@ -23,6 +23,46 @@ type EE2 = ipa_pc::EvaluationEngine<Dual<E>>;
 type S1 = spartan::batched::BatchedRelaxedR1CSSNARK<E, EE1>;
 type S2 = spartan::batched::BatchedRelaxedR1CSSNARK<Dual<E>, EE2>;
 type Snark = WasmSNARK<E, S1, S2>;
+type PublicParams = zk_engine::wasm_snark::WASMPublicParams<
+    Bn256EngineIPA,
+    spartan::batched::BatchedRelaxedR1CSSNARK<
+        Bn256EngineIPA,
+        ipa_pc::EvaluationEngine<Bn256EngineIPA>,
+    >,
+    spartan::batched::BatchedRelaxedR1CSSNARK<
+        zk_engine::nova::provider::GrumpkinEngine,
+        ipa_pc::EvaluationEngine<zk_engine::nova::provider::GrumpkinEngine>,
+    >,
+>;
+
+struct OurPublicParams {
+    step_size: StepSize,
+    params: PublicParams,
+}
+
+thread_local! {
+    static PUBLIC_PARAMS: OurPublicParams = {
+        info!("Begin Snark::setup, this may take a while...");
+        let step_size = StepSize::new(1000).set_memory_step_size(50_000);
+        let params = Snark::setup(step_size);
+        info!("End Snark::setup");
+        OurPublicParams { step_size, params }
+    };
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct ProgramProof {
+    snark: Snark,
+    instance: ZKWASMInstance<E>,
+}
+
+impl ProgramProof {
+    pub fn verify(&self) {
+        PUBLIC_PARAMS.with(|pp| {
+            self.snark.verify(&pp.params, &self.instance).unwrap();
+        });
+    }
+}
 
 #[allow(clippy::unused_unit)] // False positive. `clippy --fix` breaks the code.
 fn starstream_env_zk<T>(linker: &mut Linker<T>, module: &str, this_code: CodeHash) {
@@ -151,65 +191,61 @@ impl Transaction {
             debug!("{witness:?}");
         }
 
-        let step_size = StepSize::new(1000).set_memory_step_size(50_000);
-        info!("Setting up...");
-        let public_params = Snark::setup(step_size);
-        info!("Snark::setup complete");
+        PUBLIC_PARAMS.with(|pp| {
+            // Prove the traces of each program.
+            let mut program_proofs = Vec::new();
+            for (i, program) in inner.programs.iter().enumerate() {
+                let program_idx = ProgramIdx(i);
+                debug!("{:?} {program:?}", program_idx);
 
-        // TODO: Stuff the continuation table into a proof.
-
-        // Prove the traces of each program.
-        for (i, program) in inner.programs.iter().enumerate() {
-            let program_idx = ProgramIdx(i);
-            debug!("{:?} {program:?}", program_idx);
-
-            // Scan for first witness TO our program to be the func_args.
-            let mut witness = 0;
-            let mut func_args = Vec::new();
-            while witness < inner.witnesses.len() {
-                if inner.witnesses[witness].to_program == program_idx {
-                    debug!("  -> {:?}", &inner.witnesses[witness]);
-                    func_args = inner.witnesses[witness]
-                        .values
-                        .iter()
-                        .map(|v| match v {
-                            Value::F32(x) => x.to_string(),
-                            Value::F64(x) => x.to_string(),
-                            Value::I32(x) => x.to_string(),
-                            Value::I64(x) => x.to_string(),
-                            _ => unimplemented!(),
-                        })
-                        .collect();
-                    break;
+                // Scan for first witness TO our program to be the func_args.
+                let mut witness = 0;
+                let mut func_args = Vec::new();
+                while witness < inner.witnesses.len() {
+                    if inner.witnesses[witness].to_program == program_idx {
+                        debug!("  -> {:?}", &inner.witnesses[witness]);
+                        func_args = inner.witnesses[witness]
+                            .values
+                            .iter()
+                            .map(|v| match v {
+                                Value::F32(x) => x.to_string(),
+                                Value::F64(x) => x.to_string(),
+                                Value::I32(x) => x.to_string(),
+                                Value::I64(x) => x.to_string(),
+                                _ => unimplemented!(),
+                            })
+                            .collect();
+                        break;
+                    }
+                    witness += 1;
                 }
-                witness += 1;
+
+                let wasm_args = WASMArgsBuilder::default()
+                    .bytecode(self.code_cache.get(program.code).wasm().to_vec())
+                    .invoke(&program.entry_point)
+                    .func_args(func_args)
+                    .build();
+                let wasm_ctx = StarstreamWasmCtx {
+                    args: wasm_args,
+                    data: StoreData {
+                        tx: inner,
+                        program_idx,
+                        program,
+                        witness,
+                    },
+                };
+                let (snark, instance) = Snark::prove(&pp.params, &wasm_ctx, pp.step_size).unwrap();
+                debug!("Finished program proof {i}");
+                program_proofs.push(ProgramProof { snark, instance });
             }
 
-            let wasm_args = WASMArgsBuilder::default()
-                .bytecode(self.code_cache.get(program.code).wasm().to_vec())
-                .invoke(&program.entry_point)
-                .func_args(func_args)
-                .build();
-            let wasm_ctx = StarstreamWasmCtx {
-                args: wasm_args,
-                data: StoreData {
-                    tx: inner,
-                    program_idx,
-                    program,
-                    witness,
-                },
-            };
-            let (snark, instance) = Snark::prove(&public_params, &wasm_ctx, step_size).unwrap();
-            debug!("Snark: {snark:?}");
-            debug!("Instance: {instance:?}");
-            //snark.verify(&public_params, &instance).unwrap();
-        }
+            // HUGE TODO: prove that the program traces and the continuation table actually correspond.
 
-        // HUGE TODO: prove that the program traces and the continuation table actually correspond.
-
-        // TODO: return (serialized?) proof instead of throwing it away.
-        TransactionProof {
-            continuations: self.map_continuations(),
-        }
+            // TODO: return (serialized?) proof instead of throwing it away.
+            TransactionProof {
+                continuations: self.map_continuations(),
+                program_proofs,
+            }
+        })
     }
 }
