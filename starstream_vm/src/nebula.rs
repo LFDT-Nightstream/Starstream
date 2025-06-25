@@ -209,7 +209,7 @@ impl Transaction {
 
         // TODO: return (serialized?) proof instead of throwing it away.
         TransactionProof {
-            continuations: self.store.data().continuations.clone(),
+            continuations: self.map_continuations(),
         }
     }
 }

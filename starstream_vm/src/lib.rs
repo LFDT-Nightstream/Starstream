@@ -901,23 +901,27 @@ const MAX_FUEL: u64 = u64::MAX;
 
 #[derive(Debug)]
 struct TxWitness {
+    reply_to_witness: usize,
     /// Total fuel spent by the transaction as of the time of this witness.
     fuel: u64,
-    from_program: ProgramIdx,
-    to_program: ProgramIdx,
-    reply_to_witness: usize,
-    values: Vec<Value>,
-    /// Memory segments read from `from_program` by this witness.
-    read_from_memory: Vec<MemorySegment>,
-    /// Memory segments written to `to_program` by this witness.
-    write_to_memory: Vec<MemorySegment>,
     is_create: bool,
     is_destroy: bool,
+
+    from_program: ProgramIdx,
+    from_state_after: MemoryHash,
+    /// Memory segments read from `from_program` by this witness.
+    read_from_memory: Vec<MemorySegment>,
+    values: Vec<Value>,
+
+    to_program: ProgramIdx,
+    to_state_before: MemoryHash,
+    /// Memory segments written to `to_program` by this witness.
+    write_to_memory: Vec<MemorySegment>,
 }
 
 /// A row in the continuation table describing UTXO evolution.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-struct ContinuationEntry {
+pub struct ContinuationEntry {
     /// Hash of the contract the UTXO belongs to.
     code: CodeHash,
     /// Hash of the UTXO's memory and attached state before the call.
@@ -993,8 +997,6 @@ struct TransactionInner {
     programs: Vec<TxProgram>,
     /// Call and return values between programs, logged for future ZK use.
     witnesses: Vec<TxWitness>,
-    /// UTXO states.
-    continuations: Vec<ContinuationEntry>,
 
     registered_effect_handler: HashMap<String, Vec<(ProgramIdx, u32)>>,
     raised_effects: HashMap<String, ProgramIdx>,
@@ -1112,10 +1114,14 @@ impl Transaction {
 
                         // Push final witness
                         let fuel = self.store.fuel_consumed().unwrap();
+                        let from_state_after = self.hash_program(from_program);
+                        let to_state_before = self.hash_program(to_program);
                         self.store.data_mut().witnesses.push(TxWitness {
                             fuel,
                             from_program,
+                            from_state_after,
                             to_program: ProgramIdx::Root,
+                            to_state_before,
                             reply_to_witness: 0,
                             values,
                             read_from_memory: Default::default(),
@@ -1163,22 +1169,6 @@ impl Transaction {
                             .tokens
                             .insert(token_id, token);
                         values = vec![token_id.to_wasm_i64(self.store.as_context_mut())];
-                    }
-
-                    if self.store.data_mut().programs[from_program.0]
-                        .utxo
-                        .is_some()
-                    {
-                        // TODO: double-check that this actually reliably sets the right thing.
-                        self.store
-                            .data_mut()
-                            .continuations
-                            .iter_mut()
-                            .rev()
-                            .filter(|c| c.state_after == MemoryHash::UNFINISHED)
-                            .next()
-                            .unwrap()
-                            .state_after = MemoryHash::NOTHING;
                     }
 
                     self.resume(from_program, to_program, values, read_from_memory, vec![])
@@ -1332,14 +1322,6 @@ impl Transaction {
                     let linker = utxo_linker(self.store.engine(), &self.code_cache, &code);
                     let id = UtxoId::random();
 
-                    self.store.data_mut().continuations.push(ContinuationEntry {
-                        code: code_hash,
-                        state_before: MemoryHash::NOTHING,
-                        entry_point: entry_point.clone(),
-                        input: inputs.clone(),
-                        state_after: MemoryHash::UNFINISHED,
-                    });
-
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
                     self.store.data_mut().programs[to_program.0].yield_to = Some(from_program);
@@ -1359,17 +1341,6 @@ impl Transaction {
                 }
                 Err(Interrupt::UtxoResume { utxo_id, inputs }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
-
-                    let code = self.store.data().programs[to_program.0].code;
-                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
-                    self.store.data_mut().continuations.push(ContinuationEntry {
-                        code,
-                        state_before,
-                        // TODO: Stackful resume()s don't have an entry point, so this is a placeholder.
-                        entry_point: "__resume__".to_owned(),
-                        input: inputs.clone(),
-                        state_after: MemoryHash::UNFINISHED,
-                    });
 
                     // TODO: I think this is correct if the utxo is resumed
                     // from a coordination script, because there is a chance the
@@ -1420,16 +1391,6 @@ impl Transaction {
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
 
-                    let code = self.store.data().programs[to_program.0].code;
-                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
-                    self.store.data_mut().continuations.push(ContinuationEntry {
-                        code,
-                        state_before,
-                        entry_point: method.clone(),
-                        input: inputs.clone(),
-                        state_after: MemoryHash::UNFINISHED,
-                    });
-
                     // Insert address of yielded object.
                     let address = match self.store.data().programs[to_program.0].interrupt() {
                         Some(Interrupt::Yield { data, .. }) => *data,
@@ -1446,16 +1407,6 @@ impl Transaction {
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
 
-                    let code = self.store.data().programs[to_program.0].code;
-                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
-                    self.store.data_mut().continuations.push(ContinuationEntry {
-                        code,
-                        state_before,
-                        entry_point: method.clone(),
-                        input: inputs.clone(),
-                        state_after: MemoryHash::UNFINISHED,
-                    });
-
                     // Insert address of yielded object.
                     let address = match self.store.data().programs[to_program.0].interrupt() {
                         Some(Interrupt::Yield { data, .. }) => *data,
@@ -1470,16 +1421,6 @@ impl Transaction {
                     mut inputs,
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
-
-                    let code = self.store.data().programs[to_program.0].code;
-                    let state_before = self.store.data().programs[to_program.0].hash(&self.store);
-                    self.store.data_mut().continuations.push(ContinuationEntry {
-                        code,
-                        state_before,
-                        entry_point: method.clone(),
-                        input: inputs.clone(),
-                        state_after: MemoryHash::UNFINISHED,
-                    });
 
                     // Insert address of yielded object.
                     let address = match self.store.data().programs[to_program.0].interrupt() {
@@ -1496,11 +1437,6 @@ impl Transaction {
                 // ------------------------------------------------------------
                 // UTXOs can yield and call into tokens
                 Err(Interrupt::Yield { .. }) => {
-                    let state_after = self.store.data().programs[from_program.0].hash(&self.store);
-                    let last = self.store.data_mut().continuations.last_mut().unwrap();
-                    assert_eq!(last.state_after, MemoryHash::UNFINISHED);
-                    last.state_after = state_after;
-
                     let utxo_scrambled_id = self.store.data_mut().programs[from_program.0]
                         .yield_to_constructor
                         .take();
@@ -1646,6 +1582,14 @@ impl Transaction {
         }
     }
 
+    fn hash_program(&self, id: ProgramIdx) -> MemoryHash {
+        if id == ProgramIdx::Root {
+            MemoryHash::NOTHING
+        } else {
+            self.store.data().programs[id.0].hash(&self.store)
+        }
+    }
+
     /// Instantiate a new contract instance.
     fn start_program(
         &mut self,
@@ -1700,10 +1644,14 @@ impl Transaction {
             resumable,
             utxo: None,
         });
+        let from_state_after = self.hash_program(from_program);
+        let to_state_before = self.hash_program(id);
         self.store.data_mut().witnesses.push(TxWitness {
             fuel,
             from_program,
+            from_state_after,
             to_program: id,
+            to_state_before,
             reply_to_witness: usize::MAX,
             values: inputs,
             read_from_memory: Default::default(),
@@ -1749,6 +1697,8 @@ impl Transaction {
                 }
 
                 let fuel = self.store.fuel_consumed().unwrap();
+                let from_state_after = self.hash_program(from_program);
+                let to_state_before = self.hash_program(to_program);
                 let num_outputs = self.store.data_mut().programs[to_program.0].num_outputs;
                 let mut outputs = [Value::from(ExternRef::null())];
                 let resumable = invocation
@@ -1767,7 +1717,9 @@ impl Transaction {
                 self.store.data_mut().witnesses.push(TxWitness {
                     fuel,
                     from_program,
+                    from_state_after,
                     to_program,
+                    to_state_before,
                     reply_to_witness: usize::MAX,
                     values: inputs,
                     read_from_memory,
@@ -1800,6 +1752,8 @@ impl Transaction {
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
         let fuel = self.store.fuel_consumed().unwrap();
+        let from_state_after = self.hash_program(from_program);
+        let to_state_before = self.hash_program(id);
         let resumable = main
             .call_resumable(&mut self.store, &inputs, &mut outputs[..num_outputs])
             .unwrap();
@@ -1833,7 +1787,9 @@ impl Transaction {
         self.store.data_mut().witnesses.push(TxWitness {
             fuel,
             from_program,
+            from_state_after,
             to_program: id,
+            to_state_before,
             reply_to_witness: usize::MAX,
             values: inputs,
             read_from_memory: Default::default(),
@@ -1842,6 +1798,38 @@ impl Transaction {
             is_destroy: false,
         });
         (id, result)
+    }
+
+    pub fn map_continuations(&self) -> Vec<ContinuationEntry> {
+        let mut result = Vec::new();
+        let mut iter = self.store.data().witnesses.iter();
+        let Some(first) = iter.next() else {
+            return result;
+        };
+
+        let first_program = &self.store.data().programs[first.to_program.0];
+        result.push(ContinuationEntry {
+            code: first_program.code,
+            state_before: first.to_state_before,
+            entry_point: first_program.entry_point.clone(),
+            input: first.values.clone(),
+            state_after: MemoryHash::UNFINISHED,
+        });
+        for each in iter {
+            result.last_mut().unwrap().state_after = each.from_state_after;
+            if each.to_program != ProgramIdx::Root {
+                let each_program = &self.store.data().programs[each.to_program.0];
+                result.push(ContinuationEntry {
+                    code: each_program.code,
+                    state_before: each.to_state_before,
+                    entry_point: each_program.entry_point.clone(),
+                    input: each.values.clone(),
+                    state_after: MemoryHash::UNFINISHED,
+                });
+            }
+        }
+
+        result
     }
 
     pub fn prove(&self) -> TransactionProof {
@@ -1854,7 +1842,6 @@ impl std::fmt::Debug for Transaction {
         let inner = self.store.data();
         f.debug_struct("Transaction")
             .field("utxos", &inner.utxos)
-            .field("continuations", &inner.continuations)
             .field("programs", &inner.programs)
             .field("witnesses", &inner.witnesses)
             .finish()

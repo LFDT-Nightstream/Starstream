@@ -17,6 +17,7 @@ pub fn main() {
 
     tx.run_coordination_script(&example_contract, "produce_and_consume", vec![]);
     dbg!(&tx);
+    dbg!(tx.map_continuations());
 
     // TODO: how do we auto-test this without eating infinite GitHub Actions runner time?
     //tx.prove();
