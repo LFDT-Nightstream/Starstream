@@ -299,8 +299,13 @@ pub enum PrimaryExpr {
     Number(f64),
     /// `true` or `false` literal
     Bool(bool),
+    /// `a`
+    Ident(Identifier),
     /// `a::b::c`
-    Ident(Vec<Identifier>),
+    Namespace {
+        namespaces: Vec<Identifier>,
+        ident: Identifier,
+    },
     /// `(a)`
     ParExpr(Box<Expr>),
     /// `yield a`

@@ -611,15 +611,22 @@ impl Compiler {
                 func.instructions().i32_const(0);
                 Intermediate::StackBool
             }
-            PrimaryExpr::Ident(idents) => {
-                if idents.len() == 1 && idents[0].raw == "print" {
+            PrimaryExpr::Ident(ident) => {
+                if ident.raw == "print" {
                     Intermediate::ConstFunction(self.global_scope_functions["print"])
-                } else if idents.len() == 1 && idents[0].raw == "print_f64" {
+                } else if ident.raw == "print_f64" {
                     Intermediate::ConstFunction(self.global_scope_functions["print_f64"])
                 } else {
                     self.todo(format!("PrimaryExpr::{:?}", primary));
                     Intermediate::Error
                 }
+            }
+            PrimaryExpr::Namespace {
+                namespaces: _,
+                ident: _,
+            } => {
+                self.todo(format!("PrimaryExpr::{:?}", primary));
+                Intermediate::Error
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(func, expr),
             PrimaryExpr::StringLiteral(string) => {

@@ -598,7 +598,18 @@ fn primary_expr<'a>(
                 accum
             },
         )
-        .map(PrimaryExpr::Ident);
+        .map(|mut idents| {
+            let ident = idents.pop().unwrap();
+
+            if idents.is_empty() {
+                PrimaryExpr::Ident(ident)
+            } else {
+                PrimaryExpr::Namespace {
+                    namespaces: idents,
+                    ident,
+                }
+            }
+        });
 
     let string_literal = none_of('"')
         .repeated()
