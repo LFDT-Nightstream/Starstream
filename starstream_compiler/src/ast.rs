@@ -229,14 +229,7 @@ pub enum LoopBody {
 
 #[derive(Clone, Debug)]
 pub enum Expr {
-    PrimaryExpr(
-        /// Starter expression.
-        PrimaryExpr,
-        /// If followed by a function call `(args...)`.
-        Option<Arguments>,
-        /// Following fields `.ident` or method calls `.ident(args...)`.
-        Vec<(Identifier, Option<Arguments>)>,
-    ),
+    PrimaryExpr(FieldAccessExpression),
     BlockExpr(BlockExpr),
     // Comparison operators
     /// `a == b`
@@ -295,16 +288,31 @@ pub enum BlockExpr {
 }
 
 #[derive(Clone, Debug)]
+pub enum FieldAccessExpression {
+    PrimaryExpr(PrimaryExpr),
+    FieldAccess {
+        base: Box<FieldAccessExpression>,
+        field: IdentifierExpr,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct IdentifierExpr {
+    pub name: Identifier,
+    pub args: Option<Arguments>,
+}
+
+#[derive(Clone, Debug)]
 pub enum PrimaryExpr {
     Number(f64),
     /// `true` or `false` literal
     Bool(bool),
     /// `a`
-    Ident(Identifier),
+    Ident(IdentifierExpr),
     /// `a::b::c`
     Namespace {
         namespaces: Vec<Identifier>,
-        ident: Identifier,
+        ident: IdentifierExpr,
     },
     /// `(a)`
     ParExpr(Box<Expr>),

@@ -351,34 +351,8 @@ fn expr<'a>(
     let op = |c: &'static str| just(c).padded();
 
     recursive(|expr_parser| {
-        let function_call = expr_parser
-            .clone()
-            .separated_by(just(',').padded())
-            .allow_trailing()
-            .collect::<Vec<_>>()
-            .map(|xs| Arguments { xs })
-            .delimited_by(just('('), just(')'))
-            .or_not();
-
-        let atom = primary_expr(expr_parser.clone())
-            .then(function_call.clone())
-            .map(|(expr, call)| Expr::PrimaryExpr(expr, call, vec![]))
-            .foldl(
-                just('.')
-                    .padded()
-                    .ignore_then(identifier().then(function_call))
-                    .repeated(),
-                |mut accum, new| {
-                    match &mut accum {
-                        Expr::PrimaryExpr(_expr, _call, trail) => {
-                            trail.push(new);
-                        }
-                        _ => unreachable!(),
-                    }
-
-                    accum
-                },
-            )
+        let atom = field_access_expr(expr_parser.clone())
+            .map(Expr::PrimaryExpr)
             .or(block_expr(expr_parser, block_parser).map(Expr::BlockExpr));
 
         atom.pratt((
@@ -548,6 +522,43 @@ fn if_expr<'a>(
         .boxed()
 }
 
+fn field_access_expr<'a>(
+    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+) -> impl Parser<'a, &'a str, FieldAccessExpression, extra::Err<Rich<'a, char>>> {
+    primary_expr(expr_parser.clone())
+        .map(FieldAccessExpression::PrimaryExpr)
+        .foldl(
+            just('.')
+                .padded()
+                .ignore_then(identifier_expr(expr_parser))
+                .repeated(),
+            |accum, new| FieldAccessExpression::FieldAccess {
+                base: Box::new(accum),
+                field: new,
+            },
+        )
+}
+
+fn application<'a>(
+    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+) -> impl Parser<'a, &'a str, Arguments, extra::Err<Rich<'a, char>>> {
+    expr_parser
+        .clone()
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .map(|xs| Arguments { xs })
+        .delimited_by(just('('), just(')'))
+}
+
+fn identifier_expr<'a>(
+    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+) -> impl Parser<'a, &'a str, IdentifierExpr, extra::Err<Rich<'a, char>>> {
+    identifier()
+        .then(application(expr_parser).or_not())
+        .map(|(name, args)| IdentifierExpr { name, args })
+}
+
 fn primary_expr<'a>(
     expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, PrimaryExpr, extra::Err<Rich<'a, char>>> {
@@ -598,8 +609,12 @@ fn primary_expr<'a>(
                 accum
             },
         )
-        .map(|mut idents| {
-            let ident = idents.pop().unwrap();
+        .then(application(expr_parser).or_not())
+        .map(|(mut idents, args)| {
+            let ident = IdentifierExpr {
+                name: idents.pop().unwrap(),
+                args,
+            };
 
             if idents.is_empty() {
                 PrimaryExpr::Ident(ident)
@@ -799,6 +814,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_secondary_expr() {
+        let input = "foo(1, 2, 3)";
+        test_with_diagnostics(input, field_access_expr(expr(block().boxed()).boxed()));
+
+        let input = "foo.x.y(1, 2, 3)";
+        test_with_diagnostics(input, field_access_expr(expr(block().boxed()).boxed()));
+
+        let input = r#"foo("bar").x(3, 4).y(1, 2, 3)"#;
+        test_with_diagnostics(input, field_access_expr(expr(block().boxed()).boxed()));
+    }
+
+    #[test]
     fn parse_expr() {
         let input = "foo.x()";
         test_with_diagnostics(input, expr(block().boxed()));
@@ -809,7 +836,7 @@ mod tests {
         let input = "foo.x.y(3, 4)";
         test_with_diagnostics(input, expr(block().boxed()));
 
-        let input = "Type { x: 4, y: 5}";
+        let input = "Type { x: 4, y: 5 }";
         test_with_diagnostics(input, expr(block().boxed()));
 
         let input = "Type::func(3)";

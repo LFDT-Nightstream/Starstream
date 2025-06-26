@@ -428,19 +428,7 @@ impl Compiler {
 
     fn visit_expr(&mut self, func: &mut Function, expr: &Expr) -> Intermediate {
         match expr {
-            Expr::PrimaryExpr(primary, args, methods) => {
-                let mut im = self.visit_primary_expr(func, primary);
-                if let Some(args) = args {
-                    im = self.visit_call(func, im, &args.xs);
-                }
-                for (name, args) in methods {
-                    im = self.visit_field(func, im, &name.raw);
-                    if let Some(args) = args {
-                        im = self.visit_call(func, im, &args.xs);
-                    }
-                }
-                im
-            }
+            Expr::PrimaryExpr(secondary) => self.visit_field_access_expr(func, secondary),
             Expr::Equals(lhs, rhs) => {
                 let lhs = self.visit_expr(func, lhs);
                 let rhs = self.visit_expr(func, rhs);
@@ -597,6 +585,20 @@ impl Compiler {
         }
     }
 
+    fn visit_field_access_expr(
+        &mut self,
+        func: &mut Function,
+        expr: &FieldAccessExpression,
+    ) -> Intermediate {
+        match expr {
+            FieldAccessExpression::PrimaryExpr(primary) => self.visit_primary_expr(func, primary),
+            FieldAccessExpression::FieldAccess { base, field } => {
+                let im = self.visit_field_access_expr(func, base);
+                self.visit_field(func, im, &field.name.raw)
+            }
+        }
+    }
+
     fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
         match primary {
             PrimaryExpr::Number(number) => {
@@ -612,13 +614,19 @@ impl Compiler {
                 Intermediate::StackBool
             }
             PrimaryExpr::Ident(ident) => {
-                if ident.raw == "print" {
+                let im = if ident.name.raw == "print" {
                     Intermediate::ConstFunction(self.global_scope_functions["print"])
-                } else if ident.raw == "print_f64" {
+                } else if ident.name.raw == "print_f64" {
                     Intermediate::ConstFunction(self.global_scope_functions["print_f64"])
                 } else {
                     self.todo(format!("PrimaryExpr::{:?}", primary));
                     Intermediate::Error
+                };
+
+                if let Some(args) = &ident.args {
+                    self.visit_call(func, im, &args.xs)
+                } else {
+                    im
                 }
             }
             PrimaryExpr::Namespace {

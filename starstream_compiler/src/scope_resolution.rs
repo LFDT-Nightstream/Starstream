@@ -1,7 +1,7 @@
 use crate::ast::{
-    Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FnDef, FnType, Identifier,
-    LoopBody, PrimaryExpr, ProgramItem, Script, Sig, StarstreamProgram, Statement, Token,
-    TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeOrSelf, TypeRef, Utxo, UtxoItem,
+    Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
+    FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, StarstreamProgram,
+    Statement, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeOrSelf, TypeRef, Utxo, UtxoItem,
 };
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
@@ -743,24 +743,8 @@ impl Visitor {
 
     fn visit_expr(&mut self, expr: &mut Expr) {
         match expr {
-            Expr::PrimaryExpr(primary_expr, arguments, items) => {
-                self.visit_primary_expr(primary_expr, arguments.is_some());
-
-                if let Some(arguments) = arguments {
-                    for expr in &mut arguments.xs {
-                        self.visit_expr(expr);
-                    }
-                }
-
-                for (_field_or_method, maybe_arguments) in items {
-                    // NOTE: resolving _field_or_method requires resolving the type
-                    // first
-                    if let Some(arguments) = maybe_arguments {
-                        for expr in &mut arguments.xs {
-                            self.visit_expr(expr);
-                        }
-                    }
-                }
+            Expr::PrimaryExpr(secondary) => {
+                self.visit_secondary_expr(secondary);
             }
             Expr::BlockExpr(block_expr) => match block_expr {
                 BlockExpr::IfThenElse(cond, _if, _else) => {
@@ -864,26 +848,39 @@ impl Visitor {
         }
     }
 
-    fn visit_primary_expr(&mut self, expr: &mut PrimaryExpr, is_function_call: bool) {
+    fn visit_secondary_expr(&mut self, expr: &mut FieldAccessExpression) {
+        match expr {
+            FieldAccessExpression::PrimaryExpr(primary_expr) => {
+                self.visit_primary_expr(primary_expr)
+            }
+            FieldAccessExpression::FieldAccess { base, field: _ } => {
+                self.visit_secondary_expr(&mut *base);
+            }
+        }
+    }
+
+    fn visit_primary_expr(&mut self, expr: &mut PrimaryExpr) {
         match expr {
             PrimaryExpr::Number(_) => (),
             PrimaryExpr::Bool(_) => (),
-            PrimaryExpr::Ident(name) => {
-                if name.len() > 1 {
-                    let ident_index = name.len() - 1;
-                    let (tys, ident) = name.split_at_mut(ident_index);
+            PrimaryExpr::Ident(ident) => {
+                self.resolve_name(
+                    &mut ident.name,
+                    if ident.args.is_some() {
+                        SymbolKind::Function
+                    } else {
+                        SymbolKind::Variable
+                    },
+                );
 
-                    self.resolve_name_in_namespace(tys, &mut ident[0]);
-                } else {
-                    self.resolve_name(
-                        &mut name[0],
-                        if is_function_call {
-                            SymbolKind::Function
-                        } else {
-                            SymbolKind::Variable
-                        },
-                    );
+                if let Some(args) = &mut ident.args {
+                    for expr in &mut args.xs {
+                        self.visit_expr(expr);
+                    }
                 }
+            }
+            PrimaryExpr::Namespace { namespaces, ident } => {
+                self.resolve_name_in_namespace(namespaces, &mut ident.name);
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(expr),
             PrimaryExpr::Yield(expr) => {
