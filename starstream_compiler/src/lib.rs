@@ -4,6 +4,7 @@ pub mod ast;
 mod codegen;
 mod parser;
 mod scope_resolution;
+mod typechecking;
 
 use self::ast::StarstreamProgram;
 pub use self::codegen::compile;
@@ -11,6 +12,7 @@ pub use self::parser::starstream_program;
 use ariadne::{Report, Source};
 use chumsky::Parser as _;
 pub use scope_resolution::do_scope_analysis;
+pub use typechecking::do_type_inference;
 
 pub fn write_errors(output: &mut Vec<u8>, source_code: &str, errors: &[Report]) {
     for report in errors {
@@ -39,7 +41,12 @@ pub fn starstream_to_wasm(source_code: &str) -> Result<Vec<u8>, String> {
         (None, errors) => return Err(format_errors(source_code, &errors)),
     };
 
-    let (ast, symbols) = match do_scope_analysis(ast) {
+    let (ast, mut symbols) = match do_scope_analysis(ast) {
+        Ok(ast) => ast,
+        Err(errors) => return Err(format_errors(source_code, &errors)),
+    };
+
+    let ast = match do_type_inference(ast, &mut symbols) {
         Ok(ast) => ast,
         Err(errors) => return Err(format_errors(source_code, &errors)),
     };

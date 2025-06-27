@@ -1,8 +1,11 @@
-use crate::ast::{
-    Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
-    FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, Spanned,
-    StarstreamProgram, Statement, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeOrSelf,
-    TypeRef, Utxo, UtxoItem,
+use crate::{
+    ast::{
+        Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
+        FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, Spanned,
+        StarstreamProgram, Statement, Storage, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs,
+        TypeOrSelf, TypeRef, Utxo, UtxoItem,
+    },
+    typechecking::{ComparableType, EffectSet},
 };
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
@@ -45,17 +48,25 @@ pub struct Symbols {
 pub struct VarInfo {
     pub index: u64,
     pub mutable: bool,
+    pub ty: Option<ComparableType>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeInfo {
     pub declarations: HashSet<SymbolId>,
+    pub storage: Option<Storage>,
+    // TODO: may want to separate typedefs from utxo and token types
+    pub type_def: Option<TypeDefRhs>,
+    pub yield_ty: Option<TypeArg>,
+    pub resume_ty: Option<TypeArg>,
+    pub interfaces: EffectSet,
 }
 
 #[derive(Debug, Clone)]
 pub struct FuncInfo {
     pub inputs_ty: Vec<TypeArg>,
     pub output_ty: Option<TypeArg>,
+    pub effects: EffectSet,
 }
 
 #[derive(Debug, Clone)]
@@ -158,15 +169,17 @@ impl Visitor {
     // TODO: mostly just to get the examples working
     // these probably would have to be some sort of import?
     fn add_builtins(&mut self) {
-        self.push_type_declaration(&mut Identifier::new("PublicKey", None));
-        self.push_type_declaration(&mut Identifier::new("any", None));
-        self.push_type_declaration(&mut Identifier::new("Value", None));
+        self.push_type_declaration(&mut Identifier::new("PublicKey", None), None);
+        self.push_type_declaration(&mut Identifier::new("Option", None), None);
+        self.push_type_declaration(&mut Identifier::new("any", None), None);
+        self.push_type_declaration(&mut Identifier::new("Value", None), None);
 
         self.push_function_declaration(
             &mut Identifier::new("CoordinationCode", None),
             FuncInfo {
                 inputs_ty: vec![],
                 output_ty: Some(TypeArg::U32),
+                effects: EffectSet::empty(),
             },
         );
 
@@ -175,6 +188,7 @@ impl Visitor {
             FuncInfo {
                 inputs_ty: vec![],
                 output_ty: Some(TypeArg::U32),
+                effects: EffectSet::empty(),
             },
         );
 
@@ -183,6 +197,7 @@ impl Visitor {
             FuncInfo {
                 inputs_ty: vec![],
                 output_ty: Some(TypeArg::U32),
+                effects: EffectSet::empty(),
             },
         );
 
@@ -191,6 +206,7 @@ impl Visitor {
             FuncInfo {
                 inputs_ty: vec![TypeArg::Bool],
                 output_ty: None,
+                effects: EffectSet::empty(),
             },
         );
 
@@ -202,6 +218,7 @@ impl Visitor {
                     None,
                 )))],
                 output_ty: Some(TypeArg::Bool),
+                effects: EffectSet::empty(),
             },
         );
 
@@ -210,6 +227,7 @@ impl Visitor {
             FuncInfo {
                 inputs_ty: vec![],
                 output_ty: None,
+                effects: EffectSet::empty(),
             },
         );
 
@@ -218,6 +236,7 @@ impl Visitor {
             FuncInfo {
                 inputs_ty: vec![TypeArg::String],
                 output_ty: None,
+                effects: EffectSet::empty(),
             },
         );
 
@@ -239,13 +258,14 @@ impl Visitor {
                             storage: any.clone(),
                         }],
                         output_ty: None,
+                        effects: EffectSet::empty(),
                     }),
                 ),
             ]
         };
         for (builtin, f, ty) in namespaces {
             let mut identifier = Identifier::new(builtin, None);
-            let type_id = self.push_type_declaration(&mut identifier);
+            let type_id = self.push_type_declaration(&mut identifier, None);
 
             self.push_type_scope(type_id);
 
@@ -254,6 +274,7 @@ impl Visitor {
                 ty.unwrap_or(FuncInfo {
                     inputs_ty: vec![],
                     output_ty: Some(TypeArg::TypeRef(TypeRef(identifier.clone()))),
+                    effects: EffectSet::empty(),
                 }),
             );
 
@@ -270,11 +291,11 @@ impl Visitor {
             match item {
                 ProgramItem::TypeDef(type_def) => self.visit_type_def(type_def),
                 ProgramItem::Token(token) => {
-                    self.push_type_declaration(&mut token.name);
+                    self.push_type_declaration(&mut token.name, None);
                 }
                 ProgramItem::Script(_script) => (),
                 ProgramItem::Utxo(utxo) => {
-                    self.push_type_declaration(&mut utxo.name);
+                    self.push_type_declaration(&mut utxo.name, None);
                 }
                 ProgramItem::Constant { name, value: _ } => {
                     self.push_constant_declaration(name);
@@ -319,12 +340,12 @@ impl Visitor {
     }
 
     pub fn visit_utxo(&mut self, utxo: &mut Utxo) {
-        let uid = self.push_type_declaration(&mut utxo.name);
+        let uid = self.push_type_declaration(&mut utxo.name, None);
 
         // we need to put these into scope before doing anything else
         self.push_type_scope(uid);
 
-        let self_ty = TypeArg::TypeRef(TypeRef(utxo.name.clone()));
+        let self_ty = TypeArg::Ref(Box::new(TypeArg::TypeRef(TypeRef(utxo.name.clone()))));
 
         for item in &mut utxo.items {
             match item {
@@ -340,9 +361,15 @@ impl Visitor {
                                 .map(|args| args.values.iter().map(|arg| arg.1.clone()).collect())
                                 .unwrap_or(vec![]),
                             output_ty: Some(self_ty.clone()),
+                            // TODO: what should this be actually?
+                            // the effects of main?
+                            // or the effects before the first yield?
+                            effects: EffectSet::empty(),
                         },
                     );
+                    self.push_function_scope();
                     self.visit_block(&mut main.block, true);
+                    self.pop_scope();
                 }
                 UtxoItem::Impl(utxo_impl) => {
                     let Some((abi, _)) = self.resolve_name(&mut utxo_impl.name, SymbolKind::Abi)
@@ -395,8 +422,51 @@ impl Visitor {
                             );
                         }
                     }
+
+                    self.symbols
+                        .types
+                        .get_mut(&uid)
+                        .unwrap()
+                        .info
+                        .interfaces
+                        .add(abi);
                 }
-                UtxoItem::Storage(_) => {}
+                UtxoItem::Storage(storage) => {
+                    let mut storage = storage.clone();
+
+                    for (_identifier, ty) in &mut storage.bindings.values {
+                        // TODO: we may need to add the identifier to the
+                        // symbols table for codegen
+                        self.visit_type_arg(ty);
+                    }
+
+                    self.symbols
+                        .types
+                        .get_mut(&uid)
+                        .unwrap()
+                        .info
+                        .storage
+                        .replace(storage);
+                }
+                // TODO: check that there is only one yield and only one resume
+                UtxoItem::Yield(ty) => {
+                    self.symbols
+                        .types
+                        .get_mut(&uid)
+                        .unwrap()
+                        .info
+                        .yield_ty
+                        .replace(ty.clone());
+                }
+                UtxoItem::Resume(ty) => {
+                    self.symbols
+                        .types
+                        .get_mut(&uid)
+                        .unwrap()
+                        .info
+                        .resume_ty
+                        .replace(ty.clone());
+                }
             }
         }
 
@@ -404,7 +474,7 @@ impl Visitor {
     }
 
     pub fn visit_token(&mut self, token: &mut Token) {
-        let uid = self.push_type_declaration(&mut token.name);
+        let uid = self.push_type_declaration(&mut token.name, None);
 
         self.push_type_scope(uid);
 
@@ -414,6 +484,7 @@ impl Visitor {
                 inputs_ty: vec![],
                 // TODO: something else
                 output_ty: Some(TypeArg::F64),
+                effects: EffectSet::empty(),
             },
         );
 
@@ -437,6 +508,7 @@ impl Visitor {
                         FuncInfo {
                             inputs_ty: vec![],
                             output_ty: Some(TypeArg::TypeRef(TypeRef(token.name.clone()))),
+                            effects: EffectSet::empty(),
                         },
                     );
                     self.push_function_scope();
@@ -451,7 +523,7 @@ impl Visitor {
     }
 
     pub fn visit_type_def(&mut self, type_def: &mut TypeDef) {
-        self.push_type_declaration(&mut type_def.name);
+        self.push_type_declaration(&mut type_def.name, Some(type_def.ty.clone()));
 
         match &mut type_def.ty {
             TypeDefRhs::TypeArg(type_arg) => self.visit_type_arg(type_arg),
@@ -469,6 +541,7 @@ impl Visitor {
                         FuncInfo {
                             inputs_ty: args.values.iter().map(|arg| arg.1.clone()).collect(),
                             output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
+                            effects: EffectSet::empty(),
                         },
                     );
                 }
@@ -489,6 +562,13 @@ impl Visitor {
                 self.visit_type_arg(output_ty);
             }
 
+            let mut effects = EffectSet::empty();
+            for effect in &mut definition.effects {
+                if let Some((symbol_id, _)) = self.resolve_name(effect, SymbolKind::Abi) {
+                    effects.add(symbol_id);
+                }
+            }
+
             self.push_function_declaration(
                 &mut definition.ident,
                 FuncInfo {
@@ -501,6 +581,7 @@ impl Visitor {
                         })
                         .collect(),
                     output_ty: definition.output.clone(),
+                    effects,
                 },
             );
         }
@@ -539,7 +620,11 @@ impl Visitor {
         let fn_scope = self.locals.last_mut().unwrap();
         let index = *fn_scope;
         *fn_scope += 1;
-        let var_info = VarInfo { index, mutable };
+        let var_info = VarInfo {
+            index,
+            mutable,
+            ty: None,
+        };
 
         self.symbols.vars.insert(
             symbol,
@@ -619,7 +704,11 @@ impl Visitor {
         symbol
     }
 
-    fn push_type_declaration(&mut self, ident: &mut Identifier) -> SymbolId {
+    fn push_type_declaration(
+        &mut self,
+        ident: &mut Identifier,
+        type_def: Option<TypeDefRhs>,
+    ) -> SymbolId {
         let symbol = self.new_symbol(ident);
 
         let scope = self.stack.last_mut().unwrap();
@@ -632,6 +721,11 @@ impl Visitor {
                 span: ident.span,
                 info: TypeInfo {
                     declarations: HashSet::new(),
+                    type_def,
+                    storage: None,
+                    yield_ty: None,
+                    resume_ty: None,
+                    interfaces: EffectSet::empty(),
                 },
             },
         );
@@ -792,9 +886,14 @@ impl Visitor {
                 var,
                 mutable,
                 value,
+                ty,
             } => {
                 self.push_var_declaration(var, *mutable);
                 self.visit_expr(value);
+
+                if let Some(ty) = ty {
+                    self.visit_type_arg(ty);
+                }
             }
             Statement::Return(expr) | Statement::Resume(expr) => {
                 if let Some(expr) = expr {
@@ -810,7 +909,7 @@ impl Visitor {
                 self.push_scope();
 
                 for (decl, body) in items {
-                    let mut namespace = [&mut decl.utxo];
+                    let mut namespace = [&mut decl.interface];
                     self.resolve_name_in_namespace(&mut namespace, &mut decl.ident);
 
                     // TODO: depending on whether we compile effect handlers as
@@ -864,7 +963,7 @@ impl Visitor {
         match expr {
             PrimaryExpr::Number(_) => (),
             PrimaryExpr::Bool(_) => (),
-            PrimaryExpr::Ident(ident) => {
+            PrimaryExpr::Ident(ident) | PrimaryExpr::Raise { ident } => {
                 self.resolve_name(
                     &mut ident.name,
                     if ident.args.is_some() {
@@ -880,7 +979,8 @@ impl Visitor {
                     }
                 }
             }
-            PrimaryExpr::Namespace { namespaces, ident } => {
+            PrimaryExpr::Namespace { namespaces, ident }
+            | PrimaryExpr::RaiseNamespaced { namespaces, ident } => {
                 self.resolve_name_in_namespace(namespaces, &mut ident.name);
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(expr),
@@ -889,7 +989,6 @@ impl Visitor {
                     self.visit_expr(expr)
                 }
             }
-            PrimaryExpr::Raise(expr) => self.visit_expr(expr),
             PrimaryExpr::Object(_, items) => {
                 for (_ident, item) in items {
                     self.visit_expr(item);
@@ -974,14 +1073,15 @@ impl Visitor {
 
                         self.symbols.functions.insert(
                             symbol,
-                            SymbolInformation {
+                            dbg!(SymbolInformation {
                                 source: decl.name.raw.clone(),
                                 span: decl.name.span,
                                 info: FuncInfo {
                                     inputs_ty: decl.input_types.clone(),
                                     output_ty: decl.output_type.clone(),
+                                    effects: EffectSet::empty(),
                                 },
-                            },
+                            }),
                         );
 
                         effects.insert(symbol);
@@ -1010,8 +1110,12 @@ impl Visitor {
             TypeArg::TypeRef(type_ref) => {
                 self.resolve_name(&mut type_ref.0, SymbolKind::Type);
             }
-            TypeArg::TypeApplication(type_ref, _params) => {
-                self.push_todo_error(type_ref.0.span.unwrap());
+            TypeArg::TypeApplication(type_ref, params) => {
+                self.resolve_name(&mut type_ref.0, SymbolKind::Type);
+
+                for param in params {
+                    self.visit_type_arg(param);
+                }
             }
             TypeArg::FnType(FnType { inputs, output }) => {
                 for (_, ty) in &mut inputs.values {
@@ -1022,6 +1126,7 @@ impl Visitor {
                     self.visit_type_arg(output_ty);
                 }
             }
+            TypeArg::Ref(type_arg) => self.visit_type_arg(type_arg),
         }
     }
 
@@ -1055,21 +1160,6 @@ impl Visitor {
                     Label::new(prev.into_range())
                         .with_message("here")
                         .with_color(Color::BrightRed),
-                )
-                .finish(),
-        );
-    }
-
-    fn push_todo_error(&mut self, span: SimpleSpan) {
-        self.errors.push(
-            Report::build(ReportKind::Error, span.into_range())
-                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-                // TODO: define error codes across the compiler
-                .with_code(3)
-                .with_label(
-                    Label::new(span.into_range())
-                        .with_message("not implemented")
-                        .with_color(Color::Red),
                 )
                 .finish(),
         );
@@ -1330,7 +1420,7 @@ mod tests {
             }
 
             script {
-              fn foo(): u32 {}
+              fn foo(): u32 / { Abi } {}
 
               fn bar(i: u64): bool {}
 
