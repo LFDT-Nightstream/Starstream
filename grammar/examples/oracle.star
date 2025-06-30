@@ -1,8 +1,17 @@
-utxo OracleContract {
-  abi {
-    error Error(string);
-  }
+const FeeToken = 3;
 
+typedef Data = string
+
+const ORACLE_FEE = 10;
+const PAYMENT_ADDRESS = 10;
+
+abi Oracle {
+  error Error(string);
+
+  fn get_data(): Data;
+}
+
+utxo OracleContract {
   storage {
     data: Data;
   }
@@ -11,7 +20,7 @@ utxo OracleContract {
     loop { yield; }
   }
 
-  impl OracleContract {
+  impl Oracle {
     fn get_data(self): Data {
       let caller = raise Caller();
       let this_contract = raise ThisCode();
@@ -19,7 +28,7 @@ utxo OracleContract {
       if (caller != this_contract) {
         // oracle data can only be called from a coordination script in
         // this contract, that ensures data is paid for
-        raise Error("InvalidContext");
+        raise Oracle::Error("InvalidContext");
       }
 
       return self.data; // note: this non-mutable, so it's just a reference input
@@ -29,14 +38,14 @@ utxo OracleContract {
 
 script {
   fn get_oracle_data(input: PayToPublicKeyHash, oracle: OracleContract): Data {
-    let change_utxo = PayToPublicKeyHash::new(fee.get_owner());
+    let change_utxo = PayToPublicKeyHash::new(context.tx.caller);
 
     let fee_utxo = PayToPublicKeyHash::new(PAYMENT_ADDRESS);
 
     try {
       resume input;
     }
-    with TokenUnbound(intermediate: Intermediate<any, any>) {
+    with Starstream::TokenUnbound(intermediate: Intermediate<any, any>) {
       if(intermediate.type == FeeToken) {
         let change = intermediate.change_for(ORACLE_FEE);
         change_utxo.attach(change);
