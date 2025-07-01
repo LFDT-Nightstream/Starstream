@@ -199,6 +199,7 @@ pub enum TypeArg {
     TypeRef(TypeRef),
     TypeApplication(TypeRef, Vec<TypeArg>),
     FnType(FnType),
+    Ref(Box<TypeArg>),
 }
 
 #[derive(Clone, Debug)]
