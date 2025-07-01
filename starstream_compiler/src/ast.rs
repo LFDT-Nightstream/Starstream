@@ -33,6 +33,8 @@ pub enum UtxoItem {
     Main(Main),
     Impl(Impl),
     Storage(Storage),
+    Yield(TypeArg),
+    Resume(TypeArg),
 }
 
 #[derive(Clone, Debug)]
