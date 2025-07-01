@@ -107,6 +107,7 @@ pub struct FnDef {
     pub inputs: Vec<FnArgDeclaration>,
     pub output: Option<TypeArg>,
     pub body: Block,
+    pub effects: Vec<Identifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -323,7 +324,14 @@ pub enum PrimaryExpr {
     /// `yield a`
     Yield(Option<Box<Spanned<Expr>>>),
     /// `raise a`
-    Raise(Box<Spanned<Expr>>),
+    Raise {
+        ident: IdentifierExpr,
+    },
+    /// `raise a::b(..)`
+    RaiseNamespaced {
+        namespaces: Vec<Identifier>,
+        ident: IdentifierExpr,
+    },
     /// `a { b: c, ... }`
     Object(TypeArg, Vec<(Identifier, Spanned<Expr>)>),
     StringLiteral(String),
@@ -369,7 +377,7 @@ pub struct EffectArgDeclaration {
 
 #[derive(Clone, Debug)]
 pub struct EffectHandler {
-    pub utxo: Identifier,
+    pub interface: Identifier,
     pub ident: Identifier,
     pub args: Vec<EffectArgDeclaration>,
 }

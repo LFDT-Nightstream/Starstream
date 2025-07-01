@@ -102,12 +102,25 @@ fn fn_def<'a>() -> impl Parser<'a, &'a str, FnDef, extra::Err<Rich<'a, char>>> {
         .padded()
         .then(typed_bindings.padded().delimited_by(just('('), just(')')))
         .then(just(':').ignore_then(type_arg().padded()).or_not())
+        .then(
+            just('/')
+                .padded()
+                .then_ignore(just('{').padded())
+                .ignore_then(
+                    identifier()
+                        .separated_by(just(',').padded())
+                        .collect::<Vec<_>>(),
+                )
+                .then_ignore(just('}').padded())
+                .or_not(),
+        )
         .then(block())
-        .map(|(((name, inputs), output), body)| FnDef {
+        .map(|((((name, inputs), output), effects), body)| FnDef {
             ident: name,
             inputs,
             output,
             body,
+            effects: effects.unwrap_or_default(),
         })
 }
 
@@ -310,7 +323,7 @@ fn effect_handler<'a>() -> impl Parser<'a, &'a str, EffectHandler, extra::Err<Ri
                 .then(optionally_typed_bindings(type_arg()).delimited_by(just('('), just(')'))),
         )
         .map(|(utxo, (ident, args))| EffectHandler {
-            utxo,
+            interface: utxo,
             ident,
             args: args
                 .values
@@ -624,10 +637,6 @@ fn primary_expr<'a>(
         .ignore_then(expr_parser.clone().padded().map(Box::new).or_not())
         .map(PrimaryExpr::Yield);
 
-    let raise_expr = just("raise")
-        .ignore_then(expr_parser.clone().padded())
-        .map(|expr| PrimaryExpr::Raise(Box::new(expr)));
-
     let object = type_arg()
         .then(
             identifier()
@@ -649,7 +658,7 @@ fn primary_expr<'a>(
                 accum
             },
         )
-        .then(application(expr_parser).or_not())
+        .then(application(expr_parser.clone()).or_not())
         .map(|(mut idents, args)| {
             let ident = IdentifierExpr {
                 name: idents.pop().unwrap(),
@@ -665,6 +674,34 @@ fn primary_expr<'a>(
                 }
             }
         });
+
+    let raise_expr = just("raise").padded().ignore_then(
+        identifier()
+            .map(|i| vec![i])
+            .foldl(
+                just("::").ignore_then(identifier()).repeated(),
+                |mut accum, new| {
+                    accum.push(new);
+                    accum
+                },
+            )
+            .then(application(expr_parser))
+            .map(|(mut idents, args)| {
+                let ident = IdentifierExpr {
+                    name: idents.pop().unwrap(),
+                    args: Some(args),
+                };
+
+                if idents.is_empty() {
+                    PrimaryExpr::Raise { ident }
+                } else {
+                    PrimaryExpr::RaiseNamespaced {
+                        namespaces: idents,
+                        ident,
+                    }
+                }
+            }),
+    );
 
     let string_literal = none_of('"')
         .repeated()
@@ -686,7 +723,9 @@ fn primary_expr<'a>(
 }
 
 fn reserved_word<'a>() -> impl Parser<'a, &'a str, (), extra::Err<Rich<'a, char>>> {
-    choice((just("enum"), just("typedef"))).padded().ignored()
+    choice((just("enum"), just("typedef"), just("loop")))
+        .padded()
+        .ignored()
 }
 
 fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, extra::Err<Rich<'a, char>>> {
@@ -991,5 +1030,17 @@ mod tests {
     fn parse_oracle_example() {
         let input = include_str!("../../../grammar/examples/oracle.star");
         test_with_diagnostics(input, starstream_program());
+    }
+
+    #[test]
+    fn parse_fn_with_effects() {
+        let input = "script { fn test() / { SomeEffect } {} }";
+        test_with_diagnostics(input, script());
+
+        let input = "script { fn test(): u32 / { SomeEffect } {} }";
+        test_with_diagnostics(input, script());
+
+        let input = "script { fn test(): u32 {} }";
+        test_with_diagnostics(input, script());
     }
 }
