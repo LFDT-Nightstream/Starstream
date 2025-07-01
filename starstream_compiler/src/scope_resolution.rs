@@ -1073,7 +1073,7 @@ impl Visitor {
 
                         self.symbols.functions.insert(
                             symbol,
-                            dbg!(SymbolInformation {
+                            SymbolInformation {
                                 source: decl.name.raw.clone(),
                                 span: decl.name.span,
                                 info: FuncInfo {
@@ -1081,7 +1081,7 @@ impl Visitor {
                                     output_ty: decl.output_type.clone(),
                                     effects: EffectSet::empty(),
                                 },
-                            }),
+                            },
                         );
 
                         effects.insert(symbol);
