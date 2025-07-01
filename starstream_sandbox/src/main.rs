@@ -62,8 +62,28 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     };
     let Some(ast) = ast else { return };
 
-    let ast = match starstream_compiler::do_scope_analysis(ast) {
-        Ok((ast, _)) => ast,
+    let (ast, mut symbols) = match starstream_compiler::do_scope_analysis(ast) {
+        Ok(res) => res,
+        Err(errors) => {
+            let mut compiler_output = Vec::new();
+            let error_count = errors.len() as u32;
+            write_errors(&mut compiler_output, input, &errors);
+            unsafe {
+                set_compiler_log(
+                    compiler_output.as_ptr(),
+                    compiler_output.len(),
+                    // TODO: get real warning count.
+                    0,
+                    error_count,
+                )
+            };
+
+            return;
+        }
+    };
+
+    let ast = match starstream_compiler::do_type_inference(ast, &mut symbols) {
+        Ok(ast) => ast,
         Err(errors) => {
             let mut compiler_output = Vec::new();
             let error_count = errors.len() as u32;
