@@ -1,4 +1,4 @@
-use super::{EffectSet, ComparableType};
+use super::{ComparableType, EffectSet};
 use crate::scope_resolution::{self, AbiInfo, FuncInfo, SymbolInformation};
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
