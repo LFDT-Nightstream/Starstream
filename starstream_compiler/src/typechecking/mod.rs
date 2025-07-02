@@ -29,11 +29,11 @@ use types::{PrimitiveType, TypeVar};
 /// symbols table, in order for the type of every variable to be available for
 /// following passes.
 pub fn do_type_inference(
-    ast: StarstreamProgram,
+    mut ast: StarstreamProgram,
     symbols: &mut Symbols,
 ) -> Result<StarstreamProgram, Vec<Report<'static>>> {
     let tc = TypeInference::new(symbols);
-    tc.visit_program(&ast).map(|_| ast)
+    tc.visit_program(&mut ast).map(|_| ast)
 }
 
 pub struct TypeInference<'a> {
@@ -41,7 +41,6 @@ pub struct TypeInference<'a> {
     errors: Vec<Report<'static>>,
 
     unification_table: InPlaceUnificationTable<TypeVar>,
-    equality_constraints: Vec<(SimpleSpan, ComparableType, ComparableType)>,
 
     current_coroutine: Vec<SymbolId>,
     current_function: Vec<SymbolId>,
@@ -59,7 +58,6 @@ impl<'a> TypeInference<'a> {
             symbols,
             errors: vec![],
             unification_table: InPlaceUnificationTable::new(),
-            equality_constraints: vec![],
             num_signed_constraints: vec![],
             utxo_main_block_constraints: vec![],
             linearity_constraints: HashMap::new(),
@@ -72,9 +70,9 @@ impl<'a> TypeInference<'a> {
 
     pub fn visit_program(
         mut self,
-        program: &StarstreamProgram,
+        program: &mut StarstreamProgram,
     ) -> Result<(), Vec<Report<'static>>> {
-        for item in &program.items {
+        for item in &mut program.items {
             match item {
                 ProgramItem::Script(script) => self.visit_script(script),
                 ProgramItem::Utxo(utxo) => self.visit_utxo(utxo),
@@ -99,7 +97,7 @@ impl<'a> TypeInference<'a> {
             return Err(self.errors);
         }
 
-        self.unification();
+        self.apply_substitutions();
 
         self.check_multiplicity_constraints();
 
@@ -118,14 +116,7 @@ impl<'a> TypeInference<'a> {
         ComparableType::Var(self.unification_table.new_key(None))
     }
 
-    fn unification(&mut self) {
-        let mut constraints = vec![];
-        std::mem::swap(&mut self.equality_constraints, &mut constraints);
-
-        for (span, expected, found) in constraints {
-            self.unify_ty_ty(span, &expected, &found)
-        }
-
+    fn apply_substitutions(&mut self) {
         for var in self.symbols.vars.values_mut() {
             let ty = var.info.ty.clone().unwrap();
 
@@ -331,7 +322,7 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn visit_utxo(&mut self, utxo: &Utxo) {
+    fn visit_utxo(&mut self, utxo: &mut Utxo) {
         let uid = utxo.name.uid.unwrap();
         let interfaces = self
             .symbols
@@ -342,7 +333,7 @@ impl<'a> TypeInference<'a> {
             .interfaces
             .clone();
 
-        for item in &utxo.items {
+        for item in &mut utxo.items {
             match item {
                 UtxoItem::Main(main) => {
                     if let Some(args) = &main.type_sig {
@@ -357,7 +348,7 @@ impl<'a> TypeInference<'a> {
 
                     self.current_coroutine.push(uid);
 
-                    let (span, block_ty, effects) = self.infer_block(&main.block);
+                    let (span, block_ty, effects) = self.infer_block(&mut main.block);
 
                     if !effects.is_subset(&interfaces) {
                         self.errors.push(error_effect_type_mismatch(
@@ -372,7 +363,7 @@ impl<'a> TypeInference<'a> {
                     self.utxo_main_block_constraints.push((span, block_ty));
                 }
                 UtxoItem::Impl(utxo_impl) => {
-                    for item in &utxo_impl.definitions {
+                    for item in &mut utxo_impl.definitions {
                         self.visit_fn_def(item);
                     }
                 }
@@ -383,25 +374,25 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn visit_script(&mut self, script: &Script) {
-        for fn_def in &script.definitions {
+    fn visit_script(&mut self, script: &mut Script) {
+        for fn_def in &mut script.definitions {
             self.visit_fn_def(fn_def);
         }
     }
 
-    fn visit_token(&mut self, token: &Token) {
-        for item in &token.items {
+    fn visit_token(&mut self, token: &mut Token) {
+        for item in &mut token.items {
             match item {
                 TokenItem::Bind(bind) => {
                     // TODO: check (need annotation syntax before)
-                    let _effects = self.check_block(&bind.0, ComparableType::token_storage());
+                    let _effects = self.check_block(&mut bind.0, ComparableType::token_storage());
                 }
                 TokenItem::Unbind(unbind) => {
                     // TODO: check (need annotation syntax before)
-                    let _effects = self.check_block(&unbind.0, ComparableType::token_storage());
+                    let _effects = self.check_block(&mut unbind.0, ComparableType::token_storage());
                 }
                 TokenItem::Mint(mint) => {
-                    let effects = self.check_block(&mint.0, ComparableType::token_storage());
+                    let effects = self.check_block(&mut mint.0, ComparableType::token_storage());
 
                     if !effects.is_empty() {
                         self.errors.push(error_effect_type_mismatch(
@@ -415,7 +406,7 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn visit_fn_def(&mut self, fn_def: &FnDef) {
+    fn visit_fn_def(&mut self, fn_def: &mut FnDef) {
         let symbol = fn_def.ident.uid.unwrap();
 
         self.current_function.push(symbol);
@@ -440,7 +431,7 @@ impl<'a> TypeInference<'a> {
             .map(|ty| ty.canonical_form(self.symbols))
             .unwrap_or(ComparableType::unit());
 
-        let actual_effects = self.check_block(&fn_def.body, output);
+        let actual_effects = self.check_block(&mut fn_def.body, output);
 
         let fn_info = self.symbols.functions.get_mut(&symbol).unwrap();
 
@@ -456,7 +447,7 @@ impl<'a> TypeInference<'a> {
         self.current_function.pop();
     }
 
-    fn visit_statement(&mut self, statement: &Statement) -> EffectSet {
+    fn visit_statement(&mut self, statement: &mut Statement) -> EffectSet {
         match statement {
             Statement::BindVar {
                 var,
@@ -528,13 +519,13 @@ impl<'a> TypeInference<'a> {
                         .map(|ty| ty.canonical_form(self.symbols))
                         .unwrap_or(ComparableType::unit());
 
-                    self.equality_constraints.push((
+                    self.unify_ty_ty(
                         expr.as_ref()
                             .map(|expr| expr.span)
                             .unwrap_or(SimpleSpan::from(0..0)),
-                        expected,
-                        ty,
-                    ));
+                        &expected,
+                        &ty,
+                    );
                 }
 
                 effects
@@ -616,7 +607,7 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn infer_block(&mut self, block: &Block) -> (SimpleSpan, ComparableType, EffectSet) {
+    fn infer_block(&mut self, block: &mut Block) -> (SimpleSpan, ComparableType, EffectSet) {
         let mut curr = block;
         let mut ty = ComparableType::unit();
         // TODO: get span of the block
@@ -627,7 +618,7 @@ impl<'a> TypeInference<'a> {
         loop {
             match curr {
                 Block::Chain { head, tail } => {
-                    match &**head {
+                    match &mut **head {
                         ExprOrStatement::Expr(expr) => {
                             let (last_ty, new_effects) = self.infer_expr(expr);
 
@@ -662,16 +653,16 @@ impl<'a> TypeInference<'a> {
         (span, ty, effects)
     }
 
-    fn check_block(&mut self, block: &Block, expected: ComparableType) -> EffectSet {
+    fn check_block(&mut self, block: &mut Block, expected: ComparableType) -> EffectSet {
         let (span, found, effects) = self.infer_block(block);
 
-        self.equality_constraints.push((span, found, expected));
+        self.unify_ty_ty(span, &found, &expected);
 
         effects
     }
 
-    fn infer_expr(&mut self, expr: &Spanned<Expr>) -> (ComparableType, EffectSet) {
-        match &expr.node {
+    fn infer_expr(&mut self, expr: &mut Spanned<Expr>) -> (ComparableType, EffectSet) {
+        match &mut expr.node {
             Expr::PrimaryExpr(field_access_expression) => {
                 self.infer_field_access_expression(field_access_expression)
             }
@@ -750,9 +741,9 @@ impl<'a> TypeInference<'a> {
 
     fn infer_primary_expression(
         &mut self,
-        primary_expr: &PrimaryExpr,
+        primary_expr: &mut PrimaryExpr,
     ) -> (ComparableType, EffectSet) {
-        match &primary_expr {
+        match primary_expr {
             PrimaryExpr::Number(_) => (
                 ComparableType::Primitive(PrimitiveType::U32),
                 EffectSet::empty(),
@@ -818,7 +809,7 @@ impl<'a> TypeInference<'a> {
 
     fn infer_identifier_expression(
         &mut self,
-        identifier: &IdentifierExpr,
+        identifier: &mut IdentifierExpr,
     ) -> (ComparableType, EffectSet) {
         let key = identifier.name.uid.unwrap();
         if self.symbols.vars.contains_key(&key) {
@@ -828,7 +819,7 @@ impl<'a> TypeInference<'a> {
                 .push(identifier.name.span.unwrap());
         }
 
-        if let Some(args) = &identifier.args {
+        if let Some(args) = &mut identifier.args {
             let effects = EffectSet::empty();
 
             // application
@@ -853,7 +844,7 @@ impl<'a> TypeInference<'a> {
                 .map(|ty| ty.canonical_form(self.symbols))
                 .unwrap_or(ComparableType::unit());
 
-            for (arg, expected) in args.xs.iter().zip(inputs.iter()) {
+            for (arg, expected) in args.xs.iter_mut().zip(inputs.iter()) {
                 effects = effects.combine(self.check_expr(arg, expected.clone()));
             }
 
@@ -876,7 +867,7 @@ impl<'a> TypeInference<'a> {
 
     fn infer_field_access_expression(
         &mut self,
-        expr: &FieldAccessExpression,
+        expr: &mut FieldAccessExpression,
     ) -> (ComparableType, EffectSet) {
         match expr {
             FieldAccessExpression::PrimaryExpr(primary_expr) => {
@@ -891,15 +882,17 @@ impl<'a> TypeInference<'a> {
                         .find_map(|(name, ty)| (name == &field.name.raw).then_some(ty.clone()))
                         .unwrap_or(ComparableType::Void),
                     ComparableType::Utxo(utxo) => {
-                        let storage = self
-                            .symbols
-                            .types
-                            .get(&utxo)
-                            .unwrap()
-                            .info
-                            .storage
-                            .as_ref()
-                            .unwrap();
+                        if field.args.is_some() {
+                            self.resolve_utxo_method_name(field, utxo);
+
+                            return self.infer_identifier_expression(field);
+                        }
+
+                        let Some(storage) =
+                            self.symbols.types.get(&utxo).unwrap().info.storage.as_ref()
+                        else {
+                            return (ComparableType::Void, EffectSet::empty());
+                        };
 
                         if let Some(ty) = storage.bindings.values.iter().find_map(|(name, ty)| {
                             (name.raw == field.name.raw).then_some(ty.canonical_form(self.symbols))
@@ -917,8 +910,42 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn check_expr(&mut self, expr: &Spanned<Expr>, expected: ComparableType) -> EffectSet {
-        match (&expr.node, expected) {
+    fn resolve_utxo_method_name(&mut self, field: &mut IdentifierExpr, utxo: SymbolId) {
+        // methods are not resolved during name resolution, since it can't be
+        // done without first knowing the type of the variable
+        //
+        // in this case, we try to find a declaration in the utxo/token that
+        // matches the name of the method we are typechecking
+        if field.name.uid.is_none() {
+            let method_declaration = self
+                .symbols
+                .types
+                .get(&utxo)
+                .unwrap()
+                .info
+                .declarations
+                .iter()
+                .find_map(|uid| {
+                    self.symbols
+                        .functions
+                        .get(uid)
+                        .filter(|f| f.source == field.name.raw)
+                        .map(|_| uid)
+                });
+
+            if let Some(method_declaration) = method_declaration {
+                field.name.uid.replace(*method_declaration);
+            } else {
+                self.errors.push(error_field_not_found(
+                    field.name.span.unwrap(),
+                    &field.name.raw,
+                ));
+            }
+        }
+    }
+
+    fn check_expr(&mut self, expr: &mut Spanned<Expr>, expected: ComparableType) -> EffectSet {
+        match (&mut expr.node, expected) {
             (Expr::PrimaryExpr(field_access_expression), expected) => {
                 self.check_field_access_expression(expr.span, field_access_expression, expected)
             }
@@ -946,8 +973,7 @@ impl<'a> TypeInference<'a> {
             (_, expected_ty) => {
                 let (actual_ty, effects) = self.infer_expr(expr);
 
-                self.equality_constraints
-                    .push((expr.span, expected_ty, actual_ty));
+                self.unify_ty_ty(expr.span, &expected_ty, &actual_ty);
 
                 effects
             }
@@ -957,7 +983,7 @@ impl<'a> TypeInference<'a> {
     fn check_field_access_expression(
         &mut self,
         span: SimpleSpan,
-        field_access_expression: &FieldAccessExpression,
+        field_access_expression: &mut FieldAccessExpression,
         expected: ComparableType,
     ) -> EffectSet {
         match field_access_expression {
@@ -967,19 +993,30 @@ impl<'a> TypeInference<'a> {
             FieldAccessExpression::FieldAccess { base, field } => {
                 let (inferred, effects) = self.infer_field_access_expression(base);
 
+                let inferred = Self::substitute(&mut self.unification_table, inferred);
+
                 match inferred.deref_1() {
                     ComparableType::Product(items) => {
                         if let Some(actual_ty) = items
                             .iter()
                             .find_map(|(name, ty)| (name == &field.name.raw).then_some(ty.clone()))
                         {
-                            self.equality_constraints.push((span, expected, actual_ty));
+                            self.unify_ty_ty(span, &expected, &actual_ty);
                         } else {
                             self.errors
                                 .push(error_field_not_found(span, &field.name.raw));
                         }
                     }
                     ComparableType::Utxo(utxo) => {
+                        if field.args.is_some() {
+                            self.resolve_utxo_method_name(field, utxo);
+                            let (ty, effects) = self.infer_identifier_expression(field);
+
+                            self.unify_ty_ty(span, &expected, &ty);
+
+                            return effects;
+                        }
+
                         let storage = self
                             .symbols
                             .types
@@ -993,9 +1030,7 @@ impl<'a> TypeInference<'a> {
                         if let Some(ty) = storage.bindings.values.iter().find_map(|(name, ty)| {
                             (name.raw == field.name.raw).then_some(ty.canonical_form(self.symbols))
                         }) {
-                            if ty != expected {
-                                self.push_error_type_mismatch(span, &expected, &ty);
-                            }
+                            self.unify_ty_ty(span, &expected, &ty);
                         } else {
                             self.errors
                                 .push(error_field_not_found(span, &field.name.raw));
@@ -1014,10 +1049,10 @@ impl<'a> TypeInference<'a> {
     fn check_primary_expression(
         &mut self,
         span: SimpleSpan,
-        primary_expr: &PrimaryExpr,
+        primary_expr: &mut PrimaryExpr,
         expected: ComparableType,
     ) -> EffectSet {
-        match (primary_expr, expected) {
+        match (&mut *primary_expr, expected) {
             (PrimaryExpr::Number(_), ty) if ty.is_numeric() => EffectSet::empty(),
             (PrimaryExpr::Bool(_), ComparableType::Primitive(PrimitiveType::Bool)) => {
                 EffectSet::empty()
@@ -1029,8 +1064,7 @@ impl<'a> TypeInference<'a> {
             (_, expected_ty) => {
                 let (actual_ty, effects) = self.infer_primary_expression(primary_expr);
 
-                self.equality_constraints
-                    .push((span, expected_ty, actual_ty));
+                self.unify_ty_ty(span, &expected_ty, &actual_ty);
 
                 effects
             }
@@ -1079,11 +1113,11 @@ mod tests {
     fn typecheck_str(input: &str) -> Result<Symbols, Vec<ariadne::Report<'_>>> {
         let program = crate::starstream_program().parse(input).unwrap();
 
-        let (ast, mut symbols) = do_scope_analysis(program).unwrap();
+        let (mut ast, mut symbols) = do_scope_analysis(program).unwrap();
 
         let tc = TypeInference::new(&mut symbols);
 
-        tc.visit_program(&ast).map(|_| symbols)
+        tc.visit_program(&mut ast).map(|_| symbols)
     }
 
     fn typecheck_str_expect_success(input: &str) {
@@ -1674,5 +1708,95 @@ mod tests {
         }"#;
 
         typecheck_str_expect_error(input);
+    }
+
+    #[test]
+    fn typecheck_utxo_resume() {
+        let input = r#"
+        utxo U {
+            Resume u32
+
+            main {
+                yield;
+            }
+        }
+
+        script {
+            fn main(utxo: U, x: u32) {
+                let utxo = utxo.resume(x);
+                utxo.resume(x);
+            }
+        }
+
+        "#;
+
+        typecheck_str_expect_success(input);
+
+        let input = r#"
+        utxo U {
+            Resume u32
+
+            main {
+                yield;
+            }
+        }
+
+        script {
+            fn main(utxo: U, x: u32) {
+                utxo.resume(x);
+                utxo.resume(x);
+            }
+        }
+
+        "#;
+
+        typecheck_str_expect_error(input);
+    }
+
+    #[test]
+    fn typecheck_utxo_methods() {
+        let utxo = r#"
+        abi Foo {
+            fn foo(): u32;
+        }
+
+        utxo U {
+            storage {
+                x: u32;
+            }
+
+            main {
+                yield;
+            }
+
+            impl Foo {
+                fn foo(self): u32 {
+                    self.x
+                }
+            }
+        }
+        "#;
+
+        let script = r#"script {
+            fn main(utxo: U) {
+                let x: u32 = utxo.foo();
+            }
+        }
+        "#;
+
+        let input = format!("{utxo}\n{script}");
+
+        typecheck_str_expect_success(&input);
+
+        let script = r#"script {
+            fn main(utxo: U) {
+                let x: string = utxo.foo();
+            }
+        }
+        "#;
+
+        let input = format!("{utxo}\n{script}");
+
+        typecheck_str_expect_error(&input);
     }
 }

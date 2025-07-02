@@ -345,7 +345,25 @@ impl Visitor {
         // we need to put these into scope before doing anything else
         self.push_type_scope(uid);
 
-        let self_ty = TypeArg::Ref(Box::new(TypeArg::TypeRef(TypeRef(utxo.name.clone()))));
+        let self_ty = TypeArg::TypeRef(TypeRef(utxo.name.clone()));
+        let self_ty_ref = TypeArg::Ref(Box::new(self_ty.clone()));
+
+        self.push_function_declaration(
+            &mut Identifier::new("resume", None),
+            FuncInfo {
+                inputs_ty: utxo
+                    .items
+                    .iter()
+                    .filter_map(|item| match item {
+                        UtxoItem::Resume(type_arg) => Some(type_arg.clone()),
+                        _ => None,
+                    })
+                    .take(1)
+                    .collect(),
+                output_ty: Some(self_ty.clone()),
+                effects: EffectSet::empty(),
+            },
+        );
 
         for item in &mut utxo.items {
             match item {
@@ -360,7 +378,7 @@ impl Visitor {
                                 .as_ref()
                                 .map(|args| args.values.iter().map(|arg| arg.1.clone()).collect())
                                 .unwrap_or(vec![]),
-                            output_ty: Some(self_ty.clone()),
+                            output_ty: Some(self_ty_ref.clone()),
                             // TODO: what should this be actually?
                             // the effects of main?
                             // or the effects before the first yield?
@@ -377,7 +395,7 @@ impl Visitor {
                         return;
                     };
 
-                    self.visit_fn_defs(&mut utxo_impl.definitions, Some(self_ty.clone()));
+                    self.visit_fn_defs(&mut utxo_impl.definitions, Some(self_ty_ref.clone()));
 
                     for definition in &mut utxo_impl.definitions {
                         let Some(abi_def) = self
@@ -888,8 +906,8 @@ impl Visitor {
                 value,
                 ty,
             } => {
-                self.push_var_declaration(var, *mutable);
                 self.visit_expr(value);
+                self.push_var_declaration(var, *mutable);
 
                 if let Some(ty) = ty {
                     self.visit_type_arg(ty);
@@ -953,7 +971,10 @@ impl Visitor {
             FieldAccessExpression::PrimaryExpr(primary_expr) => {
                 self.visit_primary_expr(primary_expr)
             }
-            FieldAccessExpression::FieldAccess { base, field: _ } => {
+            FieldAccessExpression::FieldAccess { base, field } => {
+                for arg in field.args.iter_mut().flat_map(|args| args.xs.iter_mut()) {
+                    self.visit_expr(arg);
+                }
                 self.visit_secondary_expr(&mut *base);
             }
         }
