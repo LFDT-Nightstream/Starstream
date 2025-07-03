@@ -50,6 +50,7 @@ pub struct TypeInference<'a> {
     linearity_constraints: HashMap<SymbolId, Vec<SimpleSpan>>,
     utxo_main_block_constraints: Vec<(SimpleSpan, ComparableType)>,
     num_signed_constraints: Vec<(SimpleSpan, ComparableType)>,
+    is_numeric: HashSet<TypeVar>,
 }
 
 impl<'a> TypeInference<'a> {
@@ -59,6 +60,7 @@ impl<'a> TypeInference<'a> {
             errors: vec![],
             unification_table: InPlaceUnificationTable::new(),
             num_signed_constraints: vec![],
+            is_numeric: HashSet::new(),
             utxo_main_block_constraints: vec![],
             linearity_constraints: HashMap::new(),
 
@@ -120,7 +122,7 @@ impl<'a> TypeInference<'a> {
         for var in self.symbols.vars.values_mut() {
             let ty = var.info.ty.clone().unwrap();
 
-            let ty = Self::substitute(&mut self.unification_table, ty);
+            let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
 
             var.info.ty.replace(ty);
         }
@@ -129,6 +131,7 @@ impl<'a> TypeInference<'a> {
     fn substitute(
         unification_table: &mut InPlaceUnificationTable<TypeVar>,
         ty: ComparableType,
+        is_numeric: &HashSet<TypeVar>,
     ) -> ComparableType {
         match ty {
             ComparableType::Primitive(_) => ty,
@@ -137,7 +140,7 @@ impl<'a> TypeInference<'a> {
             ComparableType::Product(args) | ComparableType::Sum(args) => {
                 let mut res = vec![];
                 for (name, arg) in args {
-                    res.push((name, Self::substitute(unification_table, arg)));
+                    res.push((name, Self::substitute(unification_table, arg, is_numeric)));
                 }
 
                 ComparableType::Product(res)
@@ -146,10 +149,10 @@ impl<'a> TypeInference<'a> {
                 let mut new_inputs = vec![];
 
                 for input in inputs {
-                    new_inputs.push(Self::substitute(unification_table, input));
+                    new_inputs.push(Self::substitute(unification_table, input, is_numeric));
                 }
 
-                let output = Self::substitute(unification_table, *output);
+                let output = Self::substitute(unification_table, *output, is_numeric);
 
                 ComparableType::FnType(new_inputs, output.boxed())
             }
@@ -158,17 +161,25 @@ impl<'a> TypeInference<'a> {
                 let root = unification_table.find(type_var);
 
                 match unification_table.probe_value(root) {
-                    Some(ty) => Self::substitute(unification_table, ty),
+                    Some(ty) => Self::substitute(unification_table, ty, is_numeric),
                     None => {
-                        // this shouldn't really happen right now, but eventually
-                        // it'll need to be handled with generics
-                        todo!("unbound variable");
+                        if is_numeric.contains(&type_var) {
+                            unification_table
+                                .unify_var_value(type_var, Some(ComparableType::u32()))
+                                .unwrap();
+
+                            Self::substitute(unification_table, ty, is_numeric)
+                        } else {
+                            // this shouldn't really happen right now, but eventually
+                            // it'll need to be handled with generics
+                            todo!("unbound variable");
+                        }
                     }
                 }
             }
-            ComparableType::Ref(ty) => {
-                ComparableType::Ref(Self::substitute(unification_table, (*ty).clone()).boxed())
-            }
+            ComparableType::Ref(ty) => ComparableType::Ref(
+                Self::substitute(unification_table, (*ty).clone(), is_numeric).boxed(),
+            ),
         }
     }
 
@@ -182,10 +193,14 @@ impl<'a> TypeInference<'a> {
         let right = self.follow_unified_variables(unnorm_right.clone());
 
         match (left, right) {
-            (ComparableType::Var(a), ComparableType::Var(b)) => {
+            (ComparableType::Var(a), ComparableType::Var(b))
+                if self.is_numeric.contains(&a) == self.is_numeric.contains(&b) =>
+            {
                 self.unification_table.unify_var_var(a, b).unwrap()
             }
-            (ty, ComparableType::Var(type_var)) | (ComparableType::Var(type_var), ty) => {
+            (ty, ComparableType::Var(type_var)) | (ComparableType::Var(type_var), ty)
+                if self.is_numeric.contains(&type_var) == ty.is_numeric() =>
+            {
                 ty.occurs_check(&type_var);
 
                 self.unification_table
@@ -275,7 +290,7 @@ impl<'a> TypeInference<'a> {
         );
 
         for (span, ty) in num_signed_constraints {
-            let ty = Self::substitute(&mut self.unification_table, ty);
+            let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
 
             match ty {
                 ComparableType::Primitive(PrimitiveType::I32) => (),
@@ -292,7 +307,7 @@ impl<'a> TypeInference<'a> {
             &mut self.utxo_main_block_constraints,
         );
         for (span, block_ty) in utxo_main_block_constraints {
-            let ty = Self::substitute(&mut self.unification_table, block_ty);
+            let ty = Self::substitute(&mut self.unification_table, block_ty, &self.is_numeric);
 
             match ty {
                 ComparableType::Primitive(PrimitiveType::Unit) => (),
@@ -744,10 +759,16 @@ impl<'a> TypeInference<'a> {
         primary_expr: &mut PrimaryExpr,
     ) -> (ComparableType, EffectSet) {
         match primary_expr {
-            PrimaryExpr::Number(_) => (
-                ComparableType::Primitive(PrimitiveType::U32),
-                EffectSet::empty(),
-            ),
+            PrimaryExpr::Number(_) => {
+                let new_ty_var = self.new_ty_var();
+
+                self.is_numeric.insert(match &new_ty_var {
+                    ComparableType::Var(type_var) => *type_var,
+                    _ => unreachable!(),
+                });
+
+                (new_ty_var, EffectSet::empty())
+            }
             PrimaryExpr::Bool(_) => (
                 ComparableType::Primitive(PrimitiveType::Bool),
                 EffectSet::empty(),
@@ -876,6 +897,8 @@ impl<'a> TypeInference<'a> {
             FieldAccessExpression::FieldAccess { base, field } => {
                 let (ty, effects) = self.infer_field_access_expression(base);
 
+                let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
+
                 let ty = match ty.deref_1() {
                     ComparableType::Product(items) => items
                         .iter()
@@ -885,12 +908,22 @@ impl<'a> TypeInference<'a> {
                         if field.args.is_some() {
                             self.resolve_utxo_method_name(field, utxo);
 
-                            return self.infer_identifier_expression(field);
+                            let (ty, effects) = self.infer_identifier_expression(field);
+
+                            return (
+                                Self::substitute(&mut self.unification_table, ty, &self.is_numeric),
+                                effects,
+                            );
                         }
 
                         let Some(storage) =
                             self.symbols.types.get(&utxo).unwrap().info.storage.as_ref()
                         else {
+                            self.errors.push(error_field_not_found(
+                                field.name.span.unwrap(),
+                                &field.name.raw,
+                            ));
+
                             return (ComparableType::Void, EffectSet::empty());
                         };
 
@@ -899,6 +932,11 @@ impl<'a> TypeInference<'a> {
                         }) {
                             ty
                         } else {
+                            self.errors.push(error_field_not_found(
+                                field.name.span.unwrap(),
+                                &field.name.raw,
+                            ));
+
                             ComparableType::Void
                         }
                     }
@@ -947,7 +985,11 @@ impl<'a> TypeInference<'a> {
     fn check_expr(&mut self, expr: &mut Spanned<Expr>, expected: ComparableType) -> EffectSet {
         match (&mut expr.node, expected) {
             (Expr::PrimaryExpr(field_access_expression), expected) => {
-                self.check_field_access_expression(expr.span, field_access_expression, expected)
+                let (ty, effects) = self.infer_field_access_expression(field_access_expression);
+
+                self.unify_ty_ty(expr.span, &ty, &expected);
+
+                effects
             }
             (Expr::Equals(lhs, rhs), ComparableType::Primitive(PrimitiveType::Bool))
             | (Expr::NotEquals(lhs, rhs), ComparableType::Primitive(PrimitiveType::Bool))
@@ -974,97 +1016,6 @@ impl<'a> TypeInference<'a> {
                 let (actual_ty, effects) = self.infer_expr(expr);
 
                 self.unify_ty_ty(expr.span, &expected_ty, &actual_ty);
-
-                effects
-            }
-        }
-    }
-
-    fn check_field_access_expression(
-        &mut self,
-        span: SimpleSpan,
-        field_access_expression: &mut FieldAccessExpression,
-        expected: ComparableType,
-    ) -> EffectSet {
-        match field_access_expression {
-            FieldAccessExpression::PrimaryExpr(primary_expr) => {
-                self.check_primary_expression(span, primary_expr, expected)
-            }
-            FieldAccessExpression::FieldAccess { base, field } => {
-                let (inferred, effects) = self.infer_field_access_expression(base);
-
-                let inferred = Self::substitute(&mut self.unification_table, inferred);
-
-                match inferred.deref_1() {
-                    ComparableType::Product(items) => {
-                        if let Some(actual_ty) = items
-                            .iter()
-                            .find_map(|(name, ty)| (name == &field.name.raw).then_some(ty.clone()))
-                        {
-                            self.unify_ty_ty(span, &expected, &actual_ty);
-                        } else {
-                            self.errors
-                                .push(error_field_not_found(span, &field.name.raw));
-                        }
-                    }
-                    ComparableType::Utxo(utxo) => {
-                        if field.args.is_some() {
-                            self.resolve_utxo_method_name(field, utxo);
-                            let (ty, effects) = self.infer_identifier_expression(field);
-
-                            self.unify_ty_ty(span, &expected, &ty);
-
-                            return effects;
-                        }
-
-                        let storage = self
-                            .symbols
-                            .types
-                            .get(&utxo)
-                            .unwrap()
-                            .info
-                            .storage
-                            .as_ref()
-                            .unwrap();
-
-                        if let Some(ty) = storage.bindings.values.iter().find_map(|(name, ty)| {
-                            (name.raw == field.name.raw).then_some(ty.canonical_form(self.symbols))
-                        }) {
-                            self.unify_ty_ty(span, &expected, &ty);
-                        } else {
-                            self.errors
-                                .push(error_field_not_found(span, &field.name.raw));
-                        };
-                    }
-                    _ => self
-                        .errors
-                        .push(error_field_not_found(span, &field.name.raw)),
-                };
-
-                effects
-            }
-        }
-    }
-
-    fn check_primary_expression(
-        &mut self,
-        span: SimpleSpan,
-        primary_expr: &mut PrimaryExpr,
-        expected: ComparableType,
-    ) -> EffectSet {
-        match (&mut *primary_expr, expected) {
-            (PrimaryExpr::Number(_), ty) if ty.is_numeric() => EffectSet::empty(),
-            (PrimaryExpr::Bool(_), ComparableType::Primitive(PrimitiveType::Bool)) => {
-                EffectSet::empty()
-            }
-            (PrimaryExpr::StringLiteral(_), ComparableType::Primitive(PrimitiveType::String)) => {
-                EffectSet::empty()
-            }
-            (PrimaryExpr::ParExpr(expr), expected) => self.check_expr(expr, expected),
-            (_, expected_ty) => {
-                let (actual_ty, effects) = self.infer_primary_expression(primary_expr);
-
-                self.unify_ty_ty(span, &expected_ty, &actual_ty);
 
                 effects
             }
@@ -1747,7 +1698,6 @@ mod tests {
                 utxo.resume(x);
             }
         }
-
         "#;
 
         typecheck_str_expect_error(input);
