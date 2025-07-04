@@ -603,7 +603,7 @@ impl Compiler {
         match primary {
             PrimaryExpr::Number(number) => {
                 func.instructions().i32_const(*number as i32);
-                Intermediate::StackF64
+                Intermediate::StackI32
             }
             PrimaryExpr::Bool(true) => {
                 func.instructions().i32_const(1);
