@@ -88,7 +88,7 @@ impl<'a> TypeInference<'a> {
                 // TODO: add these
                 ProgramItem::Constant { name, value: _ } => {
                     self.symbols
-                        .vars
+                        .constants
                         .get_mut(&name.uid.unwrap())
                         .unwrap()
                         .info
@@ -198,13 +198,17 @@ impl<'a> TypeInference<'a> {
         let right = self.follow_unified_variables(unnorm_right.clone());
 
         match (left, right) {
-            (ComparableType::Var(a), ComparableType::Var(b))
-                if self.is_numeric.contains(&a) == self.is_numeric.contains(&b) =>
-            {
+            (ComparableType::Var(a), ComparableType::Var(b)) => {
+                if self.is_numeric.contains(&a) {
+                    self.is_numeric.insert(b);
+                } else if self.is_numeric.contains(&b) {
+                    self.is_numeric.insert(a);
+                }
+
                 self.unification_table.unify_var_var(a, b).unwrap()
             }
             (ty, ComparableType::Var(type_var)) | (ComparableType::Var(type_var), ty)
-                if self.is_numeric.contains(&type_var) == ty.is_numeric() =>
+                if !self.is_numeric.contains(&type_var) || ty.is_numeric() =>
             {
                 ty.occurs_check(&type_var);
 
@@ -238,6 +242,7 @@ impl<'a> TypeInference<'a> {
                 self.unify_ty_ty(span, &output_lhs, &output_rhs);
             }
             (ComparableType::Utxo(lhs), ComparableType::Utxo(rhs)) if lhs == rhs => {}
+            (ComparableType::Void, _) | (_, ComparableType::Void) => {}
             (lhs, rhs) => {
                 self.push_error_type_mismatch(span, &lhs, &rhs);
             }
@@ -547,13 +552,8 @@ impl<'a> TypeInference<'a> {
 
                 if let Some(expr) = expr {
                     return self.check_expr(expr, expected);
-                } else if !matches!(expected, ComparableType::Primitive(PrimitiveType::Unit)) {
-                    // TODO: get span of the return?
-                    self.push_error_type_mismatch(
-                        SimpleSpan::from(0..0),
-                        &expected,
-                        &ComparableType::unit(),
-                    );
+                } else {
+                    self.unify_ty_ty(SimpleSpan::from(0..0), &expected, &ComparableType::unit());
                 }
 
                 EffectSet::empty()
@@ -636,7 +636,7 @@ impl<'a> TypeInference<'a> {
                     for handler in interface_info.info.effects.difference(&handlers) {
                         let effect_info = self.symbols.functions.get(handler).unwrap();
 
-                        let span = effect_info.span.unwrap();
+                        let span = effect_info.span.unwrap_or(SimpleSpan::from(0..0));
 
                         self.errors.push(error_missing_effect_handler(
                             span,
@@ -690,7 +690,9 @@ impl<'a> TypeInference<'a> {
 
                             effects = effects.combine(new_effects);
 
-                            ty = last_ty;
+                            if ty != ComparableType::Void {
+                                ty = last_ty;
+                            }
 
                             span = expr.span;
                         }
@@ -698,13 +700,17 @@ impl<'a> TypeInference<'a> {
                             let new_effects = self.visit_statement(statement);
 
                             effects = effects.combine(new_effects);
+
+                            if let Statement::Return(_) = &statement {
+                                ty = ComparableType::Void;
+                            }
                         }
                     }
 
                     curr = tail;
                 }
                 Block::Close { semicolon } => {
-                    if *semicolon {
+                    if *semicolon && ty != ComparableType::Void {
                         ty = ComparableType::unit();
 
                         // TODO: get span of the block
@@ -929,11 +935,16 @@ impl<'a> TypeInference<'a> {
                 self.symbols
                     .vars
                     .get(&identifier.name.uid.unwrap())
-                    .unwrap()
-                    .info
-                    .ty
+                    .map(|var_info| &var_info.info.ty)
+                    .or_else(|| {
+                        self.symbols
+                            .constants
+                            .get(&identifier.name.uid.unwrap())
+                            .map(|const_info| &const_info.info.ty)
+                    })
+                    .expect("variable not declared")
                     .clone()
-                    .unwrap()
+                    .expect("variable doesn't have a type assigned in the environment")
                     .clone(),
                 EffectSet::empty(),
             )
@@ -954,10 +965,20 @@ impl<'a> TypeInference<'a> {
                 let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
 
                 let ty = match ty.deref_1() {
-                    ComparableType::Product(items) => items
-                        .iter()
-                        .find_map(|(name, ty)| (name == &field.name.raw).then_some(ty.clone()))
-                        .unwrap_or(ComparableType::Void),
+                    ComparableType::Product(items) => {
+                        let ty = items
+                            .iter()
+                            .find_map(|(name, ty)| (name == &field.name.raw).then_some(ty.clone()));
+
+                        if ty.is_none() {
+                            self.errors.push(error_field_not_found(
+                                field.name.span.unwrap(),
+                                &field.name.raw,
+                            ));
+                        }
+
+                        ty.unwrap_or(ComparableType::Void)
+                    }
                     ComparableType::Utxo(utxo) => {
                         if field.args.is_some() {
                             self.resolve_utxo_method_name(field, utxo);

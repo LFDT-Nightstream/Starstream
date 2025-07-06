@@ -70,7 +70,9 @@ pub struct FuncInfo {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConstInfo {}
+pub struct ConstInfo {
+    pub ty: Option<ComparableType>,
+}
 
 #[derive(Debug, Clone)]
 pub struct AbiInfo {
@@ -667,7 +669,7 @@ impl Visitor {
             SymbolInformation {
                 source: ident.raw.clone(),
                 span: ident.span,
-                info: ConstInfo {},
+                info: ConstInfo { ty: None },
             },
         );
 
