@@ -1,5 +1,6 @@
 mod effects;
 mod error;
+mod linear;
 mod types;
 
 use crate::{
@@ -16,9 +17,10 @@ pub use effects::EffectSet;
 use ena::unify::{EqUnifyValue, InPlaceUnificationTable};
 use error::{
     error_effect_type_mismatch, error_field_not_found, error_invalid_return_type_for_utxo_main,
-    error_missing_effect_handler, error_non_signed, error_type_mismatch,
-    error_unused_linear_variable, error_variable_used_more_than_once,
+    error_linear_variable_affine, error_missing_effect_handler, error_non_signed,
+    error_type_mismatch, error_unused_variable, error_variable_used_more_than_once,
 };
+use linear::{ManyWitness, Multiplicity, ResourceTracker};
 use std::collections::{HashMap, HashSet};
 pub use types::ComparableType;
 use types::{PrimitiveType, TypeVar};
@@ -39,6 +41,7 @@ pub fn do_type_inference(
 pub struct TypeInference<'a> {
     symbols: &'a mut Symbols,
     errors: Vec<Report<'static>>,
+    warnings: Vec<Report<'static>>,
 
     unification_table: InPlaceUnificationTable<TypeVar>,
 
@@ -46,8 +49,9 @@ pub struct TypeInference<'a> {
     current_function: Vec<SymbolId>,
     current_handler: Vec<SymbolId>,
 
+    multiplicity_tracker: ResourceTracker<SymbolId, SimpleSpan>,
+
     // checks to do after unification
-    linearity_constraints: HashMap<SymbolId, Vec<SimpleSpan>>,
     utxo_main_block_constraints: Vec<(SimpleSpan, ComparableType)>,
     num_signed_constraints: Vec<(SimpleSpan, ComparableType)>,
     is_numeric: HashSet<TypeVar>,
@@ -58,11 +62,12 @@ impl<'a> TypeInference<'a> {
         Self {
             symbols,
             errors: vec![],
+            warnings: vec![],
             unification_table: InPlaceUnificationTable::new(),
             num_signed_constraints: vec![],
             is_numeric: HashSet::new(),
             utxo_main_block_constraints: vec![],
-            linearity_constraints: HashMap::new(),
+            multiplicity_tracker: ResourceTracker::new(),
 
             current_function: vec![],
             current_handler: vec![],
@@ -320,18 +325,56 @@ impl<'a> TypeInference<'a> {
     }
 
     fn check_multiplicity_constraints(&mut self) {
+        let multiplicities = self.multiplicity_tracker.finish();
+
         for (id, var) in &self.symbols.vars {
             let ty = var.info.ty.clone().unwrap();
 
+            let mult = multiplicities
+                .get(id)
+                .cloned()
+                .unwrap_or(Multiplicity::Unused);
+
+            if mult == Multiplicity::Unused {
+                self.warnings
+                    .push(error_unused_variable(var, ty.is_linear()));
+            }
+
             if ty.is_linear() || ty.is_affine() {
-                if let Some(usages) = self.linearity_constraints.get(id) {
-                    if usages.len() != 1 {
-                        self.errors.push(error_variable_used_more_than_once(
-                            var, usages[0], usages[1],
-                        ));
+                match mult {
+                    Multiplicity::Many {
+                        witness: ManyWitness::UsedInLoop { span },
+                    } => {
+                        self.errors
+                            .push(error_variable_used_more_than_once(var, span, span));
                     }
-                } else if ty.is_linear() {
-                    self.errors.push(error_unused_linear_variable(var));
+                    Multiplicity::Many {
+                        witness: ManyWitness::UsedTwice { first, then },
+                    } => {
+                        self.errors
+                            .push(error_variable_used_more_than_once(var, first, then));
+                    }
+                    _ => (),
+                }
+            }
+
+            if ty.is_linear() {
+                match mult {
+                    Multiplicity::Linear { witness: _ } => (),
+                    Multiplicity::Affine { witness: span } => {
+                        // TODO: narrow it more
+                        self.errors.push(error_linear_variable_affine(var, span));
+                    }
+                    _ => (),
+                }
+            }
+
+            if ty.is_affine() {
+                match mult {
+                    Multiplicity::Unused => (),
+                    Multiplicity::Affine { witness: _ } => (),
+                    Multiplicity::Linear { witness: _ } => (),
+                    _ => (),
                 }
             }
         }
@@ -478,6 +521,8 @@ impl<'a> TypeInference<'a> {
 
                 let symbol_id = var.clone().uid.unwrap();
 
+                self.multiplicity_tracker.declare_variable(symbol_id);
+
                 self.symbols
                     .vars
                     .get_mut(&symbol_id)
@@ -608,7 +653,13 @@ impl<'a> TypeInference<'a> {
 
                 let loop_body_effects = match loop_body {
                     LoopBody::Statement(statement) => self.visit_statement(statement),
-                    LoopBody::Block(block) => self.infer_block(block).2,
+                    LoopBody::Block(block) => {
+                        self.multiplicity_tracker.push_loop_scope();
+                        let effects = self.infer_block(block).2;
+                        self.multiplicity_tracker.pop_loop();
+
+                        effects
+                    }
                     LoopBody::Expr(spanned) => self.infer_expr(spanned).1,
                 };
 
@@ -685,13 +736,18 @@ impl<'a> TypeInference<'a> {
                 BlockExpr::IfThenElse(cond, _if, _else) => {
                     let effects_cond = self.check_expr(cond, ComparableType::boolean());
 
+                    self.multiplicity_tracker.push_branch();
                     let (_span, if_ty, effects_if_body) = self.infer_block(_if);
+
+                    self.multiplicity_tracker.push_branch();
 
                     let effects_else_body = if let Some(_else) = _else {
                         self.check_block(_else, if_ty.clone())
                     } else {
                         EffectSet::empty()
                     };
+
+                    self.multiplicity_tracker.pop_branches(2);
 
                     (
                         if_ty,
@@ -832,14 +888,6 @@ impl<'a> TypeInference<'a> {
         &mut self,
         identifier: &mut IdentifierExpr,
     ) -> (ComparableType, EffectSet) {
-        let key = identifier.name.uid.unwrap();
-        if self.symbols.vars.contains_key(&key) {
-            self.linearity_constraints
-                .entry(key)
-                .or_default()
-                .push(identifier.name.span.unwrap());
-        }
-
         if let Some(args) = &mut identifier.args {
             let effects = EffectSet::empty();
 
@@ -871,6 +919,12 @@ impl<'a> TypeInference<'a> {
 
             (output, effects)
         } else {
+            let key = identifier.name.uid.unwrap();
+            if self.symbols.vars.contains_key(&key) {
+                self.multiplicity_tracker
+                    .consume(key, identifier.name.span.unwrap());
+            }
+
             (
                 self.symbols
                     .vars
@@ -1351,11 +1405,24 @@ mod tests {
         let input = r#"
         script {
             fn foo(x: Intermediate<any, any>) {
-                bar(x);
-                bar(x);
+                consume(x);
+                consume(x);
             }
 
-            fn bar(x: Intermediate<any, any>) {}
+            fn consume(x: Intermediate<any, any>) {}
+        }"#;
+
+        typecheck_str_expect_error(input);
+
+        let input = r#"
+        script {
+            fn foo(x: Intermediate<any, any>, cond: bool) {
+                if(cond) {
+                    consume(x);
+                }
+            }
+
+            fn consume(x: Intermediate<any, any>) {}
         }"#;
 
         typecheck_str_expect_error(input);

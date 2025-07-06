@@ -11,6 +11,7 @@ pub enum TypeErrorCode {
     UnusedLinearVariable = 303,
     UtxoMainBlockInvalidType = 304,
     EffectTypeMismatch = 305,
+    LinearVariableNotUsedInAllBranches = 306,
 }
 
 pub(super) fn error_field_not_found(span: SimpleSpan, expected: &str) -> Report<'static> {
@@ -59,7 +60,7 @@ pub(super) fn error_variable_used_more_than_once(
         .with_code(TypeErrorCode::LinearVariableReUsed as u32)
         .with_label(
             Label::new(span1.into_range())
-                .with_message("first used here")
+                .with_message(format!("{} first used here", var.source))
                 .with_color(Color::Red),
         )
         .with_label(
@@ -70,16 +71,40 @@ pub(super) fn error_variable_used_more_than_once(
         .finish()
 }
 
-pub(super) fn error_unused_linear_variable(
+pub(super) fn error_unused_variable(
     var: &SymbolInformation<scope_resolution::VarInfo>,
+    is_error: bool,
+) -> Report<'static> {
+    if is_error {
+        error_report(var.span.unwrap())
+    } else {
+        warning_report(var.span.unwrap())
+    }
+    .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+    .with_code(TypeErrorCode::UnusedLinearVariable as u32)
+    .with_label(
+        Label::new(var.span.unwrap().into_range())
+            .with_message("unused variable")
+            .with_color(Color::Red),
+    )
+    .finish()
+}
+
+pub(super) fn error_linear_variable_affine(
+    var: &SymbolInformation<scope_resolution::VarInfo>,
+    span: SimpleSpan,
 ) -> Report<'static> {
     error_report(var.span.unwrap())
         .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-        .with_code(TypeErrorCode::UnusedLinearVariable as u32)
-        .with_code(4)
+        .with_code(TypeErrorCode::LinearVariableNotUsedInAllBranches as u32)
         .with_label(
             Label::new(var.span.unwrap().into_range())
-                .with_message("unused variable")
+                .with_message("linear variable consumed partially")
+                .with_color(Color::Red),
+        )
+        .with_label(
+            Label::new(span.into_range())
+                .with_message("the variable is used in this branch, so it must be consumed in all the branches")
                 .with_color(Color::Red),
         )
         .finish()
@@ -131,5 +156,10 @@ pub(super) fn error_missing_effect_handler(
 
 fn error_report(span: SimpleSpan) -> ariadne::ReportBuilder<'static, std::ops::Range<usize>> {
     Report::build(ReportKind::Error, span.into_range())
+        .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
+}
+
+fn warning_report(span: SimpleSpan) -> ariadne::ReportBuilder<'static, std::ops::Range<usize>> {
+    Report::build(ReportKind::Warning, span.into_range())
         .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
 }
