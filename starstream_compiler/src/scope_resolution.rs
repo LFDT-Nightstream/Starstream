@@ -3,7 +3,7 @@ use crate::{
         Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
         FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, Spanned,
         StarstreamProgram, Statement, Storage, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs,
-        TypeOrSelf, TypeRef, Utxo, UtxoItem,
+        TypeOrSelf, TypeRef, TypedBindings, Utxo, UtxoItem,
     },
     typechecking::{ComparableType, EffectSet},
 };
@@ -42,6 +42,10 @@ pub struct Symbols {
     pub functions: HashMap<SymbolId, SymbolInformation<FuncInfo>>,
     pub constants: HashMap<SymbolId, SymbolInformation<ConstInfo>>,
     pub interfaces: HashMap<SymbolId, SymbolInformation<AbiInfo>>,
+
+    // lookup for builtin types inside the `types`, since these don't have
+    // identifiers on the ast
+    pub builtins: HashMap<&'static str, SymbolId>,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +105,8 @@ pub struct Scope {
 pub struct SymbolId {
     id: u64,
 }
+
+pub const STARSTREAM_ENV: &str = "StarstreamEnv";
 
 struct Visitor {
     stack: Vec<Scope>,
@@ -171,55 +177,15 @@ impl Visitor {
     // TODO: mostly just to get the examples working
     // these probably would have to be some sort of import?
     fn add_builtins(&mut self) {
-        self.push_type_declaration(&mut Identifier::new("PublicKey", None), None);
         self.push_type_declaration(&mut Identifier::new("Option", None), None);
         self.push_type_declaration(&mut Identifier::new("any", None), None);
         self.push_type_declaration(&mut Identifier::new("Value", None), None);
-
-        self.push_function_declaration(
-            &mut Identifier::new("CoordinationCode", None),
-            FuncInfo {
-                inputs_ty: vec![],
-                output_ty: Some(TypeArg::U32),
-                effects: EffectSet::empty(),
-            },
-        );
-
-        self.push_function_declaration(
-            &mut Identifier::new("ThisCode", None),
-            FuncInfo {
-                inputs_ty: vec![],
-                output_ty: Some(TypeArg::U32),
-                effects: EffectSet::empty(),
-            },
-        );
-
-        self.push_function_declaration(
-            &mut Identifier::new("Caller", None),
-            FuncInfo {
-                inputs_ty: vec![],
-                output_ty: Some(TypeArg::U32),
-                effects: EffectSet::empty(),
-            },
-        );
 
         self.push_function_declaration(
             &mut Identifier::new("assert", None),
             FuncInfo {
                 inputs_ty: vec![TypeArg::Bool],
                 output_ty: None,
-                effects: EffectSet::empty(),
-            },
-        );
-
-        self.push_function_declaration(
-            &mut Identifier::new("IsTxSignedBy", None),
-            FuncInfo {
-                inputs_ty: vec![TypeArg::TypeRef(TypeRef(Identifier::new(
-                    "PublicKey",
-                    None,
-                )))],
-                output_ty: Some(TypeArg::Bool),
                 effects: EffectSet::empty(),
             },
         );
@@ -244,27 +210,71 @@ impl Visitor {
 
         self.push_constant_declaration(&mut Identifier::new("context", None));
 
+        let any = Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None))));
+
+        self.visit_type_def(&mut TypeDef {
+            name: Identifier::new("PublicKey", None),
+            ty: TypeDefRhs::TypeArg(TypeArg::U32),
+        });
+
+        self.visit_abi(&mut Abi {
+            name: Identifier::new("Starstream", None),
+            values: vec![AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
+                name: Identifier::new("TokenUnbound", None),
+                input_types: vec![
+                    TypeArg::Intermediate {
+                        abi: any.clone(),
+                        storage: any.clone(),
+                    },
+                    TypeArg::U32,
+                ],
+                output_type: None,
+            }))],
+        });
+
+        let mut abi = Abi {
+            name: Identifier::new("StarstreamEnv", None),
+            values: vec![
+                AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
+                    name: Identifier::new("Caller", None),
+                    input_types: vec![],
+                    output_type: Some(TypeArg::U32),
+                })),
+                AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
+                    name: Identifier::new("ThisCode", None),
+                    input_types: vec![],
+                    output_type: Some(TypeArg::U32),
+                })),
+                AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
+                    name: Identifier::new("CoordinationCode", None),
+                    input_types: vec![],
+                    output_type: Some(TypeArg::U32),
+                })),
+                AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
+                    name: Identifier::new("Caller", None),
+                    input_types: vec![],
+                    output_type: Some(TypeArg::U32),
+                })),
+                AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
+                    name: Identifier::new("IsTxSignedBy", None),
+                    input_types: vec![TypeArg::U32],
+                    output_type: Some(TypeArg::Bool),
+                })),
+            ],
+        };
+        self.visit_abi(&mut abi);
+        self.symbols
+            .builtins
+            .insert(STARSTREAM_ENV, abi.name.uid.unwrap());
+
         let namespaces = {
-            let any = Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None))));
             vec![
                 // None in the 3rd element makes it a constructor
                 ("PayToPublicKeyHash", "new", None),
                 ("List", "new", None),
-                (
-                    // this is not really a type, but it makes no difference for now
-                    "Starstream",
-                    "TokenUnbound",
-                    Some(FuncInfo {
-                        inputs_ty: vec![TypeArg::Intermediate {
-                            abi: any.clone(),
-                            storage: any.clone(),
-                        }],
-                        output_ty: None,
-                        effects: EffectSet::empty(),
-                    }),
-                ),
             ]
         };
+
         for (builtin, f, ty) in namespaces {
             let mut identifier = Identifier::new(builtin, None);
             let type_id = self.push_type_declaration(&mut identifier, None);
@@ -282,6 +292,40 @@ impl Visitor {
 
             self.pop_scope();
         }
+
+        let mut identifier = Identifier::new("Intermediate", None);
+        let type_id = self.push_type_declaration(&mut identifier, None);
+        self.symbols.builtins.insert("Intermediate", type_id);
+
+        let self_ty = TypeArg::Intermediate {
+            abi: any.clone(),
+            storage: any,
+        };
+
+        let pair = Identifier::new("IntermediatePair", None);
+        let mut type_def = TypeDef {
+            name: pair,
+            ty: TypeDefRhs::Object(TypedBindings {
+                values: vec![
+                    (Identifier::new("fst", None), self_ty.clone()),
+                    (Identifier::new("snd", None), self_ty.clone()),
+                ],
+            }),
+        };
+        self.visit_type_def(&mut type_def);
+
+        self.push_type_scope(type_id);
+
+        self.push_function_declaration(
+            &mut Identifier::new("change_for", None),
+            FuncInfo {
+                inputs_ty: vec![TypeArg::U32],
+                output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
+                effects: EffectSet::empty(),
+            },
+        );
+
+        self.pop_scope();
     }
 
     fn visit_program(&mut self, program: &mut StarstreamProgram) {
@@ -338,7 +382,7 @@ impl Visitor {
     }
 
     pub fn visit_script(&mut self, script: &mut Script) {
-        self.visit_fn_defs(&mut script.definitions, None);
+        self.visit_fn_defs(&mut script.definitions, None, None);
     }
 
     pub fn visit_utxo(&mut self, utxo: &mut Utxo) {
@@ -367,9 +411,32 @@ impl Visitor {
             },
         );
 
+        self.push_function_declaration(
+            &mut Identifier::new("attach", None),
+            FuncInfo {
+                inputs_ty: vec![TypeArg::Intermediate {
+                    abi: Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None)))),
+                    storage: Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None)))),
+                }],
+                output_ty: Some(self_ty.clone()),
+                effects: EffectSet::empty(),
+            },
+        );
+
         for item in &mut utxo.items {
             match item {
                 UtxoItem::Main(main) => {
+                    if let Some(tys) = &mut main.type_sig {
+                        for (_ident, ty) in &mut tys.values {
+                            self.visit_type_arg(ty);
+                        }
+                    }
+
+                    // TODO: what should this be actually?
+                    // the effects of main?
+                    // or the effects before the first yield?
+                    let effects = self.implicit_effects();
+
                     // TODO: may actually want to get the "main" span
                     self.push_function_declaration(
                         &mut Identifier::new("new", None),
@@ -381,13 +448,18 @@ impl Visitor {
                                 .map(|args| args.values.iter().map(|arg| arg.1.clone()).collect())
                                 .unwrap_or(vec![]),
                             output_ty: Some(self_ty_ref.clone()),
-                            // TODO: what should this be actually?
-                            // the effects of main?
-                            // or the effects before the first yield?
-                            effects: EffectSet::empty(),
+                            effects,
                         },
                     );
+
                     self.push_function_scope();
+
+                    if let Some(tys) = &mut main.type_sig {
+                        for (ident, _ty) in &mut tys.values {
+                            self.push_var_declaration(ident, false);
+                        }
+                    }
+
                     self.visit_block(&mut main.block, true);
                     self.pop_scope();
                 }
@@ -397,7 +469,12 @@ impl Visitor {
                         return;
                     };
 
-                    self.visit_fn_defs(&mut utxo_impl.definitions, Some(self_ty_ref.clone()));
+                    self.visit_fn_defs(
+                        &mut utxo_impl.definitions,
+                        Some(self_ty_ref.clone()),
+                        Some(abi)
+                            .filter(|_| !self.symbols.interfaces[&abi].info.effects.is_empty()),
+                    );
 
                     for definition in &mut utxo_impl.definitions {
                         let Some(abi_def) = self
@@ -493,18 +570,23 @@ impl Visitor {
         self.pop_scope();
     }
 
+    fn implicit_effects(&mut self) -> EffectSet {
+        EffectSet::singleton(self.symbols.builtins[STARSTREAM_ENV])
+    }
+
     pub fn visit_token(&mut self, token: &mut Token) {
         let uid = self.push_type_declaration(&mut token.name, None);
 
         self.push_type_scope(uid);
 
+        let effects = self.implicit_effects();
         self.push_function_declaration(
             &mut Identifier::new("type", None),
             FuncInfo {
                 inputs_ty: vec![],
                 // TODO: something else
-                output_ty: Some(TypeArg::F64),
-                effects: EffectSet::empty(),
+                output_ty: Some(TypeArg::U32),
+                effects,
             },
         );
 
@@ -523,12 +605,13 @@ impl Visitor {
                     self.pop_scope();
                 }
                 TokenItem::Mint(mint) => {
+                    let effects = self.implicit_effects();
                     self.push_function_declaration(
                         &mut Identifier::new("mint", None),
                         FuncInfo {
                             inputs_ty: vec![],
                             output_ty: Some(TypeArg::TypeRef(TypeRef(token.name.clone()))),
-                            effects: EffectSet::empty(),
+                            effects,
                         },
                     );
                     self.push_function_scope();
@@ -569,7 +652,12 @@ impl Visitor {
         }
     }
 
-    fn visit_fn_defs(&mut self, definitions: &mut [FnDef], self_ty: Option<TypeArg>) {
+    fn visit_fn_defs(
+        &mut self,
+        definitions: &mut [FnDef],
+        self_ty: Option<TypeArg>,
+        abi: Option<SymbolId>,
+    ) {
         for definition in definitions.iter_mut() {
             for arg in &mut definition.inputs {
                 match &mut arg.ty {
@@ -587,6 +675,10 @@ impl Visitor {
                 if let Some((symbol_id, _)) = self.resolve_name(effect, SymbolKind::Abi) {
                     effects.add(symbol_id);
                 }
+            }
+
+            if let Some(abi) = abi {
+                effects.add(abi);
             }
 
             self.push_function_declaration(
@@ -1005,6 +1097,13 @@ impl Visitor {
             PrimaryExpr::Namespace { namespaces, ident }
             | PrimaryExpr::RaiseNamespaced { namespaces, ident } => {
                 self.resolve_name_in_namespace(namespaces, &mut ident.name);
+
+                // TODO: duplicated
+                if let Some(args) = &mut ident.args {
+                    for expr in &mut args.xs {
+                        self.visit_expr(expr);
+                    }
+                }
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(expr),
             PrimaryExpr::Yield(expr) => {

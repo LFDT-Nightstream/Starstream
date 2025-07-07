@@ -9,7 +9,7 @@ use crate::{
         LoopBody, PrimaryExpr, ProgramItem, Script, Spanned, StarstreamProgram, Statement, Token,
         TokenItem, Utxo, UtxoItem,
     },
-    scope_resolution::{SymbolId, Symbols},
+    scope_resolution::{STARSTREAM_ENV, SymbolId, Symbols},
 };
 use ariadne::Report;
 use chumsky::span::SimpleSpan;
@@ -387,7 +387,7 @@ impl<'a> TypeInference<'a> {
 
     fn visit_utxo(&mut self, utxo: &mut Utxo) {
         let uid = utxo.name.uid.unwrap();
-        let interfaces = self
+        let mut interfaces = self
             .symbols
             .types
             .get(&uid)
@@ -395,6 +395,8 @@ impl<'a> TypeInference<'a> {
             .info
             .interfaces
             .clone();
+
+        interfaces.add(self.symbols.builtins[STARSTREAM_ENV]);
 
         for item in &mut utxo.items {
             match item {
@@ -411,13 +413,13 @@ impl<'a> TypeInference<'a> {
 
                     self.current_coroutine.push(uid);
 
-                    let (span, block_ty, effects) = self.infer_block(&mut main.block);
+                    let (span, block_ty, actual_effects) = self.infer_block(&mut main.block);
 
-                    if !effects.is_subset(&interfaces) {
+                    if !actual_effects.is_subset(&interfaces) {
                         self.errors.push(error_effect_type_mismatch(
-                            SimpleSpan::from(0..0),
-                            &interfaces,
-                            &effects,
+                            utxo.name.span.unwrap(),
+                            interfaces.to_readable_names(self.symbols),
+                            actual_effects.to_readable_names(self.symbols),
                         ));
                     }
 
@@ -426,8 +428,13 @@ impl<'a> TypeInference<'a> {
                     self.utxo_main_block_constraints.push((span, block_ty));
                 }
                 UtxoItem::Impl(utxo_impl) => {
+                    let abi = utxo_impl.name.uid.unwrap();
                     for item in &mut utxo_impl.definitions {
-                        self.visit_fn_def(item);
+                        self.visit_fn_def(
+                            item,
+                            Some(abi)
+                                .filter(|_| !self.symbols.interfaces[&abi].info.effects.is_empty()),
+                        );
                     }
                 }
                 UtxoItem::Storage(_storage) => (),
@@ -439,7 +446,7 @@ impl<'a> TypeInference<'a> {
 
     fn visit_script(&mut self, script: &mut Script) {
         for fn_def in &mut script.definitions {
-            self.visit_fn_def(fn_def);
+            self.visit_fn_def(fn_def, None);
         }
     }
 
@@ -460,8 +467,8 @@ impl<'a> TypeInference<'a> {
                     if !effects.is_empty() {
                         self.errors.push(error_effect_type_mismatch(
                             SimpleSpan::from(0..0),
-                            &EffectSet::empty(),
-                            &effects,
+                            HashSet::new(),
+                            effects.to_readable_names(self.symbols),
                         ));
                     }
                 }
@@ -469,7 +476,7 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn visit_fn_def(&mut self, fn_def: &mut FnDef) {
+    fn visit_fn_def(&mut self, fn_def: &mut FnDef, abi: Option<SymbolId>) {
         let symbol = fn_def.ident.uid.unwrap();
 
         self.current_function.push(symbol);
@@ -494,16 +501,21 @@ impl<'a> TypeInference<'a> {
             .map(|ty| ty.canonical_form(self.symbols))
             .unwrap_or(ComparableType::unit());
 
-        let actual_effects = self.check_block(&mut fn_def.body, output);
+        let mut actual_effects = self.check_block(&mut fn_def.body, output);
 
-        let fn_info = self.symbols.functions.get_mut(&symbol).unwrap();
+        if let Some(abi) = abi {
+            actual_effects.add(abi);
+        }
 
-        if !actual_effects.is_subset(&fn_info.info.effects) {
-            let span = fn_info.span.unwrap();
+        let fn_info = self.symbols.functions.get(&symbol).unwrap();
+        let expected_effects = &fn_info.info.effects;
+        let span = fn_info.span.unwrap();
+
+        if !actual_effects.is_subset(expected_effects) {
             self.errors.push(error_effect_type_mismatch(
                 span,
-                &fn_info.info.effects,
-                &actual_effects,
+                expected_effects.to_readable_names(self.symbols),
+                actual_effects.to_readable_names(self.symbols),
             ));
         }
 
@@ -622,6 +634,27 @@ impl<'a> TypeInference<'a> {
                     effects.remove(symbol_id);
 
                     self.current_handler.push(handler.ident.uid.unwrap());
+
+                    let fn_info = &self
+                        .symbols
+                        .functions
+                        .get(&handler.ident.uid.unwrap())
+                        .unwrap()
+                        .info;
+
+                    for (arg_ty_decl, arg_def) in fn_info.inputs_ty.iter().zip(handler.args.iter())
+                    {
+                        let ty = arg_ty_decl.canonical_form(self.symbols);
+
+                        let var_info = self
+                            .symbols
+                            .vars
+                            .get_mut(&arg_def.name.uid.unwrap())
+                            .unwrap();
+
+                        var_info.info.ty.replace(ty);
+                        // TODO: check type in declaration matches type in definition
+                    }
 
                     let (_, _, handler_effects) = self.infer_block(block);
 
@@ -764,6 +797,7 @@ impl<'a> TypeInference<'a> {
                 }
                 BlockExpr::Block(block) => {
                     let inferred = self.infer_block(block);
+
                     (inferred.1, inferred.2)
                 }
             },
@@ -981,8 +1015,7 @@ impl<'a> TypeInference<'a> {
                     }
                     ComparableType::Utxo(utxo) => {
                         if field.args.is_some() {
-                            self.resolve_utxo_method_name(field, utxo);
-
+                            self.resolve_method_name(field, utxo);
                             let (ty, effects) = self.infer_identifier_expression(field);
 
                             return (
@@ -1015,7 +1048,33 @@ impl<'a> TypeInference<'a> {
                             ComparableType::Void
                         }
                     }
-                    _ => ComparableType::Void,
+                    ComparableType::Intermediate => {
+                        if field.args.is_some() {
+                            self.resolve_method_name(field, self.symbols.builtins["Intermediate"]);
+
+                            let (ty, effects) = self.infer_identifier_expression(field);
+
+                            return (
+                                Self::substitute(&mut self.unification_table, ty, &self.is_numeric),
+                                effects,
+                            );
+                        } else {
+                            self.errors.push(error_field_not_found(
+                                field.name.span.unwrap(),
+                                &field.name.raw,
+                            ));
+
+                            ComparableType::Void
+                        }
+                    }
+                    _ => {
+                        self.errors.push(error_field_not_found(
+                            field.name.span.unwrap(),
+                            &field.name.raw,
+                        ));
+
+                        ComparableType::Void
+                    }
                 };
 
                 (ty, effects)
@@ -1023,7 +1082,7 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn resolve_utxo_method_name(&mut self, field: &mut IdentifierExpr, utxo: SymbolId) {
+    fn resolve_method_name(&mut self, field: &mut IdentifierExpr, type_id: SymbolId) {
         // methods are not resolved during name resolution, since it can't be
         // done without first knowing the type of the variable
         //
@@ -1033,7 +1092,7 @@ impl<'a> TypeInference<'a> {
             let method_declaration = self
                 .symbols
                 .types
-                .get(&utxo)
+                .get(&type_id)
                 .unwrap()
                 .info
                 .declarations
@@ -1836,5 +1895,12 @@ mod tests {
         let input = format!("{utxo}\n{script}");
 
         typecheck_str_expect_error(&input);
+    }
+
+    #[test]
+    fn typecheck_oracle_example() {
+        let input = include_str!("../../../grammar/examples/oracle.star");
+
+        typecheck_str_expect_success(input);
     }
 }

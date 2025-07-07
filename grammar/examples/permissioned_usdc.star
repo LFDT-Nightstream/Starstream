@@ -13,7 +13,7 @@ utxo LinkedListNode {
   }
 
   main(key: Option<PublicKey>, next: Option<PublicKey>) {
-    assert(raise CoordinationCode() == raise ThisCode());
+    assert(raise StarstreamEnv::CoordinationCode() == raise StarstreamEnv::ThisCode());
     loop { yield; }
   }
 
@@ -99,7 +99,7 @@ script {
   }
 
   fn blacklist_empty(): LinkedListNode {
-    assert(raise IsTxSignedBy(ADMIN));
+    assert(raise StarstreamEnv::IsTxSignedBy(ADMIN));
     LinkedListNode::new(None(), None());
   }
 
@@ -155,7 +155,7 @@ token PermissionedUSDC {
   }
 
   bind {
-    assert(raise CoordinationCode() == raise ThisCode());
+    assert(raise StarstreamEnv::CoordinationCode() == raise StarstreamEnv::ThisCode());
 
     let owner = raise PermissionedToken::CallerOwner();
 
@@ -170,7 +170,7 @@ token PermissionedUSDC {
   }
 
   unbind {
-    assert(raise CoordinationCode() == raise ThisCode());
+    assert(raise StarstreamEnv::CoordinationCode() == raise StarstreamEnv::ThisCode());
 
     let owner = raise PermissionedToken::CallerOwner();
 

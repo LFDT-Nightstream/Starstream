@@ -1,4 +1,4 @@
-use crate::scope_resolution::SymbolId;
+use crate::scope_resolution::{SymbolId, Symbols};
 use std::collections::HashSet;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -12,6 +12,14 @@ impl EffectSet {
         Self {
             effects: HashSet::new(),
         }
+    }
+
+    pub fn singleton(effect: SymbolId) -> Self {
+        let mut res = Self::empty();
+
+        res.add(effect);
+
+        res
     }
 
     pub fn is_empty(&self) -> bool {
@@ -34,5 +42,12 @@ impl EffectSet {
 
     pub fn is_subset(&self, other: &EffectSet) -> bool {
         self.effects.is_subset(&other.effects)
+    }
+
+    pub fn to_readable_names(&self, symbols: &Symbols) -> HashSet<String> {
+        self.effects
+            .iter()
+            .map(|symbol_id| symbols.interfaces[symbol_id].source.clone())
+            .collect()
     }
 }

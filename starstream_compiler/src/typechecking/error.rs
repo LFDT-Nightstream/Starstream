@@ -1,4 +1,6 @@
-use super::{ComparableType, EffectSet};
+use std::collections::HashSet;
+
+use super::ComparableType;
 use crate::scope_resolution::{self, AbiInfo, FuncInfo, SymbolInformation};
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
@@ -123,8 +125,8 @@ pub(super) fn error_invalid_return_type_for_utxo_main(span: SimpleSpan) -> Repor
 
 pub(super) fn error_effect_type_mismatch(
     span: SimpleSpan,
-    expected: &EffectSet,
-    found: &EffectSet,
+    expected: HashSet<String>,
+    found: HashSet<String>,
 ) -> Report<'static> {
     error_report(span)
         .with_code(TypeErrorCode::EffectTypeMismatch as u32)

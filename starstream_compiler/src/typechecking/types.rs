@@ -165,7 +165,7 @@ impl TypeArg {
 
                 if let Some(type_def) = &symbol.info.type_def {
                     match type_def {
-                        TypeDefRhs::TypeArg(_type_arg) => todo!(),
+                        TypeDefRhs::TypeArg(type_arg) => type_arg.canonical_form(symbols),
                         TypeDefRhs::Object(typed_bindings) => {
                             typed_bindings_to_product(typed_bindings, symbols)
                         }
