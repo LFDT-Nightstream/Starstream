@@ -107,6 +107,7 @@ pub struct SymbolId {
 }
 
 pub const STARSTREAM_ENV: &str = "StarstreamEnv";
+pub const STARSTREAM: &str = "Starstream";
 
 struct Visitor {
     stack: Vec<Scope>,
@@ -217,7 +218,7 @@ impl Visitor {
             ty: TypeDefRhs::TypeArg(TypeArg::U32),
         });
 
-        self.visit_abi(&mut Abi {
+        let mut abi = Abi {
             name: Identifier::new("Starstream", None),
             values: vec![AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
                 name: Identifier::new("TokenUnbound", None),
@@ -230,7 +231,12 @@ impl Visitor {
                 ],
                 output_type: None,
             }))],
-        });
+        };
+
+        self.visit_abi(&mut abi);
+        self.symbols
+            .builtins
+            .insert(STARSTREAM, abi.name.uid.unwrap());
 
         let mut abi = Abi {
             name: Identifier::new("StarstreamEnv", None),
@@ -394,6 +400,8 @@ impl Visitor {
         let self_ty = TypeArg::TypeRef(TypeRef(utxo.name.clone()));
         let self_ty_ref = TypeArg::Ref(Box::new(self_ty.clone()));
 
+        let mut effects = self.implicit_effects();
+        effects.add(self.symbols.builtins[STARSTREAM]);
         self.push_function_declaration(
             &mut Identifier::new("resume", None),
             FuncInfo {
@@ -407,7 +415,7 @@ impl Visitor {
                     .take(1)
                     .collect(),
                 output_ty: Some(self_ty.clone()),
-                effects: EffectSet::empty(),
+                effects,
             },
         );
 

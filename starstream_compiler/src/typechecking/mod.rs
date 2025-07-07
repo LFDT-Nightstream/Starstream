@@ -1810,7 +1810,7 @@ mod tests {
         }
 
         script {
-            fn main(utxo: U, x: u32) {
+            fn main(utxo: U, x: u32) / { StarstreamEnv, Starstream } {
                 let utxo = utxo.resume(x);
                 utxo.resume(x);
             }
