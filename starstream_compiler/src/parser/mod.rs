@@ -255,7 +255,7 @@ fn statement<'a>(
             })
             .boxed();
 
-        let assign = identifier()
+        let assign = field_access_expr(expr_parser.clone())
             .then_ignore(just('=').padded())
             .then(expr_parser.clone())
             .then_ignore(just(';'))

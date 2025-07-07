@@ -340,7 +340,7 @@ impl<'a> TypeInference<'a> {
                 .cloned()
                 .unwrap_or(Multiplicity::Unused);
 
-            if mult == Multiplicity::Unused {
+            if mult == Multiplicity::Unused && var.span.is_some() {
                 self.warnings
                     .push(error_unused_variable(var, ty.is_linear()));
             }
@@ -603,19 +603,9 @@ impl<'a> TypeInference<'a> {
                 effects
             }
             Statement::Assign { var, expr } => {
-                let symbol_id = var.clone().uid.unwrap();
+                let (lhs_ty, effects) = self.infer_field_access_expression(var);
 
-                let var_ty = self
-                    .symbols
-                    .vars
-                    .get_mut(&symbol_id)
-                    .unwrap()
-                    .info
-                    .ty
-                    .clone()
-                    .unwrap();
-
-                self.check_expr(expr, var_ty)
+                effects.combine(self.check_expr(expr, lhs_ty))
             }
             Statement::With(block, items) => {
                 let mut effects =

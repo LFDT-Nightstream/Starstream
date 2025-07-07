@@ -460,6 +460,17 @@ impl Visitor {
                         }
                     }
 
+                    let mut implicit_self_var = Identifier::new("self", None);
+                    self.push_var_declaration(&mut implicit_self_var, false);
+                    let self_ty_normalized = self_ty_ref.canonical_form(&self.symbols);
+                    self.symbols
+                        .vars
+                        .get_mut(&implicit_self_var.uid.unwrap())
+                        .unwrap()
+                        .info
+                        .ty
+                        .replace(self_ty_normalized);
+
                     self.visit_block(&mut main.block, true);
                     self.pop_scope();
                 }
@@ -1013,7 +1024,7 @@ impl Visitor {
                 }
             }
             Statement::Assign { var, expr } => {
-                self.resolve_name(var, SymbolKind::Variable);
+                self.visit_secondary_expr(var);
 
                 self.visit_expr(expr);
             }

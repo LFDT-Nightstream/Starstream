@@ -24,6 +24,7 @@ utxo OracleContract {
   }
 
   main(data: Data) {
+    self.data = data;
     loop { yield; }
   }
 

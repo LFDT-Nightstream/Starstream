@@ -217,7 +217,7 @@ pub enum Statement {
     Resume(Option<Spanned<Expr>>),
     /// `a = b;`
     Assign {
-        var: Identifier,
+        var: FieldAccessExpression,
         expr: Spanned<Expr>,
     },
     /// `with { a... } catch (b) { c... } ...`
