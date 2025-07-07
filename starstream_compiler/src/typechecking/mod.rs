@@ -33,9 +33,9 @@ use types::{PrimitiveType, TypeVar};
 pub fn do_type_inference(
     mut ast: StarstreamProgram,
     symbols: &mut Symbols,
-) -> Result<StarstreamProgram, Vec<Report<'static>>> {
+) -> Result<(StarstreamProgram, Vec<Report<'static>>), Vec<Report<'static>>> {
     let tc = TypeInference::new(symbols);
-    tc.visit_program(&mut ast).map(|_| ast)
+    tc.visit_program(&mut ast).map(|warnings| (ast, warnings))
 }
 
 pub struct TypeInference<'a> {
@@ -78,7 +78,7 @@ impl<'a> TypeInference<'a> {
     pub fn visit_program(
         mut self,
         program: &mut StarstreamProgram,
-    ) -> Result<(), Vec<Report<'static>>> {
+    ) -> Result<Vec<Report<'static>>, Vec<Report<'static>>> {
         for item in &mut program.items {
             match item {
                 ProgramItem::Script(script) => self.visit_script(script),
@@ -115,7 +115,7 @@ impl<'a> TypeInference<'a> {
         if !self.errors.is_empty() {
             Err(self.errors)
         } else {
-            Ok(())
+            Ok(self.warnings)
         }
     }
 

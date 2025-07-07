@@ -83,7 +83,20 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     };
 
     let ast = match starstream_compiler::do_type_inference(ast, &mut symbols) {
-        Ok(ast) => ast,
+        Ok((ast, warnings)) => {
+            let warning_count = warnings.len() as u32;
+            write_errors(&mut compiler_output, input, &warnings);
+            unsafe {
+                set_compiler_log(
+                    compiler_output.as_ptr(),
+                    compiler_output.len(),
+                    warning_count,
+                    0,
+                )
+            };
+
+            ast
+        }
         Err(errors) => {
             let mut compiler_output = Vec::new();
             let error_count = errors.len() as u32;

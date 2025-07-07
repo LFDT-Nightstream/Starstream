@@ -47,7 +47,11 @@ pub fn starstream_to_wasm(source_code: &str) -> Result<Vec<u8>, String> {
     };
 
     let ast = match do_type_inference(ast, &mut symbols) {
-        Ok(ast) => ast,
+        Ok((ast, warnings)) => {
+            format_errors(source_code, &warnings);
+
+            ast
+        }
         Err(errors) => return Err(format_errors(source_code, &errors)),
     };
 
