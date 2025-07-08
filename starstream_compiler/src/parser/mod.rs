@@ -43,6 +43,14 @@ fn utxo<'a>() -> impl Parser<'a, &'a str, Utxo, extra::Err<Rich<'a, char>>> {
                 .map(UtxoItem::Main)
                 .or(r#impl().map(UtxoItem::Impl))
                 .or(storage().map(UtxoItem::Storage))
+                .or(just("Yield")
+                    .padded()
+                    .ignore_then(type_arg())
+                    .map(|ty| UtxoItem::Yield(ty)))
+                .or(just("Resume")
+                    .padded()
+                    .ignore_then(type_arg())
+                    .map(|ty| UtxoItem::Resume(ty)))
                 .padded()
                 .repeated()
                 .collect::<Vec<_>>()
@@ -102,12 +110,25 @@ fn fn_def<'a>() -> impl Parser<'a, &'a str, FnDef, extra::Err<Rich<'a, char>>> {
         .padded()
         .then(typed_bindings.padded().delimited_by(just('('), just(')')))
         .then(just(':').ignore_then(type_arg().padded()).or_not())
+        .then(
+            just('/')
+                .padded()
+                .then_ignore(just('{').padded())
+                .ignore_then(
+                    identifier()
+                        .separated_by(just(',').padded())
+                        .collect::<Vec<_>>(),
+                )
+                .then_ignore(just('}').padded())
+                .or_not(),
+        )
         .then(block())
-        .map(|(((name, inputs), output), body)| FnDef {
+        .map(|((((name, inputs), output), effects), body)| FnDef {
             ident: name,
             inputs,
             output,
             body,
+            effects: effects.unwrap_or_default(),
         })
 }
 
@@ -214,7 +235,7 @@ fn main<'a>() -> impl Parser<'a, &'a str, Main, extra::Err<Rich<'a, char>>> {
 }
 
 fn statement<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Statement, extra::Err<Rich<'a, char>>> {
     recursive(|rec| {
@@ -222,17 +243,19 @@ fn statement<'a>(
             .padded()
             .ignore_then(just("mut").padded().or_not().map(|x| x.is_some()))
             .then(identifier())
+            .then(just(":").padded().ignore_then(type_arg()).or_not())
             .then_ignore(just('=').padded())
             .then(expr_parser.clone())
             .then_ignore(just(';').padded())
-            .map(|((mutable, binding), expr)| Statement::BindVar {
+            .map(|(((mutable, binding), ty), expr)| Statement::BindVar {
                 var: binding,
+                ty,
                 value: expr,
                 mutable,
             })
             .boxed();
 
-        let assign = identifier()
+        let assign = field_access_expr(expr_parser.clone())
             .then_ignore(just('=').padded())
             .then(expr_parser.clone())
             .then_ignore(just(';'))
@@ -308,7 +331,7 @@ fn effect_handler<'a>() -> impl Parser<'a, &'a str, EffectHandler, extra::Err<Ri
                 .then(optionally_typed_bindings(type_arg()).delimited_by(just('('), just(')'))),
         )
         .map(|(utxo, (ident, args))| EffectHandler {
-            utxo,
+            interface: utxo,
             ident,
             args: args
                 .values
@@ -347,82 +370,117 @@ fn optionally_typed_bindings<'a>(
 
 fn expr<'a>(
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> {
+) -> impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> {
     let op = |c: &'static str| just(c).padded();
 
     recursive(|expr_parser| {
         let atom = field_access_expr(expr_parser.clone())
-            .map(Expr::PrimaryExpr)
-            .or(block_expr(expr_parser, block_parser).map(Expr::BlockExpr));
+            .map_with(|e, extra| Spanned {
+                node: Expr::PrimaryExpr(e),
+                span: extra.span(),
+            })
+            .or(
+                block_expr(expr_parser, block_parser).map_with(|e, extra| Spanned {
+                    node: Expr::BlockExpr(e),
+                    span: extra.span(),
+                }),
+            );
 
         atom.pratt((
             // prec = 10
-            prefix(10, op("-"), |_, atom, _| Expr::Neg(Box::new(atom))),
-            prefix(10, op("!"), |_, atom, _| Expr::Not(Box::new(atom))),
-            prefix(10, op("~"), |_, atom, _| Expr::BitNot(Box::new(atom))),
+            prefix(10, op("-"), |_, atom, extra| Spanned {
+                node: Expr::Neg(Box::new(atom)),
+                span: extra.span(),
+            }),
+            prefix(10, op("!"), |_, atom, extra| Spanned {
+                node: Expr::Not(Box::new(atom)),
+                span: extra.span(),
+            }),
+            prefix(10, op("~"), |_, atom, extra| Spanned {
+                node: Expr::BitNot(Box::new(atom)),
+                span: extra.span(),
+            }),
             // prec = 9
-            infix(left(9), op("*"), |l, _, r, _| {
-                Expr::Mul(Box::new(l), Box::new(r))
+            infix(left(9), op("*"), |l, _, r, extra| Spanned {
+                node: Expr::Mul(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(9), op("/"), |l, _, r, _| {
-                Expr::Div(Box::new(l), Box::new(r))
+            infix(left(9), op("/"), |l, _, r, extra| Spanned {
+                node: Expr::Div(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(9), op("%"), |l, _, r, _| {
-                Expr::Div(Box::new(l), Box::new(r))
+            infix(left(9), op("%"), |l, _, r, extra| Spanned {
+                node: Expr::Div(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 8
-            infix(left(8), op("+"), |l, _, r, _| {
-                Expr::Add(Box::new(l), Box::new(r))
+            infix(left(8), op("+"), |l, _, r, extra| Spanned {
+                node: Expr::Add(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(8), op("-"), |l, _, r, _| {
-                Expr::Sub(Box::new(l), Box::new(r))
+            infix(left(8), op("-"), |l, _, r, extra| Spanned {
+                node: Expr::Sub(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 7
-            infix(left(7), op("<<"), |l, _, r, _| {
-                Expr::LShift(Box::new(l), Box::new(r))
+            infix(left(7), op("<<"), |l, _, r, extra| Spanned {
+                node: Expr::LShift(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(7), op(">>"), |l, _, r, _| {
-                Expr::RShift(Box::new(l), Box::new(r))
+            infix(left(7), op(">>"), |l, _, r, extra| Spanned {
+                node: Expr::RShift(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 6
-            infix(left(6), op("<"), |l, _, r, _| {
-                Expr::LessThan(Box::new(l), Box::new(r))
+            infix(left(6), op("<"), |l, _, r, extra| Spanned {
+                node: Expr::LessThan(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(6), op(">"), |l, _, r, _| {
-                Expr::GreaterThan(Box::new(l), Box::new(r))
+            infix(left(6), op(">"), |l, _, r, extra| Spanned {
+                node: Expr::GreaterThan(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(6), op("<="), |l, _, r, _| {
-                Expr::LessEq(Box::new(l), Box::new(r))
+            infix(left(6), op("<="), |l, _, r, extra| Spanned {
+                node: Expr::LessEq(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(6), op(">="), |l, _, r, _| {
-                Expr::LessThan(Box::new(l), Box::new(r))
+            infix(left(6), op(">="), |l, _, r, extra| Spanned {
+                node: Expr::LessThan(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 5
-            infix(left(5), op("=="), |l, _, r, _| {
-                Expr::Equals(Box::new(l), Box::new(r))
+            infix(left(5), op("=="), |l, _, r, extra| Spanned {
+                node: Expr::Equals(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
-            infix(left(5), op("!="), |l, _, r, _| {
-                Expr::NotEquals(Box::new(l), Box::new(r))
+            infix(left(5), op("!="), |l, _, r, extra| Spanned {
+                node: Expr::NotEquals(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 4
-            infix(left(4), op("&"), |l, _, r, _| {
-                Expr::BitAnd(Box::new(l), Box::new(r))
+            infix(left(4), op("&"), |l, _, r, extra| Spanned {
+                node: Expr::BitAnd(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 3
-            infix(left(3), op("^"), |l, _, r, _| {
-                Expr::BitXor(Box::new(l), Box::new(r))
+            infix(left(3), op("^"), |l, _, r, extra| Spanned {
+                node: Expr::BitXor(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 2
-            infix(left(2), op("|"), |l, _, r, _| {
-                Expr::BitOr(Box::new(l), Box::new(r))
+            infix(left(2), op("|"), |l, _, r, extra| Spanned {
+                node: Expr::BitOr(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 1
-            infix(left(1), op("&&"), |l, _, r, _| {
-                Expr::And(Box::new(l), Box::new(r))
+            infix(left(1), op("&&"), |l, _, r, extra| Spanned {
+                node: Expr::And(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
             // prec = 0
-            infix(left(0), just("||").padded(), |l, _, r, _| {
-                Expr::Or(Box::new(l), Box::new(r))
+            infix(left(0), just("||").padded(), |l, _, r, extra| Spanned {
+                node: Expr::Or(Box::new(l), Box::new(r)),
+                span: extra.span(),
             }),
         ))
         .boxed()
@@ -446,7 +504,10 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
 
         let if_branch = if_expr(expr_parser.clone(), block_expr.clone())
             .padded()
-            .map(Expr::BlockExpr)
+            .map_with(|block, extra| Spanned {
+                node: Expr::BlockExpr(block),
+                span: extra.span(),
+            })
             .map(ExprOrStatement::Expr)
             .then(end_block.or(block_body.clone()))
             .padded();
@@ -488,7 +549,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
 }
 
 fn block_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, BlockExpr, extra::Err<Rich<'a, char>>> {
     let parse_block = block_parser.clone().map(BlockExpr::Block);
@@ -498,7 +559,7 @@ fn block_expr<'a>(
 }
 
 fn if_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
     block_parser: impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, BlockExpr, extra::Err<Rich<'a, char>>> + Clone {
     just("if")
@@ -523,7 +584,7 @@ fn if_expr<'a>(
 }
 
 fn field_access_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, FieldAccessExpression, extra::Err<Rich<'a, char>>> {
     primary_expr(expr_parser.clone())
         .map(FieldAccessExpression::PrimaryExpr)
@@ -540,7 +601,7 @@ fn field_access_expr<'a>(
 }
 
 fn application<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Arguments, extra::Err<Rich<'a, char>>> {
     expr_parser
         .clone()
@@ -552,7 +613,7 @@ fn application<'a>(
 }
 
 fn identifier_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, IdentifierExpr, extra::Err<Rich<'a, char>>> {
     identifier()
         .then(application(expr_parser).or_not())
@@ -560,7 +621,7 @@ fn identifier_expr<'a>(
 }
 
 fn primary_expr<'a>(
-    expr_parser: impl Parser<'a, &'a str, Expr, extra::Err<Rich<'a, char>>> + Clone + 'a,
+    expr_parser: impl Parser<'a, &'a str, Spanned<Expr>, extra::Err<Rich<'a, char>>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, PrimaryExpr, extra::Err<Rich<'a, char>>> {
     let number = just('-')
         .or_not()
@@ -584,10 +645,6 @@ fn primary_expr<'a>(
         .ignore_then(expr_parser.clone().padded().map(Box::new).or_not())
         .map(PrimaryExpr::Yield);
 
-    let raise_expr = just("raise")
-        .ignore_then(expr_parser.clone().padded())
-        .map(|expr| PrimaryExpr::Raise(Box::new(expr)));
-
     let object = type_arg()
         .then(
             identifier()
@@ -609,7 +666,7 @@ fn primary_expr<'a>(
                 accum
             },
         )
-        .then(application(expr_parser).or_not())
+        .then(application(expr_parser.clone()).or_not())
         .map(|(mut idents, args)| {
             let ident = IdentifierExpr {
                 name: idents.pop().unwrap(),
@@ -625,6 +682,34 @@ fn primary_expr<'a>(
                 }
             }
         });
+
+    let raise_expr = just("raise").padded().ignore_then(
+        identifier()
+            .map(|i| vec![i])
+            .foldl(
+                just("::").ignore_then(identifier()).repeated(),
+                |mut accum, new| {
+                    accum.push(new);
+                    accum
+                },
+            )
+            .then(application(expr_parser))
+            .map(|(mut idents, args)| {
+                let ident = IdentifierExpr {
+                    name: idents.pop().unwrap(),
+                    args: Some(args),
+                };
+
+                if idents.is_empty() {
+                    PrimaryExpr::Raise { ident }
+                } else {
+                    PrimaryExpr::RaiseNamespaced {
+                        namespaces: idents,
+                        ident,
+                    }
+                }
+            }),
+    );
 
     let string_literal = none_of('"')
         .repeated()
@@ -646,7 +731,9 @@ fn primary_expr<'a>(
 }
 
 fn reserved_word<'a>() -> impl Parser<'a, &'a str, (), extra::Err<Rich<'a, char>>> {
-    choice((just("enum"), just("typedef"))).padded().ignored()
+    choice((just("enum"), just("typedef"), just("loop")))
+        .padded()
+        .ignored()
 }
 
 fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, extra::Err<Rich<'a, char>>> {
@@ -846,7 +933,7 @@ mod tests {
     #[test]
     fn parse_main() {
         let input = "main {
-            let y = 5;
+            let y: u32 = 5;
             while(true) yield 4 + 4;
             loop { let z = 4; }
             y = 3;
@@ -951,5 +1038,17 @@ mod tests {
     fn parse_oracle_example() {
         let input = include_str!("../../../grammar/examples/oracle.star");
         test_with_diagnostics(input, starstream_program());
+    }
+
+    #[test]
+    fn parse_fn_with_effects() {
+        let input = "script { fn test() / { SomeEffect } {} }";
+        test_with_diagnostics(input, script());
+
+        let input = "script { fn test(): u32 / { SomeEffect } {} }";
+        test_with_diagnostics(input, script());
+
+        let input = "script { fn test(): u32 {} }";
+        test_with_diagnostics(input, script());
     }
 }

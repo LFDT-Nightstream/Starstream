@@ -5,6 +5,13 @@ typedef Data = string
 const ORACLE_FEE = 10;
 const PAYMENT_ADDRESS = 10;
 
+utxo PayToPublicKeyHash {
+    main(owner: PublicKey) {
+      yield;
+      assert(raise StarstreamEnv::IsTxSignedBy(owner));
+    }
+}
+
 abi Oracle {
   error Error(string);
 
@@ -17,13 +24,14 @@ utxo OracleContract {
   }
 
   main(data: Data) {
+    self.data = data;
     loop { yield; }
   }
 
   impl Oracle {
-    fn get_data(self): Data {
-      let caller = raise Caller();
-      let this_contract = raise ThisCode();
+    fn get_data(self): Data / { StarstreamEnv } {
+      let caller = raise StarstreamEnv::Caller();
+      let this_contract = raise StarstreamEnv::ThisCode();
 
       if (caller != this_contract) {
         // oracle data can only be called from a coordination script in
@@ -37,19 +45,19 @@ utxo OracleContract {
 }
 
 script {
-  fn get_oracle_data(input: PayToPublicKeyHash, oracle: OracleContract): Data {
-    let change_utxo = PayToPublicKeyHash::new(context.tx.caller);
+  fn get_oracle_data(input: PayToPublicKeyHash, oracle: OracleContract): Data / { StarstreamEnv, Oracle } {
+    let change_utxo = PayToPublicKeyHash::new(raise StarstreamEnv::Caller());
 
     let fee_utxo = PayToPublicKeyHash::new(PAYMENT_ADDRESS);
 
     try {
-      resume input;
+      input.resume();
     }
-    with Starstream::TokenUnbound(intermediate: Intermediate<any, any>) {
-      if(intermediate.type == FeeToken) {
-        let change = intermediate.change_for(ORACLE_FEE);
-        change_utxo.attach(change);
-        fee_utxo.attach(intermediate);
+    with Starstream::TokenUnbound(intermediate: Intermediate<any, any>, type: u32) {
+      if(type == FeeToken) {
+        let intermediates = intermediate.change_for(ORACLE_FEE);
+        change_utxo.attach(intermediates.fst);
+        fee_utxo.attach(intermediates.snd);
       }
       else {
         change_utxo.attach(intermediate);
