@@ -497,7 +497,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
         let end_block = just(';')
             .padded()
             .or_not()
-            .then_ignore(just('}').padded())
+            .then_ignore(comment().boxed().ignore_then(just('}').padded()))
             .map(|semicolon| Block::Close {
                 semicolon: semicolon.is_some(),
             });
@@ -509,7 +509,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
                 span: extra.span(),
             })
             .map(ExprOrStatement::Expr)
-            .then(end_block.or(block_body.clone()))
+            .then(end_block.clone().or(block_body.clone()))
             .padded();
 
         let expr_with_semicolon = expr_parser
@@ -517,7 +517,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
             .padded()
             .map(ExprOrStatement::Expr)
             .then(
-                end_block.or(just(";")
+                end_block.clone().or(just(";")
                     .ignored()
                     .padded()
                     .ignore_then(block_body.clone())
