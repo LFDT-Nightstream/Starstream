@@ -4,34 +4,35 @@ export interface SandboxWorkerRequest {
   request_id: number;
   input: string;
   run: boolean;
+  prove: boolean;
 }
 
 export type SandboxWorkerResponse = {
   request_id: number;
 } & (
-  | {
+    | {
       compiler_log: string;
       warnings: number;
       errors: number;
     }
-  | {
+    | {
       ast: string;
     }
-  | {
+    | {
       wat: string;
     }
-  | {
+    | {
       run_log: string;
     }
-  | {
+    | {
       append_run_log: number;
       target: string;
       body: string;
     }
-  | {
+    | {
       idle: true;
     }
-);
+  );
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
   getrandom(ptr: number, len: number): void;
@@ -57,7 +58,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
 
 interface SandboxWasmExports {
   memory: WebAssembly.Memory;
-  run(input_len: number, run: boolean): void;
+  run(input_len: number, run: boolean, prove: boolean): void;
 }
 
 let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
@@ -136,7 +137,7 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
     },
   });
   try {
-    wasm.run(input.length, data.run);
+    wasm.run(input.length, data.run, data.prove);
   } catch (crash) {
     send({
       request_id,

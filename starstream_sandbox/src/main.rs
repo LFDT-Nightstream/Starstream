@@ -37,7 +37,7 @@ getrandom::register_custom_getrandom!(our_getrandom);
 
 // Exports to do work, called by the JS page.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn run(input_len: usize, run: bool) {
+pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Trace);
 
@@ -126,7 +126,9 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool) {
     let coordination_code = transaction.code_cache().load(wasm);
     transaction.run_coordination_script(&coordination_code, "main", Vec::new());
 
-    info!("Proof: {:?}", transaction.prove());
+    if prove {
+        info!("Proof: {:?}", transaction.prove());
+    }
 }
 
 static LOGGER: Logger = Logger;

@@ -160,9 +160,8 @@ function Tabs(props: {
             key={tab.key}
             type="button"
             onClick={() => setCurrent(tab.key)}
-            className={`sandbox-tabs__button ${
-              current === tab.key ? "sandbox-tabs__button--current" : ""
-            }`}
+            className={`sandbox-tabs__button ${current === tab.key ? "sandbox-tabs__button--current" : ""
+              }`}
           >
             {tab.title ?? tab.key}
           </button>
@@ -241,6 +240,8 @@ export function Sandbox() {
   const [ast, setAst] = useState("");
   const [wat, setWat] = useState("");
   const [runLog, setRunLog] = useState<RunLog[]>([]);
+
+  const [prove, setProve] = useState(true);
 
   const startTime = useRef(0);
   const request_id = useRef(0);
@@ -346,7 +347,7 @@ export function Sandbox() {
       <div className="col col--6 flex--column">
         <Tabs
           current="Contract Code"
-          setCurrent={(_: string) => {}}
+          setCurrent={(_: string) => { }}
           tabs={[
             {
               key: "Contract Code",
@@ -366,7 +367,7 @@ export function Sandbox() {
             />
           }
           right={
-            <>
+            <div className="flex" style={{ gap: 8, alignItems: 'baseline' }}>
               {busy ? (
                 <>
                   Working...
@@ -381,6 +382,10 @@ export function Sandbox() {
                   </button>
                 </>
               ) : null}
+              <label>
+                <input type="checkbox" checked={prove} onChange={e => setProve(e.currentTarget.checked)} />
+                Prove
+              </label>
               <button
                 type="button"
                 onClick={() => {
@@ -391,12 +396,13 @@ export function Sandbox() {
                     request_id: request_id.current,
                     input: editor.current?.getModel()?.getValue() ?? "",
                     run: true,
+                    prove,
                   });
                 }}
               >
                 Compile & Run
               </button>
-            </>
+            </div>
           }
         />
       </div>
