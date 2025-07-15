@@ -25,6 +25,13 @@ enum Args {
         /// The entry point name.
         #[arg(short = 'e', default_value = "main")]
         entry: String,
+
+        /// Path to which to output a Mermaid diagram.
+        #[arg(long = "output-mermaid")]
+        output_mermaid: Option<PathBuf>,
+        /// Path to which to output a proof.
+        #[arg(long = "output-proof-cbor")]
+        output_proof_cbor: Option<PathBuf>,
     },
 }
 
@@ -64,11 +71,30 @@ fn main() {
 
             std::fs::write(&output_file, module).expect("Error writing Wasm output");
         }
-        Args::Run { module, entry } => {
+        Args::Run {
+            module,
+            entry,
+            output_proof_cbor,
+            output_mermaid,
+        } => {
             let mut transaction = Transaction::new();
             let coordination_code = transaction.code_cache().load_file(&module);
             transaction.run_coordination_script(&coordination_code, &entry, Vec::new());
-            transaction.prove(); // TODO: save proof somewhere
+            if let Some(output_mermaid) = output_mermaid {
+                std::fs::write(output_mermaid, transaction.to_mermaid_diagram()).unwrap();
+            }
+            if let Some(output_proof_cbor) = output_proof_cbor {
+                // NOTE on sizes for a dummy proof:
+                // .json    1.2G
+                // .json.gz 30M
+                // .cbor    635M
+                // .cbor.gz 31M
+                std::fs::write(
+                    output_proof_cbor,
+                    serde_cbor::to_vec(&transaction.prove()).unwrap(),
+                )
+                .unwrap();
+            }
         }
     }
 }
