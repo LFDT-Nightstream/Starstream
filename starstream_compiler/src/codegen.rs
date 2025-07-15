@@ -544,25 +544,10 @@ impl Compiler {
         for local in &f_info.info.locals {
             let var_info = self.symbols_table.vars.get(local).unwrap();
 
-            match var_info.info.ty.as_ref().unwrap() {
-                ComparableType::Primitive(PrimitiveType::U32) => {
-                    let val_type = ValType::I32;
-                    function.add_local(val_type);
-                }
-                ComparableType::Primitive(PrimitiveType::Bool) => {
-                    let val_type = ValType::I32;
-                    function.add_local(val_type);
-                }
-                ComparableType::Utxo(_) => {
-                    let val_type = ValType::I64;
-                    function.add_local(val_type);
-                }
-                ComparableType::Ref(_) => {
-                    let val_type = ValType::I64;
-                    function.add_local(val_type);
-                }
-                _ => todo!(),
-            }
+            let val_type =
+                StaticType::from_canonical_type(var_info.info.ty.as_ref().unwrap()).lower()[0];
+
+            function.add_local(val_type);
         }
         (ty, function)
     }
