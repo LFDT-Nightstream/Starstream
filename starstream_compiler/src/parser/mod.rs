@@ -231,6 +231,7 @@ fn main<'a>() -> impl Parser<'a, &'a str, Main, extra::Err<Rich<'a, char>>> {
         .map(|(typed_bindings, block)| Main {
             type_sig: typed_bindings,
             block,
+            ident: Identifier::new("new", None),
         })
 }
 
@@ -693,7 +694,7 @@ fn primary_expr<'a>(
                     accum
                 },
             )
-            .then(application(expr_parser))
+            .then(application(expr_parser.clone()))
             .map(|(mut idents, args)| {
                 let ident = IdentifierExpr {
                     name: idents.pop().unwrap(),
@@ -717,6 +718,12 @@ fn primary_expr<'a>(
         .padded_by(just('"'))
         .map(PrimaryExpr::StringLiteral);
 
+    let tuple = expr_parser
+        .separated_by(just(',').padded())
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
+        .map(|vals| PrimaryExpr::Tuple(vals));
+
     choice((
         number,
         bool,
@@ -726,6 +733,7 @@ fn primary_expr<'a>(
         object,
         ident,
         string_literal,
+        tuple,
     ))
     .boxed()
 }

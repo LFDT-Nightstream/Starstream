@@ -1773,6 +1773,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "sha2",
+ "tempfile",
  "tiny-keccak",
  "wasmi",
  "wat",

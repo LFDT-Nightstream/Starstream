@@ -674,6 +674,7 @@ fn coordination_script_linker(
         )
         .unwrap();
 
+    let current_code_hash = coordination_code.hash();
     for import in coordination_code.module(engine).imports() {
         if import.module() == "env" {
             // already handled by code above
@@ -690,7 +691,11 @@ fn coordination_script_linker(
                             func_ty.clone(),
                             move |_caller, inputs: &[Value], _outputs| -> Result<(), WasmiError> {
                                 trace!("{rest}::{name}{inputs:?}");
-                                let code = code_cache.load_debug(&rest).hash();
+                                let code = if rest == "this" {
+                                    current_code_hash
+                                } else {
+                                    code_cache.load_debug(&rest).hash()
+                                };
                                 host(Interrupt::UtxoNew {
                                     code,
                                     entry_point: name.clone(),

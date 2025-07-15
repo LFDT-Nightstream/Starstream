@@ -66,11 +66,19 @@ pub struct TypeInfo {
     pub interfaces: EffectSet,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FuncInfo {
     pub inputs_ty: Vec<TypeArg>,
     pub output_ty: Option<TypeArg>,
+
+    pub inputs_canonical_ty: Vec<ComparableType>,
+    pub output_canonical_ty: Option<ComparableType>,
+
     pub effects: EffectSet,
+    pub locals: Vec<SymbolId>,
+    pub mangled_name: Option<String>,
+    // index into the wasm functions table
+    pub index: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,7 +105,7 @@ pub struct Scope {
     function_declarations: HashMap<String, SymbolId>,
     type_declarations: HashMap<String, SymbolId>,
     abi_declarations: HashMap<String, SymbolId>,
-    is_function_scope: bool,
+    is_function_scope: Option<SymbolId>,
     is_type_scope: Option<SymbolId>,
 }
 
@@ -114,7 +122,7 @@ struct Visitor {
     // used to keep count of variables declared in the innermost function scope it's
     // kept outside the scope stack to avoid having to do parent traversal,
     // since not all scopes are function scopes.
-    locals: Vec<u64>,
+    locals: Vec<Vec<SymbolId>>,
     // used to generate unique ids for new identifiers
     symbol_counter: u64,
     errors: Vec<Report<'static>>,
@@ -148,13 +156,13 @@ impl Visitor {
         });
     }
 
-    fn push_function_scope(&mut self) {
+    fn push_function_scope(&mut self, f: SymbolId) {
         self.stack.push(Scope {
-            is_function_scope: true,
+            is_function_scope: Some(f),
             ..Default::default()
         });
 
-        self.locals.push(0);
+        self.locals.push(vec![]);
     }
 
     fn push_scope(&mut self) {
@@ -165,8 +173,15 @@ impl Visitor {
         let scope = self.stack.pop();
 
         if let Some(scope) = scope {
-            if scope.is_function_scope {
-                self.locals.pop();
+            if let Some(function) = scope.is_function_scope {
+                let locals = self.locals.pop().unwrap();
+
+                self.symbols
+                    .functions
+                    .get_mut(&function)
+                    .unwrap()
+                    .info
+                    .locals = locals;
             }
         }
     }
@@ -188,6 +203,8 @@ impl Visitor {
                 inputs_ty: vec![TypeArg::Bool],
                 output_ty: None,
                 effects: EffectSet::empty(),
+                locals: vec![],
+                ..Default::default()
             },
         );
 
@@ -197,6 +214,8 @@ impl Visitor {
                 inputs_ty: vec![],
                 output_ty: None,
                 effects: EffectSet::empty(),
+                locals: vec![],
+                ..Default::default()
             },
         );
 
@@ -206,6 +225,19 @@ impl Visitor {
                 inputs_ty: vec![TypeArg::String],
                 output_ty: None,
                 effects: EffectSet::empty(),
+                locals: vec![],
+                ..Default::default()
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("IsTxSignedBy", None),
+            FuncInfo {
+                inputs_ty: vec![TypeArg::U32],
+                output_ty: Some(TypeArg::Bool),
+                effects: EffectSet::empty(),
+                locals: vec![],
+                ..Default::default()
             },
         );
 
@@ -293,6 +325,8 @@ impl Visitor {
                     inputs_ty: vec![],
                     output_ty: Some(TypeArg::TypeRef(TypeRef(identifier.clone()))),
                     effects: EffectSet::empty(),
+                    locals: vec![],
+                    ..Default::default()
                 }),
             );
 
@@ -328,6 +362,8 @@ impl Visitor {
                 inputs_ty: vec![TypeArg::U32],
                 output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
                 effects: EffectSet::empty(),
+                locals: vec![],
+                ..Default::default()
             },
         );
 
@@ -405,29 +441,41 @@ impl Visitor {
         self.push_function_declaration(
             &mut Identifier::new("resume", None),
             FuncInfo {
-                inputs_ty: utxo
-                    .items
-                    .iter()
-                    .filter_map(|item| match item {
-                        UtxoItem::Resume(type_arg) => Some(type_arg.clone()),
-                        _ => None,
-                    })
-                    .take(1)
+                inputs_ty: std::iter::once(self_ty.clone())
+                    .chain(
+                        utxo.items
+                            .iter()
+                            .filter_map(|item| match item {
+                                UtxoItem::Resume(type_arg) => Some(type_arg.clone()),
+                                _ => None,
+                            })
+                            .chain(std::iter::once(TypeArg::Unit))
+                            .take(1)
+                            .map(|ty| TypeArg::Ref(Box::new(ty))),
+                    )
                     .collect(),
                 output_ty: Some(self_ty.clone()),
                 effects,
+                locals: vec![],
+                mangled_name: Some(format!("starstream_resume_{}", utxo.name.raw)),
+                ..Default::default()
             },
         );
 
         self.push_function_declaration(
             &mut Identifier::new("attach", None),
             FuncInfo {
-                inputs_ty: vec![TypeArg::Intermediate {
-                    abi: Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None)))),
-                    storage: Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None)))),
-                }],
+                inputs_ty: vec![
+                    self_ty.clone(),
+                    TypeArg::Intermediate {
+                        abi: Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None)))),
+                        storage: Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None)))),
+                    },
+                ],
                 output_ty: Some(self_ty.clone()),
                 effects: EffectSet::empty(),
+                locals: vec![],
+                ..Default::default()
             },
         );
 
@@ -446,8 +494,9 @@ impl Visitor {
                     let effects = self.implicit_effects();
 
                     // TODO: may actually want to get the "main" span
+
                     self.push_function_declaration(
-                        &mut Identifier::new("new", None),
+                        &mut main.ident,
                         FuncInfo {
                             // TODO: check that this matches the storage declaration
                             inputs_ty: main
@@ -457,10 +506,13 @@ impl Visitor {
                                 .unwrap_or(vec![]),
                             output_ty: Some(self_ty_ref.clone()),
                             effects,
+                            locals: vec![],
+                            mangled_name: Some(format!("starstream_new_{}_new", utxo.name.raw)),
+                            ..Default::default()
                         },
                     );
 
-                    self.push_function_scope();
+                    self.push_function_scope(main.ident.uid.unwrap());
 
                     if let Some(tys) = &mut main.type_sig {
                         for (ident, _ty) in &mut tys.values {
@@ -606,34 +658,79 @@ impl Visitor {
                 // TODO: something else
                 output_ty: Some(TypeArg::U32),
                 effects,
+                locals: vec![],
+                ..Default::default()
             },
         );
 
         for item in &mut token.items {
+            let effects = self.implicit_effects();
+
             match item {
                 TokenItem::Bind(bind) => {
-                    self.push_function_scope();
+                    let mut ident =
+                        Identifier::new(format!("starstream_bind_{}", token.name.raw), None);
+
+                    self.push_function_declaration(
+                        &mut ident,
+                        FuncInfo {
+                            // TODO: intermediate
+                            inputs_ty: vec![],
+                            // TODO: handle
+                            output_ty: Some(TypeArg::U64),
+                            effects,
+                            locals: vec![],
+                            ..Default::default()
+                        },
+                    );
+
+                    self.push_function_scope(ident.uid.unwrap());
+
                     self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut bind.0, false);
                     self.pop_scope();
                 }
                 TokenItem::Unbind(unbind) => {
-                    self.push_function_scope();
+                    let mut ident =
+                        Identifier::new(format!("starstream_unbind_{}", token.name.raw), None);
+
+                    self.push_function_declaration(
+                        &mut ident,
+                        FuncInfo {
+                            // TODO: handle
+                            inputs_ty: vec![TypeArg::U64],
+                            // TODO: intermediate
+                            output_ty: None,
+                            effects,
+                            locals: vec![],
+                            ..Default::default()
+                        },
+                    );
+
+                    self.push_function_scope(ident.uid.unwrap());
+
                     self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut unbind.0, false);
                     self.pop_scope();
                 }
                 TokenItem::Mint(mint) => {
-                    let effects = self.implicit_effects();
+                    let mut ident = Identifier::new("mint", None);
+
                     self.push_function_declaration(
-                        &mut Identifier::new("mint", None),
+                        &mut ident,
                         FuncInfo {
                             inputs_ty: vec![],
                             output_ty: Some(TypeArg::TypeRef(TypeRef(token.name.clone()))),
                             effects,
+                            locals: vec![],
+                            mangled_name: Some(format!(
+                                "starstream_mutate_{}_mint",
+                                token.name.raw
+                            )),
+                            ..Default::default()
                         },
                     );
-                    self.push_function_scope();
+                    self.push_function_scope(ident.uid.unwrap());
                     self.push_var_declaration(&mut Identifier::new("self", None), true);
                     self.visit_block(&mut mint.0, false);
                     self.pop_scope();
@@ -664,6 +761,8 @@ impl Visitor {
                             inputs_ty: args.values.iter().map(|arg| arg.1.clone()).collect(),
                             output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
                             effects: EffectSet::empty(),
+                            locals: vec![],
+                            ..Default::default()
                         },
                     );
                 }
@@ -713,6 +812,8 @@ impl Visitor {
                         .collect(),
                     output_ty: definition.output.clone(),
                     effects,
+                    locals: vec![],
+                    ..Default::default()
                 },
             );
         }
@@ -720,7 +821,7 @@ impl Visitor {
         for definition in definitions {
             self.resolve_name(&mut definition.ident, SymbolKind::Function);
 
-            self.push_function_scope();
+            self.push_function_scope(definition.ident.uid.unwrap());
 
             for node in &mut definition.inputs {
                 self.push_var_declaration(&mut node.name, false);
@@ -749,8 +850,8 @@ impl Visitor {
 
         // TODO: handle error
         let fn_scope = self.locals.last_mut().unwrap();
-        let index = *fn_scope;
-        *fn_scope += 1;
+        let index = fn_scope.len() as u64;
+        fn_scope.push(ident.uid.unwrap());
         let var_info = VarInfo {
             index,
             mutable,
@@ -1043,10 +1144,25 @@ impl Visitor {
                     let mut namespace = [&mut decl.interface];
                     self.resolve_name_in_namespace(&mut namespace, &mut decl.ident);
 
+                    let mut identifier =
+                        Identifier::new(format!("{}_handle", decl.ident.raw), None);
+
+                    self.push_function_declaration(
+                        &mut identifier,
+                        FuncInfo {
+                            // TODO: check that this matches the storage declaration
+                            inputs_ty: vec![],
+                            output_ty: None,
+                            effects: EffectSet::empty(),
+                            locals: vec![],
+                            ..Default::default()
+                        },
+                    );
+
                     // TODO: depending on whether we compile effect handlers as
                     // functions or not we may need to change this
                     // also to handle captures probably
-                    self.push_function_scope();
+                    self.push_function_scope(identifier.uid.unwrap());
 
                     for node in &mut decl.args {
                         self.push_var_declaration(&mut node.name, false);
@@ -1136,6 +1252,11 @@ impl Visitor {
                 }
             }
             PrimaryExpr::StringLiteral(_) => (),
+            PrimaryExpr::Tuple(vals) => {
+                for val in vals {
+                    self.visit_expr(val);
+                }
+            }
         }
     }
 
@@ -1221,6 +1342,8 @@ impl Visitor {
                                     inputs_ty: decl.input_types.clone(),
                                     output_ty: decl.output_type.clone(),
                                     effects: EffectSet::empty(),
+                                    locals: vec![],
+                                    ..Default::default()
                                 },
                             },
                         );
@@ -1236,6 +1359,7 @@ impl Visitor {
 
     fn visit_type_arg(&mut self, ty: &mut TypeArg) {
         match ty {
+            TypeArg::Unit => (),
             TypeArg::Bool => (),
             TypeArg::String => (),
             TypeArg::F32 => (),

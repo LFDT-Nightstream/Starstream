@@ -55,7 +55,7 @@ pub fn starstream_to_wasm(source_code: &str) -> Result<Vec<u8>, String> {
         Err(errors) => return Err(format_errors(source_code, &errors)),
     };
 
-    let module = match compile(&ast) {
+    let module = match compile(&ast, symbols) {
         (Some(module), _) => module,
         (None, errors) => return Err(format_errors(source_code, &errors)),
     };

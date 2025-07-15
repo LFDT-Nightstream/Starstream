@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use crate::{
     ast::{TypeArg, TypeDefRhs, TypedBindings},
-    scope_resolution::{FuncInfo, SymbolId, Symbols},
+    scope_resolution::{FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -13,7 +15,7 @@ pub enum PrimitiveType {
     U64,
     I64,
     Bool,
-    String,
+    StrRef,
 }
 
 /// A type that can be compared for syntactic equivalence.
@@ -143,17 +145,20 @@ impl ComparableType {
 }
 
 impl TypeArg {
-    pub fn canonical_form(&self, symbols: &Symbols) -> ComparableType {
+    pub fn canonical_form_tys(
+        &self,
+        symbols: &HashMap<SymbolId, SymbolInformation<TypeInfo>>,
+    ) -> ComparableType {
         match self {
+            TypeArg::Unit => ComparableType::Primitive(PrimitiveType::Unit),
             TypeArg::Bool => ComparableType::Primitive(PrimitiveType::Bool),
-            TypeArg::String => ComparableType::Primitive(PrimitiveType::String),
+            TypeArg::String => ComparableType::Primitive(PrimitiveType::StrRef),
             TypeArg::U32 => ComparableType::Primitive(PrimitiveType::U32),
             TypeArg::I32 => ComparableType::Primitive(PrimitiveType::I32),
             TypeArg::U64 => ComparableType::Primitive(PrimitiveType::U32),
             TypeArg::I64 => ComparableType::Primitive(PrimitiveType::U64),
             TypeArg::F32 => ComparableType::Primitive(PrimitiveType::F32),
             TypeArg::F64 => ComparableType::Primitive(PrimitiveType::F64),
-            // TODO: these require special handling
             TypeArg::Intermediate { abi: _, storage: _ } => ComparableType::Intermediate,
             TypeArg::TypeApplication(_, _) => {
                 // TODO: proper types
@@ -161,11 +166,11 @@ impl TypeArg {
             }
             TypeArg::TypeRef(type_ref) => {
                 let symbol_id = type_ref.0.uid.unwrap();
-                let symbol = symbols.types.get(&symbol_id).unwrap();
+                let symbol = symbols.get(&symbol_id).unwrap();
 
                 if let Some(type_def) = &symbol.info.type_def {
                     match type_def {
-                        TypeDefRhs::TypeArg(type_arg) => type_arg.canonical_form(symbols),
+                        TypeDefRhs::TypeArg(type_arg) => type_arg.canonical_form_tys(symbols),
                         TypeDefRhs::Object(typed_bindings) => {
                             typed_bindings_to_product(typed_bindings, symbols)
                         }
@@ -188,26 +193,35 @@ impl TypeArg {
                     .inputs
                     .values
                     .iter()
-                    .map(|(_, ty)| ty.canonical_form(symbols))
+                    .map(|(_, ty)| ty.canonical_form_tys(symbols))
                     .collect(),
                 fn_type
                     .output
                     .as_ref()
-                    .map(|ty| ty.canonical_form(symbols))
+                    .map(|ty| ty.canonical_form_tys(symbols))
                     .unwrap_or(ComparableType::unit())
                     .boxed(),
             ),
-            TypeArg::Ref(type_arg) => ComparableType::Ref(type_arg.canonical_form(symbols).boxed()),
+            TypeArg::Ref(type_arg) => {
+                ComparableType::Ref(type_arg.canonical_form_tys(symbols).boxed())
+            }
         }
+    }
+
+    pub fn canonical_form(&self, symbols: &Symbols) -> ComparableType {
+        self.canonical_form_tys(&symbols.types)
     }
 }
 
-fn typed_bindings_to_product(typed_bindings: &TypedBindings, symbols: &Symbols) -> ComparableType {
+fn typed_bindings_to_product(
+    typed_bindings: &TypedBindings,
+    symbols: &HashMap<SymbolId, SymbolInformation<TypeInfo>>,
+) -> ComparableType {
     ComparableType::Product(
         typed_bindings
             .values
             .iter()
-            .map(|(name, t)| (name.raw.clone(), t.canonical_form(symbols)))
+            .map(|(name, t)| (name.raw.clone(), t.canonical_form_tys(symbols)))
             .collect::<Vec<_>>(),
     )
 }

@@ -8,11 +8,18 @@ use wasm_encoder::{
     TypeSection, ValType,
 };
 
-use crate::ast::*;
+use crate::{
+    ast::*,
+    scope_resolution::{SymbolId, Symbols},
+    typechecking::{ComparableType, PrimitiveType},
+};
 
 /// Compile a Starstream AST to a binary WebAssembly module.
-pub fn compile(program: &StarstreamProgram) -> (Option<Vec<u8>>, Vec<Report>) {
-    let mut compiler = Compiler::new();
+pub fn compile<'a>(
+    program: &'a StarstreamProgram,
+    symbols: Symbols,
+) -> (Option<Vec<u8>>, Vec<Report<'a>>) {
+    let mut compiler = Compiler::new(symbols);
     compiler.visit_program(program);
     compiler.finish()
 }
@@ -37,6 +44,8 @@ enum StaticType {
     F64,
     // Char,
     StrRef,
+
+    Reference(Box<StaticType>),
 
     // Built-in types: lists, options, results, tuples
     // https://component-model.bytecodealliance.org/design/wit.html#lists
@@ -71,12 +80,38 @@ impl StaticType {
             StaticType::F64 => Intermediate::StackF64,
             StaticType::StrRef => Intermediate::StackStrRef,
             StaticType::Resource(_) => Intermediate::StackExternRef,
+
+            StaticType::Reference(_) => Intermediate::StackI64,
             _ => todo!(),
         }
     }
 
     fn lower(&self) -> &'static [ValType] {
         self.stack_intermediate().stack_types()
+    }
+
+    fn from_canonical_type(ty: &ComparableType) -> Self {
+        match ty {
+            ComparableType::Primitive(PrimitiveType::Unit) => StaticType::Void,
+            ComparableType::Primitive(PrimitiveType::U32) => StaticType::U32,
+            ComparableType::Primitive(PrimitiveType::I32) => StaticType::I32,
+            ComparableType::Primitive(PrimitiveType::U64) => StaticType::U64,
+            ComparableType::Primitive(PrimitiveType::I64) => StaticType::I64,
+            ComparableType::Primitive(PrimitiveType::F32) => StaticType::F32,
+            ComparableType::Primitive(PrimitiveType::F64) => StaticType::F64,
+            ComparableType::Primitive(PrimitiveType::Bool) => StaticType::Bool,
+            ComparableType::Intermediate => StaticType::I64,
+            ComparableType::FnType(_, _) => todo!(),
+            ComparableType::Utxo(_symbol_id) => StaticType::I64,
+            ComparableType::Var(_type_var) => {
+                unreachable!("unbound type variable at the codegen phase")
+            }
+            ComparableType::Ref(ty) => {
+                StaticType::Reference(Box::new(StaticType::from_canonical_type(ty)))
+            }
+            ComparableType::Void => StaticType::Void,
+            _ => todo!(),
+        }
     }
 }
 
@@ -197,10 +232,14 @@ struct Compiler {
     function_types: Vec<StarFunctionType>,
 
     global_scope_functions: HashMap<String, u32>,
+
+    symbols_table: Symbols,
+
+    current_utxo: Vec<String>,
 }
 
 impl Compiler {
-    fn new() -> Compiler {
+    fn new(mut symbols_table: Symbols) -> Compiler {
         let mut this = Compiler::default();
 
         // Function indices in calls, exports, etc. are based on the combined
@@ -234,7 +273,74 @@ impl Compiler {
         this.exports
             .export("memory", wasm_encoder::ExportKind::Memory, 0);
 
-        this
+        for f_info in symbols_table.functions.values_mut() {
+            if f_info.source == "resume" && f_info.info.mangled_name.is_some() {
+                let index = this.import_function(
+                    "starstream_utxo:this",
+                    f_info.info.mangled_name.as_ref().unwrap(),
+                    StarFunctionType {
+                        params: f_info
+                            .info
+                            .inputs_canonical_ty
+                            .iter()
+                            .map(StaticType::from_canonical_type)
+                            .collect(),
+                        results: vec![],
+                    },
+                );
+
+                f_info.info.index.replace(index);
+            }
+
+            if f_info.source == "new" && f_info.info.mangled_name.is_some() {
+                let index = this.import_function(
+                    "starstream_utxo:this",
+                    f_info.info.mangled_name.as_ref().unwrap(),
+                    StarFunctionType {
+                        params: f_info
+                            .info
+                            .inputs_canonical_ty
+                            .iter()
+                            .map(StaticType::from_canonical_type)
+                            .collect(),
+                        results: f_info
+                            .info
+                            .output_canonical_ty
+                            .as_ref()
+                            .map(|ty| vec![StaticType::from_canonical_type(ty)])
+                            .unwrap_or(vec![]),
+                    },
+                );
+
+                f_info.info.index.replace(index);
+            }
+        }
+
+        let starstream_yield = this.import_function(
+            "starstream_utxo_env",
+            "starstream_yield",
+            StarFunctionType {
+                params: vec![
+                    StaticType::I32,
+                    StaticType::I32,
+                    StaticType::I32,
+                    StaticType::I32,
+                    StaticType::I32,
+                    StaticType::I32,
+                ],
+                results: vec![],
+            },
+        );
+        this.global_scope_functions
+            .insert("starstream_yield".to_owned(), starstream_yield);
+
+        add_builtin_assert(&mut this);
+        add_builtin_is_tx_signed_by(&mut this);
+
+        Compiler {
+            symbols_table,
+            ..this
+        }
     }
 
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
@@ -357,18 +463,49 @@ impl Compiler {
     fn visit_item(&mut self, item: &ProgramItem) {
         match item {
             ProgramItem::Script(script) => self.visit_script(script),
+            ProgramItem::Utxo(utxo) => self.visit_utxo(utxo),
             _ => self.todo(format!("ProgramItem::{:?}", item)),
         }
     }
 
+    fn visit_utxo(&mut self, utxo: &Utxo) {
+        self.current_utxo.push(utxo.name.raw.clone());
+
+        for item in &utxo.items {
+            match item {
+                UtxoItem::Main(main) => {
+                    let (ty, mut function) = self.build_func(&main.ident.uid.unwrap(), true);
+
+                    let return_value = self.visit_block(&mut function, &main.block);
+                    self.drop_intermediate(&mut function, return_value);
+                    function.instructions().end();
+
+                    let index = self.add_function(ty, &function);
+
+                    self.exports.export(
+                        self.symbols_table.functions[&main.ident.uid.unwrap()]
+                            .info
+                            .mangled_name
+                            .as_ref()
+                            .unwrap(),
+                        wasm_encoder::ExportKind::Func,
+                        index,
+                    );
+                }
+                UtxoItem::Impl(_) => self.todo("utxo methods".to_string()),
+                UtxoItem::Storage(_storage) => self.todo("utxo storage".to_string()),
+                UtxoItem::Yield(_type_arg) => self.todo("yielding data".to_string()),
+                UtxoItem::Resume(_type_arg) => self.todo("resuming utxo with data".to_string()),
+            }
+        }
+
+        self.current_utxo.pop();
+    }
+
     fn visit_script(&mut self, script: &Script) {
         for fndef in &script.definitions {
-            let ty = StarFunctionType {
-                params: vec![],
-                results: vec![],
-            };
-            let lower_ty = ty.lower();
-            let mut function = Function::new(lower_ty.params());
+            let (ty, mut function) = self.build_func(&fndef.ident.uid.unwrap(), false);
+
             let return_value = self.visit_block(&mut function, &fndef.body);
             // TODO: handle non-void return values
             self.drop_intermediate(&mut function, return_value);
@@ -377,6 +514,57 @@ impl Compiler {
             self.exports
                 .export(&fndef.ident.raw, wasm_encoder::ExportKind::Func, index);
         }
+    }
+
+    fn build_func(&self, fn_id: &SymbolId, is_main: bool) -> (StarFunctionType, Function) {
+        let f_info = self.symbols_table.functions.get(fn_id).unwrap();
+
+        // TODO: duplicated code
+        let ty = StarFunctionType {
+            params: f_info
+                .info
+                .inputs_canonical_ty
+                .iter()
+                .map(StaticType::from_canonical_type)
+                .collect(),
+            results: if is_main {
+                vec![]
+            } else {
+                f_info
+                    .info
+                    .output_canonical_ty
+                    .as_ref()
+                    .map(|ty| vec![StaticType::from_canonical_type(ty)])
+                    .unwrap_or_default()
+            },
+        };
+        let lower_ty = ty.lower();
+        let mut function = Function::new(lower_ty.params());
+
+        for local in &f_info.info.locals {
+            let var_info = self.symbols_table.vars.get(local).unwrap();
+
+            match var_info.info.ty.as_ref().unwrap() {
+                ComparableType::Primitive(PrimitiveType::U32) => {
+                    let val_type = ValType::I32;
+                    function.add_local(val_type);
+                }
+                ComparableType::Primitive(PrimitiveType::Bool) => {
+                    let val_type = ValType::I32;
+                    function.add_local(val_type);
+                }
+                ComparableType::Utxo(_) => {
+                    let val_type = ValType::I64;
+                    function.add_local(val_type);
+                }
+                ComparableType::Ref(_) => {
+                    let val_type = ValType::I64;
+                    function.add_local(val_type);
+                }
+                _ => todo!(),
+            }
+        }
+        (ty, function)
     }
 
     fn visit_block(&mut self, func: &mut Function, mut block: &Block) -> Intermediate {
@@ -416,11 +604,31 @@ impl Compiler {
         match statement {
             Statement::Return(expr) => {
                 if let Some(expr) = expr {
-                    let im = self.visit_expr(func, &expr);
+                    let im = self.visit_expr(func, expr);
                     // TODO: allow actually returning things
                     self.drop_intermediate(func, im);
                 }
                 func.instructions().return_();
+            }
+            Statement::BindVar {
+                var,
+                mutable: _,
+                ty: _,
+                value,
+            } => {
+                let im = self.visit_expr(func, value);
+
+                if matches!(im, Intermediate::Error) {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message(format_args!("can't assign expression to variable"))
+                        .push(self);
+
+                    return;
+                }
+
+                let var_info = self.symbols_table.vars.get(&var.uid.unwrap()).unwrap();
+
+                func.instructions().local_set(var_info.info.index as u32);
             }
             _ => self.todo(format!("Statement::{:?}", statement)),
         }
@@ -430,8 +638,8 @@ impl Compiler {
         match &expr.node {
             Expr::PrimaryExpr(secondary) => self.visit_field_access_expr(func, secondary),
             Expr::Equals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, &lhs);
-                let rhs = self.visit_expr(func, &rhs);
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -453,8 +661,8 @@ impl Compiler {
                 }
             }
             Expr::NotEquals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, &lhs);
-                let rhs = self.visit_expr(func, &rhs);
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -476,8 +684,8 @@ impl Compiler {
                 }
             }
             Expr::Add(lhs, rhs) => {
-                let lhs = self.visit_expr(func, &lhs);
-                let rhs = self.visit_expr(func, &rhs);
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -490,12 +698,12 @@ impl Compiler {
                     }
                 }
             }
-            Expr::And(lhs, rhs) => match self.visit_expr(func, &lhs) {
+            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
-                    match self.visit_expr(func, &rhs) {
+                    match self.visit_expr(func, rhs) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -519,7 +727,7 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::Or(lhs, rhs) => match self.visit_expr(func, &lhs) {
+            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
@@ -527,7 +735,7 @@ impl Compiler {
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
-                    match self.visit_expr(func, &rhs) {
+                    match self.visit_expr(func, rhs) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -551,18 +759,18 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, &block),
+            Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, block),
             Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
-                match self.visit_expr(func, &cond) {
+                match self.visit_expr(func, cond) {
                     Intermediate::Error => Intermediate::Error,
                     Intermediate::StackBool => {
                         // TODO: handle non-Void if blocks.
                         func.instructions().if_(BlockType::Empty);
-                        let im = self.visit_block(func, &if_);
+                        let im = self.visit_block(func, if_);
                         self.drop_intermediate(func, im);
                         if let Some(else_) = else_ {
                             func.instructions().else_();
-                            let im = self.visit_block(func, &else_);
+                            let im = self.visit_block(func, else_);
                             self.drop_intermediate(func, im);
                         }
                         func.instructions().end();
@@ -593,8 +801,31 @@ impl Compiler {
         match expr {
             FieldAccessExpression::PrimaryExpr(primary) => self.visit_primary_expr(func, primary),
             FieldAccessExpression::FieldAccess { base, field } => {
-                let im = self.visit_field_access_expr(func, base);
-                self.visit_field(func, im, &field.name.raw)
+                let receiver = self.visit_field_access_expr(func, base);
+
+                let expr: &IdentifierExpr = field;
+                if let Intermediate::Error = receiver {
+                    return Intermediate::Error;
+                }
+
+                if let Some(args) = &expr.args {
+                    let f_info = self
+                        .symbols_table
+                        .functions
+                        .get(&expr.name.uid.unwrap())
+                        .unwrap();
+
+                    let f_index = f_info.info.index.unwrap();
+                    let func_im = Intermediate::ConstFunction(f_index);
+
+                    let xs = &args.xs;
+
+                    self.visit_call(func, func_im, xs, Some(receiver))
+                } else {
+                    _ = func;
+                    self.todo(format!("Field {:?}.{:?}", receiver, expr));
+                    Intermediate::Error
+                }
             }
         }
     }
@@ -613,28 +844,50 @@ impl Compiler {
                 func.instructions().i32_const(0);
                 Intermediate::StackBool
             }
-            PrimaryExpr::Ident(ident) => {
+            PrimaryExpr::Ident(ident)
+            | PrimaryExpr::Namespace {
+                namespaces: _,
+                ident,
+            } => {
+                if ident.args.is_none() {
+                    let var_info = self
+                        .symbols_table
+                        .vars
+                        .get(&ident.name.uid.unwrap())
+                        .unwrap();
+
+                    let ty = var_info.info.ty.as_ref().unwrap();
+
+                    func.instructions().local_get(var_info.info.index as u32);
+
+                    return StaticType::from_canonical_type(ty).stack_intermediate();
+                }
+
                 let im = if ident.name.raw == "print" {
                     Intermediate::ConstFunction(self.global_scope_functions["print"])
                 } else if ident.name.raw == "print_f64" {
                     Intermediate::ConstFunction(self.global_scope_functions["print_f64"])
+                } else if ident.name.raw == "assert" {
+                    Intermediate::ConstFunction(self.global_scope_functions["assert"])
+                } else if ident.name.raw == "IsTxSignedBy" {
+                    Intermediate::ConstFunction(self.global_scope_functions["IsTxSignedBy"])
                 } else {
-                    self.todo(format!("PrimaryExpr::{:?}", primary));
-                    Intermediate::Error
+                    Intermediate::ConstFunction(
+                        self.symbols_table
+                            .functions
+                            .get(&ident.name.uid.unwrap())
+                            .unwrap()
+                            .info
+                            .index
+                            .unwrap(),
+                    )
                 };
 
                 if let Some(args) = &ident.args {
-                    self.visit_call(func, im, &args.xs)
+                    self.visit_call(func, im, &args.xs, None)
                 } else {
                     im
                 }
-            }
-            PrimaryExpr::Namespace {
-                namespaces: _,
-                ident: _,
-            } => {
-                self.todo(format!("PrimaryExpr::{:?}", primary));
-                Intermediate::Error
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(func, expr),
             PrimaryExpr::StringLiteral(string) => {
@@ -645,6 +898,33 @@ impl Compiler {
                     .i32_const(u32::try_from(len).unwrap().cast_signed());
                 Intermediate::StackStrRef
             }
+            PrimaryExpr::Yield(_expr) => {
+                let f_id = self.global_scope_functions["starstream_yield"];
+
+                // TODO: yielding outside utxos
+                let utxo_name = self.current_utxo.pop().unwrap();
+                let ptr = self.alloc_constant(utxo_name.as_bytes());
+                let len = utxo_name.len();
+                func.instructions()
+                    .i32_const(ptr.cast_signed())
+                    .i32_const(u32::try_from(len).unwrap().cast_signed());
+
+                // TODO: yield data
+
+                // data
+                func.instructions().i32_const(0);
+                // data_len
+                func.instructions().i32_const(0);
+                // resume_arg
+                func.instructions().i32_const(0);
+                // resume_arg_len
+                func.instructions().i32_const(0);
+
+                func.instructions().call(f_id);
+
+                Intermediate::Void
+            }
+            PrimaryExpr::Tuple(elems) if elems.is_empty() => Intermediate::Void,
             _ => {
                 self.todo(format!("PrimaryExpr::{:?}", primary));
                 Intermediate::Error
@@ -657,17 +937,37 @@ impl Compiler {
         func: &mut Function,
         im: Intermediate,
         args: &[Spanned<Expr>],
+        method_self: Option<Intermediate>,
     ) -> Intermediate {
         match im {
             Intermediate::Error => Intermediate::Error,
             Intermediate::ConstFunction(id) => {
                 let func_type = self.function_types[id as usize].clone();
-                for (param, arg) in func_type.params.iter().zip(args) {
-                    let arg = self.visit_expr(func, &arg);
+                for (param, arg) in func_type
+                    .params
+                    .iter()
+                    .skip(if method_self.is_some() { 1 } else { 0 })
+                    .zip(args)
+                {
+                    let arg = self.visit_expr(func, arg);
                     match (param, arg) {
                         (StaticType::Void, Intermediate::Void) => {}
                         (StaticType::F64, Intermediate::StackF64) => {}
+                        (StaticType::I32, Intermediate::StackI32) => {}
+                        (StaticType::I32, Intermediate::StackU32) => {}
+                        (StaticType::U32, Intermediate::StackI32) => {}
+                        (StaticType::U32, Intermediate::StackU32) => {}
+                        (StaticType::I64, Intermediate::StackI64) => {}
+                        (StaticType::U64, Intermediate::StackI64) => {}
+                        (StaticType::U64, Intermediate::StackU64) => {}
                         (StaticType::StrRef, Intermediate::StackStrRef) => {}
+                        (StaticType::Bool, Intermediate::StackBool) => {}
+                        (StaticType::Reference(_s), Intermediate::Void) => {
+                            // null pointer
+                            func.instructions().i64_const(0);
+                            // references to other types will need to be handled
+                            // by allocating memory
+                        }
                         (param, arg) => {
                             Report::build(ReportKind::Error, 0..0)
                                 .with_message(format_args!(
@@ -677,7 +977,12 @@ impl Compiler {
                         }
                     }
                 }
-                match func_type.params.len().cmp(&args.len()) {
+
+                match func_type
+                    .params
+                    .len()
+                    .cmp(&(args.len() + method_self.map(|_| 1).unwrap_or(0)))
+                {
                     Ordering::Equal => {}
                     Ordering::Less => {
                         Report::build(ReportKind::Error, 0..0)
@@ -686,12 +991,12 @@ impl Compiler {
                     }
                     Ordering::Greater => {
                         Report::build(ReportKind::Error, 0..0)
-                            .with_message("too many arguments to function call")
+                            .with_message("not enough arguments to function call")
                             .push(self);
                     }
                 }
                 func.instructions().call(id);
-                match func_type.results.get(0) {
+                match func_type.results.first() {
                     // TODO: handle functions with multiple results
                     Some(r) => r.stack_intermediate(),
                     None => Intermediate::Void,
@@ -706,16 +1011,47 @@ impl Compiler {
             }
         }
     }
+}
 
-    fn visit_field(&mut self, func: &mut Function, im: Intermediate, name: &str) -> Intermediate {
-        if let Intermediate::Error = im {
-            return Intermediate::Error;
-        }
+fn add_builtin_assert(this: &mut Compiler) {
+    let mut function = Function::new(&[ValType::I32]);
 
-        _ = func;
-        self.todo(format!("Field {:?}.{:?}", im, name));
-        Intermediate::Error
-    }
+    function
+        .instructions()
+        .local_get(0)
+        .if_(BlockType::Empty)
+        .else_()
+        .unreachable()
+        .end()
+        .end();
+
+    let assert_fn = this.add_function(
+        StarFunctionType {
+            params: vec![StaticType::Bool],
+            results: vec![],
+        },
+        &function,
+    );
+
+    this.global_scope_functions
+        .insert("assert".to_owned(), assert_fn);
+}
+
+fn add_builtin_is_tx_signed_by(this: &mut Compiler) {
+    let mut function = Function::new(&[ValType::I32]);
+
+    function.instructions().i32_const(1).end();
+
+    let assert_fn = this.add_function(
+        StarFunctionType {
+            params: vec![StaticType::I32],
+            results: vec![StaticType::Bool],
+        },
+        &function,
+    );
+
+    this.global_scope_functions
+        .insert("IsTxSignedBy".to_owned(), assert_fn);
 }
 
 trait ReportExt {
@@ -785,7 +1121,7 @@ impl wasm_encoder::Encode for Function {
 
 #[cfg(test)]
 mod tests {
-    use crate::{compile, parse};
+    use crate::{compile, do_scope_analysis, do_type_inference, parse};
     use wasmparser::{Parser, Payload};
 
     /// Collect all export names from a WASM module.
@@ -809,7 +1145,17 @@ mod tests {
         assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
         let program = program.expect("parse failed");
 
-        let (wasm, compile_errors) = compile(&program);
+        let (program, mut symbols) = do_scope_analysis(program).unwrap();
+
+        let (program, _warnings) = do_type_inference(program, &mut symbols)
+            .map_err(|errors| {
+                for e in errors {
+                    e.print(ariadne::Source::from(src)).unwrap();
+                }
+            })
+            .unwrap();
+
+        let (wasm, compile_errors) = compile(&program, symbols);
         assert!(
             compile_errors.is_empty(),
             "compile errors: {compile_errors:?}"
@@ -821,19 +1167,30 @@ mod tests {
     }
 
     #[test]
-    fn type_mismatch_error() {
-        let src = r#"
-            script {
-                fn main() {
-                    print(1);
-                }
-            }
-        "#;
+    fn compile_pay_to_public_key_hash() {
+        let src = include_str!("../../grammar/examples/pay_to_public_key_hash.star");
         let (program, parse_errors) = parse(src);
         assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
         let program = program.expect("parse failed");
 
-        let (_wasm, compile_errors) = compile(&program);
-        assert!(!compile_errors.is_empty(), "expected error");
+        let (program, mut symbols) = do_scope_analysis(program).unwrap();
+
+        let (program, _warnings) = do_type_inference(program, &mut symbols)
+            .map_err(|errors| {
+                for e in errors {
+                    e.print(ariadne::Source::from(src)).unwrap();
+                }
+            })
+            .unwrap();
+
+        let (wasm, compile_errors) = compile(&program, symbols);
+        assert!(
+            compile_errors.is_empty(),
+            "compile errors: {compile_errors:?}"
+        );
+        let wasm = wasm.expect("compilation failed");
+
+        let exports = export_names(&wasm);
+        assert!(exports.iter().any(|e| e == "main"), "exports: {exports:?}");
     }
 }

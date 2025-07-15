@@ -22,8 +22,8 @@ use error::{
 };
 use linear::{ManyWitness, Multiplicity, ResourceTracker};
 use std::collections::{HashMap, HashSet};
-pub use types::ComparableType;
-use types::{PrimitiveType, TypeVar};
+use types::TypeVar;
+pub use types::{ComparableType, PrimitiveType};
 
 /// Performs type checking and type inference for locals.
 ///
@@ -130,6 +130,21 @@ impl<'a> TypeInference<'a> {
             let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
 
             var.info.ty.replace(ty);
+        }
+
+        for func in self.symbols.functions.values_mut() {
+            func.info.inputs_canonical_ty = func
+                .info
+                .inputs_ty
+                .iter()
+                .map(|ty| ty.canonical_form_tys(&self.symbols.types))
+                .collect();
+
+            func.info.output_canonical_ty = func
+                .info
+                .output_ty
+                .as_ref()
+                .map(|ty| ty.canonical_form_tys(&self.symbols.types))
         }
     }
 
@@ -243,6 +258,9 @@ impl<'a> TypeInference<'a> {
             }
             (ComparableType::Utxo(lhs), ComparableType::Utxo(rhs)) if lhs == rhs => {}
             (ComparableType::Void, _) | (_, ComparableType::Void) => {}
+            (ComparableType::Product(fields), ComparableType::Primitive(PrimitiveType::Unit))
+            | (ComparableType::Primitive(PrimitiveType::Unit), ComparableType::Product(fields))
+                if fields.is_empty() => {}
             (lhs, rhs) => {
                 self.push_error_type_mismatch(span, &lhs, &rhs);
             }
@@ -481,7 +499,14 @@ impl<'a> TypeInference<'a> {
 
         self.current_function.push(symbol);
 
-        let inputs = &self.symbols.functions.get(&symbol).unwrap().info.inputs_ty;
+        let inputs = self
+            .symbols
+            .functions
+            .get_mut(&symbol)
+            .unwrap()
+            .info
+            .inputs_ty
+            .clone();
 
         for (arg_ty, arg_before) in inputs.iter().zip(fn_def.inputs.iter()) {
             let ty = arg_ty.canonical_form(self.symbols);
@@ -492,7 +517,7 @@ impl<'a> TypeInference<'a> {
                 .get_mut(&arg_before.name.uid.unwrap())
                 .unwrap();
 
-            var_info.info.ty.replace(ty);
+            var_info.info.ty.replace(ty.clone());
         }
 
         let output = fn_def
@@ -860,14 +885,14 @@ impl<'a> TypeInference<'a> {
                 EffectSet::empty(),
             ),
             PrimaryExpr::StringLiteral(_) => (
-                ComparableType::Primitive(PrimitiveType::String),
+                ComparableType::Primitive(PrimitiveType::StrRef),
                 EffectSet::empty(),
             ),
             PrimaryExpr::Namespace {
                 namespaces: _,
                 ident,
-            } => self.infer_identifier_expression(ident),
-            PrimaryExpr::Ident(identifier) => self.infer_identifier_expression(identifier),
+            } => self.infer_identifier_expression(ident, false),
+            PrimaryExpr::Ident(identifier) => self.infer_identifier_expression(identifier, false),
             PrimaryExpr::ParExpr(expr) => self.infer_expr(expr),
             PrimaryExpr::Yield(expr) => {
                 let current_coroutine = self.current_coroutine.last().unwrap();
@@ -895,7 +920,7 @@ impl<'a> TypeInference<'a> {
                 }
             }
             PrimaryExpr::Raise { ident } => {
-                let (ty, mut effects) = self.infer_identifier_expression(ident);
+                let (ty, mut effects) = self.infer_identifier_expression(ident, false);
 
                 // TODO: singleton interfaces are currently not registered, so
                 // this should always cause a type error.
@@ -904,19 +929,33 @@ impl<'a> TypeInference<'a> {
                 (ty, effects)
             }
             PrimaryExpr::RaiseNamespaced { namespaces, ident } => {
-                let (ty, mut effects) = self.infer_identifier_expression(ident);
+                let (ty, mut effects) = self.infer_identifier_expression(ident, false);
 
                 effects.add(namespaces[0].uid.unwrap());
 
                 (ty, effects)
             }
             PrimaryExpr::Object(_, _items) => todo!(),
+            PrimaryExpr::Tuple(tuple) => {
+                let mut tys = vec![];
+                let mut effects = EffectSet::empty();
+                for (index, expr) in tuple.iter_mut().enumerate() {
+                    let (inferred_ty, inferred_effects) = self.infer_expr(expr);
+
+                    effects = effects.combine(inferred_effects);
+
+                    tys.push((index.to_string(), inferred_ty));
+                }
+
+                (ComparableType::Product(tys), effects)
+            }
         }
     }
 
     fn infer_identifier_expression(
         &mut self,
         identifier: &mut IdentifierExpr,
+        is_method_call: bool,
     ) -> (ComparableType, EffectSet) {
         if let Some(args) = &mut identifier.args {
             let effects = EffectSet::empty();
@@ -934,6 +973,7 @@ impl<'a> TypeInference<'a> {
             let inputs: Vec<_> = fn_info
                 .inputs_ty
                 .iter()
+                .skip(if is_method_call { 1 } else { 0 })
                 .map(|ty| ty.canonical_form(self.symbols))
                 .collect();
 
@@ -1006,7 +1046,7 @@ impl<'a> TypeInference<'a> {
                     ComparableType::Utxo(utxo) => {
                         if field.args.is_some() {
                             self.resolve_method_name(field, utxo);
-                            let (ty, effects) = self.infer_identifier_expression(field);
+                            let (ty, effects) = self.infer_identifier_expression(field, true);
 
                             return (
                                 Self::substitute(&mut self.unification_table, ty, &self.is_numeric),
@@ -1042,7 +1082,7 @@ impl<'a> TypeInference<'a> {
                         if field.args.is_some() {
                             self.resolve_method_name(field, self.symbols.builtins["Intermediate"]);
 
-                            let (ty, effects) = self.infer_identifier_expression(field);
+                            let (ty, effects) = self.infer_identifier_expression(field, true);
 
                             return (
                                 Self::substitute(&mut self.unification_table, ty, &self.is_numeric),
@@ -1890,6 +1930,13 @@ mod tests {
     #[test]
     fn typecheck_oracle_example() {
         let input = include_str!("../../../grammar/examples/oracle.star");
+
+        typecheck_str_expect_success(input);
+    }
+
+    #[test]
+    fn typecheck_pay_to_pkey_hash() {
+        let input = include_str!("../../../grammar/examples/pay_to_public_key_hash.star");
 
         typecheck_str_expect_success(input);
     }
