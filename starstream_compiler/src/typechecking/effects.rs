@@ -1,5 +1,6 @@
-use crate::scope_resolution::{SymbolId, Symbols};
 use std::collections::HashSet;
+
+use crate::symbols::{SymbolId, Symbols};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[must_use]

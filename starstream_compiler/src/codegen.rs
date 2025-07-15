@@ -10,7 +10,7 @@ use wasm_encoder::{
 
 use crate::{
     ast::*,
-    scope_resolution::{SymbolId, Symbols},
+    symbols::{SymbolId, Symbols},
     typechecking::{ComparableType, PrimitiveType},
 };
 

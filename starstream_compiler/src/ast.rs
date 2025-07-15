@@ -1,6 +1,6 @@
 //! AST types describing a Starstream source file.
 
-use crate::scope_resolution::SymbolId;
+use crate::symbols::SymbolId;
 use chumsky::span::SimpleSpan;
 
 /// The root type of a Starstream source file.

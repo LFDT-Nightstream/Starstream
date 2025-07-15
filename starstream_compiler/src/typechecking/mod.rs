@@ -9,7 +9,8 @@ use crate::{
         LoopBody, PrimaryExpr, ProgramItem, Script, Spanned, StarstreamProgram, Statement, Token,
         TokenItem, Utxo, UtxoItem,
     },
-    scope_resolution::{STARSTREAM_ENV, SymbolId, Symbols},
+    scope_resolution::STARSTREAM_ENV,
+    symbols::{SymbolId, Symbols},
 };
 use ariadne::Report;
 use chumsky::span::SimpleSpan;
@@ -1218,12 +1219,10 @@ impl ena::unify::UnifyKey for TypeVar {
 
 #[cfg(test)]
 mod tests {
+    use super::TypeInference;
+    use crate::{do_scope_analysis, symbols::Symbols, typechecking::ComparableType};
     use ariadne::Source;
     use chumsky::Parser as _;
-
-    use crate::{do_scope_analysis, scope_resolution::Symbols, typechecking::ComparableType};
-
-    use super::TypeInference;
 
     fn typecheck_str(input: &str) -> Result<Symbols, Vec<ariadne::Report<'_>>> {
         let program = crate::starstream_program().parse(input).unwrap();

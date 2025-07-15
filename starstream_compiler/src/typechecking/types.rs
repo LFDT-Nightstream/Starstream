@@ -1,9 +1,8 @@
-use std::collections::HashMap;
-
 use crate::{
     ast::{TypeArg, TypeDefRhs, TypedBindings},
-    scope_resolution::{FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo},
+    symbols::{FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo},
 };
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {

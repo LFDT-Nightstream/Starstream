@@ -4,6 +4,7 @@ pub mod ast;
 mod codegen;
 mod parser;
 mod scope_resolution;
+mod symbols;
 mod typechecking;
 
 use self::ast::StarstreamProgram;
