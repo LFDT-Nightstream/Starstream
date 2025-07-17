@@ -32,6 +32,9 @@ export type SandboxWorkerResponse = {
     | {
       idle: true;
     }
+    | {
+      sequence_diagram: string;
+    }
   );
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
@@ -54,6 +57,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     body: number,
     body_len: number
   ): void;
+  set_sequence_diagram(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -135,6 +139,12 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         body: utf8(wasm, body, body_len),
       });
     },
+    set_sequence_diagram(ptr, len) {
+      send({
+        request_id,
+        sequence_diagram: utf8(wasm, ptr, len),
+      });
+    }
   });
   try {
     wasm.run(input.length, data.run, data.prove);

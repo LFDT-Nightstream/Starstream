@@ -19,6 +19,7 @@ import type {
   SandboxWorkerRequest,
   SandboxWorkerResponse,
 } from "../sandbox.worker";
+import { MermaidDiagram } from "../mermaid";
 
 if (ExecutionEnvironment.canUseDOM) {
   window.MonacoEnvironment = {
@@ -240,6 +241,7 @@ export function Sandbox() {
   const [ast, setAst] = useState("");
   const [wat, setWat] = useState("");
   const [runLog, setRunLog] = useState<RunLog[]>([]);
+  const [sequenceDiagram, setSequenceDiagram] = useState("");
 
   const [prove, setProve] = useState(true);
 
@@ -280,65 +282,12 @@ export function Sandbox() {
       ]);
     } else if ("idle" in response) {
       setBusy(false);
+    } else if ("sequence_diagram" in response) {
+      setSequenceDiagram(response.sequence_diagram);
     } else {
       response satisfies never;
     }
   });
-
-  /*
-  const input = useRef<Uint8Array>(null);
-  con;
-  const wasm = useWasmInstance({
-    getrandom(ptr, len) {
-      crypto.getRandomValues(
-        new Uint8Array(wasm.current!.memory.buffer, ptr, len)
-      );
-    },
-
-    read_input(ptr, len) {
-      console.log("read_input", ptr, len);
-      new Uint8Array(wasm.current!.memory.buffer, ptr, len).set(input.current!);
-    },
-    set_compiler_log(ptr, len, warnings, errors) {
-      console.log("set_compiler_log", ptr, len);
-      setOutputTab("Compile log");
-      setCompilerLog({
-        log: new TextDecoder().decode(
-          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
-        ),
-        warnings,
-        errors,
-      });
-    },
-    set_ast(ptr, len) {
-      console.log("set_ast", ptr, len);
-      setOutputTab("AST");
-      setAst(
-        new TextDecoder().decode(
-          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
-        )
-      );
-    },
-    set_wat(ptr, len) {
-      console.log("set_wat", ptr, len);
-      setOutputTab("Wasm");
-      setWat(
-        new TextDecoder().decode(
-          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
-        )
-      );
-    },
-    set_run_log(ptr, len) {
-      console.log("set_run_log", ptr, len);
-      setOutputTab("Run log");
-      setRunLog(
-        new TextDecoder().decode(
-          new Uint8Array(wasm.current!.memory.buffer, ptr, len)
-        )
-      );
-    },
-  });
-  */
 
   const theme = useDocusaurusTheme();
 
@@ -507,10 +456,13 @@ export function Sandbox() {
                 </table>
               ),
             },
-            /*
             {
               key: "Sequence diagram",
+              body: (
+                <MermaidDiagram text={sequenceDiagram} />
+              )
             },
+            /*
             {
               key: "Ledger state",
             },

@@ -22,6 +22,7 @@ unsafe extern "C" {
         body: *const u8,
         body_len: usize,
     );
+    unsafe fn set_sequence_diagram(ptr: *const u8, len: usize);
 }
 
 // Register a getrandom implementation for wasm32-unknown-unknown.
@@ -158,6 +159,13 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     let mut transaction = Transaction::new();
     let coordination_code = transaction.code_cache().load(wasm);
     transaction.run_coordination_script(&coordination_code, "main", Vec::new());
+
+    {
+        let sequence_diagram = transaction.to_mermaid_diagram();
+        unsafe {
+            set_sequence_diagram(sequence_diagram.as_ptr(), sequence_diagram.len());
+        }
+    }
 
     if prove {
         info!("Proof: {:?}", transaction.prove());

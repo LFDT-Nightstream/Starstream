@@ -7,6 +7,7 @@ impl Transaction {
         let inner = self.store.data();
         let mut output = String::new();
 
+        // https://mermaid.js.org/syntax/sequenceDiagram
         let _ = writeln!(output, "sequenceDiagram");
         let _ = writeln!(
             output,
