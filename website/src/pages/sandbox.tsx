@@ -243,7 +243,7 @@ export function Sandbox() {
   const [runLog, setRunLog] = useState<RunLog[]>([]);
   const [sequenceDiagram, setSequenceDiagram] = useState("");
 
-  const [prove, setProve] = useState(true);
+  const [prove, setProve] = useState(false);
 
   const startTime = useRef(0);
   const request_id = useRef(0);

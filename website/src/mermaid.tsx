@@ -13,5 +13,5 @@ export function MermaidDiagram(props: { text: string }) {
       })();
     }
   }
-  return <div ref={setDiv}></div>;
+  return <div ref={setDiv} className="sandbox-mermaid"></div>;
 }
