@@ -7,16 +7,20 @@ module.exports = grammar({
     $.commentLine
   ],
 
+  reserved: {
+    global: $ => ["fn", "let", "mut"]
+  },
+
   rules: {
     Program: $ => seq(
-      repeat(choice($.Utxo, $.Script, $.Token))
+      repeat(choice($.Utxo, $.Script, $.Token, $.TypeDef, $.Constant, $.Abi))
     ),
 
     Utxo: $ => seq(
       'utxo',
       $.Type,
       '{',
-      repeat(choice($.Abi, $.Main, $.Impl, $.Storage)),
+      repeat(choice($.Main, $.Impl, $.Storage)),
       '}'
     ),
 
@@ -31,12 +35,28 @@ module.exports = grammar({
       'token',
       $.ident,
       '{',
-      repeat(choice($.Abi, $.Bind, $.Unbind, $.Mint)),
+      repeat(choice($.Bind, $.Unbind, $.Mint)),
       '}'
+    ),
+
+    TypeDef: $ => seq (
+      'typedef',
+      $.ident,
+      '=',
+      $.Type
+    ),
+
+    Constant: $ => seq (
+      'const',
+      $.ident,
+      '=',
+      $.Expr,
+      ';'
     ),
 
     Abi: $ => seq(
       'abi',
+      $.Type,
       '{',
       repeat(seq(choice($.FnSig, $.EffectSig), ';')),
       '}'
@@ -91,6 +111,22 @@ module.exports = grammar({
       )
     ,
 
+    EffectSet: $ => seq(
+      '{',
+      optional(
+        seq(
+          $.ident,
+          repeat(
+            seq(
+            ',',
+            $.ident
+            )
+          )
+        )
+      ),
+      '}'
+    ),
+
     FnDef: $ => seq(
       'fn',
       $.ident,
@@ -98,6 +134,7 @@ module.exports = grammar({
       optional($.TypedBindings),
       ')',
       optional(seq(':', $.Type)),
+      optional(seq( '/', $.EffectSet )),
       $.Block
     ),
 
@@ -113,14 +150,16 @@ module.exports = grammar({
     ),
 
     Assign: $ => seq(
-      $.ident,
+      $.Expr,
       '=',
       $.Expr
     ),
 
+    Var: $ => $.ident,
+
     BindVar: $ => seq(
-      choice('let', 'let mut'),
-      $.ident,
+      seq('let', optional('mut')),
+      $.Var,
       optional(seq(':', $.Type)),
       '=',
       $.Expr,
@@ -134,7 +173,10 @@ module.exports = grammar({
     ),
 
     Effect: $ => seq(
-      $.Type,
+      repeat(
+        seq($.Type, '::')
+      ),
+      $.ident,
       '(',
       $.TypedBindings,
       ')'

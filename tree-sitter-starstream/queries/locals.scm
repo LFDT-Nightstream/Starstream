@@ -6,10 +6,10 @@
 (EffectBlock)
 ] @local.scope
 
-(BindVar (ident) @local.definition)
+((Var) @local.definition)
 
 (FnDef (ident) (TypedBindings (TypedBinding (ident) @local.definition)))
 
-(Effect (Type (ident)) (TypedBindings (TypedBinding (ident) @local.definition)))
+(Effect (ident) (TypedBindings (TypedBinding (ident) @local.definition)))
 
 (ident) @local.reference

@@ -1,5 +1,5 @@
 ==================
-utxo
+oracle utxo
 ==================
 utxo OracleContract {
   storage {
@@ -11,7 +11,7 @@ utxo OracleContract {
   }
 
   impl OracleContract {
-    fn get_data(self): Data {
+    fn get_data(): Data {
         let caller = raise Caller();
         let this_contract = raise ThisCode();
 
@@ -21,7 +21,7 @@ utxo OracleContract {
             raise Error("InvalidContext");
         }
 
-        return self.data; // note: this non-mutable, so it's just a reference input
+        return storage.data; // note: this non-mutable, so it's just a reference input
     }
   }
 }
@@ -50,15 +50,12 @@ utxo OracleContract {
       (Type (ident))
       (FnDef
         (ident)
-        (TypedBindings
-          (TypedBinding
-            (ident)))
         (Type
           (ident))
         (Block
           (Statement
             (BindVar
-              (ident)
+              (Var (ident))
               (Expr
                 (yield)
                 (Expr
@@ -67,7 +64,7 @@ utxo OracleContract {
                     (Arguments))))))
           (Statement
             (BindVar
-              (ident)
+              (Var (ident))
               (Expr
                 (yield)
                 (Expr

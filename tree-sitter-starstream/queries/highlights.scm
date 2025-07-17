@@ -1,18 +1,16 @@
-(Type) @type
-
 (ident) @variable
 
+(Type) @type
 (FnDef (ident) @function)
 ("main") @function
 (comment) @comment
 (commentLine) @comment
 ((ident) (Arguments)) @function
-(BindVar (ident) @variable)
-(Type) @type
 (Type (ident) @type)
 (stringLiteral) @string
 (bool) @constant.builtin.boolean
 (number) @constant.numeric.integer
+
 
 "fn" @keyword
 "return" @keyword
@@ -24,6 +22,8 @@
 "if" @keyword
 "else" @keyword
 "let" @keyword
+"const" @keyword
+"typedef" @keyword
 "try" @keyword
 "impl" @keyword
 "raise" @keyword.control
