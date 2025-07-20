@@ -177,7 +177,7 @@ impl<'a> TypeInference<'a> {
 
                 ComparableType::FnType(new_inputs, output.boxed())
             }
-            ComparableType::Utxo(_) => ty,
+            ComparableType::Utxo(_, _) => ty,
             ComparableType::Var(type_var) => {
                 let root = unification_table.find(type_var);
 
@@ -257,7 +257,7 @@ impl<'a> TypeInference<'a> {
 
                 self.unify_ty_ty(span, &output_lhs, &output_rhs);
             }
-            (ComparableType::Utxo(lhs), ComparableType::Utxo(rhs)) if lhs == rhs => {}
+            (ComparableType::Utxo(lhs, _), ComparableType::Utxo(rhs, _)) if lhs == rhs => {}
             (ComparableType::Void, _) | (_, ComparableType::Void) => {}
             (ComparableType::Product(fields), ComparableType::Primitive(PrimitiveType::Unit))
             | (ComparableType::Primitive(PrimitiveType::Unit), ComparableType::Product(fields))
@@ -281,7 +281,7 @@ impl<'a> TypeInference<'a> {
     fn follow_unified_variables(&mut self, ty: ComparableType) -> ComparableType {
         match ty {
             ComparableType::Primitive(_) => ty,
-            ComparableType::Utxo(_) => ty,
+            ComparableType::Utxo(_, _) => ty,
             ComparableType::Intermediate => ty,
             ComparableType::Void => ty,
             ComparableType::Product(canonical_types) | ComparableType::Sum(canonical_types) => {
@@ -936,7 +936,20 @@ impl<'a> TypeInference<'a> {
 
                 (ty, effects)
             }
-            PrimaryExpr::Object(_, _items) => todo!(),
+            PrimaryExpr::Object(_, items) => {
+                let mut effects = EffectSet::empty();
+
+                let mut key_tys = vec![];
+                for (key, val) in items {
+                    let (ty, new_effects) = self.infer_expr(val);
+
+                    effects = effects.combine(new_effects);
+
+                    key_tys.push((key.raw.clone(), ty));
+                }
+
+                (ComparableType::Product(key_tys), effects)
+            }
             PrimaryExpr::Tuple(tuple) => {
                 let mut tys = vec![];
                 let mut effects = EffectSet::empty();
@@ -1044,7 +1057,7 @@ impl<'a> TypeInference<'a> {
 
                         ty.unwrap_or(ComparableType::Void)
                     }
-                    ComparableType::Utxo(utxo) => {
+                    ComparableType::Utxo(utxo, _) => {
                         if field.args.is_some() {
                             self.resolve_method_name(field, utxo);
                             let (ty, effects) = self.infer_identifier_expression(field, true);

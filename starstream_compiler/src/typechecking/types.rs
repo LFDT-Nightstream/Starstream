@@ -30,7 +30,7 @@ pub enum ComparableType {
     Product(Vec<(String, ComparableType)>),
     Sum(Vec<(String, ComparableType)>),
     FnType(Vec<ComparableType>, Box<ComparableType>),
-    Utxo(SymbolId),
+    Utxo(SymbolId, String),
     Var(TypeVar),
     Ref(Box<ComparableType>),
 
@@ -98,7 +98,7 @@ impl ComparableType {
         match self {
             ComparableType::Primitive(_) => (),
             ComparableType::Intermediate => (),
-            ComparableType::Utxo(_) => (),
+            ComparableType::Utxo(_, _) => (),
             ComparableType::Product(args) | ComparableType::Sum(args) => {
                 for (_, arg) in args {
                     arg.occurs_check(v);
@@ -125,7 +125,7 @@ impl ComparableType {
     }
 
     pub const fn is_affine(&self) -> bool {
-        matches!(self, ComparableType::Utxo(_))
+        matches!(self, ComparableType::Utxo(_, _))
     }
 
     pub(crate) fn token_storage() -> ComparableType {
@@ -184,7 +184,7 @@ impl TypeArg {
                         ),
                     }
                 } else {
-                    ComparableType::Utxo(symbol_id)
+                    ComparableType::Utxo(symbol_id, type_ref.0.raw.clone())
                 }
             }
             TypeArg::FnType(fn_type) => ComparableType::FnType(
@@ -223,4 +223,74 @@ fn typed_bindings_to_product(
             .map(|(name, t)| (name.raw.clone(), t.canonical_form_tys(symbols)))
             .collect::<Vec<_>>(),
     )
+}
+
+impl std::fmt::Display for PrimitiveType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PrimitiveType::Unit => write!(f, "()"),
+            PrimitiveType::F32 => write!(f, "f32"),
+            PrimitiveType::F64 => write!(f, "f64"),
+            PrimitiveType::U32 => write!(f, "u32"),
+            PrimitiveType::I32 => write!(f, "i32"),
+            PrimitiveType::U64 => write!(f, "u64"),
+            PrimitiveType::I64 => write!(f, "i64"),
+            PrimitiveType::Bool => write!(f, "bool"),
+            PrimitiveType::StrRef => write!(f, "str"),
+        }
+    }
+}
+
+impl std::fmt::Display for ComparableType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ComparableType::Primitive(prim_type) => write!(f, "{}", prim_type),
+            ComparableType::Intermediate => write!(f, "Intermediate"),
+            ComparableType::Product(fields) => {
+                write!(f, "{{")?;
+                for (i, (name, field_type)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", name, field_type)?;
+                }
+                write!(f, "}}")
+            }
+            ComparableType::Sum(variants) => {
+                if variants.is_empty() {
+                    return write!(f, "void");
+                }
+
+                for (i, (name, variant_type)) in variants.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " | ")?;
+                    }
+                    write!(f, "{}({})", name, variant_type)?;
+                }
+                Ok(())
+            }
+            ComparableType::FnType(params, return_type) => {
+                write!(f, "fn(")?;
+                for (i, param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", param)?;
+                }
+                write!(f, ") -> {}", return_type)
+            }
+            ComparableType::Utxo(_id, name) => {
+                write!(f, "{}", name)
+            }
+            ComparableType::Var(type_var) => {
+                write!(f, "unbound type variable: {}", type_var.0)
+            }
+            ComparableType::Ref(inner) => {
+                write!(f, "&{}", inner)
+            }
+            ComparableType::Void => {
+                write!(f, "void")
+            }
+        }
+    }
 }

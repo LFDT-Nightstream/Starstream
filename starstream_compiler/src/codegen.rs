@@ -102,7 +102,7 @@ impl StaticType {
             ComparableType::Primitive(PrimitiveType::Bool) => StaticType::Bool,
             ComparableType::Intermediate => StaticType::I64,
             ComparableType::FnType(_, _) => todo!(),
-            ComparableType::Utxo(_symbol_id) => StaticType::I64,
+            ComparableType::Utxo(_symbol_id, _) => StaticType::I64,
             ComparableType::Var(_type_var) => {
                 unreachable!("unbound type variable at the codegen phase")
             }

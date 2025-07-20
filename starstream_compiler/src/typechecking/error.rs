@@ -37,7 +37,7 @@ pub(super) fn error_type_mismatch(
         .with_code(TypeErrorCode::TypeMismatch as u32)
         .with_label(
             Label::new(span.into_range())
-                .with_message(format!("expected {:?}, found {:?}", expected, found))
+                .with_message(format!("expected {}, found {}", expected, found))
                 .with_color(Color::Red),
         )
         .finish()
