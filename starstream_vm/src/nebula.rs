@@ -4,7 +4,7 @@ use zk_engine::{
     error::ZKWASMError,
     nova::{
         provider::{Bn256EngineIPA, ipa_pc},
-        spartan,
+        spartan::batched::BatchedRelaxedR1CSSNARK,
         traits::Dual,
     },
     utils::logging::init_logger,
@@ -19,23 +19,14 @@ use crate::{
     code::CodeHash, memory, starstream_eprint,
 };
 
-type E = Bn256EngineIPA;
-type EE1 = ipa_pc::EvaluationEngine<E>;
-type EE2 = ipa_pc::EvaluationEngine<Dual<E>>;
-type S1 = spartan::batched::BatchedRelaxedR1CSSNARK<E, EE1>;
-type S2 = spartan::batched::BatchedRelaxedR1CSSNARK<Dual<E>, EE2>;
-type Snark = WasmSNARK<E, S1, S2>;
-type PublicParams = zk_engine::wasm_snark::WASMPublicParams<
-    Bn256EngineIPA,
-    spartan::batched::BatchedRelaxedR1CSSNARK<
-        Bn256EngineIPA,
-        ipa_pc::EvaluationEngine<Bn256EngineIPA>,
-    >,
-    spartan::batched::BatchedRelaxedR1CSSNARK<
-        zk_engine::nova::provider::GrumpkinEngine,
-        ipa_pc::EvaluationEngine<zk_engine::nova::provider::GrumpkinEngine>,
-    >,
->;
+type Eng1 = Bn256EngineIPA;
+type Eng2 = Dual<Eng1>;
+type EvalEng1 = ipa_pc::EvaluationEngine<Eng1>;
+type EvalEng2 = ipa_pc::EvaluationEngine<Eng2>;
+type Snark1 = BatchedRelaxedR1CSSNARK<Eng1, EvalEng1>;
+type Snark2 = BatchedRelaxedR1CSSNARK<Eng2, EvalEng2>;
+type Snark = WasmSNARK<Eng1, Snark1, Snark2>;
+type PublicParams = zk_engine::wasm_snark::WASMPublicParams<Eng1, Snark1, Snark2>;
 
 struct OurPublicParams {
     step_size: StepSize,
@@ -55,7 +46,7 @@ thread_local! {
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProgramProof {
     snark: Snark,
-    instance: ZKWASMInstance<E>,
+    instance: ZKWASMInstance<Eng1>,
 }
 
 impl ProgramProof {
