@@ -3,7 +3,7 @@ use wasmi::{Caller, Engine, ExternType, Linker, Module, Store, Value};
 use zk_engine::{
     error::ZKWASMError,
     nova::{
-        provider::{Bn256EngineIPA, ipa_pc},
+        provider::{Bn256EngineKZG, hyperkzg, ipa_pc},
         spartan::batched::BatchedRelaxedR1CSSNARK,
         traits::Dual,
     },
@@ -19,9 +19,9 @@ use crate::{
     code::CodeHash, memory, starstream_eprint,
 };
 
-type Eng1 = Bn256EngineIPA;
+type Eng1 = Bn256EngineKZG;
 type Eng2 = Dual<Eng1>;
-type EvalEng1 = ipa_pc::EvaluationEngine<Eng1>;
+type EvalEng1 = hyperkzg::EvaluationEngine<halo2curves::bn256::Bn256, Eng1>;
 type EvalEng2 = ipa_pc::EvaluationEngine<Eng2>;
 type Snark1 = BatchedRelaxedR1CSSNARK<Eng1, EvalEng1>;
 type Snark2 = BatchedRelaxedR1CSSNARK<Eng2, EvalEng2>;
