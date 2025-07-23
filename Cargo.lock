@@ -1766,6 +1766,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream_nova"
+version = "0.0.0"
+dependencies = [
+ "arecibo",
+ "env_logger",
+ "ff",
+]
+
+[[package]]
 name = "starstream_sandbox"
 version = "0.0.0"
 dependencies = [

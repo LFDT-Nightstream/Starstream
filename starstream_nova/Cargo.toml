@@ -1,0 +1,14 @@
+[package]
+name = "starstream_nova"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+# same as zkEngine, technically could be different,
+# but we keep it the same
+ff = "*"
+nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "hypernova-ivc", package = "arecibo" }
+
+[dev-dependencies]
+env_logger = "0.11.8"
