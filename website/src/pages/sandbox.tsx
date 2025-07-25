@@ -3,7 +3,6 @@ import Layout from "@theme/Layout";
 import { AnsiHtml } from "fancy-ansi/react";
 import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import {
-  cache,
   CSSProperties,
   Dispatch,
   ReactNode,
@@ -161,8 +160,9 @@ function Tabs(props: {
             key={tab.key}
             type="button"
             onClick={() => setCurrent(tab.key)}
-            className={`sandbox-tabs__button ${current === tab.key ? "sandbox-tabs__button--current" : ""
-              }`}
+            className={`sandbox-tabs__button ${
+              current === tab.key ? "sandbox-tabs__button--current" : ""
+            }`}
           >
             {tab.title ?? tab.key}
           </button>
@@ -243,6 +243,20 @@ export function Sandbox() {
   const [runLog, setRunLog] = useState<RunLog[]>([]);
   const [sequenceDiagram, setSequenceDiagram] = useState("");
 
+  const [proofFile, setProofFile] = useState<ArrayBuffer | null>(null);
+  const [proofFileUrl, setProofFileUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (proofFile) {
+      const url = URL.createObjectURL(
+        new File([proofFile], "proof.cbor", { type: "application/cbor" })
+      );
+      setProofFileUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setProofFileUrl(null);
+    }
+  }, [proofFile]);
+
   const [prove, setProve] = useState(false);
 
   const startTime = useRef(0);
@@ -284,6 +298,8 @@ export function Sandbox() {
       setBusy(false);
     } else if ("sequence_diagram" in response) {
       setSequenceDiagram(response.sequence_diagram);
+    } else if ("set_proof_file" in response) {
+      setProofFile(response.set_proof_file);
     } else {
       response satisfies never;
     }
@@ -296,7 +312,7 @@ export function Sandbox() {
       <div className="col col--6 flex--column">
         <Tabs
           current="Contract Code"
-          setCurrent={(_: string) => { }}
+          setCurrent={(_: string) => {}}
           tabs={[
             {
               key: "Contract Code",
@@ -316,7 +332,7 @@ export function Sandbox() {
             />
           }
           right={
-            <div className="flex" style={{ gap: 8, alignItems: 'baseline' }}>
+            <div className="flex" style={{ gap: 8, alignItems: "baseline" }}>
               {busy ? (
                 <>
                   Working...
@@ -332,7 +348,11 @@ export function Sandbox() {
                 </>
               ) : null}
               <label>
-                <input type="checkbox" checked={prove} onChange={e => setProve(e.currentTarget.checked)} />
+                <input
+                  type="checkbox"
+                  checked={prove}
+                  onChange={(e) => setProve(e.currentTarget.checked)}
+                />
                 Prove
               </label>
               <button
@@ -341,6 +361,7 @@ export function Sandbox() {
                   request_id.current += 1;
                   startTime.current = Date.now();
                   setBusy(true);
+                  setProofFile(null);
                   worker.request({
                     request_id: request_id.current,
                     input: editor.current?.getModel()?.getValue() ?? "",
@@ -448,6 +469,19 @@ export function Sandbox() {
                     ))}
                   </tbody>
                   <tfoot>
+                    {proofFile && proofFileUrl ? (
+                      <tr>
+                        <td></td>
+                        <td colSpan={3}>
+                          <a
+                            href={proofFileUrl}
+                            download="starstream-proof.cbor"
+                          >
+                            Download proof file (CBOR, {proofFile.byteLength} B)
+                          </a>
+                        </td>
+                      </tr>
+                    ) : null}
                     <tr>
                       <td></td>
                       <td colSpan={3}>{busy ? "Working..." : "Done"}</td>
@@ -458,9 +492,7 @@ export function Sandbox() {
             },
             {
               key: "Sequence diagram",
-              body: (
-                <MermaidDiagram text={sequenceDiagram} />
-              )
+              body: <MermaidDiagram text={sequenceDiagram} />,
             },
             /*
             {

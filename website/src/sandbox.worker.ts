@@ -35,6 +35,9 @@ export type SandboxWorkerResponse = {
   | {
       sequence_diagram: string;
     }
+  | {
+      set_proof_file: ArrayBuffer;
+    }
 );
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
@@ -91,8 +94,8 @@ function utf8(wasm: SandboxWasmExports, ptr: number, len: number): string {
   return new TextDecoder().decode(new Uint8Array(wasm.memory.buffer, ptr, len));
 }
 
-function send(r: SandboxWorkerResponse) {
-  self.postMessage(r);
+function send(r: SandboxWorkerResponse, opts?: WindowPostMessageOptions) {
+  self.postMessage(r, opts);
 }
 
 self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
@@ -147,7 +150,15 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
       });
     },
     set_proof_file(ptr, len) {
-      console.log("set_proof_file", ptr, len);
+      // Creates a copy of the range from the Wasm memory, then transfers it (no copy) to the UI thread.
+      const buffer = wasm.memory.buffer.slice(ptr, ptr + len);
+      send(
+        {
+          request_id,
+          set_proof_file: buffer,
+        },
+        { transfer: [buffer] }
+      );
     },
   });
   try {
