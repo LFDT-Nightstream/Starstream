@@ -23,6 +23,7 @@ unsafe extern "C" {
         body_len: usize,
     );
     unsafe fn set_sequence_diagram(ptr: *const u8, len: usize);
+    unsafe fn set_proof_file(ptr: *const u8, len: usize);
 }
 
 // Register a getrandom implementation for wasm32-unknown-unknown.
@@ -168,7 +169,13 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     }
 
     if prove {
-        info!("Proof: {:?}", transaction.prove());
+        let proof = transaction.prove();
+        info!("Proof complete.");
+        let proof_cbor = serde_cbor::to_vec(&proof).unwrap();
+        info!("Proof size: {}", proof_cbor.len());
+        unsafe {
+            set_proof_file(proof_cbor.as_ptr(), proof_cbor.len());
+        }
     }
 }
 

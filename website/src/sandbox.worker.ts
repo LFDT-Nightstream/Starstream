@@ -10,32 +10,32 @@ export interface SandboxWorkerRequest {
 export type SandboxWorkerResponse = {
   request_id: number;
 } & (
-    | {
+  | {
       compiler_log: string;
       warnings: number;
       errors: number;
     }
-    | {
+  | {
       ast: string;
     }
-    | {
+  | {
       wat: string;
     }
-    | {
+  | {
       run_log: string;
     }
-    | {
+  | {
       append_run_log: number;
       target: string;
       body: string;
     }
-    | {
+  | {
       idle: true;
     }
-    | {
+  | {
       sequence_diagram: string;
     }
-  );
+);
 
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
   getrandom(ptr: number, len: number): void;
@@ -58,6 +58,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     body_len: number
   ): void;
   set_sequence_diagram(ptr: number, len: number): void;
+  set_proof_file(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -144,7 +145,10 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         request_id,
         sequence_diagram: utf8(wasm, ptr, len),
       });
-    }
+    },
+    set_proof_file(ptr, len) {
+      console.log("set_proof_file", ptr, len);
+    },
   });
   try {
     wasm.run(input.length, data.run, data.prove);

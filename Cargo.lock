@@ -1622,11 +1622,10 @@ dependencies = [
 
 [[package]]
 name = "serde_cbor"
-version = "0.10.2"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7081ed758ec726a6ed8ee7e92f5d3f6e6f8c3901b1f972e3a4a2f2599fad14f"
+checksum = "2bef2ebfde456fb76bbcf9f59315333decc4fda0b2b44b420243c11e0f5ec1f5"
 dependencies = [
- "byteorder",
  "half",
  "serde",
 ]
@@ -1780,6 +1779,7 @@ version = "0.0.0"
 dependencies = [
  "getrandom 0.2.16",
  "log",
+ "serde_cbor",
  "starstream_compiler",
  "starstream_vm",
  "termcolor",

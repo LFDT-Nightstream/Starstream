@@ -14,6 +14,6 @@ path = "src/main.rs"
 ariadne = "0.5.1"
 clap = { version = "4.5.32", features = ["derive"] }
 env_logger = "0.11.8"
-serde_cbor = "0.10"
+serde_cbor = "0.11.2"
 starstream_compiler = { path = "../starstream_compiler" }
 starstream_vm = { path = "../starstream_vm" }
