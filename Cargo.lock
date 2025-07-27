@@ -1771,6 +1771,7 @@ dependencies = [
  "arecibo",
  "env_logger",
  "ff",
+ "typenum",
 ]
 
 [[package]]

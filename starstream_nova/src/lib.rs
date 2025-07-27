@@ -1,12 +1,18 @@
 use ff::{PrimeField, PrimeFieldBits};
-use nova::frontend::gadgets::Assignment;
-use nova::frontend::{
-    ConstraintSystem, SynthesisError,
-    num::AllocatedNum,
-    {AllocatedBit, Boolean},
-};
+use nova::frontend::PoseidonConstants;
+use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
+use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
 use nova::nebula::rs::StepCircuit;
 use std::sync::{Arc, Mutex};
+use typenum::U2;
+
+macro_rules! nest {
+    ($cs:expr) => {{ $cs.namespace(|| format!("{}:{}:{}", file!(), line!(), column!())) }};
+}
+
+macro_rules! label {
+    () => {{ || format!("{}:{}:{}", file!(), line!(), column!()) }};
+}
 
 // FIXME: implement coordination script support
 pub struct StarstreamCircuit<W>(Arc<Mutex<Witness<W>>>);
@@ -25,39 +31,147 @@ trait WitnessImpl<F>: Sync {
 struct Witness<W>(W);
 
 impl<W> Witness<W> {
-    fn get<F>(&mut self) -> impl FnOnce() -> Result<F, SynthesisError>
+    fn get<F>(&mut self) -> impl FnOnce() -> F
     where
         W: WitnessImpl<F>,
     {
         let f = self.0.get();
-        || Ok(f)
+        || f
     }
+}
+
+struct Switches<F: PrimeField>(Vec<AllocatedNum<F>>);
+
+impl<F> Switches<F>
+where
+    F: PrimeField,
+{
+    fn alloc(
+        &mut self,
+        cs: impl ConstraintSystem<F>,
+        w: &mut Witness<impl WitnessImpl<F>>,
+    ) -> AllocatedNum<F> {
+        let switch = AllocatedNum::alloc_infallible(cs, w.get());
+        self.0.push(switch.clone());
+        switch
+    }
+    fn consume<CS: ConstraintSystem<F>>(self, mut cs: CS) {
+        cs.enforce(
+            label!(),
+            |lc| {
+                self.0
+                    .iter()
+                    .fold(lc, |acc, switch| acc + switch.get_variable())
+            },
+            |lc| lc + CS::one(),
+            |lc| lc + CS::one(),
+        );
+
+        for switch in &self.0 {
+            cs.enforce(
+                label!(),
+                |lc| lc + switch.get_variable(),
+                |lc| lc + CS::one() - switch.get_variable(),
+                |lc| lc,
+            );
+        }
+
+        std::mem::forget(self)
+    }
+}
+
+impl<F: PrimeField> Drop for Switches<F> {
+    fn drop(&mut self) {
+        unreachable!("you must consume me");
+    }
+}
+
+fn if_switch<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut Witness<impl WitnessImpl<F>>,
+    switch: AllocatedNum<F>,
+    n: AllocatedNum<F>,
+) -> AllocatedNum<F> {
+    let r = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    cs.enforce(
+        label!(),
+        |lc| lc + switch.get_variable(),
+        |lc| lc + n.get_variable(),
+        |lc| lc + r.get_variable(),
+    );
+    r
+}
+fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut Witness<impl WitnessImpl<F>>,
+    switch: AllocatedNum<F>,
+    input: Vec<AllocatedNum<F>>,
+) -> AllocatedNum<F> {
+    let constants = PoseidonConstants::<F, U2>::new();
+    // FIXME: poseidon_hash_allocated doesn't take a switch,
+    // so all its constraints cost even if they aren't used.
+    let hash = poseidon_hash_allocated(nest!(cs), input, &constants).expect("unreachable");
+    if_switch(nest!(cs), w, switch, hash)
+}
+
+// adds H(a, v, t) to the multiset
+fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut Witness<impl WitnessImpl<F>>,
+    switch: AllocatedNum<F>,
+    multiset: AllocatedNum<F>,
+    a: AllocatedNum<F>,
+    v: AllocatedNum<F>,
+    t: AllocatedNum<F>,
+) -> AllocatedNum<F> {
+    let preimage = vec![a, v, t];
+    let hash = hash(nest!(cs), w, switch, preimage);
+    multiset.add(nest!(cs), &hash).expect("unreachable")
 }
 
 fn visit_enter<CS, F>(
     mut cs: CS,
-    switchboard_vars: &mut SwitchBoardCircuitVars<F>,
+    switches: &mut Switches<F>,
     rs: &mut AllocatedNum<F>,
     ws: &mut AllocatedNum<F>,
     w: &mut Witness<impl WitnessImpl<F>>,
-) -> Result<(), SynthesisError>
-where
+) where
     F: PrimeField,
     CS: ConstraintSystem<F>,
 {
-    let switch = AllocatedNum::alloc(cs, w.get());
-    unimplemented!()
-}
-
-fn visit_dummy<CS, F>(
-    mut cs: CS,
-    switchboard_vars: &mut SwitchBoardCircuitVars<F>,
-) -> Result<(), SynthesisError>
-where
-    F: PrimeField,
-    CS: ConstraintSystem<F>,
-{
-    unimplemented!()
+    let switch = switches.alloc(nest!(cs), w);
+    let utxo_index = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let input = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let output = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let prev = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let timestamp = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let new_timestamp = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    cs.enforce(
+        label!(),
+        |lc| lc + new_timestamp.get_variable() - timestamp.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc + CS::one(),
+    );
+    let preimage = vec![input, output, prev.clone()];
+    let updated = hash(nest!(cs), w, switch.clone(), preimage);
+    *rs = memory(
+        nest!(cs),
+        w,
+        switch.clone(),
+        rs.clone(),
+        utxo_index.clone(),
+        prev,
+        timestamp,
+    );
+    *ws = memory(
+        nest!(cs),
+        w,
+        switch,
+        ws.clone(),
+        utxo_index,
+        updated,
+        new_timestamp,
+    );
 }
 
 struct PublicInput<F: PrimeField> {
@@ -101,73 +215,24 @@ where
 
         let w = &mut *w_guard;
 
-        let mut switchboard_vars = SwitchBoardCircuitVars::new();
+        let mut switches = Switches(vec![]);
 
         let mut public_input = PublicInput::of(public_input);
 
         visit_enter(
-            cs.namespace(|| "enter"),
-            &mut switchboard_vars,
+            nest!(cs),
+            &mut switches,
             &mut public_input.rs,
             &mut public_input.ws,
             w,
-        )?;
-        visit_dummy(cs.namespace(|| "dummy"), &mut switchboard_vars)?;
-
-        let switches = switchboard_vars.switches();
-
-        // 1. Single switch constraint:
-        cs.enforce(
-            || "single switch",
-            |lc| {
-                switches
-                    .iter()
-                    .fold(lc, |acc, switch| acc + switch.get_variable())
-            },
-            |lc| lc + CS::one(),
-            |lc| lc + CS::one(),
         );
 
-        // 2. Binary switch constraints:
-        for (i, switch) in switches.iter().enumerate() {
-            cs.enforce(
-                || format!("binary switch {i}"),
-                |lc| lc + switch.get_variable(),
-                |lc| lc + CS::one() - switch.get_variable(),
-                |lc| lc,
-            );
-        }
+        switches.consume(nest!(cs));
 
         Ok(public_input.to())
     }
 
     fn non_deterministic_advice(&self) -> Vec<F> {
         Vec::new()
-    }
-}
-
-pub struct SwitchBoardCircuitVars<F>
-where
-    F: PrimeField,
-{
-    switches: Vec<AllocatedNum<F>>,
-}
-
-impl<F> SwitchBoardCircuitVars<F>
-where
-    F: PrimeField,
-{
-    fn new() -> Self {
-        Self {
-            switches: Vec::new(),
-        }
-    }
-
-    fn push_switch(&mut self, switch: AllocatedNum<F>) {
-        self.switches.push(switch);
-    }
-
-    fn switches(&self) -> &Vec<AllocatedNum<F>> {
-        &self.switches
     }
 }

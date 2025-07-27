@@ -8,6 +8,7 @@ license = "MIT"
 # same as zkEngine, technically could be different,
 # but we keep it the same
 ff = "*"
+typenum = "*"
 nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "hypernova-ivc", package = "arecibo" }
 
 [dev-dependencies]
