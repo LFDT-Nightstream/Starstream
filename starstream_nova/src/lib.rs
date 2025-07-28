@@ -6,16 +6,23 @@ use nova::nebula::rs::StepCircuit;
 use std::sync::{Arc, Mutex};
 use typenum::U2;
 
-macro_rules! nest {
-    ($cs:expr) => {{ $cs.namespace(|| format!("{}:{}:{}", file!(), line!(), column!())) }};
-}
-
 macro_rules! label {
     () => {{ || format!("{}:{}:{}", file!(), line!(), column!()) }};
 }
 
+macro_rules! nest {
+    ($cs:expr) => {{ $cs.namespace(label!()) }};
+}
+
+macro_rules! alloc {
+    ($cs:expr, $w:expr) => {{
+        let f = $w.get(label!());
+        AllocatedNum::alloc_infallible(nest!($cs), || f)
+    }};
+}
+
 // FIXME: implement coordination script support
-pub struct StarstreamCircuit<W>(Arc<Mutex<Witness<W>>>);
+pub struct StarstreamCircuit<W>(Arc<Mutex<W>>);
 
 impl<W> Clone for StarstreamCircuit<W> {
     fn clone(&self) -> Self {
@@ -24,20 +31,8 @@ impl<W> Clone for StarstreamCircuit<W> {
     }
 }
 
-trait WitnessImpl<F>: Sync {
-    fn get(&mut self) -> F;
-}
-
-struct Witness<W>(W);
-
-impl<W> Witness<W> {
-    fn get<F>(&mut self) -> impl FnOnce() -> F
-    where
-        W: WitnessImpl<F>,
-    {
-        let f = self.0.get();
-        || f
-    }
+trait Witness<F>: Sync {
+    fn get(&mut self, label: impl FnOnce() -> String) -> F;
 }
 
 struct Switches<F: PrimeField>(Vec<AllocatedNum<F>>);
@@ -48,10 +43,10 @@ where
 {
     fn alloc(
         &mut self,
-        cs: impl ConstraintSystem<F>,
-        w: &mut Witness<impl WitnessImpl<F>>,
+        mut cs: impl ConstraintSystem<F>,
+        w: &mut impl Witness<F>,
     ) -> AllocatedNum<F> {
-        let switch = AllocatedNum::alloc_infallible(cs, w.get());
+        let switch = alloc!(cs, w);
         self.0.push(switch.clone());
         switch
     }
@@ -88,11 +83,11 @@ impl<F: PrimeField> Drop for Switches<F> {
 
 fn if_switch<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
-    w: &mut Witness<impl WitnessImpl<F>>,
+    w: &mut impl Witness<F>,
     switch: AllocatedNum<F>,
     n: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
-    let r = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let r = alloc!(cs, w);
     cs.enforce(
         label!(),
         |lc| lc + switch.get_variable(),
@@ -103,7 +98,7 @@ fn if_switch<F: PrimeField, CS: ConstraintSystem<F>>(
 }
 fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
-    w: &mut Witness<impl WitnessImpl<F>>,
+    w: &mut impl Witness<F>,
     switch: AllocatedNum<F>,
     input: Vec<AllocatedNum<F>>,
 ) -> AllocatedNum<F> {
@@ -117,7 +112,7 @@ fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
 // adds H(a, v, t) to the multiset
 fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
-    w: &mut Witness<impl WitnessImpl<F>>,
+    w: &mut impl Witness<F>,
     switch: AllocatedNum<F>,
     multiset: AllocatedNum<F>,
     a: AllocatedNum<F>,
@@ -134,18 +129,18 @@ fn visit_enter<CS, F>(
     switches: &mut Switches<F>,
     rs: &mut AllocatedNum<F>,
     ws: &mut AllocatedNum<F>,
-    w: &mut Witness<impl WitnessImpl<F>>,
+    w: &mut impl Witness<F>,
 ) where
     F: PrimeField,
     CS: ConstraintSystem<F>,
 {
     let switch = switches.alloc(nest!(cs), w);
-    let utxo_index = AllocatedNum::alloc_infallible(nest!(cs), w.get());
-    let input = AllocatedNum::alloc_infallible(nest!(cs), w.get());
-    let output = AllocatedNum::alloc_infallible(nest!(cs), w.get());
-    let prev = AllocatedNum::alloc_infallible(nest!(cs), w.get());
-    let timestamp = AllocatedNum::alloc_infallible(nest!(cs), w.get());
-    let new_timestamp = AllocatedNum::alloc_infallible(nest!(cs), w.get());
+    let utxo_index = alloc!(cs, w);
+    let input = alloc!(cs, w);
+    let output = alloc!(cs, w);
+    let prev = alloc!(cs, w);
+    let timestamp = alloc!(cs, w);
+    let new_timestamp = alloc!(cs, w);
     cs.enforce(
         label!(),
         |lc| lc + new_timestamp.get_variable() - timestamp.get_variable(),
@@ -194,7 +189,7 @@ impl<F: PrimeField> PublicInput<F> {
     }
 }
 
-impl<F, W: Send + WitnessImpl<F>> StepCircuit<F> for StarstreamCircuit<W>
+impl<F, W: Send + Witness<F>> StepCircuit<F> for StarstreamCircuit<W>
 where
     F: PrimeField + PrimeFieldBits,
 {
@@ -235,4 +230,8 @@ where
     fn non_deterministic_advice(&self) -> Vec<F> {
         Vec::new()
     }
+}
+
+fn prove_dummy() {
+    unimplemented!()
 }
