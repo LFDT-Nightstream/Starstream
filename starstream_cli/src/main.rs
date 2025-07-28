@@ -53,17 +53,45 @@ fn main() {
             let source_code =
                 std::fs::read_to_string(&compile_file).expect("Error reading Starstream input");
 
+            let source = ariadne::Source::from(&source_code);
+
             let (ast, errors) = starstream_compiler::parse(&source_code);
             for error in errors {
-                error.eprint(ariadne::Source::from(&source_code)).unwrap();
+                error.eprint(&source).unwrap();
             }
             let Some(ast) = ast else {
                 std::process::exit(1);
             };
 
-            let (module, errors) = starstream_compiler::compile(&ast);
+            let (ast, mut symbols) = match starstream_compiler::do_scope_analysis(ast) {
+                Ok(success) => success,
+                Err(errors) => {
+                    for error in errors {
+                        error.eprint(&source).unwrap();
+                    }
+
+                    std::process::exit(1);
+                }
+            };
+
+            let ast = match starstream_compiler::do_type_inference(ast, &mut symbols) {
+                Ok((ast, warnings)) => {
+                    for warning in warnings {
+                        warning.eprint(&source).unwrap();
+                    }
+                    ast
+                }
+                Err(errors) => {
+                    for error in errors {
+                        error.eprint(&source).unwrap();
+                    }
+                    std::process::exit(1);
+                }
+            };
+
+            let (module, errors) = starstream_compiler::compile(&ast, symbols);
             for error in errors {
-                error.eprint(ariadne::Source::from(&source_code)).unwrap();
+                error.eprint(&source).unwrap();
             }
             let Some(module) = module else {
                 std::process::exit(1);

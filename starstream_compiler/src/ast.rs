@@ -1,6 +1,6 @@
 //! AST types describing a Starstream source file.
 
-use crate::scope_resolution::SymbolId;
+use crate::symbols::SymbolId;
 use chumsky::span::SimpleSpan;
 
 /// The root type of a Starstream source file.
@@ -41,6 +41,7 @@ pub enum UtxoItem {
 pub struct Main {
     pub type_sig: Option<TypedBindings>,
     pub block: Block,
+    pub ident: Identifier,
 }
 
 #[derive(Clone, Debug)]
@@ -184,6 +185,7 @@ pub struct FnType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeArg {
+    Unit,
     Bool,
     F32,
     F64,
@@ -338,6 +340,8 @@ pub enum PrimaryExpr {
     /// `a { b: c, ... }`
     Object(TypeArg, Vec<(Identifier, Spanned<Expr>)>),
     StringLiteral(String),
+
+    Tuple(Vec<Spanned<Expr>>),
 }
 
 #[derive(Clone, Debug)]

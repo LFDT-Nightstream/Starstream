@@ -231,6 +231,7 @@ fn main<'a>() -> impl Parser<'a, &'a str, Main, extra::Err<Rich<'a, char>>> {
         .map(|(typed_bindings, block)| Main {
             type_sig: typed_bindings,
             block,
+            ident: Identifier::new("new", None),
         })
 }
 
@@ -497,7 +498,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
         let end_block = just(';')
             .padded()
             .or_not()
-            .then_ignore(just('}').padded())
+            .then_ignore(comment().boxed().ignore_then(just('}').padded()))
             .map(|semicolon| Block::Close {
                 semicolon: semicolon.is_some(),
             });
@@ -509,7 +510,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
                 span: extra.span(),
             })
             .map(ExprOrStatement::Expr)
-            .then(end_block.or(block_body.clone()))
+            .then(end_block.clone().or(block_body.clone()))
             .padded();
 
         let expr_with_semicolon = expr_parser
@@ -517,7 +518,7 @@ fn block<'a>() -> impl Parser<'a, &'a str, Block, extra::Err<Rich<'a, char>>> {
             .padded()
             .map(ExprOrStatement::Expr)
             .then(
-                end_block.or(just(";")
+                end_block.clone().or(just(";")
                     .ignored()
                     .padded()
                     .ignore_then(block_body.clone())
@@ -693,7 +694,7 @@ fn primary_expr<'a>(
                     accum
                 },
             )
-            .then(application(expr_parser))
+            .then(application(expr_parser.clone()))
             .map(|(mut idents, args)| {
                 let ident = IdentifierExpr {
                     name: idents.pop().unwrap(),
@@ -717,6 +718,12 @@ fn primary_expr<'a>(
         .padded_by(just('"'))
         .map(PrimaryExpr::StringLiteral);
 
+    let tuple = expr_parser
+        .separated_by(just(',').padded())
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
+        .map(|vals| PrimaryExpr::Tuple(vals));
+
     choice((
         number,
         bool,
@@ -726,6 +733,7 @@ fn primary_expr<'a>(
         object,
         ident,
         string_literal,
+        tuple,
     ))
     .boxed()
 }

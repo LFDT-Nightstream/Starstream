@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
+use crate::symbols::{AbiInfo, FuncInfo, SymbolInformation, VarInfo};
+
 use super::ComparableType;
-use crate::scope_resolution::{self, AbiInfo, FuncInfo, SymbolInformation};
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
 
@@ -54,7 +55,7 @@ pub(super) fn error_non_signed(span: SimpleSpan, found: &ComparableType) -> Repo
 }
 
 pub(super) fn error_variable_used_more_than_once(
-    var: &SymbolInformation<scope_resolution::VarInfo>,
+    var: &SymbolInformation<VarInfo>,
     span1: SimpleSpan,
     span2: SimpleSpan,
 ) -> Report<'static> {
@@ -74,7 +75,7 @@ pub(super) fn error_variable_used_more_than_once(
 }
 
 pub(super) fn error_unused_variable(
-    var: &SymbolInformation<scope_resolution::VarInfo>,
+    var: &SymbolInformation<VarInfo>,
     is_error: bool,
 ) -> Report<'static> {
     if is_error {
@@ -93,7 +94,7 @@ pub(super) fn error_unused_variable(
 }
 
 pub(super) fn error_linear_variable_affine(
-    var: &SymbolInformation<scope_resolution::VarInfo>,
+    var: &SymbolInformation<VarInfo>,
     span: SimpleSpan,
 ) -> Report<'static> {
     error_report(var.span.unwrap())

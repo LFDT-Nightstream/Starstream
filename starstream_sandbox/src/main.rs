@@ -121,7 +121,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     unsafe { set_ast(str_ast.as_ptr(), str_ast.len()) };
 
     // Compile to Wasm.
-    let (wasm, errors) = starstream_compiler::compile(&ast);
+    let (wasm, errors) = starstream_compiler::compile(&ast, symbols);
     error_count += errors.len() as u32;
     write_errors(&mut compiler_output, input, &errors);
     unsafe {
