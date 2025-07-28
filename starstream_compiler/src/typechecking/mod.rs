@@ -23,8 +23,7 @@ use error::{
 };
 use linear::{ManyWitness, Multiplicity, ResourceTracker};
 use std::collections::{HashMap, HashSet};
-use types::TypeVar;
-pub use types::{ComparableType, PrimitiveType};
+pub use types::{ComparableType, PrimitiveType, TypeVar};
 
 /// Performs type checking and type inference for locals.
 ///
@@ -121,11 +120,20 @@ impl<'a> TypeInference<'a> {
     }
 
     fn new_ty_var(&mut self) -> ComparableType {
-        ComparableType::Var(self.unification_table.new_key(None))
+        let new_key = self.unification_table.new_key(None);
+
+        let ty = ComparableType::Var(new_key);
+        self.symbols.type_vars.insert(new_key, ty.clone());
+
+        ty
     }
 
     fn apply_substitutions(&mut self) {
         for var in self.symbols.vars.values_mut() {
+            if var.info.is_storage.is_some() {
+                continue;
+            }
+
             let ty = var.info.ty.clone().unwrap();
 
             let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
@@ -133,14 +141,11 @@ impl<'a> TypeInference<'a> {
             var.info.ty.replace(ty);
         }
 
-        for func in self.symbols.functions.values_mut() {
-            func.info.inputs_canonical_ty = func
-                .info
-                .inputs_ty
-                .iter()
-                .map(|ty| ty.canonical_form_tys(&self.symbols.types))
-                .collect();
+        for (_key, val) in self.symbols.type_vars.iter_mut() {
+            *val = Self::substitute(&mut self.unification_table, val.clone(), &self.is_numeric);
+        }
 
+        for func in self.symbols.functions.values_mut() {
             func.info.output_canonical_ty = func
                 .info
                 .output_ty
@@ -406,6 +411,9 @@ impl<'a> TypeInference<'a> {
 
     fn visit_utxo(&mut self, utxo: &mut Utxo) {
         let uid = utxo.name.uid.unwrap();
+
+        self.add_storage_ty_to_symbols_table(uid);
+
         let mut interfaces = self
             .symbols
             .types
@@ -420,6 +428,13 @@ impl<'a> TypeInference<'a> {
         for item in &mut utxo.items {
             match item {
                 UtxoItem::Main(main) => {
+                    // TODO: duplicated in fn_defs
+                    {
+                        let fnuid = main.ident.uid.unwrap();
+
+                        self.add_storage_var_ty(uid, fnuid);
+                    }
+
                     if let Some(args) = &main.type_sig {
                         for (ident, ty) in &args.values {
                             let ty = ty.canonical_form(self.symbols);
@@ -453,6 +468,7 @@ impl<'a> TypeInference<'a> {
                             item,
                             Some(abi)
                                 .filter(|_| !self.symbols.interfaces[&abi].info.effects.is_empty()),
+                            Some(uid),
                         );
                     }
                 }
@@ -463,25 +479,91 @@ impl<'a> TypeInference<'a> {
         }
     }
 
+    fn add_storage_ty_to_symbols_table(&mut self, uid: SymbolId) {
+        // FIXME?: 3 lookups needed because of borrowing issues, maybe there is a better way of writing this
+        let storage = self.symbols.types.get(&uid).unwrap().info.storage.clone();
+        let canonicalized_storage_type = storage
+            .as_ref()
+            .map(|storage| ComparableType::from_storage(storage, self.symbols))
+            .unwrap_or(ComparableType::Product(vec![]));
+
+        self.symbols
+            .types
+            .get_mut(&uid)
+            .unwrap()
+            .info
+            .storage_ty
+            .replace(canonicalized_storage_type);
+    }
+
+    fn add_storage_var_ty(&mut self, uid: SymbolId, fnuid: SymbolId) {
+        let type_info = self.symbols.types.get(&uid).unwrap();
+
+        let storage_ty = type_info.info.storage_ty.clone().unwrap();
+
+        let storage_var = self
+            .symbols
+            .functions
+            .get(&fnuid)
+            .unwrap()
+            .info
+            .storage
+            .unwrap();
+
+        let var_info = self.symbols.vars.get_mut(&storage_var).unwrap();
+
+        // dbg!(&storage_ty);
+        // dbg!(&var_info);
+        // dbg!(&fn_info.info.inputs_ty);
+
+        var_info.info.ty.replace(storage_ty.clone());
+    }
+
     fn visit_script(&mut self, script: &mut Script) {
         for fn_def in &mut script.definitions {
-            self.visit_fn_def(fn_def, None);
+            self.visit_fn_def(fn_def, None, None);
         }
     }
 
     fn visit_token(&mut self, token: &mut Token) {
+        let uid = token.name.uid.unwrap();
+
+        self.add_storage_ty_to_symbols_table(uid);
+
         for item in &mut token.items {
             match item {
                 TokenItem::Bind(bind) => {
+                    self.add_storage_var_ty(uid, bind.1.uid.unwrap());
+
+                    let fn_info = self.symbols.functions.get(&bind.1.uid.unwrap()).unwrap();
+
+                    // TODO: do the same for unbind
+                    for (ty, var) in fn_info
+                        .info
+                        .inputs_ty
+                        .iter()
+                        .zip(fn_info.info.locals.iter())
+                    {
+                        let ty = ty.canonical_form(self.symbols);
+
+                        let var_info = self.symbols.vars.get_mut(var).unwrap();
+
+                        var_info.info.ty.replace(ty);
+                    }
+
                     // TODO: check (need annotation syntax before)
-                    let _effects = self.check_block(&mut bind.0, ComparableType::token_storage());
+                    let _effects = self.check_block(&mut bind.0, ComparableType::unit());
                 }
                 TokenItem::Unbind(unbind) => {
+                    self.add_storage_var_ty(uid, unbind.1.uid.unwrap());
+
                     // TODO: check (need annotation syntax before)
-                    let _effects = self.check_block(&mut unbind.0, ComparableType::token_storage());
+                    let _effects = self.check_block(&mut unbind.0, ComparableType::unit());
                 }
                 TokenItem::Mint(mint) => {
-                    let effects = self.check_block(&mut mint.0, ComparableType::token_storage());
+                    let effects = self.check_block(&mut mint.0, ComparableType::unit());
+
+                    // self.add_storage_var_ty(uid, mint.1.uid.unwrap());
 
                     if !effects.is_empty() {
                         self.errors.push(error_effect_type_mismatch(
@@ -495,7 +577,7 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn visit_fn_def(&mut self, fn_def: &mut FnDef, abi: Option<SymbolId>) {
+    fn visit_fn_def(&mut self, fn_def: &mut FnDef, abi: Option<SymbolId>, utxo: Option<SymbolId>) {
         let symbol = fn_def.ident.uid.unwrap();
 
         self.current_function.push(symbol);
@@ -509,7 +591,11 @@ impl<'a> TypeInference<'a> {
             .inputs_ty
             .clone();
 
-        for (arg_ty, arg_before) in inputs.iter().zip(fn_def.inputs.iter()) {
+        for (arg_ty, arg_before) in inputs
+            .iter()
+            .skip(utxo.map(|_| 1).unwrap_or(0))
+            .zip(fn_def.inputs.iter())
+        {
             let ty = arg_ty.canonical_form(self.symbols);
 
             let var_info = self
@@ -519,6 +605,25 @@ impl<'a> TypeInference<'a> {
                 .unwrap();
 
             var_info.info.ty.replace(ty.clone());
+        }
+
+        if let Some(utxo) = utxo {
+            let type_info = self.symbols.types.get(&utxo).unwrap();
+
+            let storage_ty = type_info.info.storage_ty.clone().unwrap();
+
+            let storage_var = self
+                .symbols
+                .functions
+                .get(&fn_def.ident.uid.unwrap())
+                .unwrap()
+                .info
+                .storage
+                .unwrap();
+
+            let var_info = self.symbols.vars.get_mut(&storage_var).unwrap();
+
+            var_info.info.ty.replace(storage_ty.clone());
         }
 
         let output = fn_def
@@ -750,6 +855,8 @@ impl<'a> TypeInference<'a> {
 
                             effects = effects.combine(new_effects);
 
+                            ty = ComparableType::unit();
+
                             if let Statement::Return(_) = &statement {
                                 ty = ComparableType::Void;
                             }
@@ -871,8 +978,10 @@ impl<'a> TypeInference<'a> {
         primary_expr: &mut PrimaryExpr,
     ) -> (ComparableType, EffectSet) {
         match primary_expr {
-            PrimaryExpr::Number(_) => {
+            PrimaryExpr::Number { literal: _, ty } => {
                 let new_ty_var = self.new_ty_var();
+
+                ty.replace(new_ty_var.clone());
 
                 self.is_numeric.insert(match &new_ty_var {
                     ComparableType::Var(type_var) => *type_var,
@@ -917,6 +1026,8 @@ impl<'a> TypeInference<'a> {
 
                     (resume, effects)
                 } else {
+                    self.unify_ty_ty(SimpleSpan::from(0..0), &yields, &ComparableType::unit());
+
                     (resume, EffectSet::empty())
                 }
             }
@@ -1013,7 +1124,13 @@ impl<'a> TypeInference<'a> {
                 self.symbols
                     .vars
                     .get(&identifier.name.uid.unwrap())
-                    .map(|var_info| &var_info.info.ty)
+                    .map(|var_info| {
+                        if let Some(utxo) = &var_info.info.is_storage {
+                            &self.symbols.types.get_mut(utxo).unwrap().info.storage_ty
+                        } else {
+                            &var_info.info.ty
+                        }
+                    })
                     .or_else(|| {
                         self.symbols
                             .constants
@@ -1746,8 +1863,8 @@ mod tests {
             }
 
             impl Abi {
-                fn foo(self) {
-                    print(self.x);
+                fn foo() {
+                    print(storage.x);
                 }
             }
         }"#;
@@ -1765,8 +1882,8 @@ mod tests {
             }
 
             impl Abi {
-                fn foo(self) {
-                    print(self.x);
+                fn foo() {
+                    print(storage.x);
                 }
             }
         }"#;
@@ -1909,8 +2026,8 @@ mod tests {
             }
 
             impl Foo {
-                fn foo(self): u32 {
-                    self.x
+                fn foo(): u32 {
+                    storage.x
                 }
             }
         }
@@ -1937,6 +2054,24 @@ mod tests {
         let input = format!("{utxo}\n{script}");
 
         typecheck_str_expect_error(&input);
+    }
+
+    #[test]
+    fn typecheck_record_assign_storage() {
+        let input = r#"
+        utxo U {
+            storage {
+                x: u64;
+            }
+
+            main {
+                let x = 59;
+                yield;
+            }
+        }
+        "#;
+
+        typecheck_str_expect_success(input);
     }
 
     #[test]

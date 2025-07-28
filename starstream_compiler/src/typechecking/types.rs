@@ -1,5 +1,5 @@
 use crate::{
-    ast::{TypeArg, TypeDefRhs, TypedBindings},
+    ast::{Storage, TypeArg, TypeDefRhs, TypedBindings},
     symbols::{FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo},
 };
 use std::collections::HashMap;
@@ -125,7 +125,10 @@ impl ComparableType {
     }
 
     pub const fn is_affine(&self) -> bool {
-        matches!(self, ComparableType::Utxo(_, _))
+        // matches!(self, ComparableType::Utxo(_, _))
+        // disable this for now for simplicity
+        // we need the syntax/types to properly differentiate the method type
+        false
     }
 
     pub(crate) fn token_storage() -> ComparableType {
@@ -141,6 +144,10 @@ impl ComparableType {
             ty => ty.clone(),
         }
     }
+
+    pub fn from_storage(storage: &Storage, symbols: &Symbols) -> Self {
+        typed_bindings_to_product(&storage.bindings, &symbols.types)
+    }
 }
 
 impl TypeArg {
@@ -154,8 +161,8 @@ impl TypeArg {
             TypeArg::String => ComparableType::Primitive(PrimitiveType::StrRef),
             TypeArg::U32 => ComparableType::Primitive(PrimitiveType::U32),
             TypeArg::I32 => ComparableType::Primitive(PrimitiveType::I32),
-            TypeArg::U64 => ComparableType::Primitive(PrimitiveType::U32),
-            TypeArg::I64 => ComparableType::Primitive(PrimitiveType::U64),
+            TypeArg::U64 => ComparableType::Primitive(PrimitiveType::U64),
+            TypeArg::I64 => ComparableType::Primitive(PrimitiveType::I64),
             TypeArg::F32 => ComparableType::Primitive(PrimitiveType::F32),
             TypeArg::F64 => ComparableType::Primitive(PrimitiveType::F64),
             TypeArg::Intermediate { abi: _, storage: _ } => ComparableType::Intermediate,

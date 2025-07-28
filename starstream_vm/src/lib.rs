@@ -444,6 +444,8 @@ fn utxo_linker(
 
     starstream_utxo_env(&mut linker, "starstream_utxo_env");
 
+    let current_code_hash = utxo_code.hash();
+
     for import in utxo_code.module(engine).imports() {
         if let ExternType::Func(func_ty) = import.ty() {
             if let Some(rest) = import.module().strip_prefix("starstream_token:") {
@@ -458,7 +460,13 @@ fn utxo_linker(
                             func_ty.clone(),
                             move |_caller, inputs, _outputs| {
                                 trace!("{rest}::{name}{inputs:?}");
-                                let code = code_cache.load_debug(&rest).hash();
+
+                                let code = if rest == "this" {
+                                    current_code_hash
+                                } else {
+                                    code_cache.load_debug(&rest).hash()
+                                };
+
                                 host(Interrupt::TokenBind {
                                     code,
                                     entry_point: name.clone(),

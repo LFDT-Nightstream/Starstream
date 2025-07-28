@@ -24,12 +24,12 @@ utxo OracleContract {
   }
 
   main(data: Data) {
-    self.data = data;
+    storage.data = data;
     loop { yield; }
   }
 
   impl Oracle {
-    fn get_data(self): Data / { StarstreamEnv } {
+    fn get_data(): Data / { StarstreamEnv } {
       let caller = raise StarstreamEnv::Caller();
       let this_contract = raise StarstreamEnv::ThisCode();
 
@@ -39,7 +39,7 @@ utxo OracleContract {
         raise Oracle::Error("InvalidContext");
       }
 
-      return self.data; // note: this non-mutable, so it's just a reference input
+      return storage.data; // note: this non-mutable, so it's just a reference input
     }
   }
 }
