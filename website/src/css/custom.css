@@ -38,6 +38,9 @@
   --mermaid-lines: #ddd;
 }
 
+.sandbox-mermaid {
+  width: 100%;
+}
 .sandbox-mermaid > svg #arrowhead path {
   fill: var(--mermaid-lines) !important;
   stroke: var(--mermaid-lines) !important;
