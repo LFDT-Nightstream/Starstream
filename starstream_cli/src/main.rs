@@ -15,7 +15,7 @@ enum Args {
         compile_file: PathBuf,
         /// The Wasm output file.
         #[arg(short = 'o')]
-        output_file: PathBuf,
+        output_file: Option<PathBuf>,
     },
     /// Run a coordination script from a Starstream Wasm module.
     Run {
@@ -97,7 +97,9 @@ fn main() {
                 std::process::exit(1);
             };
 
-            std::fs::write(&output_file, module).expect("Error writing Wasm output");
+            if let Some(output_file) = output_file {
+                std::fs::write(&output_file, module).expect("Error writing Wasm output");
+            }
         }
         Args::Run {
             module,
