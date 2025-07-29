@@ -2,7 +2,9 @@
 #![feature(internal_output_capture)]
 #![no_main]
 
-use log::info;
+use std::panic;
+
+use log::{error, info};
 use starstream_compiler::write_errors;
 use starstream_vm::Transaction;
 
@@ -42,6 +44,18 @@ getrandom::register_custom_getrandom!(our_getrandom);
 pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Trace);
+    panic::set_hook(Box::new(|info| {
+        if let Some(s) = info.payload().downcast_ref::<&str>() {
+            error!("panic! {s}");
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            error!("panic! {s}");
+        } else {
+            error!("panic!");
+        }
+        if let Some(loc) = info.location() {
+            error!("at {}:{}:{}", loc.file(), loc.line(), loc.column());
+        }
+    }));
 
     // Fetch the input.
     let mut input = vec![0; input_len];
