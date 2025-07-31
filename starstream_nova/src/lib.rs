@@ -7,7 +7,7 @@ use nova::nebula::rs::{PublicParams, RecursiveSNARK, StepCircuit};
 use nova::provider::PallasEngine;
 use nova::traits::{Engine, snark::default_ck_hint};
 use std::sync::{Arc, Mutex};
-use typenum::U2;
+use typenum::U4;
 
 macro_rules! label {
     () => {{ || format!("{}:{}:{}", file!(), line!(), column!()) }};
@@ -105,10 +105,9 @@ fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
     switch: AllocatedNum<F>,
     input: Vec<AllocatedNum<F>>,
 ) -> AllocatedNum<F> {
-    let constants = PoseidonConstants::<F, U2>::new();
+    let constants = PoseidonConstants::<F, U4>::new();
     // FIXME: poseidon_hash_allocated doesn't take a switch,
     // so all its constraints cost even if they aren't used.
-    println!("length: {}", input.len());
     let hash = poseidon_hash_allocated(nest!(cs), input, &constants).expect("unreachable");
     if_switch(nest!(cs), w, switch, hash)
 }
@@ -265,8 +264,12 @@ fn prove_dummy() {
     let c = StarstreamCircuit(w);
     let pp: PublicParams<PallasEngine> =
         PublicParams::setup(&c, &*default_ck_hint(), &*default_ck_hint());
-    let mut rs = RecursiveSNARK::new(&pp, &c, &[]).expect(label!()().as_ref());
-    let ic = <PallasEngine as Engine>::Scalar::ZERO;
+    type F = <PallasEngine as Engine>::Scalar;
+    let mut rs = RecursiveSNARK::new(&pp, &c, &[F::ZERO, F::ZERO]).expect(label!()().as_ref());
+    let ic = F::ZERO;
     rs.prove_step(&pp, &c, ic).expect(label!()().as_ref());
-    let _ic = rs.increment_commitment(&pp, &c);
+    let ic = rs.increment_commitment(&pp, &c);
+    let num_steps = rs.num_steps();
+    rs.verify(&pp, num_steps, &[F::ZERO, F::ZERO], ic)
+        .expect(label!()().as_ref());
 }
