@@ -124,7 +124,12 @@ fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     t: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
     let zero = alloc!(cs, w);
-    cs.enforce(label!(), |lc| lc + zero.get_variable(), |lc| lc + CS::one(), |lc| lc);
+    cs.enforce(
+        label!(),
+        |lc| lc + zero.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc,
+    );
     let preimage = vec![a, v, t, zero];
     let hash = hash(nest!(cs), w, switch, preimage);
     multiset.add(nest!(cs), &hash).expect("unreachable")
@@ -154,7 +159,12 @@ fn visit_enter<CS, F>(
         |lc| lc + CS::one(),
     );
     let zero = alloc!(cs, w);
-    cs.enforce(label!(), |lc| lc + zero.get_variable(), |lc| lc + CS::one(), |lc| lc);
+    cs.enforce(
+        label!(),
+        |lc| lc + zero.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc,
+    );
     let preimage = vec![input, output, prev.clone(), zero];
     let updated = hash(nest!(cs), w, switch.clone(), preimage);
     *rs = memory(
