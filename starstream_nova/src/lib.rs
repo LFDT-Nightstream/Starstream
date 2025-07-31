@@ -1,8 +1,11 @@
+use ff::Field;
 use ff::{PrimeField, PrimeFieldBits};
 use nova::frontend::PoseidonConstants;
 use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
 use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
-use nova::nebula::rs::StepCircuit;
+use nova::nebula::rs::{PublicParams, RecursiveSNARK, StepCircuit};
+use nova::provider::PallasEngine;
+use nova::traits::{Engine, snark::default_ck_hint};
 use std::sync::{Arc, Mutex};
 use typenum::U2;
 
@@ -105,6 +108,7 @@ fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
     let constants = PoseidonConstants::<F, U2>::new();
     // FIXME: poseidon_hash_allocated doesn't take a switch,
     // so all its constraints cost even if they aren't used.
+    println!("length: {}", input.len());
     let hash = poseidon_hash_allocated(nest!(cs), input, &constants).expect("unreachable");
     if_switch(nest!(cs), w, switch, hash)
 }
@@ -119,7 +123,9 @@ fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     v: AllocatedNum<F>,
     t: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
-    let preimage = vec![a, v, t];
+    let zero = alloc!(cs, w);
+    cs.enforce(label!(), |lc| lc + zero.get_variable(), |lc| lc + CS::one(), |lc| lc);
+    let preimage = vec![a, v, t, zero];
     let hash = hash(nest!(cs), w, switch, preimage);
     multiset.add(nest!(cs), &hash).expect("unreachable")
 }
@@ -147,7 +153,9 @@ fn visit_enter<CS, F>(
         |lc| lc + CS::one(),
         |lc| lc + CS::one(),
     );
-    let preimage = vec![input, output, prev.clone()];
+    let zero = alloc!(cs, w);
+    cs.enforce(label!(), |lc| lc + zero.get_variable(), |lc| lc + CS::one(), |lc| lc);
+    let preimage = vec![input, output, prev.clone(), zero];
     let updated = hash(nest!(cs), w, switch.clone(), preimage);
     *rs = memory(
         nest!(cs),
@@ -232,6 +240,23 @@ where
     }
 }
 
+struct AllZeroes;
+
+impl<F: PrimeField> Witness<F> for AllZeroes {
+    fn get(&mut self, _label: impl FnOnce() -> String) -> F {
+        F::ZERO
+    }
+}
+
+#[test]
 fn prove_dummy() {
-    unimplemented!()
+    let w = AllZeroes;
+    let w = Arc::new(Mutex::new(w));
+    let c = StarstreamCircuit(w);
+    let pp: PublicParams<PallasEngine> =
+        PublicParams::setup(&c, &*default_ck_hint(), &*default_ck_hint());
+    let mut rs = RecursiveSNARK::new(&pp, &c, &[]).expect(label!()().as_ref());
+    let ic = <PallasEngine as Engine>::Scalar::ZERO;
+    rs.prove_step(&pp, &c, ic).expect(label!()().as_ref());
+    let _ic = rs.increment_commitment(&pp, &c);
 }
