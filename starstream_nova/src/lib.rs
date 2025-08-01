@@ -2,6 +2,7 @@ use ff::Field;
 use ff::{PrimeField, PrimeFieldBits};
 use nova::frontend::PoseidonConstants;
 use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
+use nova::frontend::test_cs::TestConstraintSystem;
 use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
 use nova::nebula::rs::{PublicParams, RecursiveSNARK, StepCircuit};
 use nova::provider::PallasEngine;
@@ -10,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use typenum::U4;
 
 macro_rules! label {
-    () => {{ || format!("{}:{}:{}", file!(), line!(), column!()) }};
+    () => {{ || format!("{}:{}:{}", file!(), line!(), column!()).replace("/", ".") }};
 }
 
 macro_rules! nest {
@@ -39,11 +40,16 @@ trait Witness<F>: Sync {
 }
 
 struct Switches<F: PrimeField>(Vec<AllocatedNum<F>>);
+#[must_use]
+struct ConsumeSwitches;
 
 impl<F> Switches<F>
 where
     F: PrimeField,
 {
+    fn new() -> (Switches<F>, ConsumeSwitches) {
+        (Switches(vec![]), ConsumeSwitches)
+    }
     fn alloc(
         &mut self,
         mut cs: impl ConstraintSystem<F>,
@@ -53,7 +59,7 @@ where
         self.0.push(switch.clone());
         switch
     }
-    fn consume<CS: ConstraintSystem<F>>(self, mut cs: CS) {
+    fn consume<CS: ConstraintSystem<F>>(self, _marker: ConsumeSwitches, mut cs: CS) {
         cs.enforce(
             label!(),
             |lc| {
@@ -75,12 +81,6 @@ where
         }
 
         std::mem::forget(self)
-    }
-}
-
-impl<F: PrimeField> Drop for Switches<F> {
-    fn drop(&mut self) {
-        unreachable!("you must consume me");
     }
 }
 
@@ -227,7 +227,7 @@ where
 
         let w = &mut *w_guard;
 
-        let mut switches = Switches(vec![]);
+        let (mut switches, consume_switches) = Switches::new();
 
         let mut public_input = PublicInput::of(public_input);
 
@@ -239,7 +239,7 @@ where
             w,
         );
 
-        switches.consume(nest!(cs));
+        switches.consume(consume_switches, nest!(cs));
 
         Ok(public_input.to())
     }
@@ -262,14 +262,22 @@ fn prove_dummy() {
     let w = AllZeroes;
     let w = Arc::new(Mutex::new(w));
     let c = StarstreamCircuit(w);
+    let mut test = TestConstraintSystem::new();
+    type F = <PallasEngine as Engine>::Scalar;
+    let input = [F::ZERO, F::ZERO];
+    let zero = AllocatedNum::alloc_infallible(&mut test, || F::ZERO);
+    let allocated_input = [zero.clone(), zero];
+    c.synthesize(&mut test, &allocated_input)
+        .expect(label!()().as_ref());
+    println!("{:?}", test.which_is_unsatisfied());
+    assert!(test.is_satisfied());
     let pp: PublicParams<PallasEngine> =
         PublicParams::setup(&c, &*default_ck_hint(), &*default_ck_hint());
-    type F = <PallasEngine as Engine>::Scalar;
-    let mut rs = RecursiveSNARK::new(&pp, &c, &[F::ZERO, F::ZERO]).expect(label!()().as_ref());
+    let mut rs = RecursiveSNARK::new(&pp, &c, &input).expect(label!()().as_ref());
     let ic = F::ZERO;
     rs.prove_step(&pp, &c, ic).expect(label!()().as_ref());
     let ic = rs.increment_commitment(&pp, &c);
     let num_steps = rs.num_steps();
-    rs.verify(&pp, num_steps, &[F::ZERO, F::ZERO], ic)
+    rs.verify(&pp, num_steps, &input, ic)
         .expect(label!()().as_ref());
 }
