@@ -1,11 +1,17 @@
+#[cfg(test)]
 use ff::Field;
 use ff::{PrimeField, PrimeFieldBits};
 use nova::frontend::PoseidonConstants;
 use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
+#[cfg(test)]
 use nova::frontend::test_cs::TestConstraintSystem;
 use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
-use nova::nebula::rs::{PublicParams, RecursiveSNARK, StepCircuit};
+use nova::nebula::rs::StepCircuit;
+#[cfg(test)]
+use nova::nebula::rs::{PublicParams, RecursiveSNARK};
+#[cfg(test)]
 use nova::provider::PallasEngine;
+#[cfg(test)]
 use nova::traits::{Engine, snark::default_ck_hint};
 use std::sync::{Arc, Mutex};
 use typenum::U4;
@@ -249,16 +255,16 @@ where
     }
 }
 
-struct AllZeroes;
-
-impl<F: PrimeField> Witness<F> for AllZeroes {
-    fn get(&mut self, _label: impl FnOnce() -> String) -> F {
-        F::ZERO
-    }
-}
-
 #[test]
 fn prove_dummy() {
+    struct AllZeroes;
+
+    impl<F: PrimeField> Witness<F> for AllZeroes {
+        fn get(&mut self, _label: impl FnOnce() -> String) -> F {
+            F::ZERO
+        }
+    }
+
     let w = AllZeroes;
     let w = Arc::new(Mutex::new(w));
     let c = StarstreamCircuit(w);
