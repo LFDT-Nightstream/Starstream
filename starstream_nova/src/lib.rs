@@ -16,17 +16,31 @@ use nova::traits::{Engine, snark::default_ck_hint};
 use std::sync::{Arc, Mutex};
 use typenum::U4;
 
-macro_rules! label {
+// FIXME: horrifying
+static CONSTRAINT_COUNNTER: Mutex<i64> = Mutex::new(0);
+
+macro_rules! label_ {
     () => {{ || format!("{}:{}:{}", file!(), line!(), column!()).replace("/", ".") }};
 }
 
+macro_rules! label {
+    () => {{
+        || {
+            let mut counter = CONSTRAINT_COUNNTER.lock().unwrap();
+            let n = *counter;
+            *counter += 1;
+            format!("{}:{}:{}:{}", file!(), line!(), column!(), n).replace("/", ".")
+        }
+    }};
+}
+
 macro_rules! nest {
-    ($cs:expr) => {{ $cs.namespace(label!()) }};
+    ($cs:expr) => {{ $cs.namespace(label_!()) }};
 }
 
 macro_rules! alloc {
     ($cs:expr, $w:expr) => {{
-        let f = $w.get(label!());
+        let f = $w.get(label_!());
         AllocatedNum::alloc_infallible(nest!($cs), || f)
     }};
 }
@@ -160,8 +174,8 @@ fn visit_enter<CS, F>(
     cs.enforce(
         label!(),
         |lc| lc + new_timestamp.get_variable() - timestamp.get_variable(),
-        |lc| lc + CS::one(),
-        |lc| lc + CS::one(),
+        |lc| lc + switch.get_variable(),
+        |lc| lc + switch.get_variable(),
     );
     let zero = alloc!(cs, w);
     cs.enforce(
@@ -190,6 +204,14 @@ fn visit_enter<CS, F>(
         updated,
         new_timestamp,
     );
+}
+
+fn visit_nop<CS, F>(mut cs: CS, switches: &mut Switches<F>, w: &mut impl Witness<F>)
+where
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+{
+    let _switch = switches.alloc(nest!(cs), w);
 }
 
 struct PublicInput<F: PrimeField> {
@@ -244,6 +266,7 @@ where
             &mut public_input.ws,
             w,
         );
+        visit_nop(nest!(cs), &mut switches, w);
 
         switches.consume(consume_switches, nest!(cs));
 
@@ -274,16 +297,19 @@ fn prove_dummy() {
     let zero = AllocatedNum::alloc_infallible(&mut test, || F::ZERO);
     let allocated_input = [zero.clone(), zero];
     c.synthesize(&mut test, &allocated_input)
-        .expect(label!()().as_ref());
-    println!("{:?}", test.which_is_unsatisfied());
+        .expect(label_!()().as_ref());
+    println!(
+        "printing unsatisfied constraints\n{:?}\nprinting unsatisfied constraints done",
+        test.which_is_unsatisfied()
+    );
     assert!(test.is_satisfied());
     let pp: PublicParams<PallasEngine> =
         PublicParams::setup(&c, &*default_ck_hint(), &*default_ck_hint());
-    let mut rs = RecursiveSNARK::new(&pp, &c, &input).expect(label!()().as_ref());
+    let mut rs = RecursiveSNARK::new(&pp, &c, &input).expect(label_!()().as_ref());
     let ic = F::ZERO;
-    rs.prove_step(&pp, &c, ic).expect(label!()().as_ref());
+    rs.prove_step(&pp, &c, ic).expect(label_!()().as_ref());
     let ic = rs.increment_commitment(&pp, &c);
     let num_steps = rs.num_steps();
     rs.verify(&pp, num_steps, &input, ic)
-        .expect(label!()().as_ref());
+        .expect(label_!()().as_ref());
 }
