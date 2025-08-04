@@ -853,11 +853,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI32, Intermediate::StackI32) => {
+                    (Intermediate::StackI32, Intermediate::StackI32)
+                    | (Intermediate::StackU32, Intermediate::StackU32) => {
                         func.instructions().i32_eq();
                         Intermediate::StackBool
                     }
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::StackI64, Intermediate::StackI64)
+                    | (Intermediate::StackU64, Intermediate::StackU64) => {
                         func.instructions().i64_eq();
                         Intermediate::StackBool
                     }
@@ -876,11 +878,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, rhs);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI32, Intermediate::StackI32) => {
+                    (Intermediate::StackI32, Intermediate::StackI32)
+                    | (Intermediate::StackU32, Intermediate::StackU32) => {
                         func.instructions().i32_ne();
                         Intermediate::StackBool
                     }
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::StackI64, Intermediate::StackI64)
+                    | (Intermediate::StackU64, Intermediate::StackU64) => {
                         func.instructions().i64_ne();
                         Intermediate::StackBool
                     }
@@ -1051,6 +1055,59 @@ impl Compiler {
                         Intermediate::Error
                     }
                 }
+            }
+            e @ (Expr::LessThan(lhs, rhs)
+            | Expr::GreaterThan(lhs, rhs)
+            | Expr::LessEq(lhs, rhs)
+            | Expr::GreaterEq(lhs, rhs)) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => {
+                        return Intermediate::Error;
+                    }
+                    (Intermediate::StackI32, Intermediate::StackI32) => match e {
+                        Expr::LessThan(_, _) => {
+                            func.instructions().i32_lt_s();
+                        }
+                        Expr::GreaterThan(_, _) => {
+                            func.instructions().i32_gt_s();
+                        }
+                        Expr::LessEq(_, _) => {
+                            func.instructions().i32_le_s();
+                        }
+                        Expr::GreaterEq(_, _) => {
+                            func.instructions().i32_ge_s();
+                        }
+                        _ => {
+                            return Intermediate::Error;
+                        }
+                    },
+                    (Intermediate::StackU32, Intermediate::StackU32) => match e {
+                        Expr::LessThan(_, _) => {
+                            func.instructions().i32_lt_u();
+                        }
+                        Expr::GreaterThan(_, _) => {
+                            func.instructions().i32_gt_u();
+                        }
+                        Expr::LessEq(_, _) => {
+                            func.instructions().i32_le_u();
+                        }
+                        Expr::GreaterEq(_, _) => {
+                            func.instructions().i32_ge_u();
+                        }
+                        _ => {
+                            return Intermediate::Error;
+                        }
+                    },
+                    (lhs, rhs) => {
+                        self.todo(format!("Expr::LessThan({:?}, {:?})", lhs, rhs));
+                        return Intermediate::Error;
+                    }
+                };
+
+                Intermediate::StackBool
             }
             Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
                 // Short-circuiting.
