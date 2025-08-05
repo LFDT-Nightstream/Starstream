@@ -120,7 +120,19 @@ impl Visitor {
         }
     }
 
-    fn finish(self) -> (Symbols, Vec<Report<'static>>) {
+    fn finish(mut self) -> (Symbols, Vec<Report<'static>>) {
+        for f_info in self.symbols.functions.values() {
+            let mut index = 0;
+            for local in &f_info.info.locals {
+                let symbol_information = self.symbols.vars.get_mut(local).unwrap();
+
+                if symbol_information.info.is_storage.is_none() {
+                    symbol_information.info.index.replace(index);
+                    index += 1;
+                }
+            }
+        }
+
         (self.symbols, self.errors)
     }
 
@@ -380,18 +392,16 @@ impl Visitor {
         self.push_function_declaration(
             &mut Identifier::new("resume", None),
             FuncInfo {
-                inputs_ty: std::iter::once(self_ty.clone())
-                    .chain(
-                        utxo.items
-                            .iter()
-                            .filter_map(|item| match item {
-                                UtxoItem::Resume(type_arg) => Some(type_arg.clone()),
-                                _ => None,
-                            })
-                            .chain(std::iter::once(TypeArg::Unit))
-                            .take(1)
-                            .map(|ty| TypeArg::Ref(Box::new(ty))),
-                    )
+                inputs_ty: utxo
+                    .items
+                    .iter()
+                    .filter_map(|item| match item {
+                        UtxoItem::Resume(type_arg) => Some(type_arg.clone()),
+                        _ => None,
+                    })
+                    .chain(std::iter::once(TypeArg::Unit))
+                    .take(1)
+                    .map(|ty| TypeArg::Ref(Box::new(ty)))
                     .collect(),
                 output_ty: Some(self_ty.clone()),
                 effects,
@@ -623,9 +633,7 @@ impl Visitor {
                             output_ty: Some(self_ty_ref.clone()),
                             effects,
                             locals: vec![],
-                            // FIXME
                             is_main: true,
-                            is_utxo_method: true,
                             mangled_name: Some(format!("starstream_bind_{}", token.name.raw)),
                             ..Default::default()
                         },
@@ -635,7 +643,7 @@ impl Visitor {
 
                     self.declare_implicit_storage_var(uid, bind.1.uid.unwrap());
 
-                    let _var = self.push_var_declaration(
+                    let _intermediate = self.push_var_declaration(
                         &mut Identifier::new("intermediate", bind.1.span),
                         false,
                         None,
@@ -645,18 +653,19 @@ impl Visitor {
                     self.pop_scope();
                 }
                 TokenItem::Unbind(unbind) => {
+                    let any = Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None))));
                     self.push_function_declaration(
                         &mut unbind.1,
                         FuncInfo {
-                            // TODO: handle
-                            inputs_ty: vec![TypeArg::U64],
-                            // TODO: intermediate
-                            output_ty: None,
+                            inputs_ty: vec![],
+                            output_ty: Some(TypeArg::Intermediate {
+                                abi: any.clone(),
+                                storage: any.clone(),
+                            }),
                             effects,
                             locals: vec![],
-                            // FIXME
-                            is_utxo_method: true,
                             is_main: false,
+                            mangled_name: Some(format!("starstream_unbind_{}", token.name.raw)),
                             ..Default::default()
                         },
                     );
@@ -672,7 +681,7 @@ impl Visitor {
                     self.push_function_declaration(
                         &mut mint.1,
                         FuncInfo {
-                            inputs_ty: vec![TypeArg::I32],
+                            inputs_ty: vec![TypeArg::I64],
                             output_ty: Some(TypeArg::Intermediate {
                                 abi: any.clone(),
                                 storage: any,
@@ -680,7 +689,6 @@ impl Visitor {
                             effects,
                             locals: vec![],
                             is_main: false,
-                            is_utxo_method: false,
                             mangled_name: Some(format!("starstream_mint_{}", token.name.raw)),
                             ..Default::default()
                         },
@@ -700,7 +708,7 @@ impl Visitor {
                         .info
                         .ty
                         .replace(crate::typechecking::ComparableType::Primitive(
-                            crate::typechecking::PrimitiveType::I32,
+                            crate::typechecking::PrimitiveType::I64,
                         ));
 
                     self.visit_block(&mut mint.0, false);
@@ -778,7 +786,6 @@ impl Visitor {
                     output_ty: definition.output.clone(),
                     effects,
                     locals: vec![],
-                    is_utxo_method: utxo.is_some(),
                     is_main: false,
                     mangled_name: utxo
                         .as_ref()
@@ -828,18 +835,12 @@ impl Visitor {
         let scope = self.stack.last_mut().unwrap();
         scope.var_declarations.insert(ident.raw.clone(), symbol);
 
-        let index = if let Some(_utxo) = is_storage {
-            None
-        } else {
-            // TODO: handle error
-            let fn_scope = self.locals.last_mut().unwrap();
-            let index = fn_scope.len();
-            fn_scope.push(ident.uid.unwrap());
-            Some(index as u64)
-        };
+        // TODO: handle error
+        let fn_scope = self.locals.last_mut().unwrap();
+        fn_scope.push(ident.uid.unwrap());
 
         let var_info = VarInfo {
-            index,
+            index: None,
             mutable,
             ty: None,
             is_storage,
@@ -1760,7 +1761,7 @@ mod tests {
                     })
                     .unwrap();
 
-                assert_eq!(mint.info.inputs_ty, vec![TypeArg::I32]);
+                assert_eq!(mint.info.inputs_ty, vec![TypeArg::I64]);
 
                 let TypeArg::Intermediate { .. } = dbg!(mint.info.output_ty.clone()).unwrap()
                 else {

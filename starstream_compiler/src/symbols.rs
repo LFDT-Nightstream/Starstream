@@ -57,7 +57,6 @@ pub struct FuncInfo {
     pub storage: Option<SymbolId>,
 
     pub is_main: bool,
-    pub is_utxo_method: bool,
 }
 
 #[derive(Debug, Clone)]

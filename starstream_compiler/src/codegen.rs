@@ -109,7 +109,7 @@ impl StaticType {
             ComparableType::Primitive(PrimitiveType::F32) => StaticType::F32,
             ComparableType::Primitive(PrimitiveType::F64) => StaticType::F64,
             ComparableType::Primitive(PrimitiveType::Bool) => StaticType::Bool,
-            ComparableType::Intermediate => StaticType::I32,
+            ComparableType::Intermediate => StaticType::I64,
             ComparableType::FnType(_, _) => todo!(),
             ComparableType::Utxo(_symbol_id, _) => StaticType::I64,
             ComparableType::Var(type_var) => {
@@ -274,6 +274,8 @@ struct Compiler {
     // Compiler state.
     bump_ptr: u32,
     raw_func_type_cache: HashMap<FuncType, u32>,
+
+    // we insert all the generated functions at the end
     functions_builder: Vec<(StarFunctionType, Option<Function>)>,
 
     global_scope_functions: HashMap<String, u32>,
@@ -347,7 +349,7 @@ impl Compiler {
                             .info
                             .inputs_ty
                             .iter()
-                            .zip(f_info.info.locals.iter().map(|local| {
+                            .zip(f_info.info.locals.iter().skip(1).map(|local| {
                                 symbols_table
                                     .vars
                                     .get(local)
@@ -394,6 +396,7 @@ impl Compiler {
                                     .info
                                     .locals
                                     .iter()
+                                    .skip(1)
                                     .map(|local| {
                                         symbols_table
                                             .vars
@@ -439,7 +442,18 @@ impl Compiler {
                     "starstream_token:this",
                     f_info.info.mangled_name.as_ref().unwrap(),
                     StarFunctionType {
-                        params: vec![StaticType::I32],
+                        params: vec![StaticType::I64],
+                        results: vec![StaticType::I64],
+                    },
+                );
+
+                f_info.info.index.replace(index);
+            } else if f_info.source == "unbind" && f_info.info.mangled_name.is_some() {
+                let index = this.import_function(
+                    "starstream_token:this",
+                    f_info.info.mangled_name.as_ref().unwrap(),
+                    StarFunctionType {
+                        params: vec![StaticType::I64],
                         results: vec![StaticType::I64],
                     },
                 );
@@ -476,7 +490,6 @@ impl Compiler {
                     &symbols_table.type_vars,
                     &symbols_table.vars,
                     f_info.info.is_main,
-                    f_info.info.is_utxo_method,
                 );
 
                 let index = this.add_function(ty, f);
@@ -625,6 +638,7 @@ impl Compiler {
             ProgramItem::Utxo(utxo) => self.visit_utxo(utxo),
             ProgramItem::Token(token) => self.visit_token(token),
             ProgramItem::Abi(_abi) => {}
+            ProgramItem::TypeDef(_) => {}
             _ => self.todo(format!("ProgramItem::{:?}", item)),
         }
     }
@@ -646,7 +660,6 @@ impl Compiler {
                         &self.symbols_table.type_vars,
                         &self.symbols_table.vars,
                         true,
-                        false,
                     );
 
                     let return_value = self.visit_block(&mut function, &main.block);
@@ -694,7 +707,7 @@ impl Compiler {
 
                     self.drop_intermediate(&mut function, return_value);
 
-                    function.instructions().local_get(1).end();
+                    function.instructions().local_get(0).end();
 
                     self.replace_function_body(index, function);
 
@@ -718,14 +731,23 @@ impl Compiler {
                         &self.symbols_table.type_vars,
                         &self.symbols_table.vars,
                         f_info.info.is_main,
-                        f_info.info.is_utxo_method,
                     );
 
                     let return_value = self.visit_block(&mut function, &bind.0);
 
                     self.drop_intermediate(&mut function, return_value);
 
-                    function.instructions().end();
+                    function
+                        .instructions()
+                        // TODO: ignore the ID for now
+                        .i32_const(8)
+                        .local_get(0)
+                        .i64_store(MemArg {
+                            offset: 0,
+                            align: 0,
+                            memory_index: 0,
+                        })
+                        .end();
 
                     let index = self.add_function(ty, function);
 
@@ -743,8 +765,48 @@ impl Compiler {
                     self.exports
                         .export(&name, wasm_encoder::ExportKind::Func, index);
                 }
-                TokenItem::Unbind(_unbind) => {
-                    // TODO
+                TokenItem::Unbind(unbind) => {
+                    let f_info = self
+                        .symbols_table
+                        .functions
+                        .get(&unbind.1.uid.unwrap())
+                        .unwrap();
+
+                    let (ty, mut function) = build_func(
+                        f_info,
+                        &self.symbols_table.type_vars,
+                        &self.symbols_table.vars,
+                        f_info.info.is_main,
+                    );
+
+                    let return_value = self.visit_block(&mut function, &unbind.0);
+
+                    self.drop_intermediate(&mut function, return_value);
+
+                    // amount
+                    function.instructions().i32_const(0).i64_load(MemArg {
+                        offset: 8,
+                        align: 0,
+                        memory_index: 0,
+                    });
+
+                    function.instructions().end();
+
+                    let index = self.add_function(ty, function);
+
+                    // TODO: probably can avoid this lookup
+                    let name = self
+                        .symbols_table
+                        .functions
+                        .get(&unbind.1.uid.unwrap())
+                        .unwrap()
+                        .info
+                        .mangled_name
+                        .clone()
+                        .unwrap();
+
+                    self.exports
+                        .export(&name, wasm_encoder::ExportKind::Func, index);
                 }
             }
         }
@@ -764,8 +826,11 @@ impl Compiler {
             let mut function = self.get_function_body(index);
 
             let return_value = self.visit_block(&mut function, &fndef.body);
-            // TODO: handle non-void return values
-            self.drop_intermediate(&mut function, return_value);
+
+            if matches!(return_value, Intermediate::Void) {
+                self.drop_intermediate(&mut function, return_value);
+            }
+
             function.instructions().end();
 
             self.replace_function_body(index, function);
@@ -840,6 +905,30 @@ impl Compiler {
                 let im = self.visit_field_access_expr(func, var, Some(expr));
 
                 assert!(matches!(im, Intermediate::Void));
+            }
+            Statement::While(cond, body) => {
+                func.instructions().block(BlockType::Empty);
+                func.instructions().loop_(BlockType::Empty);
+
+                let im = self.visit_expr(func, cond);
+
+                assert!(matches!(im, Intermediate::StackBool));
+
+                func.instructions().br_if(1);
+
+                let body = match body {
+                    LoopBody::Statement(statement) => {
+                        self.visit_statement(func, statement);
+                        Intermediate::Void
+                    }
+                    LoopBody::Block(block) => self.visit_block(func, block),
+                    LoopBody::Expr(expr) => self.visit_expr(func, expr),
+                };
+
+                assert!(matches!(body, Intermediate::Void));
+                self.drop_intermediate(func, body);
+
+                func.instructions().br(0).end().end();
             }
             _ => self.todo(format!("Statement::{:?}", statement)),
         }
@@ -1250,9 +1339,10 @@ impl Compiler {
                             if let Some(actual_ty) = rhs.as_ref() {
                                 match (actual_ty, &**ty) {
                                     (Intermediate::Void, StaticType::Void) => {}
-                                    (Intermediate::StackU64, StaticType::U64) => {}
                                     (Intermediate::StackI32, StaticType::I32) => {}
                                     (Intermediate::StackU32, StaticType::U32) => {}
+                                    (Intermediate::StackU64, StaticType::U64) => {}
+                                    (Intermediate::StackI64, StaticType::I64) => {}
                                     (expected, found) => {
                                         Report::build(ReportKind::Error, 0..0)
                                     .with_message(format_args!(
@@ -1554,7 +1644,6 @@ impl Compiler {
                 &self.symbols_table.type_vars,
                 &self.symbols_table.vars,
                 false,
-                true,
             );
 
             let _return_value = self.visit_block(&mut function, &fndef.body);
@@ -1702,7 +1791,6 @@ fn build_func(
     type_vars: &HashMap<TypeVar, ComparableType>,
     vars: &HashMap<SymbolId, SymbolInformation<VarInfo>>,
     is_main: bool,
-    is_utxo_method: bool,
 ) -> (StarFunctionType, Function) {
     // TODO: duplicated code
     let ty = StarFunctionType {
@@ -1710,15 +1798,14 @@ fn build_func(
             .info
             .inputs_ty
             .iter()
-            .zip(
-                std::iter::once(&ComparableType::Product(vec![]))
-                    .filter(|_| is_utxo_method)
-                    .chain(f_info.info.locals.iter().map(|local| {
-                        let var_info = &vars.get(local).as_ref().unwrap().info;
+            .zip(f_info.info.locals.iter().filter_map(|local| {
+                let var_info = &vars.get(local).as_ref().unwrap().info;
 
-                        var_info.ty.as_ref().unwrap()
-                    })),
-            )
+                var_info
+                    .ty
+                    .as_ref()
+                    .filter(|_| var_info.is_storage.is_none())
+            }))
             .map(|(_, ty)| StaticType::from_canonical_type(ty, type_vars))
             .collect(),
         results: if is_main {
@@ -1800,6 +1887,16 @@ mod tests {
     #[test]
     fn compile_pay_to_public_key_hash() {
         let src = include_str!("../../grammar/examples/pay_to_public_key_hash.star");
+        test_example(src);
+    }
+
+    #[test]
+    fn compile_simple_oracle() {
+        let src = include_str!("../../grammar/examples/simple_oracle.star");
+        test_example(src);
+    }
+
+    fn test_example(src: &str) {
         let (program, parse_errors) = parse(src);
         assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
         let program = program.expect("parse failed");
@@ -1819,6 +1916,11 @@ mod tests {
             compile_errors.is_empty(),
             "compile errors: {compile_errors:?}"
         );
+
+        for e in compile_errors {
+            e.eprint(ariadne::Source::from(src)).unwrap();
+        }
+
         let wasm = wasm.expect("compilation failed");
 
         let exports = export_names(&wasm);

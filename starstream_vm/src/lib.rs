@@ -1021,6 +1021,10 @@ struct TransactionInner {
 pub struct Transaction {
     store: Store<TransactionInner>,
     code_cache: Arc<CodeCache>,
+    // Used to keep the rust-based examples working without constraining the dsl
+    // where necessary. This is meant to be a temporary patch, since we probably
+    // are not going to keep using the rust examples eventually.
+    rust_compat: bool,
 }
 
 impl Default for Transaction {
@@ -1038,7 +1042,12 @@ impl Transaction {
         Transaction {
             store,
             code_cache: Default::default(),
+            rust_compat: false,
         }
+    }
+
+    pub fn with_rust_compat(&mut self, rust_compat: bool) {
+        self.rust_compat = rust_compat;
     }
 
     pub fn code_cache(&self) -> &Arc<CodeCache> {
@@ -1159,9 +1168,10 @@ impl Transaction {
                             .unwrap()
                             .data(&self.store);
 
+                        let addr = if self.rust_compat { 16usize } else { 0usize };
                         let segment = MemorySegment {
-                            address: 16,
-                            data: memory[16..32].to_vec(),
+                            address: addr as u32,
+                            data: memory[addr..addr + 16].to_vec(),
                         };
                         let mut cursor = &segment.data[..];
                         let id = cursor.read_u64::<LittleEndian>().unwrap();
@@ -1406,12 +1416,14 @@ impl Transaction {
                 }) => {
                     let to_program = self.store.data().utxos[&utxo_id].program;
 
-                    // Insert address of yielded object.
-                    let address = match self.store.data().programs[to_program.0].interrupt() {
-                        Some(Interrupt::Yield { data, .. }) => *data,
-                        other => panic!("cannot query a UTXO in state {other:?}"),
-                    };
-                    inputs.insert(0, Value::I32(address as i32));
+                    if self.rust_compat {
+                        // Insert address of yielded object.
+                        let address = match self.store.data().programs[to_program.0].interrupt() {
+                            Some(Interrupt::Yield { data, .. }) => *data,
+                            other => panic!("cannot query a UTXO in state {other:?}"),
+                        };
+                        inputs.insert(0, Value::I32(address as i32));
+                    }
                     self.call_method(from_program, to_program, method, inputs)
                     // TODO: either enforce non-mutation or drop the query/mutate split
                 }
@@ -1507,8 +1519,10 @@ impl Transaction {
                     // BEST: Use WASM multivalues (Rust -Ctarget-feature=+multivalue)
                     // instead of struct return addresses in the first place.
                     // TODO: Memory trace this or fix the hack described above.
-                    let return_addr: usize = 16;
-                    inputs.insert(0, Value::I32(return_addr as i32));
+                    if self.rust_compat {
+                        let return_addr: usize = 16;
+                        inputs.insert(0, Value::I32(return_addr as i32));
+                    }
 
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
@@ -1539,7 +1553,11 @@ impl Transaction {
 
                     let linker = token_linker(self.store.engine(), &code);
 
-                    let inputs = vec![Value::I64(token.id as i64), Value::I64(token.amount as i64)];
+                    let inputs = if self.rust_compat {
+                        vec![Value::I64(token.id as i64), Value::I64(token.amount as i64)]
+                    } else {
+                        vec![]
+                    };
 
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);

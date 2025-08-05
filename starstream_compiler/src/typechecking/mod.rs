@@ -542,7 +542,7 @@ impl<'a> TypeInference<'a> {
                         .info
                         .inputs_ty
                         .iter()
-                        .zip(fn_info.info.locals.iter())
+                        .zip(fn_info.info.locals.iter().skip(1))
                     {
                         let ty = ty.canonical_form(self.symbols);
 
@@ -562,8 +562,6 @@ impl<'a> TypeInference<'a> {
                 }
                 TokenItem::Mint(mint) => {
                     let effects = self.check_block(&mut mint.0, ComparableType::unit());
-
-                    // self.add_storage_var_ty(uid, mint.1.uid.unwrap());
 
                     if !effects.is_empty() {
                         self.errors.push(error_effect_type_mismatch(
@@ -591,6 +589,10 @@ impl<'a> TypeInference<'a> {
             .inputs_ty
             .clone();
 
+        if let Some(utxo) = utxo {
+            self.add_storage_var_ty(utxo, symbol);
+        }
+
         for (arg_ty, arg_before) in inputs
             .iter()
             .skip(utxo.map(|_| 1).unwrap_or(0))
@@ -605,25 +607,6 @@ impl<'a> TypeInference<'a> {
                 .unwrap();
 
             var_info.info.ty.replace(ty.clone());
-        }
-
-        if let Some(utxo) = utxo {
-            let type_info = self.symbols.types.get(&utxo).unwrap();
-
-            let storage_ty = type_info.info.storage_ty.clone().unwrap();
-
-            let storage_var = self
-                .symbols
-                .functions
-                .get(&fn_def.ident.uid.unwrap())
-                .unwrap()
-                .info
-                .storage
-                .unwrap();
-
-            let var_info = self.symbols.vars.get_mut(&storage_var).unwrap();
-
-            var_info.info.ty.replace(storage_ty.clone());
         }
 
         let output = fn_def

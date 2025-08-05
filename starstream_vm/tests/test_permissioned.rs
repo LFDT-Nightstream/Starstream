@@ -15,6 +15,7 @@ pub fn main() {
         .unwrap();
 
     let mut tx = Transaction::new();
+    tx.with_rust_compat(true);
 
     let contract = tx.code_cache().load_debug("example_contract_permissioned");
 
