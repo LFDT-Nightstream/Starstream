@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use typenum::U4;
 
 // FIXME: horrifying
-static CONSTRAINT_COUNNTER: Mutex<i64> = Mutex::new(0);
+static CONSTRAINT_COUNTER: Mutex<i64> = Mutex::new(0);
 
 macro_rules! label_ {
     () => {{ || format!("{}:{}:{}", file!(), line!(), column!()).replace("/", ".") }};
@@ -26,7 +26,7 @@ macro_rules! label_ {
 macro_rules! label {
     () => {{
         || {
-            let mut counter = CONSTRAINT_COUNNTER.lock().unwrap();
+            let mut counter = CONSTRAINT_COUNTER.lock().unwrap();
             let n = *counter;
             *counter += 1;
             format!("{}:{}:{}:{}", file!(), line!(), column!(), n).replace("/", ".")
@@ -39,9 +39,13 @@ macro_rules! nest {
 }
 
 macro_rules! alloc {
-    ($cs:expr, $w:expr) => {{
-        let f = $w.get(label_!());
-        AllocatedNum::alloc_infallible(nest!($cs), || f)
+    ($name:literal, $cs:expr, $w:expr) => {{
+        match $w.get($name, label_!()) {
+            Some(val) => AllocatedNum::alloc_infallible(nest!($cs), || val),
+            None => AllocatedNum::alloc_infallible(nest!($cs), || {
+                unreachable!("witness requested when unavailable")
+            }),
+        }
     }};
 }
 
@@ -56,7 +60,7 @@ impl<W> Clone for StarstreamCircuit<W> {
 }
 
 trait Witness<F>: Sync {
-    fn get(&mut self, label: impl FnOnce() -> String) -> F;
+    fn get(&mut self, name: &'static str, label: impl FnOnce() -> String) -> Option<F>;
 }
 
 struct Switches<F: PrimeField>(Vec<AllocatedNum<F>>);
@@ -75,7 +79,7 @@ where
         mut cs: impl ConstraintSystem<F>,
         w: &mut impl Witness<F>,
     ) -> AllocatedNum<F> {
-        let switch = alloc!(cs, w);
+        let switch = alloc!("switch", cs, w);
         self.0.push(switch.clone());
         switch
     }
@@ -110,7 +114,7 @@ fn if_switch<F: PrimeField, CS: ConstraintSystem<F>>(
     switch: AllocatedNum<F>,
     n: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
-    let r = alloc!(cs, w);
+    let r = alloc!("if_result", cs, w);
     cs.enforce(
         label!(),
         |lc| lc + switch.get_variable(),
@@ -142,7 +146,7 @@ fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     v: AllocatedNum<F>,
     t: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
-    let zero = alloc!(cs, w);
+    let zero = alloc!("zero", cs, w);
     cs.enforce(
         label!(),
         |lc| lc + zero.get_variable(),
@@ -165,19 +169,19 @@ fn visit_enter<CS, F>(
     CS: ConstraintSystem<F>,
 {
     let switch = switches.alloc(nest!(cs), w);
-    let utxo_index = alloc!(cs, w);
-    let input = alloc!(cs, w);
-    let output = alloc!(cs, w);
-    let prev = alloc!(cs, w);
-    let timestamp = alloc!(cs, w);
-    let new_timestamp = alloc!(cs, w);
+    let utxo_index = alloc!("utxo_index", cs, w);
+    let input = alloc!("input", cs, w);
+    let output = alloc!("output", cs, w);
+    let prev = alloc!("prev", cs, w);
+    let timestamp = alloc!("timestamp", cs, w);
+    let new_timestamp = alloc!("new_timestamp", cs, w);
     cs.enforce(
         label!(),
         |lc| lc + new_timestamp.get_variable() - timestamp.get_variable(),
         |lc| lc + switch.get_variable(),
         |lc| lc + switch.get_variable(),
     );
-    let zero = alloc!(cs, w);
+    let zero = alloc!("zero", cs, w);
     cs.enforce(
         label!(),
         |lc| lc + zero.get_variable(),
@@ -278,37 +282,86 @@ where
     }
 }
 
+pub struct WitnessFromVec<F>(Vec<(F, &'static str)>);
+
+impl<F: PrimeField> Witness<F> for WitnessFromVec<F> {
+    fn get(&mut self, name: &'static str, label: impl FnOnce() -> String) -> Option<F> {
+        let Some((val, name_)) = self.0.pop() else {
+            eprintln!("not enough witnesses available: {} at {}", name, label());
+            return Some(F::ZERO);
+        };
+        if name != name_ {
+            eprintln!("{}: expected {}, got {}", label(), name, name_);
+        }
+        Some(val)
+    }
+}
+
+pub struct NoWitness;
+
+impl<F> Witness<F> for NoWitness {
+    fn get(&mut self, _name: &'static str, _label: impl FnOnce() -> String) -> Option<F> {
+        None
+    }
+}
+
 #[test]
 fn prove_dummy() {
-    struct AllZeroes;
-
-    impl<F: PrimeField> Witness<F> for AllZeroes {
-        fn get(&mut self, _label: impl FnOnce() -> String) -> F {
-            F::ZERO
-        }
-    }
-
-    let w = AllZeroes;
-    let w = Arc::new(Mutex::new(w));
-    let c = StarstreamCircuit(w);
     let mut test = TestConstraintSystem::new();
     type F = <PallasEngine as Engine>::Scalar;
     let input = [F::ZERO, F::ZERO];
     let zero = AllocatedNum::alloc_infallible(&mut test, || F::ZERO);
     let allocated_input = [zero.clone(), zero];
-    c.synthesize(&mut test, &allocated_input)
+    let witness = || {
+        let mut v = vec![
+            (F::ZERO, "switch"),
+            (F::ZERO, "utxo_index"),
+            (F::ZERO, "input"),
+            (F::ZERO, "output"),
+            (F::ZERO, "prev"),
+            (F::ZERO, "timestamp"),
+            (F::ZERO, "new_timestamp"),
+            (F::ZERO, "zero"),
+            (F::ZERO, "if_result"),
+            (F::ZERO, "zero"),
+            (F::ZERO, "if_result"),
+            (F::ZERO, "zero"),
+            (F::ZERO, "if_result"),
+            (F::ONE, "switch"),
+        ];
+        v.reverse();
+        v
+    };
+    StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness()))))
+        .synthesize(&mut test, &allocated_input)
         .expect(label_!()().as_ref());
     println!(
         "printing unsatisfied constraints\n{:?}\nprinting unsatisfied constraints done",
         test.which_is_unsatisfied()
     );
     assert!(test.is_satisfied());
-    let pp: PublicParams<PallasEngine> =
-        PublicParams::setup(&c, &*default_ck_hint(), &*default_ck_hint());
-    let mut rs = RecursiveSNARK::new(&pp, &c, &input).expect(label_!()().as_ref());
+    let pp: PublicParams<PallasEngine> = PublicParams::setup(
+        &StarstreamCircuit(Arc::new(Mutex::new(NoWitness))),
+        &*default_ck_hint(),
+        &*default_ck_hint(),
+    );
+    let mut rs = RecursiveSNARK::new(
+        &pp,
+        &StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness())))),
+        &input,
+    )
+    .expect(label_!()().as_ref());
     let ic = F::ZERO;
-    rs.prove_step(&pp, &c, ic).expect(label_!()().as_ref());
-    let ic = rs.increment_commitment(&pp, &c);
+    rs.prove_step(
+        &pp,
+        &StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness())))),
+        ic,
+    )
+    .expect(label_!()().as_ref());
+    let ic = rs.increment_commitment(
+        &pp,
+        &StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness())))),
+    );
     let num_steps = rs.num_steps();
     rs.verify(&pp, num_steps, &input, ic)
         .expect(label_!()().as_ref());
