@@ -131,13 +131,6 @@ impl ComparableType {
         false
     }
 
-    pub(crate) fn token_storage() -> ComparableType {
-        ComparableType::Product(vec![
-            ("id".to_string(), ComparableType::u32()),
-            ("amount".to_string(), ComparableType::u32()),
-        ])
-    }
-
     pub fn deref_1(&self) -> ComparableType {
         match self {
             ComparableType::Ref(inner) => *inner.clone(),
