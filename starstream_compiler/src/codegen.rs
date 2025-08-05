@@ -677,8 +677,68 @@ impl Compiler {
                         func.instructions().f64_add();
                         Intermediate::StackF64
                     }
+                    (Intermediate::StackI32, Intermediate::StackI32)
+                    | (Intermediate::StackU32, Intermediate::StackU32) => {
+                        func.instructions().i32_add();
+                        Intermediate::StackI32 // TODO: separate branch that produces StackU32
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64)
+                    | (Intermediate::StackU64, Intermediate::StackU64) => {
+                        func.instructions().i64_add();
+                        Intermediate::StackI64 // TODO: separate branch that produces StackU64
+                    }
                     (lhs, rhs) => {
                         self.todo(format!("Expr::Add({:?}, {:?})", lhs, rhs));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Sub(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackF64, Intermediate::StackF64) => {
+                        func.instructions().f64_sub();
+                        Intermediate::StackF64
+                    }
+                    (Intermediate::StackI32, Intermediate::StackI32)
+                    | (Intermediate::StackU32, Intermediate::StackU32) => {
+                        func.instructions().i32_sub();
+                        Intermediate::StackI32 // TODO: separate branch that produces StackU32
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64)
+                    | (Intermediate::StackU64, Intermediate::StackU64) => {
+                        func.instructions().i64_sub();
+                        Intermediate::StackI64 // TODO: separate branch that produces StackU64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Expr::Sub({:?}, {:?})", lhs, rhs));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Mul(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackF64, Intermediate::StackF64) => {
+                        func.instructions().f64_mul();
+                        Intermediate::StackF64
+                    }
+                    (Intermediate::StackI32, Intermediate::StackI32)
+                    | (Intermediate::StackU32, Intermediate::StackU32) => {
+                        func.instructions().i32_mul();
+                        Intermediate::StackI32 // TODO: separate branch that produces StackU32
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64)
+                    | (Intermediate::StackU64, Intermediate::StackU64) => {
+                        func.instructions().i64_mul();
+                        Intermediate::StackI64 // TODO: separate branch that produces StackU64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Expr::Mul({:?}, {:?})", lhs, rhs));
                         Intermediate::Error
                     }
                 }
