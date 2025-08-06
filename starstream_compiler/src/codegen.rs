@@ -743,6 +743,89 @@ impl Compiler {
                     }
                 }
             }
+            // TODO: Div
+            Expr::BitNot(operand) => match self.visit_expr(func, operand) {
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::StackI32 => {
+                    // Wasm doesn't have a native bitnot instruction, so XOR with all-ones.
+                    func.instructions().i32_const(-1);
+                    func.instructions().i32_xor();
+                    Intermediate::StackI32
+                }
+                Intermediate::StackU32 => {
+                    func.instructions().i32_const(-1);
+                    func.instructions().i32_xor();
+                    Intermediate::StackU32
+                }
+                Intermediate::StackI64 => {
+                    func.instructions().i64_const(-1);
+                    func.instructions().i64_xor();
+                    Intermediate::StackI64
+                }
+                Intermediate::StackU64 => {
+                    func.instructions().i64_const(-1);
+                    func.instructions().i64_xor();
+                    Intermediate::StackU64
+                }
+                other => {
+                    self.todo(format!("Expr::BitNot({:?})", other));
+                    Intermediate::Error
+                }
+            },
+            Expr::BitAnd(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI32, Intermediate::StackI32) => {
+                        func.instructions().i32_and();
+                        Intermediate::StackI32
+                    }
+                    (Intermediate::StackU32, Intermediate::StackU32) => {
+                        func.instructions().i32_add();
+                        Intermediate::StackU32
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_and();
+                        Intermediate::StackI64
+                    }
+                    (Intermediate::StackU64, Intermediate::StackU64) => {
+                        func.instructions().i64_and();
+                        Intermediate::StackU64
+                    }
+                    other => {
+                        self.todo(format!("Expr::BitAnd({:?})", other));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::BitOr(lhs, rhs) => {
+                let lhs = self.visit_expr(func, lhs);
+                let rhs = self.visit_expr(func, rhs);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI32, Intermediate::StackI32) => {
+                        func.instructions().i32_or();
+                        Intermediate::StackI32
+                    }
+                    (Intermediate::StackU32, Intermediate::StackU32) => {
+                        func.instructions().i32_or();
+                        Intermediate::StackU32
+                    }
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_or();
+                        Intermediate::StackI64
+                    }
+                    (Intermediate::StackU64, Intermediate::StackU64) => {
+                        func.instructions().i64_or();
+                        Intermediate::StackU64
+                    }
+                    other => {
+                        self.todo(format!("Expr::BitOr({:?})", other));
+                        Intermediate::Error
+                    }
+                }
+            }
             Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
