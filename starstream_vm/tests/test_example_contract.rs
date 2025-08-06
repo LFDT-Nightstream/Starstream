@@ -13,6 +13,7 @@ pub fn main() {
         .unwrap();
 
     let mut tx = Transaction::new();
+    tx.with_rust_compat(true);
 
     let example_contract = tx.code_cache().load_debug("example_contract");
 

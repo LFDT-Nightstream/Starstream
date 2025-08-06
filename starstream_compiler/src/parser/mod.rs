@@ -91,14 +91,7 @@ fn sig<'a>() -> impl Parser<'a, &'a str, Sig, extra::Err<Rich<'a, char>>> {
 
 fn fn_def<'a>() -> impl Parser<'a, &'a str, FnDef, extra::Err<Rich<'a, char>>> {
     let typed_bindings = typed_binding(type_arg())
-        .map(|(name, ty)| FnArgDeclaration {
-            name,
-            ty: TypeOrSelf::Type(ty),
-        })
-        .or(just("self").map_with(|ident, extra| FnArgDeclaration {
-            name: Identifier::new(ident, Some(extra.span())),
-            ty: TypeOrSelf::_Self,
-        }))
+        .map(|(name, ty)| FnArgDeclaration { name, ty })
         .separated_by(just(',').padded())
         .allow_trailing()
         .collect::<Vec<_>>()
@@ -140,24 +133,53 @@ fn token<'a>() -> impl Parser<'a, &'a str, Token, extra::Err<Rich<'a, char>>> {
             just("bind")
                 .padded()
                 .ignore_then(block())
-                .map(Bind)
+                .map(|body| Bind(body, Identifier::new("bind", None)))
                 .map(TokenItem::Bind)
                 .or(just("unbind")
                     .padded()
                     .ignore_then(block())
-                    .map(Unbind)
+                    .map(|body| Unbind(body, Identifier::new("unbind", None)))
                     .map(TokenItem::Unbind))
                 .or(just("mint")
                     .padded()
                     .ignore_then(block())
-                    .map(Mint)
+                    .map(|body| Mint(body, Identifier::new("mint", None)))
                     .map(TokenItem::Mint))
                 .padded()
                 .repeated()
                 .collect::<Vec<_>>()
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
-        .map(|(name, items)| Token { name, items })
+        .map(|(name, mut items)| {
+            let has_mint = items.iter().any(|item| matches!(item, TokenItem::Mint(_)));
+            let has_bind = items.iter().any(|item| matches!(item, TokenItem::Bind(_)));
+            let has_unbind = items
+                .iter()
+                .any(|item| matches!(item, TokenItem::Unbind(_)));
+
+            if !has_mint {
+                items.push(TokenItem::Mint(Mint(
+                    Block::Close { semicolon: true },
+                    Identifier::new("mint", None),
+                )))
+            }
+
+            if !has_bind {
+                items.push(TokenItem::Bind(Bind(
+                    Block::Close { semicolon: true },
+                    Identifier::new("bind", None),
+                )))
+            }
+
+            if !has_unbind {
+                items.push(TokenItem::Unbind(Unbind(
+                    Block::Close { semicolon: true },
+                    Identifier::new("unbind", None),
+                )))
+            }
+
+            Token { name, items }
+        })
 }
 
 fn r#impl<'a>() -> impl Parser<'a, &'a str, Impl, extra::Err<Rich<'a, char>>> {
@@ -629,7 +651,7 @@ fn primary_expr<'a>(
         .then(text::int(10))
         .to_slice()
         .map(|s: &str| s.parse().unwrap())
-        .map(PrimaryExpr::Number);
+        .map(|literal| PrimaryExpr::Number { literal, ty: None });
 
     let bool = choice((
         just("true").to(PrimaryExpr::Bool(true)),
@@ -1045,6 +1067,12 @@ mod tests {
     #[test]
     fn parse_oracle_example() {
         let input = include_str!("../../../grammar/examples/oracle.star");
+        test_with_diagnostics(input, starstream_program());
+    }
+
+    #[test]
+    fn parse_pay_to_public_key_hash() {
+        let input = include_str!("../../../grammar/examples/pay_to_public_key_hash.star");
         test_with_diagnostics(input, starstream_program());
     }
 

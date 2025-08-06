@@ -1,6 +1,6 @@
 use crate::{
     ast::{Sig, Storage, TypeArg, TypeDefRhs},
-    typechecking::{ComparableType, EffectSet},
+    typechecking::{ComparableType, EffectSet, TypeVar},
 };
 use chumsky::span::SimpleSpan;
 use std::collections::{HashMap, HashSet};
@@ -16,19 +16,24 @@ pub struct Symbols {
     // lookup for builtin types inside the `types`, since these don't have
     // identifiers on the ast
     pub builtins: HashMap<&'static str, SymbolId>,
+
+    // stores unification results after type inference
+    pub type_vars: HashMap<TypeVar, ComparableType>,
 }
 
 #[derive(Debug, Clone)]
 pub struct VarInfo {
-    pub index: u64,
+    pub index: Option<u64>,
     pub mutable: bool,
     pub ty: Option<ComparableType>,
+    pub is_storage: Option<SymbolId>,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypeInfo {
     pub declarations: HashSet<SymbolId>,
     pub storage: Option<Storage>,
+    pub storage_ty: Option<ComparableType>,
     // TODO: may want to separate typedefs from utxo and token types
     pub type_def: Option<TypeDefRhs>,
     pub yield_ty: Option<TypeArg>,
@@ -41,7 +46,6 @@ pub struct FuncInfo {
     pub inputs_ty: Vec<TypeArg>,
     pub output_ty: Option<TypeArg>,
 
-    pub inputs_canonical_ty: Vec<ComparableType>,
     pub output_canonical_ty: Option<ComparableType>,
 
     pub effects: EffectSet,
@@ -49,6 +53,10 @@ pub struct FuncInfo {
     pub mangled_name: Option<String>,
     // index into the wasm functions table
     pub index: Option<u32>,
+
+    pub storage: Option<SymbolId>,
+
+    pub is_main: bool,
 }
 
 #[derive(Debug, Clone)]

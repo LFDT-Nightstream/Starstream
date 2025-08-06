@@ -18,12 +18,12 @@ utxo LinkedListNode {
   }
 
   impl LinkedListNodeAbi {
-    fn get_key(self): PublicKey {
-      self.key
+    fn get_key(): PublicKey {
+      storage.key
     }
 
-    fn get_next(self): PublicKey {
-      self.next
+    fn get_next(): PublicKey {
+      storage.next
     }
   }
 }
@@ -165,7 +165,7 @@ token PermissionedUSDC {
 
     TokenStorage {
       id: PERMISSIONED_TOKEN_ID,
-      amount: self.amount,
+      amount: storage.amount,
     }
   }
 

@@ -1,6 +1,6 @@
 //! AST types describing a Starstream source file.
 
-use crate::symbols::SymbolId;
+use crate::{symbols::SymbolId, typechecking::ComparableType};
 use chumsky::span::SimpleSpan;
 
 /// The root type of a Starstream source file.
@@ -58,13 +58,13 @@ pub enum TokenItem {
 }
 
 #[derive(Clone, Debug)]
-pub struct Bind(pub Block);
+pub struct Bind(pub Block, pub Identifier);
 
 #[derive(Clone, Debug)]
-pub struct Unbind(pub Block);
+pub struct Unbind(pub Block, pub Identifier);
 
 #[derive(Clone, Debug)]
-pub struct Mint(pub Block);
+pub struct Mint(pub Block, pub Identifier);
 
 #[derive(Clone, Debug)]
 pub struct Impl {
@@ -93,15 +93,9 @@ pub struct Sig {
 pub struct FnDecl(pub Sig);
 
 #[derive(Clone, Debug)]
-pub enum TypeOrSelf {
-    Type(TypeArg),
-    _Self,
-}
-
-#[derive(Clone, Debug)]
 pub struct FnArgDeclaration {
     pub name: Identifier,
-    pub ty: TypeOrSelf,
+    pub ty: TypeArg,
 }
 
 #[derive(Clone, Debug)]
@@ -183,7 +177,7 @@ pub struct FnType {
     pub output: Option<Box<TypeArg>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Eq)]
 pub enum TypeArg {
     Unit,
     Bool,
@@ -202,6 +196,28 @@ pub enum TypeArg {
     TypeApplication(TypeRef, Vec<TypeArg>),
     FnType(FnType),
     Ref(Box<TypeArg>),
+}
+
+impl PartialEq for TypeArg {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::Intermediate {
+                    abi: l_abi,
+                    storage: l_storage,
+                },
+                Self::Intermediate {
+                    abi: r_abi,
+                    storage: r_storage,
+                },
+            ) => l_abi == r_abi && l_storage == r_storage,
+            (Self::TypeRef(l0), Self::TypeRef(r0)) => l0.0.uid.unwrap() == r0.0.uid.unwrap(),
+            (Self::TypeApplication(l0, l1), Self::TypeApplication(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::FnType(l0), Self::FnType(r0)) => l0 == r0,
+            (Self::Ref(l0), Self::Ref(r0)) => l0 == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -314,7 +330,10 @@ pub struct IdentifierExpr {
 
 #[derive(Clone, Debug)]
 pub enum PrimaryExpr {
-    Number(u32),
+    Number {
+        literal: u32,
+        ty: Option<ComparableType>,
+    },
     /// `true` or `false` literal
     Bool(bool),
     /// `a`
