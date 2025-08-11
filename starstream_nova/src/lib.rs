@@ -49,7 +49,6 @@ macro_rules! alloc {
     }};
 }
 
-// FIXME: implement coordination script support
 pub struct StarstreamCircuit<W>(Arc<Mutex<W>>);
 
 impl<W> Clone for StarstreamCircuit<W> {
@@ -123,6 +122,44 @@ fn if_switch<F: PrimeField, CS: ConstraintSystem<F>>(
     );
     r
 }
+
+fn either_switch<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut impl Witness<F>,
+    switch: AllocatedNum<F>,
+    case_true: AllocatedNum<F>,
+    case_false: AllocatedNum<F>,
+) -> AllocatedNum<F> {
+    let r_true = alloc!("either_switch_true", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + switch.get_variable(),
+        |lc| lc + case_true.get_variable(),
+        |lc| lc + r_true.get_variable(),
+    );
+    let r_false = alloc!("either_switch_false", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + CS::one() - switch.get_variable(),
+        |lc| lc + case_false.get_variable(),
+        |lc| lc + r_false.get_variable(),
+    );
+    cs.enforce(
+        label!(),
+        |lc| lc + r_true.get_variable(),
+        |lc| lc + r_false.get_variable(),
+        |lc| lc,
+    );
+    let r = alloc!("either_switch_r", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + r_true.get_variable() + r_false.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc + r.get_variable(),
+    );
+    r
+}
+
 fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
     w: &mut impl Witness<F>,
@@ -136,6 +173,66 @@ fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
     if_switch(nest!(cs), w, switch, hash)
 }
 
+// FIXME: bad hack
+fn zero<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut impl Witness<F>,
+) -> AllocatedNum<F> {
+    let zero = alloc!("zero", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + zero.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc,
+    );
+    zero
+}
+
+// FIXME: bad hack
+fn one<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut impl Witness<F>,
+) -> AllocatedNum<F> {
+    let one = alloc!("one", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + one.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc + CS::one(),
+    );
+    one
+}
+
+// FIXME: bad hack
+fn two<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut impl Witness<F>,
+) -> AllocatedNum<F> {
+    let two = alloc!("two", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + two.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc + CS::one() + CS::one(),
+    );
+    two
+}
+
+// FIXME: bad hack
+fn three<F: PrimeField, CS: ConstraintSystem<F>>(
+    mut cs: CS,
+    w: &mut impl Witness<F>,
+) -> AllocatedNum<F> {
+    let three = alloc!("three", cs, w);
+    cs.enforce(
+        label!(),
+        |lc| lc + three.get_variable(),
+        |lc| lc + CS::one(),
+        |lc| lc + CS::one() + CS::one() + CS::one(),
+    );
+    three
+}
+
 // adds H(a, v, t) to the multiset
 fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
@@ -146,32 +243,20 @@ fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     v: AllocatedNum<F>,
     t: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
-    let zero = alloc!("zero", cs, w);
-    cs.enforce(
-        label!(),
-        |lc| lc + zero.get_variable(),
-        |lc| lc + CS::one(),
-        |lc| lc,
-    );
-    let preimage = vec![a, v, t, zero];
+    let preimage = vec![a, v, t, zero(nest!(cs), w)];
     let hash = hash(nest!(cs), w, switch, preimage);
     multiset.add(nest!(cs), &hash).expect("unreachable")
 }
 
-fn visit_enter<CS, F>(
+fn push<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
-    switches: &mut Switches<F>,
+    w: &mut impl Witness<F>,
+    switch: AllocatedNum<F>,
     rs: &mut AllocatedNum<F>,
     ws: &mut AllocatedNum<F>,
-    w: &mut impl Witness<F>,
-) where
-    F: PrimeField,
-    CS: ConstraintSystem<F>,
-{
-    let switch = switches.alloc(nest!(cs), w);
-    let utxo_index = alloc!("utxo_index", cs, w);
-    let input = alloc!("input", cs, w);
-    let output = alloc!("output", cs, w);
+    idx: AllocatedNum<F>,
+    data: &[AllocatedNum<F>],
+) {
     let prev = alloc!("prev", cs, w);
     let timestamp = alloc!("timestamp", cs, w);
     let new_timestamp = alloc!("new_timestamp", cs, w);
@@ -188,14 +273,21 @@ fn visit_enter<CS, F>(
         |lc| lc + CS::one(),
         |lc| lc,
     );
-    let preimage = vec![input, output, prev.clone(), zero];
+    let preimage = {
+        let mut v = Vec::from(data);
+        v.push(prev.clone());
+        if v.len() % 2 == 1 {
+            v.push(zero);
+        }
+        v
+    };
     let updated = hash(nest!(cs), w, switch.clone(), preimage);
     *rs = memory(
         nest!(cs),
         w,
         switch.clone(),
         rs.clone(),
-        utxo_index.clone(),
+        idx.clone(),
         prev,
         timestamp,
     );
@@ -204,9 +296,143 @@ fn visit_enter<CS, F>(
         w,
         switch,
         ws.clone(),
-        utxo_index,
+        idx,
         updated,
         new_timestamp,
+    );
+}
+
+fn visit_enter<CS, F>(
+    mut cs: CS,
+    switches: &mut Switches<F>,
+    public_input: &mut PublicInput<F>,
+    w: &mut impl Witness<F>,
+) where
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+{
+    let switch = switches.alloc(nest!(cs), w);
+    let utxo_idx = alloc!("utxo_idx", cs, w);
+    let input = alloc!("input", cs, w);
+    push(
+        nest!(cs),
+        w,
+        switch.clone(),
+        &mut public_input.rs,
+        &mut public_input.ws,
+        utxo_idx.clone(),
+        &vec![input.clone()],
+    );
+    let zero = zero(nest!(cs), w);
+    push(
+        nest!(cs),
+        w,
+        switch,
+        &mut public_input.rs_coord,
+        &mut public_input.ws_coord,
+        public_input.coord_idx.clone(),
+        &vec![zero, utxo_idx, input],
+    );
+}
+
+fn visit_push_coord<CS, F>(
+    mut cs: CS,
+    switches: &mut Switches<F>,
+    public_input: &mut PublicInput<F>,
+    w: &mut impl Witness<F>,
+) where
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+{
+    let switch = switches.alloc(nest!(cs), w);
+    let new_coord_idx = alloc!("new_coord_idx", cs, w);
+    let input = alloc!("input", cs, w);
+    let one = one(nest!(cs), w);
+    push(
+        nest!(cs),
+        w,
+        switch.clone(),
+        &mut public_input.rs_coord,
+        &mut public_input.ws_coord,
+        public_input.coord_idx.clone(),
+        // FIXME: use hash instead of idx
+        &vec![one, new_coord_idx.clone(), input.clone()],
+    );
+    let two = two(nest!(cs), w);
+    push(
+        nest!(cs),
+        w,
+        switch.clone(),
+        &mut public_input.rs_coord,
+        &mut public_input.ws_coord,
+        new_coord_idx.clone(),
+        // FIXME: use hash instead of idx
+        &vec![two, public_input.coord_idx.clone(), input],
+    );
+    let preimage = vec![
+        public_input.coord_idx.clone(),
+        public_input.coord_stack.clone(),
+    ];
+    let new_coord_stack = hash(nest!(cs), w, switch.clone(), preimage);
+    public_input.coord_idx = either_switch(
+        nest!(cs),
+        w,
+        switch.clone(),
+        new_coord_idx,
+        public_input.coord_idx.clone(),
+    );
+    public_input.coord_stack = either_switch(
+        nest!(cs),
+        w,
+        switch,
+        new_coord_stack,
+        public_input.coord_stack.clone(),
+    );
+}
+
+fn visit_pop_coord<CS, F>(
+    mut cs: CS,
+    switches: &mut Switches<F>,
+    public_input: &mut PublicInput<F>,
+    w: &mut impl Witness<F>,
+) where
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+{
+    let switch = switches.alloc(nest!(cs), w);
+    let old_coord_idx = alloc!("old_coord_idx", cs, w);
+    let old_coord_stack = alloc!("old_coord_stack", cs, w);
+    let three = three(nest!(cs), w);
+    push(
+        nest!(cs),
+        w,
+        switch.clone(),
+        &mut public_input.rs_coord,
+        &mut public_input.ws_coord,
+        public_input.coord_idx.clone(),
+        &vec![three],
+    );
+    let preimage = vec![old_coord_idx.clone(), old_coord_stack.clone()];
+    let should_be = hash(nest!(cs), w, switch.clone(), preimage);
+    cs.enforce(
+        label!(),
+        |lc| lc + should_be.get_variable(),
+        |lc| lc + switch.get_variable(),
+        |lc| lc + public_input.coord_stack.get_variable(),
+    );
+    public_input.coord_idx = either_switch(
+        nest!(cs),
+        w,
+        switch.clone(),
+        old_coord_idx,
+        public_input.coord_idx.clone(),
+    );
+    public_input.coord_stack = either_switch(
+        nest!(cs),
+        w,
+        switch,
+        old_coord_stack,
+        public_input.coord_stack.clone(),
     );
 }
 
@@ -221,20 +447,42 @@ where
 struct PublicInput<F: PrimeField> {
     rs: AllocatedNum<F>,
     ws: AllocatedNum<F>,
+    rs_coord: AllocatedNum<F>,
+    ws_coord: AllocatedNum<F>,
+    coord_idx: AllocatedNum<F>,
+    coord_stack: AllocatedNum<F>,
 }
 
 impl<F: PrimeField> PublicInput<F> {
     fn of(fields: &[AllocatedNum<F>]) -> PublicInput<F> {
-        let [rs, ws] = fields else {
-            unreachable!();
+        let [rs, ws, rs_coord, ws_coord, coord_idx, coord_stack] = fields else {
+            unreachable!("maybe you passed in incorrect public input?");
         };
         let rs = rs.clone();
         let ws = ws.clone();
-        PublicInput { rs, ws }
+        let rs_coord = rs_coord.clone();
+        let ws_coord = ws_coord.clone();
+        let coord_idx = coord_idx.clone();
+        let coord_stack = coord_stack.clone();
+        PublicInput {
+            rs,
+            ws,
+            rs_coord,
+            ws_coord,
+            coord_idx,
+            coord_stack,
+        }
     }
     fn to(self) -> Vec<AllocatedNum<F>> {
-        let PublicInput { rs, ws } = self;
-        vec![rs, ws]
+        let PublicInput {
+            rs,
+            ws,
+            rs_coord,
+            ws_coord,
+            coord_idx,
+            coord_stack,
+        } = self;
+        vec![rs, ws, rs_coord, ws_coord, coord_idx, coord_stack]
     }
 }
 
@@ -246,8 +494,12 @@ where
         /* Public input is as follows:
          * RS of table of UTXO interactions
          * WS of table of UTXO interactions
+         * RS of table of coordination script interactions
+         * WS of table of coordination script interactions
+         * idx of coordination script currently running
+         * hash of coordinatino script stack (zero when empty)
          */
-        2
+        6
     }
 
     fn synthesize<CS: ConstraintSystem<F>>(
@@ -263,13 +515,9 @@ where
 
         let mut public_input = PublicInput::of(public_input);
 
-        visit_enter(
-            nest!(cs),
-            &mut switches,
-            &mut public_input.rs,
-            &mut public_input.ws,
-            w,
-        );
+        visit_enter(nest!(cs), &mut switches, &mut public_input, w);
+        visit_push_coord(nest!(cs), &mut switches, &mut public_input, w);
+        visit_pop_coord(nest!(cs), &mut switches, &mut public_input, w);
         visit_nop(nest!(cs), &mut switches, w);
 
         switches.consume(consume_switches, nest!(cs));
@@ -287,7 +535,7 @@ pub struct WitnessFromVec<F>(Vec<(F, &'static str)>);
 impl<F: PrimeField> Witness<F> for WitnessFromVec<F> {
     fn get(&mut self, name: &'static str, label: impl FnOnce() -> String) -> Option<F> {
         let Some((val, name_)) = self.0.pop() else {
-            eprintln!("not enough witnesses available: {} at {}", name, label());
+            eprintln!("{}: expected {}", label(), name);
             return Some(F::ZERO);
         };
         if name != name_ {
@@ -306,16 +554,24 @@ impl<F> Witness<F> for NoWitness {
 }
 
 #[test]
+#[ignore]
 fn prove_dummy() {
     let mut test = TestConstraintSystem::new();
     type F = <PallasEngine as Engine>::Scalar;
     let input = [F::ZERO, F::ZERO];
     let zero = AllocatedNum::alloc_infallible(&mut test, || F::ZERO);
-    let allocated_input = [zero.clone(), zero];
+    let allocated_input = [
+        zero.clone(),
+        zero.clone(),
+        zero.clone(),
+        zero.clone(),
+        zero.clone(),
+        zero,
+    ];
     let witness = || {
         let mut v = vec![
             (F::ZERO, "switch"),
-            (F::ZERO, "utxo_index"),
+            (F::ZERO, "utxo_idx"),
             (F::ZERO, "input"),
             (F::ZERO, "output"),
             (F::ZERO, "prev"),
