@@ -36,7 +36,7 @@ if (ExecutionEnvironment.canUseDOM) {
     });
     monaco.languages.setMonarchTokensProvider("starstream", {
       keywords:
-        "if|else|try|with|while|loop|yield|raise|fail|resume|return|utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|mut|true|false".split(
+        "if|else|try|with|while|loop|yield|raise|fail|resume|return|assert|utxo|script|token|abi|impl|main|storage|mint|burn|bind|unbind|fn|let|let mut|true|false|event|error|effect|typedef|const".split(
           "|"
         ),
       tokenizer: {

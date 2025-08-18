@@ -17,11 +17,11 @@
       "patterns": [
         {
           "name": "keyword.control.starstream",
-          "match": "\\b(if|try|with|while|loop|yield|raise|fail|resume|return)\\b"
+          "match": "\\b(if|else|try|with|while|loop|yield|raise|fail|resume|return|assert)\\b"
         },
         {
           "name": "keyword.other.starstream",
-          "match": "\\b(utxo|script|token|abi|impl|main|storage|bind|unbind|fn|let|let mut|true|false)\\b"
+          "match": "\\b(utxo|script|token|abi|impl|main|storage|mint|burn|bind|unbind|fn|let|let mut|true|false|event|error|effect|typedef|const)\\b"
         }
       ]
     },

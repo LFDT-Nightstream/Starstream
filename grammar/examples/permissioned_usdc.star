@@ -2,8 +2,8 @@ const PERMISSIONED_TOKEN_ID = 42;
 const ADMIN = 42;
 
 abi LinkedListNodeAbi {
-    fn get_key(): PublicKey;
-    fn get_next(): PublicKey;
+  fn get_key(): PublicKey;
+  fn get_next(): PublicKey;
 }
 
 utxo LinkedListNode {
@@ -47,7 +47,7 @@ script {
     to: PublicKey,
     output_amount: Value,
   ): PayToPublicKeyHash {
-    let from = source.get_owner();	
+    let from = source.get_owner();
 
     let input_amount = 0;
     let change_tokens = List::new();
@@ -104,8 +104,8 @@ script {
   }
 
   fn blacklist_insert(
-      prev: LinkedListNode,
-      new: PublicKey,
+    prev: LinkedListNode,
+    new: PublicKey,
   ): LinkedListNode {
     assert(context.tx.is_signed_by(ADMIN));
 

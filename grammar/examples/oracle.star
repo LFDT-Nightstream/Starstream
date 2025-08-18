@@ -6,10 +6,10 @@ const ORACLE_FEE = 10;
 const PAYMENT_ADDRESS = 10;
 
 utxo PayToPublicKeyHash {
-    main(owner: PublicKey) {
-      yield;
-      assert(raise StarstreamEnv::IsTxSignedBy(owner));
-    }
+  main(owner: PublicKey) {
+    yield;
+    assert(raise StarstreamEnv::IsTxSignedBy(owner));
+  }
 }
 
 abi Oracle {
