@@ -133,7 +133,7 @@ impl StaticType {
 
                 StaticType::Record(Record { offsets })
             }
-            _ => todo!(),
+            _ => todo!("from_canonical_type({:?})", ty),
         }
     }
 
@@ -1437,7 +1437,29 @@ impl Compiler {
                 namespaces: _,
                 ident,
             } => {
-                if ident.args.is_none() {
+                if let Some(args) = &ident.args {
+                    // A function call, so look in the function table.
+                    let im = if let Some(global_scope_fn) =
+                        self.global_scope_functions.get(&ident.name.raw)
+                    {
+                        Intermediate::ConstFunction(*global_scope_fn)
+                    } else if let Some(symbol_table_fn) =
+                        self.symbols_table.functions.get(&ident.name.uid.unwrap())
+                    {
+                        Intermediate::ConstFunction(symbol_table_fn.info.index.unwrap())
+                    } else {
+                        Report::build(ReportKind::Error, 0..0)
+                            .with_message(format_args!(
+                                "no function named {:?} in scope",
+                                &ident.name.raw
+                            ))
+                            .push(self);
+                        return Intermediate::Error;
+                    };
+
+                    self.visit_call(func, im, &args.xs, None)
+                } else {
+                    // Not a function call, so look in the variable table.
                     let var_info = self
                         .symbols_table
                         .vars
@@ -1453,34 +1475,8 @@ impl Compiler {
                             .local_get(var_info.info.index.unwrap() as u32);
                     }
 
-                    return StaticType::from_canonical_type(ty, &self.symbols_table.type_vars)
-                        .stack_intermediate();
-                }
-
-                let im = if ident.name.raw == "print" {
-                    Intermediate::ConstFunction(self.global_scope_functions["print"])
-                } else if ident.name.raw == "print_f64" {
-                    Intermediate::ConstFunction(self.global_scope_functions["print_f64"])
-                } else if ident.name.raw == "assert" {
-                    Intermediate::ConstFunction(self.global_scope_functions["assert"])
-                } else if ident.name.raw == "IsTxSignedBy" {
-                    Intermediate::ConstFunction(self.global_scope_functions["IsTxSignedBy"])
-                } else {
-                    Intermediate::ConstFunction(
-                        self.symbols_table
-                            .functions
-                            .get(&ident.name.uid.unwrap())
-                            .unwrap()
-                            .info
-                            .index
-                            .unwrap(),
-                    )
-                };
-
-                if let Some(args) = &ident.args {
-                    self.visit_call(func, im, &args.xs, None)
-                } else {
-                    im
+                    StaticType::from_canonical_type(ty, &self.symbols_table.type_vars)
+                        .stack_intermediate()
                 }
             }
             PrimaryExpr::ParExpr(expr) => self.visit_expr(func, expr),

@@ -1536,7 +1536,7 @@ mod tests {
 
         let input = r#"script {
             fn foo(): bool {
-                1 == true 
+                1 == true
             }
         }"#;
 
@@ -1544,7 +1544,7 @@ mod tests {
 
         let input = r#"script {
             fn foo(): u32 {
-                1 == 1 
+                1 == 1
             }
         }"#;
 
