@@ -265,6 +265,14 @@ enum MethodType {
     BorrowSelf,
 }
 
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum FunctionCallType {
+    FunctionCall = 0,
+    Method = 1,
+    EffectHandler = 3,
+}
+
 #[derive(Default)]
 struct Compiler {
     // Diagnostic output.
@@ -1590,7 +1598,7 @@ impl Compiler {
                         expr.name.span.unwrap(),
                         func_im,
                         xs,
-                        1,
+                        FunctionCallType::Method,
                         effect_handlers,
                         effect_handlers_required,
                         None,
@@ -1764,7 +1772,7 @@ impl Compiler {
                         ident.name.span.unwrap(),
                         im,
                         &args.xs,
-                        0,
+                        FunctionCallType::FunctionCall,
                         effect_handlers,
                         effect_handlers_required,
                         None,
@@ -1826,7 +1834,7 @@ impl Compiler {
                         ident.name.span.unwrap(),
                         Intermediate::ConstFunction(effect_info.index.unwrap() as u32),
                         &args.xs,
-                        3,
+                        FunctionCallType::EffectHandler,
                         effect_handlers,
                         // TODO: allow effects in handlers
                         Default::default(),
@@ -1910,10 +1918,7 @@ impl Compiler {
         id_span: SimpleSpan,
         im: Intermediate,
         args: &[Spanned<Expr>],
-        // 0 for normal functions
-        // 1 for methods
-        // 3 for effect handlers
-        implicit_parameters: usize,
+        call_type: FunctionCallType,
         effect_handlers_in_scope: &EffectHandlers,
         effect_handlers_required: EffectHandlers,
         handler_for: Option<SymbolId>,
@@ -1949,7 +1954,7 @@ impl Compiler {
                 for (param, arg) in func_type
                     .params
                     .iter()
-                    .skip(implicit_parameters + effect_handlers_required.len() * 3)
+                    .skip(call_type as usize + effect_handlers_required.len() * 3)
                     .zip(args)
                 {
                     let arg = self.visit_expr(func, arg, effect_handlers_in_scope);
@@ -1984,7 +1989,7 @@ impl Compiler {
 
                 let params_required = func_type.params.len();
                 let args_given =
-                    args.len() + implicit_parameters + effect_handlers_required.len() * 3;
+                    args.len() + call_type as usize + effect_handlers_required.len() * 3;
                 match params_required.cmp(&args_given) {
                     Ordering::Equal => {}
                     Ordering::Less => {

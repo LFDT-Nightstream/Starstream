@@ -4,6 +4,10 @@ use std::collections::{BTreeSet, HashSet};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[must_use]
 pub struct EffectSet {
+    // using a BTreeSet instead of a HashSet so that the order is deterministic
+    //
+    // this order is used for the effect handlers when passed through the stack
+    // as arguments.
     effects: BTreeSet<SymbolId>,
 }
 

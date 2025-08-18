@@ -1444,17 +1444,6 @@ impl Visitor {
                     | EffectDecl::ErrorSig(decl) => {
                         let symbol = self.new_symbol(&mut decl.name);
 
-                        // self.push_function_declaration(
-                        //     &mut decl.name,
-                        //     FuncInfo {
-                        //         inputs_ty: decl.input_types.clone(),
-                        //         output_ty: decl.output_type.clone(),
-                        //         effects: EffectSet::empty(),
-                        //         locals: vec![],
-                        //         ..Default::default()
-                        //     },
-                        // );
-
                         self.symbols.effects.insert(
                             symbol,
                             SymbolInformation {
