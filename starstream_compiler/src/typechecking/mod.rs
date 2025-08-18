@@ -1340,7 +1340,13 @@ mod tests {
     fn typecheck_str(input: &str) -> Result<Symbols, Vec<ariadne::Report<'_>>> {
         let program = crate::starstream_program().parse(input).unwrap();
 
-        let (mut ast, mut symbols) = do_scope_analysis(program).unwrap();
+        let (mut ast, mut symbols) = do_scope_analysis(program)
+            .map_err(|errors| {
+                for e in errors {
+                    e.print(ariadne::Source::from(input)).unwrap();
+                }
+            })
+            .unwrap();
 
         let tc = TypeInference::new(&mut symbols);
 

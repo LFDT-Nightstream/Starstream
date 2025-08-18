@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 use std::{cmp::Ordering, collections::HashMap, ops::Range, rc::Rc};
 
-use ariadne::{Report, ReportBuilder, ReportKind};
+use ariadne::{Label, Report, ReportBuilder, ReportKind};
+use chumsky::span::SimpleSpan;
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, Encode, EntityType, ExportSection, FuncType,
     FunctionSection, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module,
@@ -195,7 +196,7 @@ enum Intermediate {
 impl Intermediate {
     fn stack_types(&self) -> &'static [ValType] {
         match self {
-            Intermediate::Void => &[],
+            Intermediate::Void | Intermediate::Error => &[],
             Intermediate::StackBool => &[ValType::I32],
             Intermediate::StackI32 => &[ValType::I32],
             Intermediate::StackI64 => &[ValType::I64],
@@ -206,7 +207,7 @@ impl Intermediate {
             Intermediate::StackStrRef => &[ValType::I32, ValType::I32],
             Intermediate::StackExternRef => &[ValType::EXTERNREF],
             Intermediate::StackPtr(_) => &[ValType::I32],
-            _ => todo!(),
+            _ => todo!("Intermediate::stack_types({self:?})"),
         }
     }
 
@@ -615,6 +616,9 @@ impl Compiler {
     }
 
     fn import_function(&mut self, module: &str, field: &str, ty: StarFunctionType) -> u32 {
+        // Not allowed to import functions after creating our own, since it bumps all the indices.
+        assert!(self.functions.is_empty());
+
         let type_index = self.add_raw_func_type(ty.lower());
         let func_index = u32::try_from(self.functions_builder.len()).unwrap();
         self.functions_builder.push((ty, None));
@@ -1322,7 +1326,7 @@ impl Compiler {
 
                     let xs = &args.xs;
 
-                    self.visit_call(func, func_im, xs, Some(receiver))
+                    self.visit_call(func, expr.name.span.unwrap(), func_im, xs, Some(receiver))
                 } else {
                     let rhs = rhs.map(|expr| self.visit_expr(func, expr));
 
@@ -1446,7 +1450,21 @@ impl Compiler {
                     } else if let Some(symbol_table_fn) =
                         self.symbols_table.functions.get(&ident.name.uid.unwrap())
                     {
-                        Intermediate::ConstFunction(symbol_table_fn.info.index.unwrap())
+                        if let Some(index) = symbol_table_fn.info.index {
+                            Intermediate::ConstFunction(index)
+                        } else {
+                            Report::build(ReportKind::Error, ident.name.span.unwrap().into_range())
+                                .with_message(format_args!(
+                                    "effect {:?} is not directly callable",
+                                    &ident.name.raw
+                                ))
+                                .with_label(
+                                    Label::new(ident.name.span.unwrap().into_range())
+                                        .with_message("called here"),
+                                )
+                                .push(self);
+                            return Intermediate::Error;
+                        }
                     } else {
                         Report::build(ReportKind::Error, 0..0)
                             .with_message(format_args!(
@@ -1457,7 +1475,7 @@ impl Compiler {
                         return Intermediate::Error;
                     };
 
-                    self.visit_call(func, im, &args.xs, None)
+                    self.visit_call(func, ident.name.span.unwrap(), im, &args.xs, None)
                 } else {
                     // Not a function call, so look in the variable table.
                     let var_info = self
@@ -1549,6 +1567,7 @@ impl Compiler {
     fn visit_call(
         &mut self,
         func: &mut Function,
+        id_span: SimpleSpan,
         im: Intermediate,
         args: &[Spanned<Expr>],
         method_self: Option<Intermediate>,
@@ -1584,7 +1603,7 @@ impl Compiler {
                             // by allocating memory
                         }
                         (param, arg) => {
-                            Report::build(ReportKind::Error, 0..0)
+                            Report::build(ReportKind::Error, id_span.into_range())
                                 .with_message(format_args!(
                                     "parameter type mismatch: expected {param:?}, got {arg:?}"
                                 ))
@@ -1593,20 +1612,28 @@ impl Compiler {
                     }
                 }
 
-                match func_type
-                    .params
-                    .len()
-                    .cmp(&(args.len() + if method_self.is_some() { 1 } else { 0 }))
-                {
+                let params_required = func_type.params.len();
+                let args_given = args.len() + if method_self.is_some() { 1 } else { 0 };
+                match params_required.cmp(&args_given) {
                     Ordering::Equal => {}
                     Ordering::Less => {
-                        Report::build(ReportKind::Error, 0..0)
-                            .with_message("not enough arguments to function call")
+                        Report::build(ReportKind::Error, id_span.into_range())
+                            .with_message(format!(
+                                "too many arguments to function call: expected {params_required}, got {args_given}"
+                            ))
+                            .with_label(
+                                Label::new(id_span.into_range())
+                                    .with_message("function called here"),
+                            )
                             .push(self);
                     }
                     Ordering::Greater => {
-                        Report::build(ReportKind::Error, 0..0)
-                            .with_message("too many arguments to function call")
+                        Report::build(ReportKind::Error, id_span.into_range())
+                            .with_message(format!("not enough arguments to function call: expected {params_required}, got {args_given}"))
+                            .with_label(
+                                Label::new(id_span.into_range())
+                                    .with_message("function called here")
+                            )
                             .push(self);
                     }
                 }
@@ -1618,7 +1645,7 @@ impl Compiler {
                 }
             }
             _ => {
-                Report::build(ReportKind::Error, 0..0)
+                Report::build(ReportKind::Error, id_span.into_range())
                     .with_message(format_args!("attempting to call non-function {im:?}"))
                     .push(self);
                 self.drop_intermediate(func, im);
@@ -1897,7 +1924,13 @@ mod tests {
         assert!(parse_errors.is_empty(), "parse errors: {parse_errors:?}");
         let program = program.expect("parse failed");
 
-        let (program, mut symbols) = do_scope_analysis(program).unwrap();
+        let (program, mut symbols) = do_scope_analysis(program)
+            .map_err(|errors| {
+                for e in errors {
+                    e.print(ariadne::Source::from(src)).unwrap();
+                }
+            })
+            .unwrap();
 
         let (program, _warnings) = do_type_inference(program, &mut symbols)
             .map_err(|errors| {

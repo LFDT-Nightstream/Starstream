@@ -130,6 +130,7 @@ pub(super) fn error_effect_type_mismatch(
     found: HashSet<String>,
 ) -> Report<'static> {
     error_report(span)
+        .with_message("effect type mismatch")
         .with_code(TypeErrorCode::EffectTypeMismatch as u32)
         .with_label(
             Label::new(span.into_range())

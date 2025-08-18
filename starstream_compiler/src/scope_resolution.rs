@@ -220,11 +220,6 @@ impl Visitor {
             name: Identifier::new("StarstreamEnv", None),
             values: vec![
                 AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
-                    name: Identifier::new("Caller", None),
-                    input_types: vec![],
-                    output_type: Some(TypeArg::U32),
-                })),
-                AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
                     name: Identifier::new("ThisCode", None),
                     input_types: vec![],
                     output_type: Some(TypeArg::U32),
@@ -894,9 +889,15 @@ impl Visitor {
             .function_declarations
             .insert(ident.raw.clone(), symbol)
         {
-            let prev = self.symbols.functions.get(&prev).unwrap().span.unwrap();
+            let prev = self
+                .symbols
+                .functions
+                .get(&prev)
+                .unwrap()
+                .span
+                .unwrap_or(SimpleSpan::from(0..0));
 
-            self.push_redeclaration_error(ident.span.unwrap(), prev);
+            self.push_redeclaration_error(&ident, prev);
         }
 
         let type_scope = self
@@ -917,7 +918,7 @@ impl Visitor {
                 // TODO: cleanup the panics (compiler error)
                 let prev = self.symbols.functions.get(prev).unwrap();
 
-                self.push_redeclaration_error(ident.span.unwrap(), prev.span.unwrap());
+                self.push_redeclaration_error(&ident, prev.span.unwrap_or(SimpleSpan::from(0..0)));
             }
         }
 
@@ -1399,20 +1400,22 @@ impl Visitor {
         );
     }
 
-    fn push_redeclaration_error(&mut self, prev: SimpleSpan, new: SimpleSpan) {
+    fn push_redeclaration_error(&mut self, ident: &Identifier, previous: SimpleSpan) {
+        // TODO: this uselessly points to the start of the file if span isn't available.
+        let new = ident.span.unwrap_or(SimpleSpan::from(0..0)).into_range();
         self.errors.push(
-            Report::build(ReportKind::Error, new.into_range())
+            Report::build(ReportKind::Error, new.clone())
                 .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
                 // TODO: define error codes across the compiler
                 .with_code(2)
                 .with_label(
-                    Label::new(new.into_range())
-                        .with_message("function already declared")
+                    Label::new(new)
+                        .with_message(format!("function {:?} already declared", &ident.raw))
                         .with_color(Color::Red),
                 )
                 .with_label(
-                    Label::new(prev.into_range())
-                        .with_message("here")
+                    Label::new(previous.into_range())
+                        .with_message("previous declaration")
                         .with_color(Color::BrightRed),
                 )
                 .finish(),
