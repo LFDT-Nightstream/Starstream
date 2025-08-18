@@ -75,6 +75,14 @@ pub struct FuncInfo {
     pub effect_handlers: EffectHandlers,
 
     pub frame_var: Option<SymbolId>,
+
+    // the stack manipulations available on the wasm stack are fairly limited,
+    // so most things require the use of indices into the typed stack.
+    //
+    // this variable is used to save and restore the frame pointer of the caller
+    //
+    // currently it's set to the index of the first non-argument local.
+    pub saved_frame_local_index: Option<u32>,
 }
 
 pub type EffectHandlers = BTreeMap<SymbolId, ArgOrConst>;

@@ -132,12 +132,17 @@ impl Visitor {
         for f_info in self.symbols.functions.values() {
             let mut index = 0;
             for local in &f_info.info.locals {
-                let symbol_information = self.symbols.vars.get_mut(local).unwrap();
+                let var_info = self.symbols.vars.get_mut(local).unwrap();
 
-                if symbol_information.info.is_storage.is_none()
-                    && !symbol_information.info.is_captured
-                {
-                    symbol_information.info.wasm_local_index.replace(index);
+                if var_info.info.is_storage.is_none() && !var_info.info.is_captured {
+                    var_info.info.wasm_local_index.replace(
+                        index +
+                            // the first variable in the stack after the arguments is used to save the caller's frame pointer.
+                            // but this variable is not added to the `locals` in the func info.
+                            //
+                            // because of this, we need to offset non argument locals
+                            if var_info.info.is_argument { 0 } else { 1 },
+                    );
                     index += 1;
                 }
             }
@@ -1742,12 +1747,12 @@ mod tests {
 
                 let first = vars
                     .iter()
-                    .find(|info| info.info.wasm_local_index.unwrap() == 0)
+                    .find(|info| info.info.wasm_local_index.unwrap() == 1)
                     .unwrap();
 
                 let second = vars
                     .iter()
-                    .find(|info| info.info.wasm_local_index.unwrap() == 2)
+                    .find(|info| info.info.wasm_local_index.unwrap() == 3)
                     .unwrap();
 
                 assert!(first.info.mutable);

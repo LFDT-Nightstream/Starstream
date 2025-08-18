@@ -20,7 +20,6 @@ use crate::{
 
 const GLOBAL_FRAME_PTR: u32 = 0;
 const GLOBAL_STACK_PTR: u32 = 1;
-const GLOBAL_SAVE_FRAME_PTR: u32 = 2;
 
 /// Compile a Starstream AST to a binary WebAssembly module.
 pub fn compile<'a>(
@@ -613,7 +612,7 @@ impl Compiler {
     }
 
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
-        for _ in [GLOBAL_FRAME_PTR, GLOBAL_STACK_PTR, GLOBAL_SAVE_FRAME_PTR] {
+        for _ in [GLOBAL_FRAME_PTR, GLOBAL_STACK_PTR] {
             self.globals.global(
                 GlobalType {
                     val_type: ValType::I32,
@@ -786,7 +785,7 @@ impl Compiler {
                 UtxoItem::Main(main) => {
                     let symbol_id = main.ident.uid.unwrap();
 
-                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
                         f_info,
@@ -856,7 +855,7 @@ impl Compiler {
                 }
                 TokenItem::Bind(bind) => {
                     let symbol_id = bind.1.uid.unwrap();
-                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
                         f_info,
@@ -901,7 +900,7 @@ impl Compiler {
                 }
                 TokenItem::Unbind(unbind) => {
                     let symbol_id = unbind.1.uid.unwrap();
-                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
                         f_info,
@@ -952,15 +951,15 @@ impl Compiler {
             let symbol_id = fndef.ident.uid.unwrap();
             let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
             let effect_handlers = f_info.info.effect_handlers.clone();
-
             let frame_size = f_info.info.frame_size;
+            let saved_frame_local_index = f_info.info.saved_frame_local_index.unwrap();
 
             let index = f_info.info.index.unwrap();
             let mut function = self.get_function_body(index);
 
             // allocate stack space
             if frame_size > 0 {
-                function_preamble(frame_size, &mut function);
+                function_preamble(frame_size, saved_frame_local_index, &mut function);
             }
 
             let return_value =
@@ -971,7 +970,7 @@ impl Compiler {
             }
 
             if frame_size > 0 {
-                function_exit(frame_size, &mut function);
+                function_exit(frame_size, saved_frame_local_index, &mut function);
             }
 
             function.instructions().end();
@@ -1031,13 +1030,10 @@ impl Compiler {
                 if let Some(expr) = expr {
                     let _im = self.visit_expr(func, expr, fn_id, effect_handlers);
                 }
+                let f_info = self.symbols_table.functions.get(fn_id).unwrap();
                 function_exit(
-                    self.symbols_table
-                        .functions
-                        .get(fn_id)
-                        .unwrap()
-                        .info
-                        .frame_size,
+                    f_info.info.frame_size,
+                    f_info.info.saved_frame_local_index.unwrap(),
                     func,
                 );
                 func.instructions().return_();
@@ -1122,7 +1118,7 @@ impl Compiler {
                 for (decl, body) in handlers {
                     let fn_id = decl.ident.uid.unwrap();
                     let f_info = self.symbols_table.functions.get(&fn_id).unwrap();
-                    // let frame_size = f_info.info.frame_size;
+                    let saved_frame = f_info.info.saved_frame_local_index.unwrap();
 
                     let index = f_info.info.index.unwrap();
 
@@ -1136,7 +1132,7 @@ impl Compiler {
                     func.instructions()
                         // save frame pointer
                         .global_get(GLOBAL_FRAME_PTR)
-                        .global_set(GLOBAL_SAVE_FRAME_PTR)
+                        .local_set(saved_frame)
                         // set frame pointer to received frame
                         //
                         // this way can always reference captured variables to
@@ -1149,7 +1145,7 @@ impl Compiler {
                     self.drop_intermediate(&mut func, im);
                     func.instructions()
                         // restore frame pointer
-                        .global_get(GLOBAL_SAVE_FRAME_PTR)
+                        .local_get(saved_frame)
                         .global_set(GLOBAL_FRAME_PTR)
                         .end();
 
@@ -2022,7 +2018,7 @@ impl Compiler {
     fn visit_utxo_impl(&mut self, utxo_impl: &Impl) {
         for fndef in &utxo_impl.definitions {
             let symbol_id = fndef.ident.uid.unwrap();
-            let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+            let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
             let effect_handlers = f_info.info.effect_handlers.clone();
 
             let (ty, mut function) = build_func(
@@ -2102,14 +2098,14 @@ fn cache_required_effect_handlers(
         .collect();
 }
 
-fn function_preamble(frame_size: u32, function: &mut Function) {
+fn function_preamble(frame_size: u32, saved_frame_local_index: u32, function: &mut Function) {
     let mut instructions = function.instructions();
 
     instructions
         //
         // save frame pointer
         .global_get(GLOBAL_FRAME_PTR)
-        .global_set(GLOBAL_SAVE_FRAME_PTR)
+        .local_set(saved_frame_local_index)
         //
         // set frame pointer to current stack pointer
         .global_get(GLOBAL_STACK_PTR)
@@ -2126,7 +2122,7 @@ fn function_preamble(frame_size: u32, function: &mut Function) {
     }
 }
 
-fn function_exit(frame_size: u32, function: &mut Function) {
+fn function_exit(frame_size: u32, saved_frame_local_index: u32, function: &mut Function) {
     let mut instructions = function.instructions();
 
     if frame_size > 0 {
@@ -2140,7 +2136,7 @@ fn function_exit(frame_size: u32, function: &mut Function) {
 
     instructions
         // restore frame pointer of callee
-        .global_get(GLOBAL_SAVE_FRAME_PTR)
+        .local_get(saved_frame_local_index)
         .global_set(GLOBAL_FRAME_PTR);
 }
 
@@ -2248,7 +2244,7 @@ impl wasm_encoder::Encode for Function {
 }
 
 fn build_func(
-    f_info: &SymbolInformation<FuncInfo>,
+    f_info: &mut SymbolInformation<FuncInfo>,
     type_vars: &HashMap<TypeVar, ComparableType>,
     vars: &HashMap<SymbolId, SymbolInformation<VarInfo>>,
     is_main: bool,
@@ -2290,6 +2286,12 @@ fn build_func(
     };
     let lower_ty = ty.lower();
     let mut function = Function::new(lower_ty.params());
+
+    // used to save the caller's frame pointer
+    f_info
+        .info
+        .saved_frame_local_index
+        .replace(function.add_local(ValType::I32));
 
     for local in &f_info.info.locals {
         let var_info = vars.get(local).unwrap();
