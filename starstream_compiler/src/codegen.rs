@@ -328,11 +328,11 @@ impl Compiler {
         this.exports
             .export("memory", wasm_encoder::ExportKind::Memory, 0);
 
-        let mut fns = symbols_table.functions.values_mut().collect::<Vec<_>>();
+        let mut fns = symbols_table.functions.iter_mut().collect::<Vec<_>>();
 
-        fns.sort_by_key(|f| f.source.clone());
+        fns.sort_by_key(|f| f.1.source.clone());
 
-        for f_info in fns.iter_mut() {
+        for (_f_id, f_info) in fns.iter_mut() {
             cache_required_effect_handlers(&symbols_table.interfaces, f_info);
 
             if f_info.source == "resume" && f_info.info.mangled_name.is_some() {
@@ -561,11 +561,12 @@ impl Compiler {
         add_builtin_is_tx_signed_by(&mut this);
 
         // exports have to be after all the imports
-        for f_info in fns {
+        for (f_id, f_info) in fns {
             if f_info.info.mangled_name.is_some() && f_info.info.index.is_none() {
                 cache_required_effect_handlers(&symbols_table.interfaces, f_info);
 
                 let (ty, f) = build_func(
+                    *f_id,
                     f_info,
                     &symbols_table.type_vars,
                     &symbols_table.vars,
@@ -788,6 +789,7 @@ impl Compiler {
                     let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
+                        symbol_id,
                         f_info,
                         &self.symbols_table.type_vars,
                         &self.symbols_table.vars,
@@ -797,7 +799,7 @@ impl Compiler {
                     let effect_handlers = f_info.info.effect_handlers.clone();
 
                     let return_value =
-                        self.visit_block(&mut function, &main.block, &symbol_id, &effect_handlers);
+                        self.visit_block(&mut function, &main.block, &effect_handlers);
                     self.drop_intermediate(&mut function, return_value);
                     function.instructions().end();
 
@@ -836,8 +838,7 @@ impl Compiler {
                     let index = f_info.info.index.unwrap();
                     let mut function = self.get_function_body(index);
 
-                    let return_value =
-                        self.visit_block(&mut function, &mint.0, &symbol_id, &effect_handlers);
+                    let return_value = self.visit_block(&mut function, &mint.0, &effect_handlers);
 
                     self.drop_intermediate(&mut function, return_value);
 
@@ -858,6 +859,7 @@ impl Compiler {
                     let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
+                        symbol_id,
                         f_info,
                         &self.symbols_table.type_vars,
                         &self.symbols_table.vars,
@@ -865,8 +867,7 @@ impl Compiler {
                     );
 
                     let effect_handlers = f_info.info.effect_handlers.clone();
-                    let return_value =
-                        self.visit_block(&mut function, &bind.0, &symbol_id, &effect_handlers);
+                    let return_value = self.visit_block(&mut function, &bind.0, &effect_handlers);
 
                     self.drop_intermediate(&mut function, return_value);
 
@@ -903,6 +904,7 @@ impl Compiler {
                     let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
+                        symbol_id,
                         f_info,
                         &self.symbols_table.type_vars,
                         &self.symbols_table.vars,
@@ -910,8 +912,7 @@ impl Compiler {
                     );
 
                     let effect_handlers = f_info.info.effect_handlers.clone();
-                    let return_value =
-                        self.visit_block(&mut function, &unbind.0, &symbol_id, &effect_handlers);
+                    let return_value = self.visit_block(&mut function, &unbind.0, &effect_handlers);
 
                     self.drop_intermediate(&mut function, return_value);
 
@@ -962,8 +963,7 @@ impl Compiler {
                 function_preamble(frame_size, saved_frame_local_index, &mut function);
             }
 
-            let return_value =
-                self.visit_block(&mut function, &fndef.body, &symbol_id, &effect_handlers);
+            let return_value = self.visit_block(&mut function, &fndef.body, &effect_handlers);
 
             if matches!(return_value, Intermediate::Void) {
                 self.drop_intermediate(&mut function, return_value);
@@ -983,7 +983,6 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         mut block: &Block,
-        fn_id: &SymbolId,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         let mut last = Intermediate::Void;
@@ -992,11 +991,11 @@ impl Compiler {
                 Block::Chain { head, tail } => {
                     match &**head {
                         ExprOrStatement::Statement(statement) => {
-                            self.visit_statement(func, statement, fn_id, effect_handlers);
+                            self.visit_statement(func, statement, effect_handlers);
                         }
                         ExprOrStatement::Expr(expr) => {
                             self.drop_intermediate(func, last);
-                            last = self.visit_expr(func, expr, fn_id, effect_handlers);
+                            last = self.visit_expr(func, expr, effect_handlers);
                         }
                     }
                     block = tail;
@@ -1022,15 +1021,18 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         statement: &Statement,
-        fn_id: &SymbolId,
         effect_handlers: &EffectHandlers,
     ) {
         match statement {
             Statement::Return(expr) | Statement::Resume(expr) => {
                 if let Some(expr) = expr {
-                    let _im = self.visit_expr(func, expr, fn_id, effect_handlers);
+                    let _im = self.visit_expr(func, expr, effect_handlers);
                 }
-                let f_info = self.symbols_table.functions.get(fn_id).unwrap();
+                let f_info = self
+                    .symbols_table
+                    .functions
+                    .get(&func.fn_id.unwrap())
+                    .unwrap();
                 function_exit(
                     f_info.info.frame_size,
                     f_info.info.saved_frame_local_index.unwrap(),
@@ -1053,7 +1055,7 @@ impl Compiler {
                     func.instructions().global_get(GLOBAL_FRAME_PTR);
                 }
 
-                let im = self.visit_expr(func, value, fn_id, effect_handlers);
+                let im = self.visit_expr(func, value, effect_handlers);
 
                 if matches!(im, Intermediate::Error) {
                     Report::build(ReportKind::Error, 0..0)
@@ -1063,7 +1065,11 @@ impl Compiler {
                     return;
                 }
 
-                let current_fn_info = self.symbols_table.functions.get(fn_id).unwrap();
+                let current_fn_info = self
+                    .symbols_table
+                    .functions
+                    .get(&func.fn_id.unwrap())
+                    .unwrap();
 
                 if let Some(wasm_local_index) = wasm_local_index {
                     func.instructions().local_set(
@@ -1083,8 +1089,7 @@ impl Compiler {
                 }
             }
             Statement::Assign { var, expr } => {
-                let im =
-                    self.visit_field_access_expr(func, var, Some(expr), fn_id, effect_handlers);
+                let im = self.visit_field_access_expr(func, var, Some(expr), effect_handlers);
 
                 assert!(matches!(im, Intermediate::Void));
             }
@@ -1092,7 +1097,7 @@ impl Compiler {
                 func.instructions().block(BlockType::Empty);
                 func.instructions().loop_(BlockType::Empty);
 
-                let im = self.visit_expr(func, cond, fn_id, effect_handlers);
+                let im = self.visit_expr(func, cond, effect_handlers);
 
                 assert!(matches!(im, Intermediate::StackBool));
 
@@ -1100,11 +1105,11 @@ impl Compiler {
 
                 let body = match body {
                     LoopBody::Statement(statement) => {
-                        self.visit_statement(func, statement, fn_id, effect_handlers);
+                        self.visit_statement(func, statement, effect_handlers);
                         Intermediate::Void
                     }
-                    LoopBody::Block(block) => self.visit_block(func, block, fn_id, effect_handlers),
-                    LoopBody::Expr(expr) => self.visit_expr(func, expr, fn_id, effect_handlers),
+                    LoopBody::Block(block) => self.visit_block(func, block, effect_handlers),
+                    LoopBody::Expr(expr) => self.visit_expr(func, expr, effect_handlers),
                 };
 
                 assert!(matches!(body, Intermediate::Void));
@@ -1140,7 +1145,7 @@ impl Compiler {
                         .local_get(0)
                         .global_set(GLOBAL_FRAME_PTR);
 
-                    let im = self.visit_block(&mut func, body, &fn_id, &effect_handlers);
+                    let im = self.visit_block(&mut func, body, &effect_handlers);
 
                     self.drop_intermediate(&mut func, im);
                     func.instructions()
@@ -1152,7 +1157,7 @@ impl Compiler {
                     self.replace_function_body(index, func);
                 }
 
-                let im = self.visit_block(func, block, fn_id, &effect_handlers);
+                let im = self.visit_block(func, block, &effect_handlers);
 
                 self.drop_intermediate(func, im);
             }
@@ -1164,16 +1169,15 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         expr: &Spanned<Expr>,
-        fn_id: &SymbolId,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         match &expr.node {
             Expr::PrimaryExpr(secondary) => {
-                self.visit_field_access_expr(func, secondary, None, fn_id, effect_handlers)
+                self.visit_field_access_expr(func, secondary, None, effect_handlers)
             }
             Expr::Equals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32)
@@ -1197,8 +1201,8 @@ impl Compiler {
                 }
             }
             Expr::NotEquals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32)
@@ -1222,8 +1226,8 @@ impl Compiler {
                 }
             }
             Expr::Add(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -1247,8 +1251,8 @@ impl Compiler {
                 }
             }
             Expr::Sub(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -1272,8 +1276,8 @@ impl Compiler {
                 }
             }
             Expr::Mul(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -1297,7 +1301,7 @@ impl Compiler {
                 }
             }
             // TODO: Div
-            Expr::BitNot(operand) => match self.visit_expr(func, operand, fn_id, effect_handlers) {
+            Expr::BitNot(operand) => match self.visit_expr(func, operand, effect_handlers) {
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackI32 => {
                     // Wasm doesn't have a native bitnot instruction, so XOR with all-ones.
@@ -1326,8 +1330,8 @@ impl Compiler {
                 }
             },
             Expr::BitAnd(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -1353,8 +1357,8 @@ impl Compiler {
                 }
             }
             Expr::BitOr(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -1383,8 +1387,8 @@ impl Compiler {
             | Expr::GreaterThan(lhs, rhs)
             | Expr::LessEq(lhs, rhs)
             | Expr::GreaterEq(lhs, rhs)) => {
-                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
-                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
+                let lhs = self.visit_expr(func, lhs, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, effect_handlers);
 
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => {
@@ -1432,12 +1436,12 @@ impl Compiler {
 
                 Intermediate::StackBool
             }
-            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs, fn_id, effect_handlers) {
+            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs, effect_handlers) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
-                    match self.visit_expr(func, rhs, fn_id, effect_handlers) {
+                    match self.visit_expr(func, rhs, effect_handlers) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -1461,7 +1465,7 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs, fn_id, effect_handlers) {
+            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs, effect_handlers) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
@@ -1469,7 +1473,7 @@ impl Compiler {
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
-                    match self.visit_expr(func, rhs, fn_id, effect_handlers) {
+                    match self.visit_expr(func, rhs, effect_handlers) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -1494,19 +1498,19 @@ impl Compiler {
                 }
             },
             Expr::BlockExpr(BlockExpr::Block(block)) => {
-                self.visit_block(func, block, fn_id, effect_handlers)
+                self.visit_block(func, block, effect_handlers)
             }
             Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
-                match self.visit_expr(func, cond, fn_id, effect_handlers) {
+                match self.visit_expr(func, cond, effect_handlers) {
                     Intermediate::Error => Intermediate::Error,
                     Intermediate::StackBool => {
                         // TODO: handle non-Void if blocks.
                         func.instructions().if_(BlockType::Empty);
-                        let im = self.visit_block(func, if_, fn_id, effect_handlers);
+                        let im = self.visit_block(func, if_, effect_handlers);
                         self.drop_intermediate(func, im);
                         if let Some(else_) = else_ {
                             func.instructions().else_();
-                            let im = self.visit_block(func, else_, fn_id, effect_handlers);
+                            let im = self.visit_block(func, else_, effect_handlers);
                             self.drop_intermediate(func, im);
                         }
                         func.instructions().end();
@@ -1523,7 +1527,7 @@ impl Compiler {
                 }
             }
 
-            Expr::Not(e) => match self.visit_expr(func, e, fn_id, effect_handlers) {
+            Expr::Not(e) => match self.visit_expr(func, e, effect_handlers) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
@@ -1553,16 +1557,14 @@ impl Compiler {
         expr: &FieldAccessExpression,
         // if we have something like x.foo = rhs;
         rhs: Option<&Spanned<Expr>>,
-        fn_id: &SymbolId,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         match expr {
             FieldAccessExpression::PrimaryExpr(primary) => {
-                self.visit_primary_expr(func, primary, fn_id, effect_handlers)
+                self.visit_primary_expr(func, primary, effect_handlers)
             }
             FieldAccessExpression::FieldAccess { base, field } => {
-                let receiver =
-                    self.visit_field_access_expr(func, base, rhs, fn_id, effect_handlers);
+                let receiver = self.visit_field_access_expr(func, base, rhs, effect_handlers);
 
                 let expr: &IdentifierExpr = field;
                 if let Intermediate::Error = receiver {
@@ -1589,13 +1591,12 @@ impl Compiler {
                         func_im,
                         xs,
                         1,
-                        fn_id,
                         effect_handlers,
                         effect_handlers_required,
                         None,
                     )
                 } else {
-                    let rhs = rhs.map(|expr| self.visit_expr(func, expr, fn_id, effect_handlers));
+                    let rhs = rhs.map(|expr| self.visit_expr(func, expr, effect_handlers));
 
                     match &receiver {
                         Intermediate::StackPtr(StaticType::Record(record)) => {
@@ -1677,7 +1678,6 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         primary: &PrimaryExpr,
-        current_fn_id: &SymbolId,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         match primary {
@@ -1722,6 +1722,8 @@ impl Compiler {
                 ident,
             } => {
                 if let Some(args) = &ident.args {
+                    let mut effect_handlers_required = Default::default();
+
                     // A function call, so look in the function table.
                     let im = if let Some(global_scope_fn) =
                         self.global_scope_functions.get(&ident.name.raw)
@@ -1731,6 +1733,8 @@ impl Compiler {
                         self.symbols_table.functions.get(&ident.name.uid.unwrap())
                     {
                         if let Some(index) = symbol_table_fn.info.index {
+                            effect_handlers_required = symbol_table_fn.info.effect_handlers.clone();
+
                             Intermediate::ConstFunction(index)
                         } else {
                             Report::build(ReportKind::Error, ident.name.span.unwrap().into_range())
@@ -1755,7 +1759,16 @@ impl Compiler {
                         return Intermediate::Error;
                     };
 
-                    self.visit_call(func, ident.name.span.unwrap(), im, &args.xs, None)
+                    self.visit_call(
+                        func,
+                        ident.name.span.unwrap(),
+                        im,
+                        &args.xs,
+                        0,
+                        effect_handlers,
+                        effect_handlers_required,
+                        None,
+                    )
                 } else {
                     // Not a function call, so look in the variable table.
                     let var_info = self
@@ -1778,8 +1791,11 @@ impl Compiler {
                         // we can't use `effect_handlers` here since we may be
                         // inside a try block, but here we just need to know the
                         // offset in the function's parameters
-                        let current_fn_info =
-                            self.symbols_table.functions.get(current_fn_id).unwrap();
+                        let current_fn_info = self
+                            .symbols_table
+                            .functions
+                            .get(&func.fn_id.unwrap())
+                            .unwrap();
                         func.instructions().local_get(
                             // TODO: kind of duplicated code
                             var_info.info.wasm_local_index.unwrap() as u32
@@ -1787,7 +1803,7 @@ impl Compiler {
                         );
                     }
 
-                    StaticType::from_canonical_type(ty, &self.symbols_table.type_vars)
+                    StaticType::from_canonical_type(&ty, &self.symbols_table.type_vars)
                         .stack_intermediate()
                 }
             }
@@ -1807,10 +1823,10 @@ impl Compiler {
 
                     self.visit_call(
                         func,
+                        ident.name.span.unwrap(),
                         Intermediate::ConstFunction(effect_info.index.unwrap() as u32),
                         &args.xs,
                         3,
-                        current_fn_id,
                         effect_handlers,
                         // TODO: allow effects in handlers
                         Default::default(),
@@ -1820,9 +1836,7 @@ impl Compiler {
                     unreachable!();
                 }
             }
-            PrimaryExpr::ParExpr(expr) => {
-                self.visit_expr(func, expr, current_fn_id, effect_handlers)
-            }
+            PrimaryExpr::ParExpr(expr) => self.visit_expr(func, expr, effect_handlers),
             PrimaryExpr::StringLiteral(string) => {
                 let ptr = self.alloc_constant(string.as_bytes());
                 let len = string.len();
@@ -1831,9 +1845,7 @@ impl Compiler {
                     .i32_const(u32::try_from(len).unwrap().cast_signed());
                 Intermediate::StackStrRef
             }
-            PrimaryExpr::Yield(expr) => {
-                self.visit_yield(func, expr, current_fn_id, effect_handlers)
-            }
+            PrimaryExpr::Yield(expr) => self.visit_yield(func, expr, effect_handlers),
             PrimaryExpr::Tuple(elems) if elems.is_empty() => Intermediate::Void,
             _ => {
                 self.todo(format!("PrimaryExpr::{:?}", primary));
@@ -1846,7 +1858,6 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         expr: &Option<Box<Spanned<Expr>>>,
-        fn_id: &SymbolId,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         let f_id = self.global_scope_functions["starstream_yield"];
@@ -1870,7 +1881,7 @@ impl Compiler {
             // the utxo has its own memory space anyway.
             func.instructions().i32_const(0);
 
-            self.visit_expr(func, expr, fn_id, effect_handlers)
+            self.visit_expr(func, expr, effect_handlers)
         } else {
             Intermediate::Void
         };
@@ -1903,7 +1914,6 @@ impl Compiler {
         // 1 for methods
         // 3 for effect handlers
         implicit_parameters: usize,
-        fn_id: &SymbolId,
         effect_handlers_in_scope: &EffectHandlers,
         effect_handlers_required: EffectHandlers,
         handler_for: Option<SymbolId>,
@@ -1942,7 +1952,7 @@ impl Compiler {
                     .skip(implicit_parameters + effect_handlers_required.len() * 3)
                     .zip(args)
                 {
-                    let arg = self.visit_expr(func, arg, fn_id, effect_handlers_in_scope);
+                    let arg = self.visit_expr(func, arg, effect_handlers_in_scope);
                     match (param, arg) {
                         (StaticType::Void, Intermediate::Void) => {}
                         (StaticType::F64, Intermediate::StackF64) => {}
@@ -2022,14 +2032,14 @@ impl Compiler {
             let effect_handlers = f_info.info.effect_handlers.clone();
 
             let (ty, mut function) = build_func(
+                symbol_id,
                 f_info,
                 &self.symbols_table.type_vars,
                 &self.symbols_table.vars,
                 false,
             );
 
-            let _return_value =
-                self.visit_block(&mut function, &fndef.body, &symbol_id, &effect_handlers);
+            let _return_value = self.visit_block(&mut function, &fndef.body, &effect_handlers);
             function.instructions().end();
 
             let index = self.add_function(ty, function);
@@ -2203,6 +2213,7 @@ pub struct Function {
     num_locals: u32,
     locals: Vec<(u32, ValType)>,
     bytes: Vec<u8>,
+    pub fn_id: Option<SymbolId>,
 }
 
 impl Function {
@@ -2244,6 +2255,7 @@ impl wasm_encoder::Encode for Function {
 }
 
 fn build_func(
+    fn_id: SymbolId,
     f_info: &mut SymbolInformation<FuncInfo>,
     type_vars: &HashMap<TypeVar, ComparableType>,
     vars: &HashMap<SymbolId, SymbolInformation<VarInfo>>,
@@ -2286,6 +2298,8 @@ fn build_func(
     };
     let lower_ty = ty.lower();
     let mut function = Function::new(lower_ty.params());
+
+    function.fn_id.replace(fn_id);
 
     // used to save the caller's frame pointer
     f_info
