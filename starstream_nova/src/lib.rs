@@ -49,15 +49,6 @@ macro_rules! alloc {
     }};
 }
 
-pub struct StarstreamCircuit<W>(Arc<Mutex<W>>);
-
-impl<W> Clone for StarstreamCircuit<W> {
-    fn clone(&self) -> Self {
-        let StarstreamCircuit(r) = self;
-        StarstreamCircuit(r.clone())
-    }
-}
-
 trait Witness<F>: Sync {
     fn get(&mut self, name: &'static str, label: impl FnOnce() -> String) -> Option<F>;
 }
@@ -261,7 +252,7 @@ fn push<F: PrimeField, CS: ConstraintSystem<F>>(
 fn visit_enter<CS, F>(
     mut cs: CS,
     switches: &mut Switches<F>,
-    public_input: &mut PublicInput<F>,
+    io: &mut StarstreamIO<F>,
     w: &mut impl Witness<F>,
 ) where
     F: PrimeField,
@@ -274,8 +265,8 @@ fn visit_enter<CS, F>(
         nest!(cs),
         w,
         switch.clone(),
-        &mut public_input.rs,
-        &mut public_input.ws,
+        &mut io.rs,
+        &mut io.ws,
         utxo_idx.clone(),
         &vec![input.clone()],
     );
@@ -284,9 +275,9 @@ fn visit_enter<CS, F>(
         nest!(cs),
         w,
         switch,
-        &mut public_input.rs_coord,
-        &mut public_input.ws_coord,
-        public_input.coord_idx.clone(),
+        &mut io.rs_coord,
+        &mut io.ws_coord,
+        io.coord_idx.clone(),
         &vec![zero, utxo_idx, input],
     );
 }
@@ -294,7 +285,7 @@ fn visit_enter<CS, F>(
 fn visit_push_coord<CS, F>(
     mut cs: CS,
     switches: &mut Switches<F>,
-    public_input: &mut PublicInput<F>,
+    io: &mut StarstreamIO<F>,
     w: &mut impl Witness<F>,
 ) where
     F: PrimeField,
@@ -308,9 +299,9 @@ fn visit_push_coord<CS, F>(
         nest!(cs),
         w,
         switch.clone(),
-        &mut public_input.rs_coord,
-        &mut public_input.ws_coord,
-        public_input.coord_idx.clone(),
+        &mut io.rs_coord,
+        &mut io.ws_coord,
+        io.coord_idx.clone(),
         // FIXME: use hash instead of idx
         &vec![one, new_coord_idx.clone(), input.clone()],
     );
@@ -319,37 +310,34 @@ fn visit_push_coord<CS, F>(
         nest!(cs),
         w,
         switch.clone(),
-        &mut public_input.rs_coord,
-        &mut public_input.ws_coord,
+        &mut io.rs_coord,
+        &mut io.ws_coord,
         new_coord_idx.clone(),
         // FIXME: use hash instead of idx
-        &vec![two, public_input.coord_idx.clone(), input],
+        &vec![two, io.coord_idx.clone(), input],
     );
-    let preimage = vec![
-        public_input.coord_idx.clone(),
-        public_input.coord_stack.clone(),
-    ];
+    let preimage = vec![io.coord_idx.clone(), io.coord_stack.clone()];
     let new_coord_stack = hash(nest!(cs), w, switch.clone(), preimage);
-    public_input.coord_idx = either_switch(
+    io.coord_idx = either_switch(
         nest!(cs),
         w,
         switch.clone(),
         new_coord_idx,
-        public_input.coord_idx.clone(),
+        io.coord_idx.clone(),
     );
-    public_input.coord_stack = either_switch(
+    io.coord_stack = either_switch(
         nest!(cs),
         w,
         switch,
         new_coord_stack,
-        public_input.coord_stack.clone(),
+        io.coord_stack.clone(),
     );
 }
 
 fn visit_pop_coord<CS, F>(
     mut cs: CS,
     switches: &mut Switches<F>,
-    public_input: &mut PublicInput<F>,
+    io: &mut StarstreamIO<F>,
     w: &mut impl Witness<F>,
 ) where
     F: PrimeField,
@@ -363,9 +351,9 @@ fn visit_pop_coord<CS, F>(
         nest!(cs),
         w,
         switch.clone(),
-        &mut public_input.rs_coord,
-        &mut public_input.ws_coord,
-        public_input.coord_idx.clone(),
+        &mut io.rs_coord,
+        &mut io.ws_coord,
+        io.coord_idx.clone(),
         &vec![three],
     );
     let preimage = vec![old_coord_idx.clone(), old_coord_stack.clone()];
@@ -374,21 +362,21 @@ fn visit_pop_coord<CS, F>(
         label!(),
         |lc| lc + should_be.get_variable(),
         |lc| lc + switch.get_variable(),
-        |lc| lc + public_input.coord_stack.get_variable(),
+        |lc| lc + io.coord_stack.get_variable(),
     );
-    public_input.coord_idx = either_switch(
+    io.coord_idx = either_switch(
         nest!(cs),
         w,
         switch.clone(),
         old_coord_idx,
-        public_input.coord_idx.clone(),
+        io.coord_idx.clone(),
     );
-    public_input.coord_stack = either_switch(
+    io.coord_stack = either_switch(
         nest!(cs),
         w,
         switch,
         old_coord_stack,
-        public_input.coord_stack.clone(),
+        io.coord_stack.clone(),
     );
 }
 
@@ -400,7 +388,7 @@ where
     let _switch = switches.alloc(nest!(cs), w);
 }
 
-struct PublicInput<F: PrimeField> {
+struct StarstreamIO<F: PrimeField> {
     rs: AllocatedNum<F>,
     ws: AllocatedNum<F>,
     rs_coord: AllocatedNum<F>,
@@ -409,8 +397,8 @@ struct PublicInput<F: PrimeField> {
     coord_stack: AllocatedNum<F>,
 }
 
-impl<F: PrimeField> PublicInput<F> {
-    fn of(fields: &[AllocatedNum<F>]) -> PublicInput<F> {
+impl<F: PrimeField> StarstreamIO<F> {
+    fn of(fields: &[AllocatedNum<F>]) -> StarstreamIO<F> {
         let [rs, ws, rs_coord, ws_coord, coord_idx, coord_stack] = fields else {
             unreachable!("maybe you passed in incorrect public input?");
         };
@@ -420,7 +408,7 @@ impl<F: PrimeField> PublicInput<F> {
         let ws_coord = ws_coord.clone();
         let coord_idx = coord_idx.clone();
         let coord_stack = coord_stack.clone();
-        PublicInput {
+        StarstreamIO {
             rs,
             ws,
             rs_coord,
@@ -430,7 +418,7 @@ impl<F: PrimeField> PublicInput<F> {
         }
     }
     fn to(self) -> Vec<AllocatedNum<F>> {
-        let PublicInput {
+        let StarstreamIO {
             rs,
             ws,
             rs_coord,
@@ -439,6 +427,15 @@ impl<F: PrimeField> PublicInput<F> {
             coord_stack,
         } = self;
         vec![rs, ws, rs_coord, ws_coord, coord_idx, coord_stack]
+    }
+}
+
+pub struct StarstreamCircuit<W>(Arc<Mutex<W>>);
+
+impl<W> Clone for StarstreamCircuit<W> {
+    fn clone(&self) -> Self {
+        let StarstreamCircuit(r) = self;
+        StarstreamCircuit(r.clone())
     }
 }
 
@@ -453,7 +450,7 @@ where
          * RS of table of coordination script interactions
          * WS of table of coordination script interactions
          * idx of coordination script currently running
-         * hash of coordinatino script stack (zero when empty)
+         * hash of coordination script stack (zero when empty)
          */
         6
     }
@@ -461,7 +458,7 @@ where
     fn synthesize<CS: ConstraintSystem<F>>(
         &self,
         cs: &mut CS,
-        public_input: &[AllocatedNum<F>],
+        io: &[AllocatedNum<F>],
     ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
         let mut w_guard = self.0.lock().unwrap();
 
@@ -469,16 +466,96 @@ where
 
         let (mut switches, consume_switches) = Switches::new();
 
-        let mut public_input = PublicInput::of(public_input);
+        let mut io = StarstreamIO::of(io);
 
-        visit_enter(nest!(cs), &mut switches, &mut public_input, w);
-        visit_push_coord(nest!(cs), &mut switches, &mut public_input, w);
-        visit_pop_coord(nest!(cs), &mut switches, &mut public_input, w);
+        visit_enter(nest!(cs), &mut switches, &mut io, w);
+        visit_push_coord(nest!(cs), &mut switches, &mut io, w);
+        visit_pop_coord(nest!(cs), &mut switches, &mut io, w);
         visit_nop(nest!(cs), &mut switches, w);
 
         switches.consume(consume_switches, nest!(cs));
 
-        Ok(public_input.to())
+        Ok(io.to())
+    }
+
+    fn non_deterministic_advice(&self) -> Vec<F> {
+        Vec::new()
+    }
+}
+
+struct ScriptAccIO<F: PrimeField> {
+    utxo: AllocatedNum<F>,
+    coord: AllocatedNum<F>,
+}
+
+impl<F: PrimeField> ScriptAccIO<F> {
+    fn of(fields: &[AllocatedNum<F>]) -> ScriptAccIO<F> {
+        let [utxo, coord] = fields else {
+            unreachable!("maybe you passed in incorrect public input?");
+        };
+        let utxo = utxo.clone();
+        let coord = coord.clone();
+        ScriptAccIO { utxo, coord }
+    }
+    fn to(self) -> Vec<AllocatedNum<F>> {
+        let ScriptAccIO { utxo, coord } = self;
+        vec![utxo, coord]
+    }
+}
+
+fn visit_utxo_script<CS, F>(
+    mut cs: CS,
+    switches: &mut Switches<F>,
+    _io: &mut ScriptAccIO<F>,
+    w: &mut impl Witness<F>,
+) where
+    F: PrimeField,
+    CS: ConstraintSystem<F>,
+{
+    let _switch = switches.alloc(nest!(cs), w);
+    let _interactions = alloc!("interactions", cs, w);
+    unimplemented!()
+}
+
+pub struct ScriptAccCircuit<W>(Arc<Mutex<W>>);
+
+impl<W> Clone for ScriptAccCircuit<W> {
+    fn clone(&self) -> Self {
+        let ScriptAccCircuit(r) = self;
+        ScriptAccCircuit(r.clone())
+    }
+}
+
+impl<F, W: Send + Witness<F>> StepCircuit<F> for ScriptAccCircuit<W>
+where
+    F: PrimeField + PrimeFieldBits,
+{
+    fn arity(&self) -> usize {
+        /* Public input is as follows:
+         * Stack of UTXO script interactions
+         * Stack of coordination script interactions
+         */
+        2
+    }
+
+    fn synthesize<CS: ConstraintSystem<F>>(
+        &self,
+        cs: &mut CS,
+        io: &[AllocatedNum<F>],
+    ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
+        let mut w_guard = self.0.lock().unwrap();
+
+        let w = &mut *w_guard;
+
+        let (mut switches, consume_switches) = Switches::new();
+
+        let mut io = ScriptAccIO::of(io);
+
+        visit_utxo_script(nest!(cs), &mut switches, &mut io, w);
+
+        switches.consume(consume_switches, nest!(cs));
+
+        Ok(io.to())
     }
 
     fn non_deterministic_advice(&self) -> Vec<F> {
