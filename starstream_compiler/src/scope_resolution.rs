@@ -503,7 +503,13 @@ impl Visitor {
 
                     if let Some(tys) = &mut main.type_sig {
                         for (ident, _ty) in &mut tys.values {
-                            self.push_var_declaration(ident, false, None, false, true);
+                            self.push_var_declaration(
+                                ident,
+                                VarInfo {
+                                    is_argument: true,
+                                    ..Default::default()
+                                },
+                            );
                         }
                     }
                     self.visit_block(&mut main.block, true);
@@ -614,10 +620,10 @@ impl Visitor {
         let mut implicit_storage_var = Identifier::new("storage", None);
         let storage_var = self.push_var_declaration(
             &mut implicit_storage_var,
-            false,
-            Some(utxo_id),
-            false,
-            false,
+            VarInfo {
+                is_storage: Some(utxo_id),
+                ..Default::default()
+            },
         );
 
         self.symbols
@@ -684,10 +690,10 @@ impl Visitor {
 
                     let _intermediate = self.push_var_declaration(
                         &mut Identifier::new("intermediate", bind.1.span),
-                        false,
-                        None,
-                        false,
-                        true,
+                        VarInfo {
+                            is_argument: true,
+                            ..Default::default()
+                        },
                     );
 
                     self.visit_block(&mut bind.0, false);
@@ -738,10 +744,10 @@ impl Visitor {
 
                     let storage_var = self.push_var_declaration(
                         &mut Identifier::new("amount", None),
-                        false,
-                        None,
-                        false,
-                        true,
+                        VarInfo {
+                            is_argument: true,
+                            ..Default::default()
+                        },
                     );
 
                     self.symbols
@@ -850,7 +856,13 @@ impl Visitor {
             }
 
             for node in &mut definition.inputs {
-                self.push_var_declaration(&mut node.name, false, None, false, true);
+                self.push_var_declaration(
+                    &mut node.name,
+                    VarInfo {
+                        is_argument: true,
+                        ..Default::default()
+                    },
+                );
             }
 
             self.visit_block(&mut definition.body, false);
@@ -868,14 +880,7 @@ impl Visitor {
         symbol
     }
 
-    fn push_var_declaration(
-        &mut self,
-        ident: &mut Identifier,
-        mutable: bool,
-        is_storage: Option<SymbolId>,
-        is_frame_pointer: bool,
-        is_argument: bool,
-    ) -> SymbolId {
+    fn push_var_declaration(&mut self, ident: &mut Identifier, var_info: VarInfo) -> SymbolId {
         let symbol = self.new_symbol(ident);
 
         let scope = self.stack.last_mut().unwrap();
@@ -884,17 +889,6 @@ impl Visitor {
         // TODO: handle error
         let fn_scope = self.locals.last_mut().unwrap();
         fn_scope.push(ident.uid.unwrap());
-
-        let var_info = VarInfo {
-            wasm_local_index: None,
-            mutable,
-            ty: None,
-            is_storage,
-            is_captured: false,
-            frame_offset: None,
-            is_frame_pointer,
-            is_argument,
-        };
 
         self.symbols.vars.insert(
             symbol,
@@ -1188,7 +1182,13 @@ impl Visitor {
                 ty,
             } => {
                 self.visit_expr(value);
-                self.push_var_declaration(var, *mutable, None, false, false);
+                self.push_var_declaration(
+                    var,
+                    VarInfo {
+                        mutable: *mutable,
+                        ..Default::default()
+                    },
+                );
 
                 if let Some(ty) = ty {
                     self.visit_type_arg(ty);
@@ -1247,10 +1247,10 @@ impl Visitor {
                     // assigned to locals, so we need a dummy local for it.
                     let frame_var = self.push_var_declaration(
                         &mut Identifier::new("frame", None),
-                        false,
-                        None,
-                        true,
-                        false,
+                        VarInfo {
+                            is_frame_pointer: true,
+                            ..Default::default()
+                        },
                     );
 
                     // TODO: try to avoid the double lookup?
@@ -1263,7 +1263,13 @@ impl Visitor {
                         .replace(frame_var);
 
                     for node in &mut decl.args {
-                        self.push_var_declaration(&mut node.name, false, None, false, true);
+                        self.push_var_declaration(
+                            &mut node.name,
+                            VarInfo {
+                                is_argument: true,
+                                ..Default::default()
+                            },
+                        );
                     }
 
                     self.visit_block(body, false);

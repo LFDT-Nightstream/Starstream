@@ -22,7 +22,7 @@ pub struct Symbols {
     pub type_vars: HashMap<TypeVar, ComparableType>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VarInfo {
     pub wasm_local_index: Option<u64>,
     pub mutable: bool,
