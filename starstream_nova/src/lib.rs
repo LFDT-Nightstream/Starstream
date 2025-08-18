@@ -173,64 +173,20 @@ fn hash<F: PrimeField, CS: ConstraintSystem<F>>(
     if_switch(nest!(cs), w, switch, hash)
 }
 
-// FIXME: bad hack
-fn zero<F: PrimeField, CS: ConstraintSystem<F>>(
+// FIXME: bad hack, AllocatedNum is bad
+fn lit<F: PrimeField, CS: ConstraintSystem<F>>(
     mut cs: CS,
     w: &mut impl Witness<F>,
+    n: F,
 ) -> AllocatedNum<F> {
-    let zero = alloc!("zero", cs, w);
+    let lit = alloc!("lit", cs, w);
     cs.enforce(
         label!(),
-        |lc| lc + zero.get_variable(),
+        |lc| lc + lit.get_variable(),
         |lc| lc + CS::one(),
-        |lc| lc,
+        |lc| lc + (n, CS::one()),
     );
-    zero
-}
-
-// FIXME: bad hack
-fn one<F: PrimeField, CS: ConstraintSystem<F>>(
-    mut cs: CS,
-    w: &mut impl Witness<F>,
-) -> AllocatedNum<F> {
-    let one = alloc!("one", cs, w);
-    cs.enforce(
-        label!(),
-        |lc| lc + one.get_variable(),
-        |lc| lc + CS::one(),
-        |lc| lc + CS::one(),
-    );
-    one
-}
-
-// FIXME: bad hack
-fn two<F: PrimeField, CS: ConstraintSystem<F>>(
-    mut cs: CS,
-    w: &mut impl Witness<F>,
-) -> AllocatedNum<F> {
-    let two = alloc!("two", cs, w);
-    cs.enforce(
-        label!(),
-        |lc| lc + two.get_variable(),
-        |lc| lc + CS::one(),
-        |lc| lc + CS::one() + CS::one(),
-    );
-    two
-}
-
-// FIXME: bad hack
-fn three<F: PrimeField, CS: ConstraintSystem<F>>(
-    mut cs: CS,
-    w: &mut impl Witness<F>,
-) -> AllocatedNum<F> {
-    let three = alloc!("three", cs, w);
-    cs.enforce(
-        label!(),
-        |lc| lc + three.get_variable(),
-        |lc| lc + CS::one(),
-        |lc| lc + CS::one() + CS::one() + CS::one(),
-    );
-    three
+    lit
 }
 
 // adds H(a, v, t) to the multiset
@@ -243,7 +199,7 @@ fn memory<F: PrimeField, CS: ConstraintSystem<F>>(
     v: AllocatedNum<F>,
     t: AllocatedNum<F>,
 ) -> AllocatedNum<F> {
-    let preimage = vec![a, v, t, zero(nest!(cs), w)];
+    let preimage = vec![a, v, t, lit(nest!(cs), w, F::ZERO)];
     let hash = hash(nest!(cs), w, switch, preimage);
     multiset.add(nest!(cs), &hash).expect("unreachable")
 }
@@ -323,7 +279,7 @@ fn visit_enter<CS, F>(
         utxo_idx.clone(),
         &vec![input.clone()],
     );
-    let zero = zero(nest!(cs), w);
+    let zero = lit(nest!(cs), w, F::ZERO);
     push(
         nest!(cs),
         w,
@@ -347,7 +303,7 @@ fn visit_push_coord<CS, F>(
     let switch = switches.alloc(nest!(cs), w);
     let new_coord_idx = alloc!("new_coord_idx", cs, w);
     let input = alloc!("input", cs, w);
-    let one = one(nest!(cs), w);
+    let one = lit(nest!(cs), w, F::ONE);
     push(
         nest!(cs),
         w,
@@ -358,7 +314,7 @@ fn visit_push_coord<CS, F>(
         // FIXME: use hash instead of idx
         &vec![one, new_coord_idx.clone(), input.clone()],
     );
-    let two = two(nest!(cs), w);
+    let two = lit(nest!(cs), w, F::from_u128(2));
     push(
         nest!(cs),
         w,
@@ -402,7 +358,7 @@ fn visit_pop_coord<CS, F>(
     let switch = switches.alloc(nest!(cs), w);
     let old_coord_idx = alloc!("old_coord_idx", cs, w);
     let old_coord_stack = alloc!("old_coord_stack", cs, w);
-    let three = three(nest!(cs), w);
+    let three = lit(nest!(cs), w, F::from_u128(3));
     push(
         nest!(cs),
         w,
