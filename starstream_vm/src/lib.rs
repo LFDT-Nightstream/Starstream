@@ -4,16 +4,16 @@
 use std::{collections::HashMap, sync::Arc};
 
 use byteorder::{LittleEndian, ReadBytesExt};
-pub use code::ContractCode;
-use code::{CodeCache, CodeHash};
+pub use code::{CodeCache, CodeHash, ContractCode};
 use log::{debug, info, trace};
 use rand::RngCore;
 use sha2::{Sha256, digest::DynDigest};
 use tiny_keccak::Hasher;
 use util::DisplayHex;
+pub use wasmi::Value;
 use wasmi::{
     AsContext, AsContextMut, Caller, Config, Engine, ExternRef, ExternType, ImportType, Instance,
-    Linker, ResumableCall, Store, StoreContext, StoreContextMut, Value, core::HostError,
+    Linker, ResumableCall, Store, StoreContext, StoreContextMut, core::HostError,
 };
 
 mod code;
@@ -508,7 +508,7 @@ fn utxo_linker(
 // ----------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub struct Utxo {
+struct Utxo {
     program: ProgramIdx,
     tokens: HashMap<TokenId, Token>,
 }
@@ -607,7 +607,7 @@ impl Token {
 // ----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
-pub struct UtxoId {
+struct UtxoId {
     bytes: [u8; 16],
 }
 
@@ -910,6 +910,18 @@ impl std::fmt::Debug for MemorySegment {
     }
 }
 
+/// An event logged during a transaction's execution.
+pub struct Event {
+    /// The code in which the ABI declaring the event appeared.
+    pub code: CodeHash,
+    /// The ABI block in which the event's declaration appeared.
+    pub abi: String,
+    /// The event's name.
+    pub event: String,
+    /// The arguments passed to the event.
+    pub args: Vec<Value>,
+}
+
 const MAX_FUEL: u64 = u64::MAX;
 
 #[derive(Debug)]
@@ -1015,9 +1027,11 @@ struct TransactionInner {
 
     registered_effect_handler: HashMap<String, Vec<(ProgramIdx, u32)>>,
     raised_effects: HashMap<String, ProgramIdx>,
+
+    events: Vec<Event>,
 }
 
-/// An in-progress transaction and its traces. Contains all related WASM execution.
+/// An in-progress transaction and its traces. Contains all related Wasm execution.
 pub struct Transaction {
     store: Store<TransactionInner>,
     code_cache: Arc<CodeCache>,
@@ -1054,35 +1068,7 @@ impl Transaction {
         &self.code_cache
     }
 
-    pub fn utxos(&mut self) -> Vec<(Value, String)> {
-        let data = self.store.data();
-
-        let mut res = vec![];
-        let iter = data
-            .utxos
-            .iter()
-            .filter_map(|(utxo_id, utxo)| {
-                let tx_program = &data.programs[utxo.program.0];
-
-                if tx_program.interrupt().is_some() {
-                    Some((*utxo_id, tx_program.entry_point.clone()))
-                } else {
-                    None
-                }
-            })
-            // TODO: can probably avoid this, but just do this for simplicity
-            .collect::<Vec<_>>();
-
-        for (utxo_id, entry_point) in iter {
-            res.push((
-                utxo_id.to_wasm_externref(self.store.as_context_mut()),
-                entry_point,
-            ));
-        }
-
-        res
-    }
-
+    /// Run a coordination script in this transaction.
     pub fn run_coordination_script(
         &mut self,
         coordination_code: &Arc<ContractCode>,
@@ -1833,6 +1819,41 @@ impl Transaction {
         (id, result)
     }
 
+    /// Get the set of UTXOs existing in this transaction. String is the type name.
+    pub fn utxos(&mut self) -> Vec<(Value, String)> {
+        let data = self.store.data();
+
+        let mut res = vec![];
+        let iter = data
+            .utxos
+            .iter()
+            .filter_map(|(utxo_id, utxo)| {
+                let tx_program = &data.programs[utxo.program.0];
+
+                if tx_program.interrupt().is_some() {
+                    Some((*utxo_id, tx_program.entry_point.clone()))
+                } else {
+                    None
+                }
+            })
+            // TODO: can probably avoid this, but just do this for simplicity
+            .collect::<Vec<_>>();
+
+        for (utxo_id, entry_point) in iter {
+            res.push((
+                utxo_id.to_wasm_externref(self.store.as_context_mut()),
+                entry_point,
+            ));
+        }
+
+        res
+    }
+
+    /// Get events logged by this transaction so far.
+    pub fn events(&self) -> &[Event] {
+        &self.store.data().events[..]
+    }
+
     pub fn map_continuations(&self) -> Vec<ContinuationEntry> {
         let mut result = Vec::new();
         let mut iter = self.store.data().witnesses.iter();
@@ -1907,6 +1928,7 @@ impl TransactionProof {
 // of UTXOs into WASM memories) and commit them (verify, flush WASM instances).
 // In the long term it should be possible to commit ZK proofs of transactions.
 
+/// A hash of a UTXO's Wasm linear memory at a point in time.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MemoryHash([u8; 32]);
 

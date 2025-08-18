@@ -27,7 +27,7 @@ impl CodeHash {
         CodeHash(hash)
     }
 
-    pub fn raw(&self) -> [u8; 32] {
+    pub(crate) fn raw(&self) -> [u8; 32] {
         self.0
     }
 }
@@ -38,7 +38,7 @@ impl std::fmt::Debug for CodeHash {
     }
 }
 
-/// A loaded but not instantiated WASM blob.
+/// A loaded but not instantiated Wasm blob.
 pub struct ContractCode {
     wasm: Vec<u8>,
     hash: CodeHash,
@@ -52,7 +52,7 @@ impl ContractCode {
         }
     }
 
-    pub fn module(&self, engine: &Engine) -> Module {
+    pub(crate) fn module(&self, engine: &Engine) -> Module {
         Module::new(engine, &self.wasm[..]).unwrap()
     }
 
@@ -73,7 +73,7 @@ impl std::fmt::Debug for ContractCode {
     }
 }
 
-/// A cache of WASM blobs.
+/// A content-addressed cache of Wasm blobs.
 #[derive(Default)]
 pub struct CodeCache {
     by_hash: RwLock<HashMap<CodeHash, Arc<ContractCode>>>,
