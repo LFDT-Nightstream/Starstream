@@ -5,15 +5,22 @@ use ariadne::{Label, Report, ReportBuilder, ReportKind};
 use chumsky::span::SimpleSpan;
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, DataSection, Encode, EntityType, ExportSection, FuncType,
-    FunctionSection, ImportSection, InstructionSink, MemArg, MemorySection, MemoryType, Module,
-    RefType, TypeSection, ValType,
+    FunctionSection, GlobalSection, GlobalType, ImportSection, InstructionSink, MemArg,
+    MemorySection, MemoryType, Module, RefType, TypeSection, ValType,
 };
 
 use crate::{
     ast::*,
-    symbols::{FuncInfo, SymbolId, SymbolInformation, Symbols, VarInfo},
+    symbols::{
+        AbiInfo, ArgOrConst, EffectHandlers, FuncInfo, SymbolId, SymbolInformation, Symbols,
+        VarInfo,
+    },
     typechecking::{ComparableType, PrimitiveType, TypeVar},
 };
+
+const GLOBAL_FRAME_PTR: u32 = 0;
+const GLOBAL_STACK_PTR: u32 = 1;
+const GLOBAL_SAVE_FRAME_PTR: u32 = 2;
 
 /// Compile a Starstream AST to a binary WebAssembly module.
 pub fn compile<'a>(
@@ -271,6 +278,7 @@ struct Compiler {
     exports: ExportSection,
     code: CodeSection,
     data: DataSection,
+    globals: GlobalSection,
 
     // Compiler state.
     bump_ptr: u32,
@@ -326,6 +334,8 @@ impl Compiler {
         fns.sort_by_key(|f| f.source.clone());
 
         for f_info in fns.iter_mut() {
+            cache_required_effect_handlers(&symbols_table.interfaces, f_info);
+
             if f_info.source == "resume" && f_info.info.mangled_name.is_some() {
                 let index = this.import_function(
                     "starstream_utxo:this",
@@ -348,22 +358,33 @@ impl Compiler {
                     StarFunctionType {
                         params: f_info
                             .info
-                            .inputs_ty
+                            .effect_handlers
                             .iter()
-                            .zip(f_info.info.locals.iter().skip(1).map(|local| {
-                                symbols_table
-                                    .vars
-                                    .get(local)
-                                    .as_ref()
-                                    .unwrap()
+                            // TODO: figure out a way of not having to repeat this
+                            .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3))
+                            .chain(
+                                f_info
                                     .info
-                                    .ty
-                                    .as_ref()
-                                    .unwrap()
-                            }))
-                            .map(|(_, ty)| {
-                                StaticType::from_canonical_type(ty, &symbols_table.type_vars)
-                            })
+                                    .inputs_ty
+                                    .iter()
+                                    .zip(f_info.info.locals.iter().skip(1).map(|local| {
+                                        symbols_table
+                                            .vars
+                                            .get(local)
+                                            .as_ref()
+                                            .unwrap()
+                                            .info
+                                            .ty
+                                            .as_ref()
+                                            .unwrap()
+                                    }))
+                                    .map(|(_, ty)| {
+                                        StaticType::from_canonical_type(
+                                            ty,
+                                            &symbols_table.type_vars,
+                                        )
+                                    }),
+                            )
                             .collect(),
                         results: f_info
                             .info
@@ -395,26 +416,42 @@ impl Compiler {
                             .chain(
                                 f_info
                                     .info
-                                    .locals
+                                    .effect_handlers
+                                    .iter()
+                                    // TODO: figure out a way of not having to repeat this everywhere
+                                    .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3)),
+                            )
+                            .chain(
+                                f_info
+                                    .info
+                                    .inputs_ty
                                     .iter()
                                     .skip(1)
-                                    .map(|local| {
-                                        symbols_table
-                                            .vars
-                                            .get(local)
-                                            .as_ref()
-                                            .unwrap()
+                                    .zip(
+                                        f_info
                                             .info
-                                            .ty
-                                            .as_ref()
-                                            .unwrap()
-                                    })
-                                    .map(|ty| {
-                                        StaticType::from_canonical_type(
-                                            ty,
-                                            &symbols_table.type_vars,
-                                        )
-                                    }),
+                                            .locals
+                                            .iter()
+                                            .skip(1)
+                                            .filter_map(|local| {
+                                                symbols_table
+                                                    .vars
+                                                    .get(local)
+                                                    .as_ref()
+                                                    .filter(|var_info| {
+                                                        !var_info.info.is_captured
+                                                            && var_info.info.is_storage.is_none()
+                                                    })
+                                                    .and_then(|var_info| var_info.info.ty.as_ref())
+                                            })
+                                            .map(|ty| {
+                                                StaticType::from_canonical_type(
+                                                    ty,
+                                                    &symbols_table.type_vars,
+                                                )
+                                            }),
+                                    )
+                                    .map(|(_, ty)| ty),
                             )
                             .collect(),
                         results: f_info
@@ -481,11 +518,54 @@ impl Compiler {
         this.global_scope_functions
             .insert("starstream_yield".to_owned(), starstream_yield);
 
+        for effect_info in symbols_table.effects.values_mut() {
+            if !effect_info.info.is_user_defined {
+                continue;
+            }
+
+            let index =
+                this.import_function(
+                    "starstream_env:this",
+                    &format!("starstream_handler_{}", effect_info.source),
+                    StarFunctionType {
+                        params: vec![
+                            // program id
+                            StaticType::U32,
+                            // handler id (function id)
+                            StaticType::U32,
+                            // frame pointer
+                            StaticType::U32,
+                        ]
+                        .into_iter()
+                        .chain(effect_info.info.inputs_canonical_ty.iter().map(|ty| {
+                            StaticType::from_canonical_type(ty, &symbols_table.type_vars)
+                        }))
+                        .collect(),
+                        results: effect_info
+                            .info
+                            .output_canonical_ty
+                            .as_ref()
+                            .map(|ty| {
+                                vec![StaticType::from_canonical_type(
+                                    ty,
+                                    &symbols_table.type_vars,
+                                )]
+                            })
+                            .unwrap_or(vec![]),
+                    },
+                );
+
+            assert!(effect_info.info.index.replace(index as usize).is_none());
+        }
+
         add_builtin_assert(&mut this);
         add_builtin_is_tx_signed_by(&mut this);
 
+        // exports have to be after all the imports
         for f_info in fns {
             if f_info.info.mangled_name.is_some() && f_info.info.index.is_none() {
+                cache_required_effect_handlers(&symbols_table.interfaces, f_info);
+
                 let (ty, f) = build_func(
                     f_info,
                     &symbols_table.type_vars,
@@ -501,8 +581,29 @@ impl Compiler {
                     index,
                 );
 
-                f_info.info.index.replace(index);
+                assert!(f_info.info.index.replace(index).is_none());
             }
+
+            let mut offset = 0;
+            for var in &f_info.info.locals {
+                let var_info = symbols_table.vars.get_mut(var).unwrap();
+
+                if !var_info.info.is_captured {
+                    continue;
+                }
+
+                let wasm_ty = StaticType::from_canonical_type(
+                    var_info.info.ty.as_ref().unwrap(),
+                    &symbols_table.type_vars,
+                );
+
+                var_info.info.frame_offset.replace(offset);
+
+                // TODO: consider alignment?
+                offset += wasm_ty.mem_size() as u32;
+            }
+
+            f_info.info.frame_size = offset;
         }
 
         Compiler {
@@ -512,9 +613,36 @@ impl Compiler {
     }
 
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
+        for _ in [GLOBAL_FRAME_PTR, GLOBAL_STACK_PTR, GLOBAL_SAVE_FRAME_PTR] {
+            self.globals.global(
+                GlobalType {
+                    val_type: ValType::I32,
+                    mutable: true,
+                    shared: false,
+                },
+                // we need the stack to start after the statics
+                //
+                // we need to do this in finish instead of the constructor since
+                // otherwise the value of this won't be fully computed.
+                &ConstExpr::i32_const(self.bump_ptr as i32),
+            );
+        }
+
         let page_size = 64 * 1024;
         self.memory.memory(MemoryType {
-            minimum: u64::from(self.bump_ptr.div_ceil(page_size)),
+            minimum: std::cmp::min(
+                u64::from(self.bump_ptr.div_ceil(page_size)),
+                // NOTE: we probably need some sort of pragma to setup the
+                // maximum stack size, and use that to compute the minimum
+                // memory. Or we need to insert grow instructions when needed.
+                // it may also depend on whether we want a heap.
+                //
+                // We could technically optimize this by checking if there are
+                // captured variables, but for now just set a minimum of one
+                // page, since in the common case there will always be some
+                // effect handler.
+                1,
+            ),
             maximum: None,
             memory64: false,
             shared: false,
@@ -551,6 +679,9 @@ impl Compiler {
         }
         if !self.memory.is_empty() {
             module.section(&self.memory);
+        }
+        if !self.globals.is_empty() {
+            module.section(&self.globals);
         }
         if !self.exports.is_empty() {
             module.section(&self.exports);
@@ -653,11 +784,9 @@ impl Compiler {
         for item in &utxo.items {
             match item {
                 UtxoItem::Main(main) => {
-                    let f_info = self
-                        .symbols_table
-                        .functions
-                        .get(&main.ident.uid.unwrap())
-                        .unwrap();
+                    let symbol_id = main.ident.uid.unwrap();
+
+                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
                         f_info,
@@ -666,7 +795,10 @@ impl Compiler {
                         true,
                     );
 
-                    let return_value = self.visit_block(&mut function, &main.block);
+                    let effect_handlers = f_info.info.effect_handlers.clone();
+
+                    let return_value =
+                        self.visit_block(&mut function, &main.block, &symbol_id, &effect_handlers);
                     self.drop_intermediate(&mut function, return_value);
                     function.instructions().end();
 
@@ -698,16 +830,15 @@ impl Compiler {
         for item in &token.items {
             match item {
                 TokenItem::Mint(mint) => {
-                    let f_info = self
-                        .symbols_table
-                        .functions
-                        .get(&mint.1.uid.unwrap())
-                        .unwrap();
+                    let symbol_id = mint.1.uid.unwrap();
+                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+                    let effect_handlers = f_info.info.effect_handlers.clone();
 
                     let index = f_info.info.index.unwrap();
                     let mut function = self.get_function_body(index);
 
-                    let return_value = self.visit_block(&mut function, &mint.0);
+                    let return_value =
+                        self.visit_block(&mut function, &mint.0, &symbol_id, &effect_handlers);
 
                     self.drop_intermediate(&mut function, return_value);
 
@@ -724,11 +855,8 @@ impl Compiler {
                     func_info.info.index.replace(index);
                 }
                 TokenItem::Bind(bind) => {
-                    let f_info = self
-                        .symbols_table
-                        .functions
-                        .get(&bind.1.uid.unwrap())
-                        .unwrap();
+                    let symbol_id = bind.1.uid.unwrap();
+                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
                         f_info,
@@ -737,7 +865,9 @@ impl Compiler {
                         f_info.info.is_main,
                     );
 
-                    let return_value = self.visit_block(&mut function, &bind.0);
+                    let effect_handlers = f_info.info.effect_handlers.clone();
+                    let return_value =
+                        self.visit_block(&mut function, &bind.0, &symbol_id, &effect_handlers);
 
                     self.drop_intermediate(&mut function, return_value);
 
@@ -770,11 +900,8 @@ impl Compiler {
                         .export(&name, wasm_encoder::ExportKind::Func, index);
                 }
                 TokenItem::Unbind(unbind) => {
-                    let f_info = self
-                        .symbols_table
-                        .functions
-                        .get(&unbind.1.uid.unwrap())
-                        .unwrap();
+                    let symbol_id = unbind.1.uid.unwrap();
+                    let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
 
                     let (ty, mut function) = build_func(
                         f_info,
@@ -783,7 +910,9 @@ impl Compiler {
                         f_info.info.is_main,
                     );
 
-                    let return_value = self.visit_block(&mut function, &unbind.0);
+                    let effect_handlers = f_info.info.effect_handlers.clone();
+                    let return_value =
+                        self.visit_block(&mut function, &unbind.0, &symbol_id, &effect_handlers);
 
                     self.drop_intermediate(&mut function, return_value);
 
@@ -820,19 +949,29 @@ impl Compiler {
 
     fn visit_script(&mut self, script: &Script) {
         for fndef in &script.definitions {
-            let f_info = self
-                .symbols_table
-                .functions
-                .get(&fndef.ident.uid.unwrap())
-                .unwrap();
+            let symbol_id = fndef.ident.uid.unwrap();
+            let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+            let effect_handlers = f_info.info.effect_handlers.clone();
+
+            let frame_size = f_info.info.frame_size;
 
             let index = f_info.info.index.unwrap();
             let mut function = self.get_function_body(index);
 
-            let return_value = self.visit_block(&mut function, &fndef.body);
+            // allocate stack space
+            if frame_size > 0 {
+                function_preamble(frame_size, &mut function);
+            }
+
+            let return_value =
+                self.visit_block(&mut function, &fndef.body, &symbol_id, &effect_handlers);
 
             if matches!(return_value, Intermediate::Void) {
                 self.drop_intermediate(&mut function, return_value);
+            }
+
+            if frame_size > 0 {
+                function_exit(frame_size, &mut function);
             }
 
             function.instructions().end();
@@ -841,18 +980,24 @@ impl Compiler {
         }
     }
 
-    fn visit_block(&mut self, func: &mut Function, mut block: &Block) -> Intermediate {
+    fn visit_block(
+        &mut self,
+        func: &mut Function,
+        mut block: &Block,
+        fn_id: &SymbolId,
+        effect_handlers: &EffectHandlers,
+    ) -> Intermediate {
         let mut last = Intermediate::Void;
         loop {
             match block {
                 Block::Chain { head, tail } => {
                     match &**head {
                         ExprOrStatement::Statement(statement) => {
-                            self.visit_statement(func, statement);
+                            self.visit_statement(func, statement, fn_id, effect_handlers);
                         }
                         ExprOrStatement::Expr(expr) => {
                             self.drop_intermediate(func, last);
-                            last = self.visit_expr(func, expr);
+                            last = self.visit_expr(func, expr, fn_id, effect_handlers);
                         }
                     }
                     block = tail;
@@ -874,14 +1019,27 @@ impl Compiler {
         }
     }
 
-    fn visit_statement(&mut self, func: &mut Function, statement: &Statement) {
+    fn visit_statement(
+        &mut self,
+        func: &mut Function,
+        statement: &Statement,
+        fn_id: &SymbolId,
+        effect_handlers: &EffectHandlers,
+    ) {
         match statement {
-            Statement::Return(expr) => {
+            Statement::Return(expr) | Statement::Resume(expr) => {
                 if let Some(expr) = expr {
-                    let im = self.visit_expr(func, expr);
-                    // TODO: allow actually returning things
-                    self.drop_intermediate(func, im);
+                    let _im = self.visit_expr(func, expr, fn_id, effect_handlers);
                 }
+                function_exit(
+                    self.symbols_table
+                        .functions
+                        .get(fn_id)
+                        .unwrap()
+                        .info
+                        .frame_size,
+                    func,
+                );
                 func.instructions().return_();
             }
             Statement::BindVar {
@@ -890,7 +1048,16 @@ impl Compiler {
                 ty: _,
                 value,
             } => {
-                let im = self.visit_expr(func, value);
+                let var_info = self.symbols_table.vars.get(&var.uid.unwrap()).unwrap();
+                let wasm_local_index = var_info.info.wasm_local_index;
+                let frame_offset = var_info.info.frame_offset;
+                let ty = var_info.info.ty.clone();
+
+                if var_info.info.is_captured {
+                    func.instructions().global_get(GLOBAL_FRAME_PTR);
+                }
+
+                let im = self.visit_expr(func, value, fn_id, effect_handlers);
 
                 if matches!(im, Intermediate::Error) {
                     Report::build(ReportKind::Error, 0..0)
@@ -900,13 +1067,28 @@ impl Compiler {
                     return;
                 }
 
-                let var_info = self.symbols_table.vars.get(&var.uid.unwrap()).unwrap();
+                let current_fn_info = self.symbols_table.functions.get(fn_id).unwrap();
 
-                func.instructions()
-                    .local_set(var_info.info.index.unwrap() as u32);
+                if let Some(wasm_local_index) = wasm_local_index {
+                    func.instructions().local_set(
+                        wasm_local_index as u32 + current_fn_info.info.effect_handlers.len() as u32,
+                    );
+                } else if let Some(frame_offset) = frame_offset {
+                    let static_type = StaticType::from_canonical_type(
+                        &ty.unwrap(),
+                        &self.symbols_table.type_vars,
+                    );
+                    let _im = self.visit_mem(
+                        func,
+                        Some(static_type.stack_intermediate()),
+                        frame_offset as usize,
+                        &static_type,
+                    );
+                }
             }
             Statement::Assign { var, expr } => {
-                let im = self.visit_field_access_expr(func, var, Some(expr));
+                let im =
+                    self.visit_field_access_expr(func, var, Some(expr), fn_id, effect_handlers);
 
                 assert!(matches!(im, Intermediate::Void));
             }
@@ -914,7 +1096,7 @@ impl Compiler {
                 func.instructions().block(BlockType::Empty);
                 func.instructions().loop_(BlockType::Empty);
 
-                let im = self.visit_expr(func, cond);
+                let im = self.visit_expr(func, cond, fn_id, effect_handlers);
 
                 assert!(matches!(im, Intermediate::StackBool));
 
@@ -922,11 +1104,11 @@ impl Compiler {
 
                 let body = match body {
                     LoopBody::Statement(statement) => {
-                        self.visit_statement(func, statement);
+                        self.visit_statement(func, statement, fn_id, effect_handlers);
                         Intermediate::Void
                     }
-                    LoopBody::Block(block) => self.visit_block(func, block),
-                    LoopBody::Expr(expr) => self.visit_expr(func, expr),
+                    LoopBody::Block(block) => self.visit_block(func, block, fn_id, effect_handlers),
+                    LoopBody::Expr(expr) => self.visit_expr(func, expr, fn_id, effect_handlers),
                 };
 
                 assert!(matches!(body, Intermediate::Void));
@@ -934,16 +1116,68 @@ impl Compiler {
 
                 func.instructions().br(0).end().end();
             }
+            Statement::With(block, handlers) => {
+                let mut effect_handlers = effect_handlers.clone();
+
+                for (decl, body) in handlers {
+                    let fn_id = decl.ident.uid.unwrap();
+                    let f_info = self.symbols_table.functions.get(&fn_id).unwrap();
+                    // let frame_size = f_info.info.frame_size;
+
+                    let index = f_info.info.index.unwrap();
+
+                    effect_handlers.insert(
+                        *f_info.info.is_effect_handler.as_ref().unwrap(),
+                        ArgOrConst::Const(decl.ident.uid.unwrap()),
+                    );
+
+                    let mut func = self.get_function_body(index);
+
+                    func.instructions()
+                        // save frame pointer
+                        .global_get(GLOBAL_FRAME_PTR)
+                        .global_set(GLOBAL_SAVE_FRAME_PTR)
+                        // set frame pointer to received frame
+                        //
+                        // this way can always reference captured variables to
+                        // the frame pointer
+                        .local_get(0)
+                        .global_set(GLOBAL_FRAME_PTR);
+
+                    let im = self.visit_block(&mut func, body, &fn_id, &effect_handlers);
+
+                    self.drop_intermediate(&mut func, im);
+                    func.instructions()
+                        // restore frame pointer
+                        .global_get(GLOBAL_SAVE_FRAME_PTR)
+                        .global_set(GLOBAL_FRAME_PTR)
+                        .end();
+
+                    self.replace_function_body(index, func);
+                }
+
+                let im = self.visit_block(func, block, fn_id, &effect_handlers);
+
+                self.drop_intermediate(func, im);
+            }
             _ => self.todo(format!("Statement::{:?}", statement)),
         }
     }
 
-    fn visit_expr(&mut self, func: &mut Function, expr: &Spanned<Expr>) -> Intermediate {
+    fn visit_expr(
+        &mut self,
+        func: &mut Function,
+        expr: &Spanned<Expr>,
+        fn_id: &SymbolId,
+        effect_handlers: &EffectHandlers,
+    ) -> Intermediate {
         match &expr.node {
-            Expr::PrimaryExpr(secondary) => self.visit_field_access_expr(func, secondary, None),
+            Expr::PrimaryExpr(secondary) => {
+                self.visit_field_access_expr(func, secondary, None, fn_id, effect_handlers)
+            }
             Expr::Equals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32)
@@ -967,8 +1201,8 @@ impl Compiler {
                 }
             }
             Expr::NotEquals(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32)
@@ -992,8 +1226,8 @@ impl Compiler {
                 }
             }
             Expr::Add(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -1017,8 +1251,8 @@ impl Compiler {
                 }
             }
             Expr::Sub(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -1042,8 +1276,8 @@ impl Compiler {
                 }
             }
             Expr::Mul(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackF64, Intermediate::StackF64) => {
@@ -1067,7 +1301,7 @@ impl Compiler {
                 }
             }
             // TODO: Div
-            Expr::BitNot(operand) => match self.visit_expr(func, operand) {
+            Expr::BitNot(operand) => match self.visit_expr(func, operand, fn_id, effect_handlers) {
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackI32 => {
                     // Wasm doesn't have a native bitnot instruction, so XOR with all-ones.
@@ -1096,8 +1330,8 @@ impl Compiler {
                 }
             },
             Expr::BitAnd(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -1123,8 +1357,8 @@ impl Compiler {
                 }
             }
             Expr::BitOr(lhs, rhs) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI32, Intermediate::StackI32) => {
@@ -1153,8 +1387,8 @@ impl Compiler {
             | Expr::GreaterThan(lhs, rhs)
             | Expr::LessEq(lhs, rhs)
             | Expr::GreaterEq(lhs, rhs)) => {
-                let lhs = self.visit_expr(func, lhs);
-                let rhs = self.visit_expr(func, rhs);
+                let lhs = self.visit_expr(func, lhs, fn_id, effect_handlers);
+                let rhs = self.visit_expr(func, rhs, fn_id, effect_handlers);
 
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => {
@@ -1202,12 +1436,12 @@ impl Compiler {
 
                 Intermediate::StackBool
             }
-            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs) {
+            Expr::And(lhs, rhs) => match self.visit_expr(func, lhs, fn_id, effect_handlers) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
-                    match self.visit_expr(func, rhs) {
+                    match self.visit_expr(func, rhs, fn_id, effect_handlers) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -1231,7 +1465,7 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs) {
+            Expr::Or(lhs, rhs) => match self.visit_expr(func, lhs, fn_id, effect_handlers) {
                 // Short-circuiting.
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
@@ -1239,7 +1473,7 @@ impl Compiler {
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
-                    match self.visit_expr(func, rhs) {
+                    match self.visit_expr(func, rhs, fn_id, effect_handlers) {
                         Intermediate::Error => return Intermediate::Error,
                         Intermediate::StackBool => {}
                         rhs => {
@@ -1263,18 +1497,20 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::BlockExpr(BlockExpr::Block(block)) => self.visit_block(func, block),
+            Expr::BlockExpr(BlockExpr::Block(block)) => {
+                self.visit_block(func, block, fn_id, effect_handlers)
+            }
             Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_, else_)) => {
-                match self.visit_expr(func, cond) {
+                match self.visit_expr(func, cond, fn_id, effect_handlers) {
                     Intermediate::Error => Intermediate::Error,
                     Intermediate::StackBool => {
                         // TODO: handle non-Void if blocks.
                         func.instructions().if_(BlockType::Empty);
-                        let im = self.visit_block(func, if_);
+                        let im = self.visit_block(func, if_, fn_id, effect_handlers);
                         self.drop_intermediate(func, im);
                         if let Some(else_) = else_ {
                             func.instructions().else_();
-                            let im = self.visit_block(func, else_);
+                            let im = self.visit_block(func, else_, fn_id, effect_handlers);
                             self.drop_intermediate(func, im);
                         }
                         func.instructions().end();
@@ -1290,6 +1526,24 @@ impl Compiler {
                     }
                 }
             }
+
+            Expr::Not(e) => match self.visit_expr(func, e, fn_id, effect_handlers) {
+                // Short-circuiting.
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::StackBool => {
+                    func.instructions().i32_eqz();
+
+                    Intermediate::StackBool
+                }
+                lhs => {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message(format_args!(
+                            "type mismatch: `&&` requires bools, but left side was {lhs:?}"
+                        ))
+                        .push(self);
+                    Intermediate::Error
+                }
+            },
             _ => {
                 self.todo(format!("Expr::{:?}", expr));
                 Intermediate::Error
@@ -1303,11 +1557,16 @@ impl Compiler {
         expr: &FieldAccessExpression,
         // if we have something like x.foo = rhs;
         rhs: Option<&Spanned<Expr>>,
+        fn_id: &SymbolId,
+        effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         match expr {
-            FieldAccessExpression::PrimaryExpr(primary) => self.visit_primary_expr(func, primary),
+            FieldAccessExpression::PrimaryExpr(primary) => {
+                self.visit_primary_expr(func, primary, fn_id, effect_handlers)
+            }
             FieldAccessExpression::FieldAccess { base, field } => {
-                let receiver = self.visit_field_access_expr(func, base, rhs);
+                let receiver =
+                    self.visit_field_access_expr(func, base, rhs, fn_id, effect_handlers);
 
                 let expr: &IdentifierExpr = field;
                 if let Intermediate::Error = receiver {
@@ -1326,67 +1585,26 @@ impl Compiler {
 
                     let xs = &args.xs;
 
-                    self.visit_call(func, expr.name.span.unwrap(), func_im, xs, Some(receiver))
+                    let effect_handlers_required = f_info.info.effect_handlers.clone();
+
+                    self.visit_call(
+                        func,
+                        expr.name.span.unwrap(),
+                        func_im,
+                        xs,
+                        1,
+                        fn_id,
+                        effect_handlers,
+                        effect_handlers_required,
+                        None,
+                    )
                 } else {
-                    let rhs = rhs.map(|expr| self.visit_expr(func, expr));
+                    let rhs = rhs.map(|expr| self.visit_expr(func, expr, fn_id, effect_handlers));
 
                     match &receiver {
                         Intermediate::StackPtr(StaticType::Record(record)) => {
                             let (offset, ty) = record.offsets.get(&expr.name.raw).unwrap();
-                            let field_offset = MemArg {
-                                offset: *offset as u64,
-                                // TODO:
-                                align: 0,
-                                memory_index: 0,
-                            };
-
-                            if let Some(actual_ty) = rhs.as_ref() {
-                                match (actual_ty, &**ty) {
-                                    (Intermediate::Void, StaticType::Void) => {}
-                                    (Intermediate::StackI32, StaticType::I32) => {}
-                                    (Intermediate::StackU32, StaticType::U32) => {}
-                                    (Intermediate::StackU64, StaticType::U64) => {}
-                                    (Intermediate::StackI64, StaticType::I64) => {}
-                                    (expected, found) => {
-                                        Report::build(ReportKind::Error, 0..0)
-                                    .with_message(format_args!(
-                                        "parameter type mismatch: expected {expected:?}, got {found:?}"
-                                    ))
-                                    .push(self);
-                                        return Intermediate::Error;
-                                    }
-                                }
-                            }
-
-                            match &**ty {
-                                StaticType::I32 | StaticType::U32 => {
-                                    if let Some(Intermediate::StackI32 | Intermediate::StackU32) =
-                                        rhs
-                                    {
-                                        func.instructions().i32_store(field_offset);
-                                        Intermediate::Void
-                                    } else {
-                                        func.instructions().i32_load(field_offset);
-                                        Intermediate::StackI32
-                                    }
-                                }
-                                StaticType::I64 | StaticType::U64 => {
-                                    if let Some(Intermediate::StackI64 | Intermediate::StackU64) =
-                                        rhs
-                                    {
-                                        func.instructions().i64_store(field_offset);
-                                        Intermediate::Void
-                                    } else {
-                                        func.instructions().i64_load(field_offset);
-                                        Intermediate::StackI64
-                                    }
-                                }
-                                ty => {
-                                    self.todo(format!("record field access of ty {:?}", ty));
-
-                                    Intermediate::Error
-                                }
-                            }
+                            self.visit_mem(func, rhs, *offset, ty)
                         }
                         _ => {
                             _ = func;
@@ -1399,7 +1617,73 @@ impl Compiler {
         }
     }
 
-    fn visit_primary_expr(&mut self, func: &mut Function, primary: &PrimaryExpr) -> Intermediate {
+    fn visit_mem(
+        &mut self,
+        func: &mut Function,
+        rhs: Option<Intermediate>,
+        offset: usize,
+        ty: &StaticType,
+    ) -> Intermediate {
+        let offset = MemArg {
+            offset: offset as u64,
+            // TODO:
+            align: 0,
+            memory_index: 0,
+        };
+
+        if let Some(actual_ty) = rhs.as_ref() {
+            match (actual_ty, ty) {
+                (Intermediate::Void, StaticType::Void) => {}
+                (Intermediate::StackI32, StaticType::I32) => {}
+                (Intermediate::StackU32, StaticType::U32) => {}
+                (Intermediate::StackU64, StaticType::U64) => {}
+                (Intermediate::StackI64, StaticType::I64) => {}
+                (Intermediate::StackBool, StaticType::Bool) => {}
+                (expected, found) => {
+                    Report::build(ReportKind::Error, 0..0)
+                        .with_message(format_args!(
+                            "parameter type mismatch: expected {expected:?}, got {found:?}"
+                        ))
+                        .push(self);
+                    return Intermediate::Error;
+                }
+            }
+        }
+
+        match ty {
+            StaticType::I32 | StaticType::U32 => {
+                if let Some(Intermediate::StackI32 | Intermediate::StackU32) = rhs {
+                    func.instructions().i32_store(offset);
+                    Intermediate::Void
+                } else {
+                    func.instructions().i32_load(offset);
+                    ty.stack_intermediate()
+                }
+            }
+            StaticType::I64 | StaticType::U64 => {
+                if let Some(Intermediate::StackI64 | Intermediate::StackU64) = rhs {
+                    func.instructions().i64_store(offset);
+                    Intermediate::Void
+                } else {
+                    func.instructions().i64_load(offset);
+                    ty.stack_intermediate()
+                }
+            }
+            ty => {
+                self.todo(format!("record field access of ty {:?}", ty));
+
+                Intermediate::Error
+            }
+        }
+    }
+
+    fn visit_primary_expr(
+        &mut self,
+        func: &mut Function,
+        primary: &PrimaryExpr,
+        current_fn_id: &SymbolId,
+        effect_handlers: &EffectHandlers,
+    ) -> Intermediate {
         match primary {
             PrimaryExpr::Number { literal, ty } => {
                 match StaticType::from_canonical_type(
@@ -1484,20 +1768,65 @@ impl Compiler {
                         .get(&ident.name.uid.unwrap())
                         .unwrap();
 
-                    let ty = var_info.info.ty.as_ref().unwrap();
+                    let ty = var_info.info.ty.as_ref().unwrap().clone();
+                    let static_type =
+                        StaticType::from_canonical_type(&ty, &self.symbols_table.type_vars);
 
                     if var_info.info.is_storage.is_some() {
                         func.instructions().i32_const(0);
+                    } else if let Some(frame_offset) = var_info.info.frame_offset {
+                        func.instructions().global_get(GLOBAL_FRAME_PTR);
+                        let im = self.visit_mem(func, None, frame_offset as usize, &static_type);
+                        return im;
                     } else {
-                        func.instructions()
-                            .local_get(var_info.info.index.unwrap() as u32);
+                        // we can't use `effect_handlers` here since we may be
+                        // inside a try block, but here we just need to know the
+                        // offset in the function's parameters
+                        let current_fn_info =
+                            self.symbols_table.functions.get(current_fn_id).unwrap();
+                        func.instructions().local_get(
+                            // TODO: kind of duplicated code
+                            var_info.info.wasm_local_index.unwrap() as u32
+                                + (current_fn_info.info.effect_handlers.len() as u32) * 3,
+                        );
                     }
 
                     StaticType::from_canonical_type(ty, &self.symbols_table.type_vars)
                         .stack_intermediate()
                 }
             }
-            PrimaryExpr::ParExpr(expr) => self.visit_expr(func, expr),
+            PrimaryExpr::RaiseNamespaced {
+                ident,
+                namespaces: _,
+            } => {
+                let effect_handler_id = ident.name.uid.as_ref().unwrap();
+
+                if let Some(args) = &ident.args {
+                    let effect_info = &self
+                        .symbols_table
+                        .effects
+                        .get(effect_handler_id)
+                        .unwrap()
+                        .info;
+
+                    self.visit_call(
+                        func,
+                        Intermediate::ConstFunction(effect_info.index.unwrap() as u32),
+                        &args.xs,
+                        3,
+                        current_fn_id,
+                        effect_handlers,
+                        // TODO: allow effects in handlers
+                        Default::default(),
+                        Some(*effect_handler_id),
+                    )
+                } else {
+                    unreachable!();
+                }
+            }
+            PrimaryExpr::ParExpr(expr) => {
+                self.visit_expr(func, expr, current_fn_id, effect_handlers)
+            }
             PrimaryExpr::StringLiteral(string) => {
                 let ptr = self.alloc_constant(string.as_bytes());
                 let len = string.len();
@@ -1506,7 +1835,9 @@ impl Compiler {
                     .i32_const(u32::try_from(len).unwrap().cast_signed());
                 Intermediate::StackStrRef
             }
-            PrimaryExpr::Yield(expr) => self.visit_yield(func, expr),
+            PrimaryExpr::Yield(expr) => {
+                self.visit_yield(func, expr, current_fn_id, effect_handlers)
+            }
             PrimaryExpr::Tuple(elems) if elems.is_empty() => Intermediate::Void,
             _ => {
                 self.todo(format!("PrimaryExpr::{:?}", primary));
@@ -1519,6 +1850,8 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         expr: &Option<Box<Spanned<Expr>>>,
+        fn_id: &SymbolId,
+        effect_handlers: &EffectHandlers,
     ) -> Intermediate {
         let f_id = self.global_scope_functions["starstream_yield"];
 
@@ -1541,7 +1874,7 @@ impl Compiler {
             // the utxo has its own memory space anyway.
             func.instructions().i32_const(0);
 
-            self.visit_expr(func, expr)
+            self.visit_expr(func, expr, fn_id, effect_handlers)
         } else {
             Intermediate::Void
         };
@@ -1570,20 +1903,50 @@ impl Compiler {
         id_span: SimpleSpan,
         im: Intermediate,
         args: &[Spanned<Expr>],
-        method_self: Option<Intermediate>,
+        // 0 for normal functions
+        // 1 for methods
+        // 3 for effect handlers
+        implicit_parameters: usize,
+        fn_id: &SymbolId,
+        effect_handlers_in_scope: &EffectHandlers,
+        effect_handlers_required: EffectHandlers,
+        handler_for: Option<SymbolId>,
     ) -> Intermediate {
         match im {
             Intermediate::Error => Intermediate::Error,
             Intermediate::ConstFunction(id) => {
                 let func_type = self.functions_builder[id as usize].0.clone();
 
+                for effect in effect_handlers_required.keys().chain(handler_for.iter()) {
+                    let handler = effect_handlers_in_scope.get(effect).unwrap();
+
+                    match handler {
+                        ArgOrConst::Arg(index) => {
+                            func.instructions()
+                                .local_get(index * 3)
+                                .local_get(index * 3 + 1)
+                                .local_get(index * 3 + 2);
+                        }
+                        ArgOrConst::Const(effect_id) => {
+                            func.instructions()
+                                // TODO: PROGRAM ID
+                                // but this works for the simple case where
+                                // effect handlers are only defined in the
+                                // single coordination script
+                                .i32_const(0_i32)
+                                .i32_const(effect_id.id as i32)
+                                .global_get(GLOBAL_FRAME_PTR);
+                        }
+                    }
+                }
+
                 for (param, arg) in func_type
                     .params
                     .iter()
-                    .skip(if method_self.is_some() { 1 } else { 0 })
+                    .skip(implicit_parameters + effect_handlers_required.len() * 3)
                     .zip(args)
                 {
-                    let arg = self.visit_expr(func, arg);
+                    let arg = self.visit_expr(func, arg, fn_id, effect_handlers_in_scope);
                     match (param, arg) {
                         (StaticType::Void, Intermediate::Void) => {}
                         (StaticType::F64, Intermediate::StackF64) => {}
@@ -1608,12 +1971,14 @@ impl Compiler {
                                     "parameter type mismatch: expected {param:?}, got {arg:?}"
                                 ))
                                 .push(self);
+                            panic!();
                         }
                     }
                 }
 
                 let params_required = func_type.params.len();
-                let args_given = args.len() + if method_self.is_some() { 1 } else { 0 };
+                let args_given =
+                    args.len() + implicit_parameters + effect_handlers_required.len() * 3;
                 match params_required.cmp(&args_given) {
                     Ordering::Equal => {}
                     Ordering::Less => {
@@ -1656,11 +2021,9 @@ impl Compiler {
 
     fn visit_utxo_impl(&mut self, utxo_impl: &Impl) {
         for fndef in &utxo_impl.definitions {
-            let f_info = self
-                .symbols_table
-                .functions
-                .get(&fndef.ident.uid.unwrap())
-                .unwrap();
+            let symbol_id = fndef.ident.uid.unwrap();
+            let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+            let effect_handlers = f_info.info.effect_handlers.clone();
 
             let (ty, mut function) = build_func(
                 f_info,
@@ -1669,7 +2032,8 @@ impl Compiler {
                 false,
             );
 
-            let _return_value = self.visit_block(&mut function, &fndef.body);
+            let _return_value =
+                self.visit_block(&mut function, &fndef.body, &symbol_id, &effect_handlers);
             function.instructions().end();
 
             let index = self.add_function(ty, function);
@@ -1704,6 +2068,80 @@ impl Compiler {
             .map(|(_, f)| f.take().unwrap())
             .unwrap()
     }
+}
+
+fn cache_required_effect_handlers(
+    abis: &HashMap<SymbolId, SymbolInformation<AbiInfo>>,
+    f_info: &mut SymbolInformation<FuncInfo>,
+) {
+    let mut flattened_effects = vec![];
+
+    for abi in f_info.info.effects.iter() {
+        let Some(abi) = abis.get(abi) else {
+            continue;
+        };
+
+        // there are many builtins right now just to have the examples typecheck
+        // those probably need to be moved to some sort of include so that they
+        // can be re-used instead.
+        if !abi.info.is_user_defined {
+            continue;
+        }
+
+        for effect in &abi.info.effects {
+            flattened_effects.push(effect);
+        }
+    }
+
+    flattened_effects.sort();
+
+    f_info.info.effect_handlers = flattened_effects
+        .into_iter()
+        .enumerate()
+        .map(|(usize, effect_id)| (*effect_id, ArgOrConst::Arg(usize as u32)))
+        .collect();
+}
+
+fn function_preamble(frame_size: u32, function: &mut Function) {
+    let mut instructions = function.instructions();
+
+    instructions
+        //
+        // save frame pointer
+        .global_get(GLOBAL_FRAME_PTR)
+        .global_set(GLOBAL_SAVE_FRAME_PTR)
+        //
+        // set frame pointer to current stack pointer
+        .global_get(GLOBAL_STACK_PTR)
+        .global_set(GLOBAL_FRAME_PTR);
+
+    if frame_size > 0 {
+        instructions
+            //
+            // increase stack pointer
+            .global_get(GLOBAL_STACK_PTR)
+            .i32_const(frame_size as i32)
+            .i32_add()
+            .global_set(GLOBAL_STACK_PTR);
+    }
+}
+
+fn function_exit(frame_size: u32, function: &mut Function) {
+    let mut instructions = function.instructions();
+
+    if frame_size > 0 {
+        instructions
+            // restore stack
+            .global_get(GLOBAL_STACK_PTR)
+            .i32_const(frame_size as i32)
+            .i32_sub()
+            .global_set(GLOBAL_STACK_PTR);
+    }
+
+    instructions
+        // restore frame pointer of callee
+        .global_get(GLOBAL_SAVE_FRAME_PTR)
+        .global_set(GLOBAL_FRAME_PTR);
 }
 
 fn add_builtin_assert(this: &mut Compiler) {
@@ -1819,17 +2257,25 @@ fn build_func(
     let ty = StarFunctionType {
         params: f_info
             .info
-            .inputs_ty
+            .effect_handlers
             .iter()
-            .zip(f_info.info.locals.iter().filter_map(|local| {
-                let var_info = &vars.get(local).as_ref().unwrap().info;
+            .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3))
+            .chain(
+                f_info
+                    .info
+                    .inputs_ty
+                    .iter()
+                    .zip(f_info.info.locals.iter().filter_map(|local| {
+                        let var_info = &vars.get(local).as_ref().unwrap().info;
 
-                var_info
-                    .ty
-                    .as_ref()
-                    .filter(|_| var_info.is_storage.is_none())
-            }))
-            .map(|(_, ty)| StaticType::from_canonical_type(ty, type_vars))
+                        var_info.ty.as_ref().filter(|_| {
+                            var_info.is_storage.is_none()
+                                && !var_info.is_captured
+                                && (var_info.is_argument || var_info.is_frame_pointer)
+                        })
+                    }))
+                    .map(|(_, ty)| StaticType::from_canonical_type(ty, type_vars)),
+            )
             .collect(),
         results: if is_main {
             vec![]
@@ -1847,6 +2293,14 @@ fn build_func(
 
     for local in &f_info.info.locals {
         let var_info = vars.get(local).unwrap();
+
+        if var_info.info.is_captured
+            || var_info.info.is_argument
+            || var_info.info.is_frame_pointer
+            || var_info.info.is_storage.is_some()
+        {
+            continue;
+        }
 
         let val_type =
             StaticType::from_canonical_type(var_info.info.ty.as_ref().unwrap(), type_vars).lower()
@@ -1916,6 +2370,12 @@ mod tests {
     #[test]
     fn compile_simple_oracle() {
         let src = include_str!("../../grammar/examples/simple_oracle.star");
+        test_example(src);
+    }
+
+    #[test]
+    fn compile_effect_handlers() {
+        let src = include_str!("../../grammar/examples/effect_handlers.star");
         test_example(src);
     }
 
