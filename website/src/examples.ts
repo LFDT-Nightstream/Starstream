@@ -18,9 +18,9 @@ const fetchCode = (url: string) => async (): Promise<string> => {
 
 export default {
   "Hello World": cache(fetchCode(hello)),
-  PayToPublicKeyHash: cache(fetchCode(payToPublicKeyHash)),
-  SimpleOracle: cache(fetchCode(simpleOracle)),
-  "Permissioned Token": cache(fetchCode(permissionedToken)),
-  Oracle: cache(fetchCode(oracle)),
   Event: cache(fetchCode(event)),
+  PayToPublicKeyHash: cache(fetchCode(payToPublicKeyHash)),
+  "Simple Oracle": cache(fetchCode(simpleOracle)),
+  Oracle: cache(fetchCode(oracle)),
+  "Permissioned Token": cache(fetchCode(permissionedToken)),
 } as Record<string, () => Promise<string>>;
