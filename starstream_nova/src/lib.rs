@@ -1,18 +1,8 @@
-#[cfg(test)]
-use ff::Field;
 use ff::{PrimeField, PrimeFieldBits};
 use nova::frontend::PoseidonConstants;
 use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
-#[cfg(test)]
-use nova::frontend::test_cs::TestConstraintSystem;
 use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
 use nova::nebula::rs::StepCircuit;
-#[cfg(test)]
-use nova::nebula::rs::{PublicParams, RecursiveSNARK};
-#[cfg(test)]
-use nova::provider::PallasEngine;
-#[cfg(test)]
-use nova::traits::{Engine, snark::default_ck_hint};
 use std::sync::{Arc, Mutex};
 use typenum::U4;
 
@@ -563,32 +553,55 @@ where
     }
 }
 
-pub struct WitnessFromVec<F>(Vec<(F, &'static str)>);
-
-impl<F: PrimeField> Witness<F> for WitnessFromVec<F> {
-    fn get(&mut self, name: &'static str, label: impl FnOnce() -> String) -> Option<F> {
-        let Some((val, name_)) = self.0.pop() else {
-            eprintln!("{}: expected {}", label(), name);
-            return Some(F::ZERO);
-        };
-        if name != name_ {
-            eprintln!("{}: expected {}, got {}", label(), name, name_);
-        }
-        Some(val)
-    }
-}
-
-pub struct NoWitness;
-
-impl<F> Witness<F> for NoWitness {
-    fn get(&mut self, _name: &'static str, _label: impl FnOnce() -> String) -> Option<F> {
-        None
-    }
-}
-
 #[test]
 #[ignore]
 fn prove_dummy() {
+    use ff::Field;
+    use nova::frontend::test_cs::TestConstraintSystem;
+    use nova::nebula::rs::{PublicParams, RecursiveSNARK};
+    use nova::provider::PallasEngine;
+    use nova::traits::{Engine, snark::default_ck_hint};
+    use std::env::var_os;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::path::Path;
+
+    struct WitnessFromFile(BufReader<File>);
+
+    impl<F: PrimeField> Witness<F> for WitnessFromFile {
+        fn get(&mut self, name: &'static str, label: impl FnOnce() -> String) -> Option<F> {
+            let mut out = String::new();
+            let _ = self.0.read_line(&mut out);
+            let mut split = out.split_ascii_whitespace();
+            let name_ = split.next();
+            match name_ {
+                None => {
+                    eprintln!("{}: expected {}", label(), name);
+                    return Some(F::ZERO);
+                }
+                Some(name_) => {
+                    let val = split
+                        .next()
+                        .and_then(F::from_str_vartime)
+                        .expect("invalid witness file");
+                    assert!(split.next().is_none());
+
+                    if name != name_ {
+                        eprintln!("{}: expected {}, got {}", label(), name, name_);
+                    }
+                    Some(val)
+                }
+            }
+        }
+    }
+
+    struct NoWitness;
+
+    impl<F> Witness<F> for NoWitness {
+        fn get(&mut self, _name: &'static str, _label: impl FnOnce() -> String) -> Option<F> {
+            None
+        }
+    }
     let mut test = TestConstraintSystem::new();
     type F = <PallasEngine as Engine>::Scalar;
     let input = [F::ZERO, F::ZERO];
@@ -602,26 +615,13 @@ fn prove_dummy() {
         zero,
     ];
     let witness = || {
-        let mut v = vec![
-            (F::ZERO, "switch"),
-            (F::ZERO, "utxo_idx"),
-            (F::ZERO, "input"),
-            (F::ZERO, "output"),
-            (F::ZERO, "prev"),
-            (F::ZERO, "timestamp"),
-            (F::ZERO, "new_timestamp"),
-            (F::ZERO, "zero"),
-            (F::ZERO, "if_result"),
-            (F::ZERO, "zero"),
-            (F::ZERO, "if_result"),
-            (F::ZERO, "zero"),
-            (F::ZERO, "if_result"),
-            (F::ONE, "switch"),
-        ];
-        v.reverse();
-        v
+        let var = var_os("SS_TEST_WITNESS").expect("provide SS_TEST_WITNESS env var");
+        let path = Path::new(&var);
+        let f = File::open(path).expect("file at SS_TEST_WITNESS not openable");
+        let reader = BufReader::new(f);
+        WitnessFromFile(reader)
     };
-    StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness()))))
+    StarstreamCircuit(Arc::new(Mutex::new(witness())))
         .synthesize(&mut test, &allocated_input)
         .expect(label_!()().as_ref());
     println!(
@@ -636,21 +636,14 @@ fn prove_dummy() {
     );
     let mut rs = RecursiveSNARK::new(
         &pp,
-        &StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness())))),
+        &StarstreamCircuit(Arc::new(Mutex::new(witness()))),
         &input,
     )
     .expect(label_!()().as_ref());
     let ic = F::ZERO;
-    rs.prove_step(
-        &pp,
-        &StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness())))),
-        ic,
-    )
-    .expect(label_!()().as_ref());
-    let ic = rs.increment_commitment(
-        &pp,
-        &StarstreamCircuit(Arc::new(Mutex::new(WitnessFromVec(witness())))),
-    );
+    rs.prove_step(&pp, &StarstreamCircuit(Arc::new(Mutex::new(witness()))), ic)
+        .expect(label_!()().as_ref());
+    let ic = rs.increment_commitment(&pp, &StarstreamCircuit(Arc::new(Mutex::new(witness()))));
     let num_steps = rs.num_steps();
     rs.verify(&pp, num_steps, &input, ic)
         .expect(label_!()().as_ref());
