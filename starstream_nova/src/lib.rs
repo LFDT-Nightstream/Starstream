@@ -1,5 +1,3 @@
-#![feature(anonymous_lifetime_in_impl_trait)]
-
 use ff::{PrimeField, PrimeFieldBits};
 use nova::frontend::test_cs::TestConstraintSystem;
 use std::marker::PhantomData;
@@ -68,7 +66,7 @@ pub trait CircuitBuilderVar:
 {
 }
 
-pub trait CircuitBuilder<'a> {
+pub trait CircuitBuilder {
     type F: PrimeField + 'static;
     type Var: CircuitBuilderVar;
 
@@ -77,19 +75,17 @@ pub trait CircuitBuilder<'a> {
     fn lit(&mut self, n: u128) -> Self::Var;
     fn alloc(&mut self, location: Location) -> Self::Var;
     fn enforce(&mut self, location: Location, a: Self::Var, b: Self::Var, a_times_b: Self::Var);
-    fn nest<'b>(
-        &'b mut self,
+    fn nest<'a>(
+        &'a mut self,
         location: Location,
-    ) -> impl CircuitBuilder<'b, Var = Self::Var, F = Self::F> + 'b
-    where
-        'a: 'b;
+    ) -> impl CircuitBuilder<Var = Self::Var, F = Self::F> + 'a;
     fn from_allocated_num(&mut self, var: AllocatedNum<Self::F>) -> Self::Var;
     fn to_allocated_num(&mut self, var: Self::Var) -> AllocatedNum<Self::F>;
     fn inner(self) -> impl ConstraintSystem<Self::F>;
 }
 
 pub trait Circuit: Send + Sync {
-    fn run<'a, CB: CircuitBuilder<'a>>(&self, builder: CB, io: Vec<CB::Var>) -> Vec<CB::Var>;
+    fn run<CB: CircuitBuilder>(&self, builder: CB, io: Vec<CB::Var>) -> Vec<CB::Var>;
 }
 
 pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
@@ -215,7 +211,7 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
         s + &suffix
     }
 
-    impl<'a, F: PrimeField, W: Witness<F>, CS: ConstraintSystem<F>> CircuitBuilder<'a>
+    impl<'a, F: PrimeField, W: Witness<F>, CS: ConstraintSystem<F>> CircuitBuilder
         for Builder<'a, F, W, CS>
     {
         type F = F;
@@ -271,10 +267,7 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
         fn nest<'b>(
             &'b mut self,
             location: Location,
-        ) -> impl CircuitBuilder<'b, Var = Self::Var, F = Self::F> + 'b
-        where
-            'a: 'b,
-        {
+        ) -> impl CircuitBuilder<Var = Self::Var, F = Self::F> + 'b {
             Builder {
                 cs: self
                     .cs
@@ -427,12 +420,12 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
     fn new() -> (Switches<Var>, ConsumeSwitches) {
         (Switches(vec![]), ConsumeSwitches)
     }
-    fn alloc(&mut self, mut cb: impl CircuitBuilder<'_, Var = Var>) -> Var {
+    fn alloc(&mut self, mut cb: impl CircuitBuilder<Var = Var>) -> Var {
         let switch = cb.alloc(l!("switch"));
         self.0.push(switch.clone());
         switch
     }
-    fn consume(self, _marker: ConsumeSwitches, mut cb: impl CircuitBuilder<'_, Var = Var>) {
+    fn consume(self, _marker: ConsumeSwitches, mut cb: impl CircuitBuilder<Var = Var>) {
         let zero = cb.zero();
         let one = cb.one();
         cb.enforce(
@@ -457,13 +450,13 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
     }
 }
 
-fn if_switch<'a, CB: CircuitBuilder<'a>>(mut cb: CB, switch: CB::Var, n: CB::Var) -> CB::Var {
+fn if_switch<CB: CircuitBuilder>(mut cb: CB, switch: CB::Var, n: CB::Var) -> CB::Var {
     let r = cb.alloc(l!("if_result"));
     cb.enforce(l!("if_switch"), switch, n, r.clone());
     r
 }
 
-fn either_switch<'a, CB: CircuitBuilder<'a>>(
+fn either_switch<CB: CircuitBuilder>(
     mut cb: CB,
     switch: CB::Var,
     case_true: CB::Var,
@@ -501,11 +494,7 @@ fn either_switch<'a, CB: CircuitBuilder<'a>>(
     r
 }
 
-fn hash<'a, CB: CircuitBuilder<'a> + 'a>(
-    mut cb: CB,
-    switch: CB::Var,
-    input: Vec<CB::Var>,
-) -> CB::Var {
+fn hash<CB: CircuitBuilder>(mut cb: CB, switch: CB::Var, input: Vec<CB::Var>) -> CB::Var {
     // FIXME: poseidon_hash_allocated doesn't take a switch,
     // so all its constraints cost even if they aren't used.
     let input: Vec<AllocatedNum<CB::F>> = input
@@ -521,7 +510,7 @@ fn hash<'a, CB: CircuitBuilder<'a> + 'a>(
 }
 
 // adds H(a, v, t) to the multiset
-fn memory<'a, CB: CircuitBuilder<'a>>(
+fn memory<CB: CircuitBuilder>(
     mut cb: CB,
     switch: CB::Var,
     multiset: CB::Var,
@@ -534,7 +523,7 @@ fn memory<'a, CB: CircuitBuilder<'a>>(
     multiset + hash
 }
 
-fn push<'a, CB: CircuitBuilder<'a>>(
+fn push<CB: CircuitBuilder>(
     mut cb: CB,
 
     switch: CB::Var,
@@ -620,7 +609,7 @@ impl<Var> StarstreamIO<Var> {
     }
 }
 
-fn visit_enter<'a, CB: CircuitBuilder<'a>>(
+fn visit_enter<CB: CircuitBuilder>(
     mut cb: CB,
     switches: &mut Switches<CB::Var>,
     io: &mut StarstreamIO<CB::Var>,
@@ -647,7 +636,7 @@ fn visit_enter<'a, CB: CircuitBuilder<'a>>(
     );
 }
 
-fn visit_push_coord<'a, CB: CircuitBuilder<'a>>(
+fn visit_push_coord<CB: CircuitBuilder>(
     mut cb: CB,
     switches: &mut Switches<CB::Var>,
     io: &mut StarstreamIO<CB::Var>,
@@ -691,7 +680,7 @@ fn visit_push_coord<'a, CB: CircuitBuilder<'a>>(
     );
 }
 
-fn visit_pop_coord<'a, CB: CircuitBuilder<'a>>(
+fn visit_pop_coord<CB: CircuitBuilder>(
     mut cb: CB,
     switches: &mut Switches<CB::Var>,
     io: &mut StarstreamIO<CB::Var>,
@@ -730,14 +719,14 @@ fn visit_pop_coord<'a, CB: CircuitBuilder<'a>>(
     );
 }
 
-fn visit_nop<'a, CB: CircuitBuilder<'a>>(mut cb: CB, switches: &mut Switches<CB::Var>) {
+fn visit_nop<CB: CircuitBuilder>(mut cb: CB, switches: &mut Switches<CB::Var>) {
     let _switch = switches.alloc(cb.nest(l!()));
 }
 
 pub struct StarstreamCircuit;
 
 impl Circuit for StarstreamCircuit {
-    fn run<'a, CB: CircuitBuilder<'a>>(&self, mut cb: CB, io: Vec<CB::Var>) -> Vec<CB::Var> {
+    fn run<CB: CircuitBuilder>(&self, mut cb: CB, io: Vec<CB::Var>) -> Vec<CB::Var> {
         let (mut switches, consume_switches) = Switches::new();
 
         let mut io = StarstreamIO::of(io);
