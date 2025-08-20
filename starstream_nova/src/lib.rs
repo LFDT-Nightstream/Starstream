@@ -67,7 +67,7 @@ pub trait CircuitBuilderVar:
 }
 
 pub trait CircuitBuilder {
-    type F: PrimeField + 'static;
+    type F: PrimeField;
     type Var: CircuitBuilderVar;
 
     fn zero(&mut self) -> Self::Var;
