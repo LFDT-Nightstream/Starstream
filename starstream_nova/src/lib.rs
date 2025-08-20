@@ -755,7 +755,6 @@ impl Circuit for StarstreamCircuit {
 
 #[test]
 #[ignore]
-#[cfg(any(/* Disabled for now due to not compiling. */))]
 fn prove_dummy() {
     use ff::Field;
     use nova::provider::PallasEngine;
