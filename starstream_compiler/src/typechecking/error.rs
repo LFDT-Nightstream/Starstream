@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-
-use crate::symbols::{AbiInfo, FuncInfo, SymbolInformation, VarInfo};
-
 use super::ComparableType;
+use crate::symbols::{AbiInfo, EffectInfo, SymbolInformation, VarInfo};
 use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
+use std::collections::HashSet;
 
 #[repr(u32)]
 pub enum TypeErrorCode {
@@ -142,7 +140,7 @@ pub(super) fn error_effect_type_mismatch(
 
 pub(super) fn error_missing_effect_handler(
     span: SimpleSpan,
-    effect_info: &SymbolInformation<FuncInfo>,
+    effect_info: &SymbolInformation<EffectInfo>,
     interface_info: &SymbolInformation<AbiInfo>,
 ) -> Report<'static> {
     error_report(span)

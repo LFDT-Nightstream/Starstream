@@ -152,6 +152,21 @@ impl<'a> TypeInference<'a> {
                 .as_ref()
                 .map(|ty| ty.canonical_form_tys(&self.symbols.types))
         }
+
+        for effect in self.symbols.effects.values_mut() {
+            effect.info.inputs_canonical_ty = effect
+                .info
+                .inputs_ty
+                .iter()
+                .map(|ty| ty.canonical_form_tys(&self.symbols.types))
+                .collect();
+
+            effect.info.output_canonical_ty = effect
+                .info
+                .output_ty
+                .as_ref()
+                .map(|ty| ty.canonical_form_tys(&self.symbols.types))
+        }
     }
 
     fn substitute(
@@ -421,6 +436,16 @@ impl<'a> TypeInference<'a> {
             .unwrap()
             .info
             .interfaces
+            .filter(|abi| {
+                !self
+                    .symbols
+                    .interfaces
+                    .get(abi)
+                    .unwrap()
+                    .info
+                    .effects
+                    .is_empty()
+            })
             .clone();
 
         interfaces.add(self.symbols.builtins[STARSTREAM_ENV]);
@@ -460,6 +485,15 @@ impl<'a> TypeInference<'a> {
                     self.current_coroutine.pop();
 
                     self.utxo_main_block_constraints.push((span, block_ty));
+
+                    // TODO: is this correct?
+                    // MARK: review
+                    self.symbols
+                        .functions
+                        .get_mut(&main.ident.uid.unwrap())
+                        .unwrap()
+                        .info
+                        .effects = interfaces.clone();
                 }
                 UtxoItem::Impl(utxo_impl) => {
                     let abi = utxo_impl.name.uid.unwrap();
@@ -511,10 +545,6 @@ impl<'a> TypeInference<'a> {
             .unwrap();
 
         let var_info = self.symbols.vars.get_mut(&storage_var).unwrap();
-
-        // dbg!(&storage_ty);
-        // dbg!(&var_info);
-        // dbg!(&fn_info.info.inputs_ty);
 
         var_info.info.ty.replace(storage_ty.clone());
     }
@@ -617,7 +647,16 @@ impl<'a> TypeInference<'a> {
 
         let mut actual_effects = self.check_block(&mut fn_def.body, output);
 
-        if let Some(abi) = abi {
+        if let Some(abi) = abi.filter(|abi| {
+            !self
+                .symbols
+                .interfaces
+                .get(abi)
+                .unwrap()
+                .info
+                .effects
+                .is_empty()
+        }) {
             actual_effects.add(abi);
         }
 
@@ -730,11 +769,6 @@ impl<'a> TypeInference<'a> {
                 for (handler, block) in items {
                     let symbol_id = handler.interface.uid.unwrap();
 
-                    interfaces
-                        .entry(symbol_id)
-                        .or_default()
-                        .insert(handler.ident.uid.unwrap());
-
                     effects.remove(symbol_id);
 
                     self.current_handler.push(handler.ident.uid.unwrap());
@@ -746,7 +780,25 @@ impl<'a> TypeInference<'a> {
                         .unwrap()
                         .info;
 
-                    for (arg_ty_decl, arg_def) in fn_info.inputs_ty.iter().zip(handler.args.iter())
+                    interfaces
+                        .entry(symbol_id)
+                        .or_default()
+                        .insert(fn_info.is_effect_handler.unwrap());
+
+                    self.symbols
+                        .vars
+                        .get_mut(&fn_info.frame_var.unwrap())
+                        .unwrap()
+                        .info
+                        .ty
+                        .replace(ComparableType::Primitive(PrimitiveType::I32));
+
+                    for (arg_ty_decl, arg_def) in fn_info
+                        .inputs_ty
+                        .iter()
+                        // skip the frame variable since its implicit
+                        .skip(1)
+                        .zip(handler.args.iter())
                     {
                         let ty = arg_ty_decl.canonical_form(self.symbols);
 
@@ -771,7 +823,7 @@ impl<'a> TypeInference<'a> {
                     let interface_info = self.symbols.interfaces.get(&interface).unwrap();
 
                     for handler in interface_info.info.effects.difference(&handlers) {
-                        let effect_info = self.symbols.functions.get(handler).unwrap();
+                        let effect_info = self.symbols.effects.get(handler).unwrap();
 
                         let span = effect_info.span.unwrap_or(SimpleSpan::from(0..0));
 
@@ -1069,24 +1121,40 @@ impl<'a> TypeInference<'a> {
             let effects = EffectSet::empty();
 
             // application
-            let fn_info = &self
+            let (inputs_ty, output_ty, feffects) = &self
                 .symbols
                 .functions
                 .get(&identifier.name.uid.unwrap())
-                .unwrap()
-                .info;
+                .map(|symbol_information| {
+                    (
+                        &symbol_information.info.inputs_ty,
+                        symbol_information.info.output_ty.as_ref(),
+                        symbol_information.info.effects.clone(),
+                    )
+                })
+                .or_else(|| {
+                    let symbol_information = self
+                        .symbols
+                        .effects
+                        .get(&identifier.name.uid.unwrap())
+                        .unwrap();
+                    Some((
+                        &symbol_information.info.inputs_ty,
+                        symbol_information.info.output_ty.as_ref(),
+                        EffectSet::empty(),
+                    ))
+                })
+                .unwrap();
 
-            let mut effects = effects.combine(fn_info.effects.clone());
+            let mut effects = effects.combine(feffects.clone());
 
-            let inputs: Vec<_> = fn_info
-                .inputs_ty
+            let inputs: Vec<_> = inputs_ty
                 .iter()
                 .skip(if is_method_call { 1 } else { 0 })
                 .map(|ty| ty.canonical_form(self.symbols))
                 .collect();
 
-            let output = fn_info
-                .output_ty
+            let output = output_ty
                 .as_ref()
                 .map(|ty| ty.canonical_form(self.symbols))
                 .unwrap_or(ComparableType::unit());

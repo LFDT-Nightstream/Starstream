@@ -1,17 +1,20 @@
-use std::collections::HashSet;
-
 use crate::symbols::{SymbolId, Symbols};
+use std::collections::{BTreeSet, HashSet};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[must_use]
 pub struct EffectSet {
-    effects: HashSet<SymbolId>,
+    // using a BTreeSet instead of a HashSet so that the order is deterministic
+    //
+    // this order is used for the effect handlers when passed through the stack
+    // as arguments.
+    effects: BTreeSet<SymbolId>,
 }
 
 impl EffectSet {
     pub fn empty() -> Self {
         Self {
-            effects: HashSet::new(),
+            effects: BTreeSet::new(),
         }
     }
 
@@ -50,5 +53,15 @@ impl EffectSet {
             .iter()
             .map(|symbol_id| symbols.interfaces[symbol_id].source.clone())
             .collect()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &SymbolId> {
+        self.effects.iter()
+    }
+
+    pub(crate) fn filter(&self, f: impl Fn(&SymbolId) -> bool) -> Self {
+        Self {
+            effects: self.effects.iter().copied().filter(f).collect(),
+        }
     }
 }

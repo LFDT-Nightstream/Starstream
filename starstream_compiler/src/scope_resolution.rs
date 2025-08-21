@@ -1,5 +1,5 @@
 use crate::symbols::{
-    AbiInfo, ConstInfo, FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo, VarInfo,
+    self, AbiInfo, ConstInfo, FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo, VarInfo,
 };
 use crate::{
     ast::{
@@ -46,6 +46,7 @@ pub struct Scope {
     abi_declarations: HashMap<String, SymbolId>,
     is_function_scope: Option<SymbolId>,
     is_type_scope: Option<SymbolId>,
+    is_closure_scope: bool,
 }
 
 pub const STARSTREAM_ENV: &str = "StarstreamEnv";
@@ -99,6 +100,16 @@ impl Visitor {
         self.locals.push(vec![]);
     }
 
+    fn push_closure_scope(&mut self, f: SymbolId) {
+        self.stack.push(Scope {
+            is_function_scope: Some(f),
+            is_closure_scope: true,
+            ..Default::default()
+        });
+
+        self.locals.push(vec![]);
+    }
+
     fn push_scope(&mut self) {
         self.stack.push(Scope::default());
     }
@@ -110,12 +121,9 @@ impl Visitor {
             if let Some(function) = scope.is_function_scope {
                 let locals = self.locals.pop().unwrap();
 
-                self.symbols
-                    .functions
-                    .get_mut(&function)
-                    .unwrap()
-                    .info
-                    .locals = locals;
+                let symbol_information = self.symbols.functions.get_mut(&function).unwrap();
+
+                symbol_information.info.locals = locals;
             }
         }
     }
@@ -124,10 +132,17 @@ impl Visitor {
         for f_info in self.symbols.functions.values() {
             let mut index = 0;
             for local in &f_info.info.locals {
-                let symbol_information = self.symbols.vars.get_mut(local).unwrap();
+                let var_info = self.symbols.vars.get_mut(local).unwrap();
 
-                if symbol_information.info.is_storage.is_none() {
-                    symbol_information.info.index.replace(index);
+                if var_info.info.is_storage.is_none() && !var_info.info.is_captured {
+                    var_info.info.wasm_local_index.replace(
+                        index +
+                            // the first variable in the stack after the arguments is used to save the caller's frame pointer.
+                            // but this variable is not added to the `locals` in the func info.
+                            //
+                            // because of this, we need to offset non argument locals
+                            if var_info.info.is_argument { 0 } else { 1 },
+                    );
                     index += 1;
                 }
             }
@@ -211,7 +226,7 @@ impl Visitor {
             }))],
         };
 
-        self.visit_abi(&mut abi);
+        self.visit_abi(&mut abi, false);
         self.symbols
             .builtins
             .insert(STARSTREAM, abi.name.uid.unwrap());
@@ -241,7 +256,7 @@ impl Visitor {
                 })),
             ],
         };
-        self.visit_abi(&mut abi);
+        self.visit_abi(&mut abi, false);
         self.symbols
             .builtins
             .insert(STARSTREAM_ENV, abi.name.uid.unwrap());
@@ -337,7 +352,7 @@ impl Visitor {
                     self.push_constant_declaration(name);
                 }
                 ProgramItem::Abi(abi) => {
-                    self.visit_abi(abi);
+                    self.visit_abi(abi, true);
                 }
             }
         }
@@ -367,6 +382,31 @@ impl Visitor {
         }
 
         self.pop_scope();
+
+        for fn_info in self.symbols.functions.values_mut() {
+            let Some(utxo) = fn_info.info.is_utxo_method else {
+                continue;
+            };
+
+            fn_info.info.effects = fn_info.info.effects.clone().combine(
+                self.symbols
+                    .types
+                    .get(&utxo)
+                    .unwrap()
+                    .info
+                    .interfaces
+                    .filter(|abi| {
+                        !self
+                            .symbols
+                            .interfaces
+                            .get(abi)
+                            .unwrap()
+                            .info
+                            .effects
+                            .is_empty()
+                    }),
+            );
+        }
     }
 
     pub fn visit_script(&mut self, script: &mut Script) {
@@ -463,10 +503,15 @@ impl Visitor {
 
                     if let Some(tys) = &mut main.type_sig {
                         for (ident, _ty) in &mut tys.values {
-                            self.push_var_declaration(ident, false, None);
+                            self.push_var_declaration(
+                                ident,
+                                VarInfo {
+                                    is_argument: true,
+                                    ..Default::default()
+                                },
+                            );
                         }
                     }
-
                     self.visit_block(&mut main.block, true);
                     self.pop_scope();
                 }
@@ -573,8 +618,13 @@ impl Visitor {
 
     fn declare_implicit_storage_var(&mut self, utxo_id: SymbolId, fn_id: SymbolId) {
         let mut implicit_storage_var = Identifier::new("storage", None);
-        let storage_var =
-            self.push_var_declaration(&mut implicit_storage_var, false, Some(utxo_id));
+        let storage_var = self.push_var_declaration(
+            &mut implicit_storage_var,
+            VarInfo {
+                is_storage: Some(utxo_id),
+                ..Default::default()
+            },
+        );
 
         self.symbols
             .functions
@@ -640,8 +690,10 @@ impl Visitor {
 
                     let _intermediate = self.push_var_declaration(
                         &mut Identifier::new("intermediate", bind.1.span),
-                        false,
-                        None,
+                        VarInfo {
+                            is_argument: true,
+                            ..Default::default()
+                        },
                     );
 
                     self.visit_block(&mut bind.0, false);
@@ -692,8 +744,10 @@ impl Visitor {
 
                     let storage_var = self.push_var_declaration(
                         &mut Identifier::new("amount", None),
-                        false,
-                        None,
+                        VarInfo {
+                            is_argument: true,
+                            ..Default::default()
+                        },
                     );
 
                     self.symbols
@@ -782,6 +836,7 @@ impl Visitor {
                     effects,
                     locals: vec![],
                     is_main: false,
+                    is_utxo_method: utxo.as_ref().map(|utxo| utxo.uid.unwrap()),
                     mangled_name: utxo
                         .as_ref()
                         .map(|utxo| format!("starstream_query_{}_{}", utxo.raw, fname))
@@ -801,7 +856,13 @@ impl Visitor {
             }
 
             for node in &mut definition.inputs {
-                self.push_var_declaration(&mut node.name, false, None);
+                self.push_var_declaration(
+                    &mut node.name,
+                    VarInfo {
+                        is_argument: true,
+                        ..Default::default()
+                    },
+                );
             }
 
             self.visit_block(&mut definition.body, false);
@@ -819,12 +880,7 @@ impl Visitor {
         symbol
     }
 
-    fn push_var_declaration(
-        &mut self,
-        ident: &mut Identifier,
-        mutable: bool,
-        is_storage: Option<SymbolId>,
-    ) -> SymbolId {
+    fn push_var_declaration(&mut self, ident: &mut Identifier, var_info: VarInfo) -> SymbolId {
         let symbol = self.new_symbol(ident);
 
         let scope = self.stack.last_mut().unwrap();
@@ -833,13 +889,6 @@ impl Visitor {
         // TODO: handle error
         let fn_scope = self.locals.last_mut().unwrap();
         fn_scope.push(ident.uid.unwrap());
-
-        let var_info = VarInfo {
-            index: None,
-            mutable,
-            ty: None,
-            is_storage,
-        };
 
         self.symbols.vars.insert(
             symbol,
@@ -978,45 +1027,67 @@ impl Visitor {
         identifier: &mut Identifier,
         symbol_kind: SymbolKind,
     ) -> Option<(SymbolId, SymbolKind)> {
-        let resolution = self.stack.iter().rev().find_map(|scope| match symbol_kind {
-            SymbolKind::Variable => scope
-                .var_declarations
-                .get(&identifier.raw)
-                .cloned()
-                .zip(Some(SymbolKind::Variable)),
-            SymbolKind::Function => scope
-                .function_declarations
-                .get(&identifier.raw)
-                .cloned()
-                .zip(Some(SymbolKind::Function)),
-            SymbolKind::Type => scope
-                .type_declarations
-                .get(&identifier.raw)
-                .cloned()
-                .zip(Some(SymbolKind::Type)),
-            SymbolKind::Abi => scope
-                .abi_declarations
-                .get(&identifier.raw)
-                .cloned()
-                .zip(Some(SymbolKind::Abi)),
-            SymbolKind::Namespace => scope
-                .abi_declarations
-                .get(&identifier.raw)
-                .cloned()
-                .zip(Some(SymbolKind::Abi))
-                .or_else(|| {
-                    scope
+        let resolution = self
+            .stack
+            .iter()
+            .rev()
+            .enumerate()
+            .find_map(|(index, scope)| {
+                let found = match symbol_kind {
+                    SymbolKind::Variable => scope
+                        .var_declarations
+                        .get(&identifier.raw)
+                        .cloned()
+                        .zip(Some(SymbolKind::Variable)),
+                    SymbolKind::Function => scope
+                        .function_declarations
+                        .get(&identifier.raw)
+                        .cloned()
+                        .zip(Some(SymbolKind::Function)),
+                    SymbolKind::Type => scope
                         .type_declarations
                         .get(&identifier.raw)
                         .cloned()
-                        .zip(Some(SymbolKind::Type))
-                }),
-        });
+                        .zip(Some(SymbolKind::Type)),
+                    SymbolKind::Abi => scope
+                        .abi_declarations
+                        .get(&identifier.raw)
+                        .cloned()
+                        .zip(Some(SymbolKind::Abi)),
+                    SymbolKind::Namespace => scope
+                        .abi_declarations
+                        .get(&identifier.raw)
+                        .cloned()
+                        .zip(Some(SymbolKind::Abi))
+                        .or_else(|| {
+                            scope
+                                .type_declarations
+                                .get(&identifier.raw)
+                                .cloned()
+                                .zip(Some(SymbolKind::Type))
+                        }),
+                };
 
-        let Some((resolved_name, symbol_kind)) = resolution else {
+                found.zip(Some(index))
+            });
+
+        let Some(((resolved_name, symbol_kind), declaration_index)) = resolution else {
             self.push_not_found_error(identifier.span.unwrap());
             return None;
         };
+
+        if matches!(symbol_kind, SymbolKind::Variable)
+            && self
+                .stack
+                .iter()
+                .rev()
+                .enumerate()
+                .any(|(index, scope)| scope.is_closure_scope && declaration_index > index)
+        {
+            if let Some(var) = self.symbols.vars.get_mut(&resolved_name) {
+                var.info.is_captured = true;
+            }
+        }
 
         identifier.uid.replace(resolved_name);
 
@@ -1111,7 +1182,13 @@ impl Visitor {
                 ty,
             } => {
                 self.visit_expr(value);
-                self.push_var_declaration(var, *mutable, None);
+                self.push_var_declaration(
+                    var,
+                    VarInfo {
+                        mutable: *mutable,
+                        ..Default::default()
+                    },
+                );
 
                 if let Some(ty) = ty {
                     self.visit_type_arg(ty);
@@ -1134,28 +1211,65 @@ impl Visitor {
                     let mut namespace = [&mut decl.interface];
                     self.resolve_name_in_namespace(&mut namespace, &mut decl.ident);
 
-                    let mut identifier =
-                        Identifier::new(format!("{}_handle", decl.ident.raw), None);
+                    let effect_id = decl.ident.uid.unwrap();
 
-                    self.push_function_declaration(
-                        &mut identifier,
+                    let effect_info = self.symbols.effects.get(&effect_id).unwrap();
+
+                    let handler_id = self.push_function_declaration(
+                        &mut decl.ident,
                         FuncInfo {
-                            // TODO: check that this matches the storage declaration
-                            inputs_ty: vec![],
-                            output_ty: None,
+                            inputs_ty: std::iter::once(TypeArg::U32)
+                                .chain(effect_info.info.inputs_ty.iter().cloned())
+                                .collect(),
+                            output_ty: effect_info.info.output_ty.clone(),
                             effects: EffectSet::empty(),
                             locals: vec![],
+                            is_effect_handler: Some(effect_id),
                             ..Default::default()
                         },
                     );
 
-                    // TODO: depending on whether we compile effect handlers as
-                    // functions or not we may need to change this
-                    // also to handle captures probably
-                    self.push_function_scope(identifier.uid.unwrap());
+                    self.symbols
+                        .functions
+                        .get_mut(&handler_id)
+                        .unwrap()
+                        .info
+                        .mangled_name
+                        .replace(format!(
+                            "starstream_handler_{}_{}",
+                            decl.ident.raw, handler_id.id
+                        ));
+
+                    self.push_closure_scope(decl.ident.uid.unwrap());
+
+                    // not really used as a variable (although it would be
+                    // a valid code transformation), but the types are only
+                    // assigned to locals, so we need a dummy local for it.
+                    let frame_var = self.push_var_declaration(
+                        &mut Identifier::new("frame", None),
+                        VarInfo {
+                            is_frame_pointer: true,
+                            ..Default::default()
+                        },
+                    );
+
+                    // TODO: try to avoid the double lookup?
+                    self.symbols
+                        .functions
+                        .get_mut(&handler_id)
+                        .unwrap()
+                        .info
+                        .frame_var
+                        .replace(frame_var);
 
                     for node in &mut decl.args {
-                        self.push_var_declaration(&mut node.name, false, None);
+                        self.push_var_declaration(
+                            &mut node.name,
+                            VarInfo {
+                                is_argument: true,
+                                ..Default::default()
+                            },
+                        );
                     }
 
                     self.visit_block(body, false);
@@ -1274,7 +1388,14 @@ impl Visitor {
                 .unwrap()
                 .info
                 .declarations
-                .iter(),
+                .iter()
+                .find(|uid| {
+                    self.symbols
+                        .functions
+                        .get(uid)
+                        .map(|finfo| finfo.source == ident.raw)
+                        .unwrap_or(false)
+                }),
             SymbolKind::Abi => self
                 .symbols
                 .interfaces
@@ -1282,16 +1403,16 @@ impl Visitor {
                 .unwrap()
                 .info
                 .effects
-                .iter(),
+                .iter()
+                .find(|uid| {
+                    self.symbols
+                        .effects
+                        .get(uid)
+                        .map(|finfo| finfo.source == ident.raw)
+                        .unwrap_or(false)
+                }),
             _ => unreachable!(),
-        }
-        .find(|uid| {
-            self.symbols
-                .functions
-                .get(uid)
-                .map(|finfo| finfo.source == ident.raw)
-                .unwrap_or(false)
-        });
+        };
 
         if let Some(f) = f {
             ident.uid.replace(*f);
@@ -1300,7 +1421,7 @@ impl Visitor {
         }
     }
 
-    fn visit_abi(&mut self, abi: &mut Abi) {
+    fn visit_abi(&mut self, abi: &mut Abi, is_user_defined: bool) {
         let mut effects = HashSet::new();
         let mut fns = HashMap::new();
 
@@ -1323,16 +1444,15 @@ impl Visitor {
                     | EffectDecl::ErrorSig(decl) => {
                         let symbol = self.new_symbol(&mut decl.name);
 
-                        self.symbols.functions.insert(
+                        self.symbols.effects.insert(
                             symbol,
                             SymbolInformation {
                                 source: decl.name.raw.clone(),
                                 span: decl.name.span,
-                                info: FuncInfo {
+                                info: symbols::EffectInfo {
                                     inputs_ty: decl.input_types.clone(),
                                     output_ty: decl.output_type.clone(),
-                                    effects: EffectSet::empty(),
-                                    locals: vec![],
+                                    is_user_defined,
                                     ..Default::default()
                                 },
                             },
@@ -1344,7 +1464,14 @@ impl Visitor {
             }
         }
 
-        self.push_interface_declaration(&mut abi.name, AbiInfo { effects, fns });
+        self.push_interface_declaration(
+            &mut abi.name,
+            AbiInfo {
+                effects,
+                fns,
+                is_user_defined,
+            },
+        );
     }
 
     fn visit_type_arg(&mut self, ty: &mut TypeArg) {
@@ -1615,12 +1742,12 @@ mod tests {
 
                 let first = vars
                     .iter()
-                    .find(|info| info.info.index.unwrap() == 0)
+                    .find(|info| info.info.wasm_local_index.unwrap() == 1)
                     .unwrap();
 
                 let second = vars
                     .iter()
-                    .find(|info| info.info.index.unwrap() == 2)
+                    .find(|info| info.info.wasm_local_index.unwrap() == 3)
                     .unwrap();
 
                 assert!(first.info.mutable);
@@ -1726,7 +1853,7 @@ mod tests {
                 // panic!();
                 //
                 let eff = table
-                    .functions
+                    .effects
                     .values()
                     .find(|f| f.source == "Effect1")
                     .unwrap();
@@ -1766,11 +1893,76 @@ mod tests {
 
                 assert_eq!(mint.info.inputs_ty, vec![TypeArg::I64]);
 
-                let TypeArg::Intermediate { .. } = dbg!(mint.info.output_ty.clone()).unwrap()
-                else {
+                let TypeArg::Intermediate { .. } = mint.info.output_ty.clone().unwrap() else {
                     panic!();
                 };
             }
         }
+    }
+
+    #[test]
+    fn resolve_effect_handler_captures() {
+        let input = "
+            abi Abi {
+                effect Effect1(): u32;
+            }
+
+            script {
+              fn foo() {
+                let x = 3;
+                try {}
+                with Abi::Effect1() {
+                  let y = 5;
+
+                  resume x + y;
+
+                  try {}
+                  with Abi::Effect1() {
+                      let z = 8;
+
+                      resume x + y + z;
+                  }
+                }
+              }
+            }
+        ";
+
+        let program = crate::starstream_program().parse(input).unwrap();
+
+        let ast = do_scope_analysis(program);
+
+        let symbols = match ast {
+            Err(_errors) => {
+                for e in _errors {
+                    e.eprint(Source::from(input)).unwrap();
+                }
+                unreachable!();
+            }
+            Ok((_ast, table)) => table,
+        };
+
+        let x = symbols
+            .vars
+            .values()
+            .find(|info| info.source == "x")
+            .unwrap();
+
+        assert!(x.info.is_captured);
+
+        let y = symbols
+            .vars
+            .values()
+            .find(|info| info.source == "y")
+            .unwrap();
+
+        assert!(y.info.is_captured);
+
+        let z = symbols
+            .vars
+            .values()
+            .find(|info| info.source == "z")
+            .unwrap();
+
+        assert!(!z.info.is_captured);
     }
 }

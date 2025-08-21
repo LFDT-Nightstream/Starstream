@@ -139,6 +139,13 @@ enum Interrupt {
         resume_arg: u32,
         resume_arg_len: u32,
     },
+    CallEffectHandler {
+        handler_id: u32,
+        frame: u32,
+        program_id: u32,
+        name: String,
+        inputs: Vec<Value>,
+    },
     // UTXO -> Token
     TokenBind {
         code: CodeHash,
@@ -182,7 +189,7 @@ fn starstream_eprint<T>(mut caller: Caller<T>, ptr: u32, len: u32) {
 /// Fulfiller of imports from `env`.
 #[allow(clippy::unused_unit)] // False positive. `clippy --fix` breaks the code.
 fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractCode) {
-    let this_code = this_code.hash();
+    let this_code_hash = this_code.hash();
 
     linker
         .func_wrap(module, "abort", || -> () {
@@ -215,7 +222,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
             move |mut caller: Caller<T>, return_addr: u32| {
                 trace!("starstream_this_code({return_addr:#x})");
                 let (memory, _) = memory(&mut caller);
-                let hash = this_code.raw();
+                let hash = this_code_hash.raw();
                 memory[return_addr as usize..return_addr as usize + hash.len()]
                     .copy_from_slice(&hash);
             },
@@ -305,6 +312,56 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
             },
         )
         .unwrap();
+
+    for import in this_code.module(linker.engine()).imports() {
+        if import.module() == "env" {
+            // already handled by code above
+        } else if let Some(rest) = import.module().strip_prefix("starstream_env:") {
+            let rest = rest.to_owned();
+            if let ExternType::Func(func_ty) = import.ty() {
+                let name = import.name().to_owned();
+                if import.name().starts_with("starstream_handler_") {
+                    linker
+                        .func_new(
+                            import.module(),
+                            import.name(),
+                            func_ty.clone(),
+                            move |_caller, inputs, _outputs| {
+                                trace!("{rest}::{name}{inputs:?}");
+
+                                let program_id = match inputs[0] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                let id = match inputs[1] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                let frame = match inputs[2] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                host(Interrupt::CallEffectHandler {
+                                    name: name.clone(),
+                                    handler_id: id,
+                                    frame,
+                                    program_id,
+                                    inputs: inputs.iter().skip(2).cloned().collect(),
+                                })
+                            },
+                        )
+                        .unwrap();
+                } else {
+                    panic!("bad import {import:?}");
+                }
+            } else {
+                panic!("bad import {import:?}");
+            }
+        }
+    }
 }
 
 /// Fulfiller of imports from `starstream_utxo_env`.
@@ -1485,6 +1542,21 @@ impl Transaction {
                         method,
                         vec![Value::I32(handler_address as i32)],
                     )
+                }
+                Err(Interrupt::CallEffectHandler {
+                    handler_id: id,
+                    frame: _,
+                    program_id,
+                    name,
+                    inputs,
+                }) => {
+                    let to_program = ProgramIdx(program_id as usize);
+
+                    // we could use a function pointer into a table, but this
+                    // allows re-using call_method
+                    let method = format!("{}_{}", name, id);
+
+                    self.call_method(from_program, to_program, method, inputs)
                 }
                 Err(Interrupt::TokenBind {
                     code,
