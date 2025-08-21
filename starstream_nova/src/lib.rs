@@ -525,7 +525,6 @@ fn memory<CB: CircuitBuilder>(
 
 fn push<CB: CircuitBuilder>(
     mut cb: CB,
-
     switch: CB::Var,
     rs: &mut CB::Var,
     ws: &mut CB::Var,
@@ -743,12 +742,10 @@ impl Circuit for StarstreamCircuit {
 }
 
 #[test]
-#[ignore]
 fn prove_dummy() {
     use ff::Field;
     use nova::provider::PallasEngine;
     use nova::traits::Engine;
-    use std::env::var_os;
     use std::fs::File;
     use std::io::{BufRead, BufReader};
     use std::path::Path;
@@ -805,6 +802,11 @@ fn prove_dummy() {
                             name_
                         );
                     }
+                    eprintln!(
+                        "{}: accepted {}",
+                        format_locations(location, locations),
+                        location.label
+                    );
                     val
                 }
             }
@@ -812,8 +814,7 @@ fn prove_dummy() {
     }
 
     let witness = || {
-        let var = var_os("SS_TEST_WITNESS").expect("provide SS_TEST_WITNESS env var");
-        let path = Path::new(&var);
+        let path = Path::new("./test_witness.txt");
         let f = File::open(path).expect("file at SS_TEST_WITNESS not openable");
         let reader = BufReader::new(f);
         WitnessFromFile(reader)
