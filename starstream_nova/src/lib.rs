@@ -1,14 +1,19 @@
+#![allow(clippy::uninlined_format_args)]
+#![allow(clippy::suspicious_arithmetic_impl)]
+
 use ff::{PrimeField, PrimeFieldBits};
 use nova::frontend::test_cs::TestConstraintSystem;
+use nova::traits::snark::default_ck_hint;
+use nova::traits::{CurveCycleEquipped, Engine};
 use std::marker::PhantomData;
 
 use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
 use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
 use nova::frontend::{LinearCombination, PoseidonConstants, Variable};
-use nova::nebula::rs::StepCircuit;
+use nova::nebula::rs::{PublicParams, RecursiveSNARK, StepCircuit};
 use std::ops::{Add, Mul, Sub};
 use std::sync::{Arc, Mutex};
-use typenum::U4;
+use typenum::U2;
 
 #[derive(Clone, Copy, Default)]
 pub struct Location {
@@ -58,7 +63,15 @@ macro_rules! l {
 }
 
 pub trait Witness<F>: Sync + Send {
-    fn get(&mut self, location: Location, locations: &Locations<'_>) -> F;
+    fn get(&mut self, location: Location, locations: &Locations<'_>) -> Option<F>;
+}
+
+pub struct DummyWitness;
+
+impl<F: PrimeField> Witness<F> for DummyWitness {
+    fn get(&mut self, _: Location, _: &Locations<'_>) -> Option<F> {
+        None
+    }
 }
 
 pub trait CircuitBuilderVar:
@@ -132,19 +145,14 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
     fn var_impl_data<F: PrimeField>(var: VarImpl<F>) -> Option<F> {
         match var {
             VarImpl::Zero => Some(F::ZERO),
-            VarImpl::VarImpl(vec) => vec.into_iter().fold(
-                Some(F::ZERO),
+            VarImpl::VarImpl(vec) => vec.into_iter().try_fold(
+                F::ZERO,
                 |acc,
                  Single {
                      inner: _,
                      scale: _,
                      data,
-                 }| {
-                    match (acc, data) {
-                        (Some(acc), Some(data)) => Some(acc * data),
-                        _ => None,
-                    }
-                },
+                 }| { data.map(|data| acc * data) },
             ),
         }
     }
@@ -157,7 +165,7 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
                 (VarImpl::Zero, rhs) => rhs,
                 (lhs, VarImpl::Zero) => lhs,
                 (VarImpl::VarImpl(lhs), VarImpl::VarImpl(rhs)) => {
-                    VarImpl::VarImpl(lhs.into_iter().chain(rhs.into_iter()).collect())
+                    VarImpl::VarImpl(lhs.into_iter().chain(rhs).collect())
                 }
             }
         }
@@ -240,13 +248,13 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
                 .cs
                 .alloc(
                     || suffix(self.counter, "CircuitBuilder::alloc".to_owned()),
-                    || Ok(w),
+                    || w.ok_or(SynthesisError::AssignmentMissing),
                 )
                 .expect("impossible");
             VarImpl::VarImpl(vec![Single {
                 inner: var,
                 scale: F::ONE,
-                data: Some(w),
+                data: w,
             }])
         }
         fn enforce(
@@ -410,6 +418,326 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
     assert!(test.is_satisfied());
 }
 
+pub fn prove_test_circuit<
+    F: PrimeField + PrimeFieldBits,
+    E: Engine<Scalar = F> + CurveCycleEquipped,
+    W: Witness<F>,
+    C: Circuit,
+>(
+    PhantomData: PhantomData<E>,
+    io: Vec<F>,
+    io_: Vec<F>,
+    circuit: C,
+    witness: W,
+) {
+    struct Builder<'a, F, W, CS> {
+        cs: CS,
+        locations: Locations<'a>,
+        witness: &'a mut W,
+        counter: &'a mut usize,
+        _f: PhantomData<F>,
+    }
+
+    #[derive(Clone)]
+    struct Single<F> {
+        inner: Variable,
+        scale: F,
+        data: Option<F>,
+    }
+
+    #[derive(Clone)]
+    enum VarImpl<F> {
+        Zero,
+        VarImpl(Vec<Single<F>>),
+    }
+
+    fn to_lc<F: PrimeField>(lc: LinearCombination<F>, var: VarImpl<F>) -> LinearCombination<F> {
+        match var {
+            VarImpl::Zero => LinearCombination::zero(),
+            VarImpl::VarImpl(vars) => vars.into_iter().fold(
+                lc,
+                |lc,
+                 Single {
+                     inner,
+                     scale,
+                     data: _,
+                 }| lc + (scale, inner),
+            ),
+        }
+    }
+
+    fn var_impl_data<F: PrimeField>(var: VarImpl<F>) -> Option<F> {
+        match var {
+            VarImpl::Zero => Some(F::ZERO),
+            VarImpl::VarImpl(vec) => vec.into_iter().try_fold(
+                F::ZERO,
+                |acc,
+                 Single {
+                     inner: _,
+                     scale: _,
+                     data,
+                 }| data.map(|data| acc * data),
+            ),
+        }
+    }
+
+    impl<F: PrimeField> Add<VarImpl<F>> for VarImpl<F> {
+        type Output = VarImpl<F>;
+
+        fn add(self, rhs: VarImpl<F>) -> VarImpl<F> {
+            match (self, rhs) {
+                (VarImpl::Zero, rhs) => rhs,
+                (lhs, VarImpl::Zero) => lhs,
+                (VarImpl::VarImpl(lhs), VarImpl::VarImpl(rhs)) => {
+                    VarImpl::VarImpl(lhs.into_iter().chain(rhs).collect())
+                }
+            }
+        }
+    }
+    impl<F: PrimeField> Sub<VarImpl<F>> for VarImpl<F> {
+        type Output = VarImpl<F>;
+
+        fn sub(self, rhs: VarImpl<F>) -> VarImpl<F> {
+            match rhs {
+                VarImpl::Zero => self,
+                VarImpl::VarImpl(rhs) => {
+                    self + VarImpl::VarImpl(
+                        rhs.into_iter()
+                            .map(|Single { inner, scale, data }| Single {
+                                inner,
+                                scale: scale * (F::ZERO - F::ONE),
+                                data: data.map(|d| d * (F::ZERO - F::ONE)),
+                            })
+                            .collect(),
+                    )
+                }
+            }
+        }
+    }
+    impl<F: PrimeField> Mul<u128> for VarImpl<F> {
+        type Output = VarImpl<F>;
+
+        fn mul(self, rhs: u128) -> VarImpl<F> {
+            match self {
+                VarImpl::Zero => VarImpl::Zero,
+                VarImpl::VarImpl(lhs) => VarImpl::VarImpl(
+                    lhs.into_iter()
+                        .map(|Single { inner, scale, data }| {
+                            let rhs = F::from_u128(rhs);
+                            Single {
+                                inner,
+                                scale: scale * rhs,
+                                data: data.map(|d| d * rhs),
+                            }
+                        })
+                        .collect(),
+                ),
+            }
+        }
+    }
+    impl<F: PrimeField> CircuitBuilderVar for VarImpl<F> {}
+
+    fn suffix(counter: &mut usize, s: String) -> String {
+        let suffix = format!("[{}]", counter);
+        *counter += 1;
+        s + &suffix
+    }
+
+    impl<'a, F: PrimeField, W: Witness<F>, CS: ConstraintSystem<F>> CircuitBuilder
+        for Builder<'a, F, W, CS>
+    {
+        type F = F;
+        type Var = VarImpl<F>;
+        fn zero(&mut self) -> VarImpl<F> {
+            VarImpl::Zero
+        }
+        fn one(&mut self) -> VarImpl<F> {
+            VarImpl::VarImpl(vec![Single {
+                inner: CS::one(),
+                scale: F::ONE,
+                data: Some(F::ONE),
+            }])
+        }
+        fn lit(&mut self, n: u128) -> VarImpl<F> {
+            let n = F::from_u128(n);
+            VarImpl::VarImpl(vec![Single {
+                inner: CS::one(),
+                scale: n,
+                data: Some(n),
+            }])
+        }
+        fn alloc(&mut self, location: Location) -> VarImpl<F> {
+            let w = self.witness.get(location, &self.locations);
+            let var = self
+                .cs
+                .alloc(
+                    || suffix(self.counter, "CircuitBuilder::alloc".to_owned()),
+                    || w.ok_or(SynthesisError::AssignmentMissing),
+                )
+                .expect("impossible");
+            VarImpl::VarImpl(vec![Single {
+                inner: var,
+                scale: F::ONE,
+                data: w,
+            }])
+        }
+        fn enforce(
+            &mut self,
+            location: Location,
+            a: VarImpl<F>,
+            b: VarImpl<F>,
+            a_times_b: VarImpl<F>,
+        ) {
+            self.cs.enforce(
+                || suffix(self.counter, format_location(location)),
+                |lc| to_lc(lc, a),
+                |lc| to_lc(lc, b),
+                |lc| to_lc(lc, a_times_b),
+            );
+            *self.counter += 1;
+        }
+        fn nest<'b>(
+            &'b mut self,
+            location: Location,
+        ) -> impl CircuitBuilder<Var = Self::Var, F = Self::F> + 'b {
+            Builder {
+                cs: self
+                    .cs
+                    .namespace(|| suffix(self.counter, format_location(location))),
+                locations: Locations::Cons(location, &self.locations),
+                witness: self.witness,
+                counter: self.counter,
+                _f: PhantomData,
+            }
+        }
+        fn from_allocated_num(&mut self, var: AllocatedNum<F>) -> VarImpl<F> {
+            VarImpl::VarImpl(vec![Single {
+                inner: var.get_variable(),
+                scale: F::ONE,
+                data: var.get_value(),
+            }])
+        }
+        fn to_allocated_num(&mut self, var: Self::Var) -> AllocatedNum<Self::F> {
+            // NB: because this is for testing, we don't need to enforce anything here,
+            // but be careful if you copy this code for use in circuits.
+            AllocatedNum::alloc(
+                self.cs
+                    .namespace(|| suffix(self.counter, "to_allocated_num".to_owned())),
+                || var_impl_data(var).ok_or(SynthesisError::AssignmentMissing),
+            )
+            .expect("to_allocated_num; shouldn't happen")
+        }
+        fn inner(self) -> impl ConstraintSystem<F> {
+            self.cs
+        }
+    }
+
+    struct StepCircuitImpl<C, W> {
+        arity: usize,
+        circuit: Arc<C>,
+        witness: Arc<Mutex<W>>,
+    }
+
+    impl<C, W> Clone for StepCircuitImpl<C, W> {
+        fn clone(&self) -> Self {
+            let StepCircuitImpl {
+                arity,
+                circuit,
+                witness,
+            } = self;
+            let arity = *arity;
+            let circuit = circuit.clone();
+            let witness = witness.clone();
+            StepCircuitImpl {
+                arity,
+                circuit,
+                witness,
+            }
+        }
+    }
+
+    impl<F, C: Circuit, W: Witness<F>> StepCircuit<F> for StepCircuitImpl<C, W>
+    where
+        F: PrimeField + PrimeFieldBits,
+    {
+        fn arity(&self) -> usize {
+            self.arity
+        }
+
+        fn synthesize<CS: ConstraintSystem<F>>(
+            &self,
+            cs: &mut CS,
+            io: &[AllocatedNum<F>],
+        ) -> Result<Vec<AllocatedNum<F>>, SynthesisError> {
+            let mut w_guard = self.witness.lock().unwrap();
+
+            let w = &mut *w_guard;
+
+            let mut counter: usize = 0;
+
+            let io = {
+                let mut builder = Builder {
+                    cs: cs.namespace(|| "internal0"),
+                    locations: Locations::Nil,
+                    witness: w,
+                    counter: &mut counter,
+                    _f: PhantomData,
+                };
+
+                io.iter()
+                    .map(|var| builder.from_allocated_num(var.clone()))
+                    .collect()
+            };
+
+            let io = self.circuit.run(
+                Builder {
+                    cs: cs.namespace(|| "circuit"),
+                    locations: Locations::Nil,
+                    witness: w,
+                    counter: &mut counter,
+                    _f: PhantomData,
+                },
+                io,
+            );
+            let mut builder = Builder {
+                cs: cs.namespace(|| "internal1"),
+                locations: Locations::Nil,
+                witness: w,
+                counter: &mut counter,
+                _f: PhantomData,
+            };
+
+            Ok(io
+                .into_iter()
+                .map(|var| builder.to_allocated_num(var))
+                .collect())
+        }
+
+        fn non_deterministic_advice(&self) -> Vec<F> {
+            Vec::new()
+        }
+    }
+    let circuit = Arc::new(circuit);
+    let im_pp = StepCircuitImpl {
+        arity: io.len(),
+        witness: Arc::new(Mutex::new(DummyWitness)),
+        circuit: circuit.clone(),
+    };
+    let pp: PublicParams<E> = PublicParams::setup(&im_pp, &*default_ck_hint(), &*default_ck_hint());
+    let im = StepCircuitImpl {
+        arity: io.len(),
+        witness: Arc::new(Mutex::new(witness)),
+        circuit: circuit.clone(),
+    };
+    let mut rs = RecursiveSNARK::new(&pp, &im, &io).expect("creating recursive snark failed");
+    let ic = F::ZERO;
+    rs.prove_step(&pp, &im, ic).expect("proving step failed");
+    let ic = rs.increment_commitment(&pp, &im);
+    let num_steps = rs.num_steps();
+    rs.verify(&pp, num_steps, &io_, ic)
+        .expect("generated proof not valid");
+}
+
 struct Switches<Var>(Vec<Var>);
 #[must_use]
 struct ConsumeSwitches;
@@ -497,16 +825,23 @@ fn either_switch<CB: CircuitBuilder>(
 fn hash<CB: CircuitBuilder>(mut cb: CB, switch: CB::Var, input: Vec<CB::Var>) -> CB::Var {
     // FIXME: poseidon_hash_allocated doesn't take a switch,
     // so all its constraints cost even if they aren't used.
-    let input: Vec<AllocatedNum<CB::F>> = input
+    let mut input: Vec<AllocatedNum<CB::F>> = input
         .into_iter()
         .map(|var| cb.to_allocated_num(var))
         .collect();
-    let constants = PoseidonConstants::<CB::F, U4>::new();
+    // FIXME: HORRIBLE!
+    // poseidon_hash_allocated is buggy I assume,
+    // because it can't handle larger inputs,
+    // or it expects us to pass in a `U` that fits
+    // exactly, but that seems unlikely, and not really possible
+    // to abstract over because of the private trait constraint.
+    input.truncate(2);
+    let constants = PoseidonConstants::<CB::F, U2>::new();
     let hash: AllocatedNum<CB::F> =
         poseidon_hash_allocated(cb.nest(l!()).inner(), input, &constants)
             .expect("poseidon_hash_allocated failed");
     let hash = cb.from_allocated_num(hash);
-    if_switch(cb.nest(l!()), switch, hash)
+    if_switch(cb.nest(l!("switch_hash")), switch, hash)
 }
 
 // adds H(a, v, t) to the multiset
@@ -518,7 +853,7 @@ fn memory<CB: CircuitBuilder>(
     v: CB::Var,
     t: CB::Var,
 ) -> CB::Var {
-    let preimage = vec![a, v, t, cb.zero()];
+    let preimage = vec![a, v, t];
     let hash = hash(cb.nest(l!()), switch, preimage);
     multiset + hash
 }
@@ -546,9 +881,6 @@ fn push<CB: CircuitBuilder>(
     let preimage = {
         let mut v = Vec::from(data);
         v.push(prev.clone());
-        if v.len() % 2 == 1 {
-            v.push(zero);
-        }
         v
     };
     let updated = hash(cb.nest(l!()), switch.clone(), preimage);
@@ -622,7 +954,7 @@ fn visit_enter<CB: CircuitBuilder>(
         &mut io.rs,
         &mut io.ws,
         utxo_idx.clone(),
-        &vec![input.clone()],
+        &[input.clone()],
     );
     let zero = cb.zero();
     push(
@@ -631,7 +963,7 @@ fn visit_enter<CB: CircuitBuilder>(
         &mut io.rs_coord,
         &mut io.ws_coord,
         io.coord_idx.clone(),
-        &vec![zero, utxo_idx, input],
+        &[zero, utxo_idx, input],
     );
 }
 
@@ -651,7 +983,7 @@ fn visit_push_coord<CB: CircuitBuilder>(
         &mut io.ws_coord,
         io.coord_idx.clone(),
         // FIXME: use hash instead of idx
-        &vec![one, new_coord_idx.clone(), input.clone()],
+        &[one, new_coord_idx.clone(), input.clone()],
     );
     let two = cb.lit(2);
     push(
@@ -661,7 +993,7 @@ fn visit_push_coord<CB: CircuitBuilder>(
         &mut io.ws_coord,
         new_coord_idx.clone(),
         // FIXME: use hash instead of idx
-        &vec![two, io.coord_idx.clone(), input],
+        &[two, io.coord_idx.clone(), input],
     );
     let preimage = vec![io.coord_idx.clone(), io.coord_stack.clone()];
     let new_coord_stack = hash(cb.nest(l!()), switch.clone(), preimage);
@@ -694,7 +1026,7 @@ fn visit_pop_coord<CB: CircuitBuilder>(
         &mut io.rs_coord,
         &mut io.ws_coord,
         io.coord_idx.clone(),
-        &vec![three],
+        &[three],
     );
     let preimage = vec![old_coord_idx.clone(), old_coord_stack.clone()];
     let should_be = hash(cb.nest(l!()), switch.clone(), preimage);
@@ -741,8 +1073,29 @@ impl Circuit for StarstreamCircuit {
     }
 }
 
+#[cfg(test)]
+fn get_combined_label(location: Location, locations: &Locations<'_>) -> String {
+    fn go(mut out: Vec<String>, locations: &Locations<'_>) -> Vec<String> {
+        match locations {
+            Locations::Nil => out,
+            Locations::Cons(location, locations) => {
+                if !location.label.is_empty() {
+                    out.push(format!("{}.", location.label));
+                }
+                go(out, locations)
+            }
+        }
+    }
+    let v = vec![format!("{}/", location.label)];
+    let mut out = go(v, locations);
+    out.reverse();
+    let mut out = out.concat();
+    let _ = out.pop();
+    out
+}
+
 #[test]
-fn prove_dummy() {
+fn test_dummy() {
     use ff::Field;
     use nova::provider::PallasEngine;
     use nova::traits::Engine;
@@ -756,17 +1109,13 @@ fn prove_dummy() {
             match locations {
                 Locations::Nil => out,
                 Locations::Cons(location, locations) => {
-                    if location.label.is_empty() {
-                        out.push(format!("{}/", location.line));
-                    } else {
-                        out.push(format!("{}@{}/", location.label, location.line));
-                    }
+                    out.push(format!("{}/", location.line));
                     go(out, locations)
                 }
             }
         }
         let v = vec![format!("{}/", location.line)];
-        let mut out = go(v, &locations);
+        let mut out = go(v, locations);
         out.reverse();
         let mut out = out.concat();
         let _ = out.pop();
@@ -774,82 +1123,96 @@ fn prove_dummy() {
     }
 
     impl<F: PrimeField> Witness<F> for WitnessFromFile {
-        fn get(&mut self, location: Location, locations: &Locations<'_>) -> F {
+        fn get(&mut self, location: Location, locations: &Locations<'_>) -> Option<F> {
             let mut out = String::new();
             let _ = self.0.read_line(&mut out);
             let mut split = out.split_ascii_whitespace();
-            let name_ = split.next();
-            match name_ {
+            let label = get_combined_label(location, locations);
+            let label_ = split.next();
+            match label_ {
                 None => {
                     eprintln!(
                         "{}: expected {}",
                         format_locations(location, locations),
-                        location.label
+                        label
                     );
-                    return F::ZERO;
+                    None
                 }
-                Some(name_) => {
+                Some(label_) => {
                     let val = split
                         .next()
                         .and_then(F::from_str_vartime)
                         .expect("invalid witness file");
                     assert!(split.next().is_none());
-                    if location.label != name_ {
+                    if label != label_ {
                         eprintln!(
                             "{}: expected {}, got {}",
                             format_locations(location, locations),
-                            location.label,
-                            name_
+                            label,
+                            label_
                         );
+                        None
+                    } else {
+                        eprintln!(
+                            "{}: accepted {}",
+                            format_locations(location, locations),
+                            label_
+                        );
+                        Some(val)
                     }
-                    eprintln!(
-                        "{}: accepted {}",
-                        format_locations(location, locations),
-                        location.label
-                    );
-                    val
                 }
             }
         }
     }
 
-    let witness = || {
-        let path = Path::new("./test_witness.txt");
-        let f = File::open(path).expect("file at SS_TEST_WITNESS not openable");
-        let reader = BufReader::new(f);
-        WitnessFromFile(reader)
-    };
+    let path = Path::new("./test_witness.txt");
+    let f = File::open(path).expect("./test_witness.txt not openable");
+    let reader = BufReader::new(f);
+    let witness = WitnessFromFile(reader);
     type F = <PallasEngine as Engine>::Scalar;
     test_circuit(
         vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO],
         StarstreamCircuit,
-        witness(),
+        witness,
     );
-    /*
-    struct NoWitness;
+}
 
-    impl<F: PrimeField> Witness<F> for NoWitness {
-        fn get(&mut self, _location: Location, _locations: &Locations<'_>) -> F {
-            F::ZERO
+#[test]
+fn prove_dummy() {
+    use ff::Field;
+    use nova::provider::PallasEngine;
+    use nova::traits::Engine;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
+    use std::path::Path;
+    struct WitnessFromFile(BufReader<File>);
+
+    impl<F: PrimeField> Witness<F> for WitnessFromFile {
+        fn get(&mut self, location: Location, locations: &Locations<'_>) -> Option<F> {
+            let mut out = String::new();
+            let _ = self.0.read_line(&mut out);
+            let mut split = out.split_ascii_whitespace();
+            let label_ = split.next().expect("missing witness");
+            let val = split
+                .next()
+                .and_then(F::from_str_vartime)
+                .expect("invalid witness file");
+            assert!(split.next().is_none());
+            assert_eq!(get_combined_label(location, locations), label_);
+            Some(val)
         }
     }
-    let pp: PublicParams<PallasEngine> = PublicParams::setup(
-        &StarstreamCircuit(Arc::new(Mutex::new(NoWitness))),
-        &*default_ck_hint(),
-        &*default_ck_hint(),
+
+    let path = Path::new("./test_witness.txt");
+    let f = File::open(path).expect("./test_witness.txt not openable");
+    let reader = BufReader::new(f);
+    let witness = WitnessFromFile(reader);
+    type F = <PallasEngine as Engine>::Scalar;
+    prove_test_circuit(
+        PhantomData::<PallasEngine>,
+        vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO],
+        vec![F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO, F::ZERO],
+        StarstreamCircuit,
+        witness,
     );
-    let mut rs = RecursiveSNARK::new(
-        &pp,
-        &StarstreamCircuit(Arc::new(Mutex::new(witness()))),
-        &input,
-    )
-    .expect(label_!()().as_ref());
-    let ic = F::ZERO;
-    rs.prove_step(&pp, &StarstreamCircuit(Arc::new(Mutex::new(witness()))), ic)
-        .expect(label_!()().as_ref());
-    let ic = rs.increment_commitment(&pp, &StarstreamCircuit(Arc::new(Mutex::new(witness()))));
-    let num_steps = rs.num_steps();
-    rs.verify(&pp, num_steps, &input, ic)
-        .expect(label_!()().as_ref());
-    */
 }
