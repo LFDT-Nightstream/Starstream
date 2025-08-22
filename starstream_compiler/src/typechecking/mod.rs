@@ -9,10 +9,10 @@ use crate::{
         LoopBody, PrimaryExpr, ProgramItem, Script, Spanned, StarstreamProgram, Statement, Token,
         TokenItem, Utxo, UtxoItem,
     },
+    error::TypeError,
     scope_resolution::STARSTREAM_ENV,
     symbols::{SymbolId, Symbols},
 };
-use ariadne::Report;
 use chumsky::span::SimpleSpan;
 pub use effects::EffectSet;
 use ena::unify::{EqUnifyValue, InPlaceUnificationTable};
@@ -33,15 +33,15 @@ pub use types::{ComparableType, PrimitiveType, TypeVar};
 pub fn do_type_inference(
     mut ast: StarstreamProgram,
     symbols: &mut Symbols,
-) -> Result<(StarstreamProgram, Vec<Report<'static>>), Vec<Report<'static>>> {
+) -> Result<(StarstreamProgram, Vec<TypeError>), Vec<TypeError>> {
     let tc = TypeInference::new(symbols);
     tc.visit_program(&mut ast).map(|warnings| (ast, warnings))
 }
 
 pub struct TypeInference<'a> {
     symbols: &'a mut Symbols,
-    errors: Vec<Report<'static>>,
-    warnings: Vec<Report<'static>>,
+    errors: Vec<TypeError>,
+    warnings: Vec<TypeError>,
 
     unification_table: InPlaceUnificationTable<TypeVar>,
 
@@ -78,7 +78,7 @@ impl<'a> TypeInference<'a> {
     pub fn visit_program(
         mut self,
         program: &mut StarstreamProgram,
-    ) -> Result<Vec<Report<'static>>, Vec<Report<'static>>> {
+    ) -> Result<Vec<TypeError>, Vec<TypeError>> {
         for item in &mut program.items {
             match item {
                 ProgramItem::Script(script) => self.visit_script(script),
@@ -1411,14 +1411,18 @@ mod tests {
         let (mut ast, mut symbols) = do_scope_analysis(program)
             .map_err(|errors| {
                 for e in errors {
-                    e.print(ariadne::Source::from(input)).unwrap();
+                    ariadne::Report::from(&e)
+                        .print(ariadne::Source::from(input))
+                        .unwrap();
                 }
             })
             .unwrap();
 
         let tc = TypeInference::new(&mut symbols);
 
-        tc.visit_program(&mut ast).map(|_| symbols)
+        tc.visit_program(&mut ast)
+            .map(|_| symbols)
+            .map_err(|errors| errors.iter().map(ariadne::Report::from).collect())
     }
 
     fn typecheck_str_expect_success(input: &str) {

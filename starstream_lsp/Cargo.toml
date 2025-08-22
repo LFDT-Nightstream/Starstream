@@ -1,0 +1,13 @@
+[package]
+name = "starstream_lsp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ropey = "1.6.1"
+tokio = { version = "1.47.1", features = ["full"] }
+tower-lsp = "0.20.0"
+starstream_compiler = { path = "../starstream_compiler" }
+dashmap = "6.1.0"
+chumsky = "0.10.1"
+env_logger = "0.11.8"

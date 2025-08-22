@@ -5,7 +5,7 @@
 use std::panic;
 
 use log::{error, info};
-use starstream_compiler::write_errors;
+use starstream_compiler::{write_errors, write_reports};
 use starstream_vm::Transaction;
 
 // Imports to manipulate the UI contents, provided by the JS page.
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     let (ast, errors) = starstream_compiler::parse(input);
     let mut compiler_output = Vec::new();
     let mut error_count = errors.len() as u32;
-    write_errors(&mut compiler_output, input, &errors);
+    write_reports(&mut compiler_output, input, &errors);
     unsafe {
         set_compiler_log(
             compiler_output.as_ptr(),
@@ -137,7 +137,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     // Compile to Wasm.
     let (wasm, errors) = starstream_compiler::compile(&ast, symbols);
     error_count += errors.len() as u32;
-    write_errors(&mut compiler_output, input, &errors);
+    write_reports(&mut compiler_output, input, &errors);
     unsafe {
         set_compiler_log(
             compiler_output.as_ptr(),

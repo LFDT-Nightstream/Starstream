@@ -1,3 +1,4 @@
+use crate::error::NameResolutionError;
 use crate::symbols::{
     self, AbiInfo, ConstInfo, FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo, VarInfo,
 };
@@ -10,7 +11,6 @@ use crate::{
     },
     typechecking::EffectSet,
 };
-use ariadne::{Color, Label, Report, ReportKind};
 use chumsky::span::SimpleSpan;
 use std::collections::{HashMap, HashSet};
 
@@ -26,7 +26,7 @@ use std::collections::{HashMap, HashSet};
 /// resolve functions in builtin types.
 pub fn do_scope_analysis(
     mut program: StarstreamProgram,
-) -> Result<(StarstreamProgram, Symbols), Vec<Report<'static>>> {
+) -> Result<(StarstreamProgram, Symbols), Vec<NameResolutionError>> {
     let mut resolver = Visitor::new();
     resolver.visit_program(&mut program);
     let (symbols, errors) = resolver.finish();
@@ -60,7 +60,7 @@ struct Visitor {
     locals: Vec<Vec<SymbolId>>,
     // used to generate unique ids for new identifiers
     symbol_counter: u64,
-    errors: Vec<Report<'static>>,
+    errors: Vec<NameResolutionError>,
     symbols: Symbols,
 }
 
@@ -128,7 +128,7 @@ impl Visitor {
         }
     }
 
-    fn finish(mut self) -> (Symbols, Vec<Report<'static>>) {
+    fn finish(mut self) -> (Symbols, Vec<NameResolutionError>) {
         for f_info in self.symbols.functions.values() {
             let mut index = 0;
             for local in &f_info.info.locals {
@@ -1513,60 +1513,19 @@ impl Visitor {
     }
 
     fn push_not_found_error(&mut self, span: SimpleSpan) {
-        self.errors.push(
-            Report::build(ReportKind::Error, span.into_range())
-                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-                // TODO: define error codes across the compiler
-                .with_code(1)
-                .with_label(
-                    Label::new(span.into_range())
-                        .with_message("not found in this scope")
-                        .with_color(Color::Red),
-                )
-                .finish(),
-        );
+        self.errors.push(NameResolutionError::NotFound { span });
     }
 
     fn push_redeclaration_error(&mut self, ident: &Identifier, previous: SimpleSpan) {
-        // TODO: this uselessly points to the start of the file if span isn't available.
-        let new = ident.span.unwrap_or(SimpleSpan::from(0..0)).into_range();
-        self.errors.push(
-            Report::build(ReportKind::Error, new.clone())
-                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-                // TODO: define error codes across the compiler
-                .with_code(2)
-                .with_label(
-                    Label::new(new)
-                        .with_message(format!("function {:?} already declared", &ident.raw))
-                        .with_color(Color::Red),
-                )
-                .with_label(
-                    Label::new(previous.into_range())
-                        .with_message("previous declaration")
-                        .with_color(Color::BrightRed),
-                )
-                .finish(),
-        );
+        self.errors.push(NameResolutionError::RedeclarationError {
+            ident: ident.clone(),
+            previous,
+        });
     }
 
     fn push_abi_mismatch_error(&mut self, def_span: SimpleSpan, abi_span: SimpleSpan) {
-        self.errors.push(
-            Report::build(ReportKind::Error, def_span.into_range())
-                .with_config(ariadne::Config::new().with_index_type(ariadne::IndexType::Byte))
-                // TODO: define error codes across the compiler
-                .with_code(4)
-                .with_label(
-                    Label::new(def_span.into_range())
-                        .with_message("function definition doesn't match abi")
-                        .with_color(Color::Red),
-                )
-                .with_label(
-                    Label::new(abi_span.into_range())
-                        .with_message("defined here")
-                        .with_color(Color::Green),
-                )
-                .finish(),
-        );
+        self.errors
+            .push(NameResolutionError::AbiMismatch { def_span, abi_span });
     }
 }
 
@@ -1574,7 +1533,7 @@ impl Visitor {
 mod tests {
     use super::do_scope_analysis;
     use crate::ast::TypeArg;
-    use ariadne::Source;
+    use ariadne::{Report, Source};
     use chumsky::Parser as _;
 
     #[test]
@@ -1587,8 +1546,8 @@ mod tests {
         let ast = do_scope_analysis(program);
 
         if let Err(errors) = ast {
-            for e in errors {
-                e.print(Source::from(input)).unwrap();
+            for e in &errors {
+                Report::from(e).print(Source::from(input)).unwrap();
             }
 
             panic!();
@@ -1603,8 +1562,8 @@ mod tests {
         let ast = do_scope_analysis(program);
 
         if let Err(errors) = ast {
-            for e in errors {
-                e.print(Source::from(input)).unwrap();
+            for e in &errors {
+                Report::from(e).print(Source::from(input)).unwrap();
             }
 
             panic!();
@@ -1619,8 +1578,8 @@ mod tests {
         let ast = do_scope_analysis(program);
 
         if let Err(errors) = ast {
-            for e in errors {
-                e.print(Source::from(input)).unwrap();
+            for e in &errors {
+                Report::from(e).print(Source::from(input)).unwrap();
             }
 
             panic!();
@@ -1775,9 +1734,9 @@ mod tests {
         let ast = do_scope_analysis(program);
 
         match ast {
-            Err(_errors) => {
-                for e in _errors {
-                    e.eprint(Source::from(input)).unwrap();
+            Err(errors) => {
+                for e in &errors {
+                    Report::from(e).eprint(Source::from(input)).unwrap();
                 }
                 unreachable!();
             }
@@ -1841,9 +1800,9 @@ mod tests {
         let ast = do_scope_analysis(program);
 
         match ast {
-            Err(_errors) => {
-                for e in _errors {
-                    e.eprint(Source::from(input)).unwrap();
+            Err(errors) => {
+                for e in &errors {
+                    Report::from(e).eprint(Source::from(input)).unwrap();
                 }
                 panic!();
             }
@@ -1932,8 +1891,9 @@ mod tests {
         let ast = do_scope_analysis(program);
 
         let symbols = match ast {
-            Err(_errors) => {
-                for e in _errors {
+            Err(errors) => {
+                for e in &errors {
+                    let e = Report::from(e);
                     e.eprint(Source::from(input)).unwrap();
                 }
                 unreachable!();

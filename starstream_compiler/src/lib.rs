@@ -2,6 +2,7 @@
 
 pub mod ast;
 mod codegen;
+pub mod error;
 mod parser;
 mod scope_resolution;
 mod symbols;
@@ -13,19 +14,40 @@ pub use self::parser::starstream_program;
 use ariadne::{Report, Source};
 use chumsky::Parser as _;
 pub use scope_resolution::do_scope_analysis;
+pub use symbols::Symbols;
 pub use typechecking::do_type_inference;
 
-pub fn write_errors(output: &mut Vec<u8>, source_code: &str, errors: &[Report]) {
-    for report in errors {
-        report
+pub fn write_errors<'a, E>(output: &mut Vec<u8>, source_code: &str, errors: &'a [E])
+where
+    Report<'static>: From<&'a E>,
+{
+    for error in errors {
+        Report::from(error)
             .write(Source::from(source_code), &mut *output)
             .unwrap()
     }
 }
 
-pub fn format_errors(source_code: &str, errors: &[Report]) -> String {
+pub fn format_errors<'a, E>(source_code: &str, errors: &'a [E]) -> String
+where
+    Report<'static>: From<&'a E>,
+{
     let mut output = Vec::new();
     write_errors(&mut output, source_code, errors);
+    String::from_utf8_lossy(&output).into_owned()
+}
+
+pub fn write_reports(output: &mut Vec<u8>, source_code: &str, errors: &[Report]) {
+    for error in errors {
+        error
+            .write(Source::from(source_code), &mut *output)
+            .unwrap()
+    }
+}
+
+pub fn format_reports(source_code: &str, errors: &[Report]) -> String {
+    let mut output = Vec::new();
+    write_reports(&mut output, source_code, errors);
     String::from_utf8_lossy(&output).into_owned()
 }
 
@@ -39,12 +61,14 @@ pub fn parse(source_code: &str) -> (Option<StarstreamProgram>, Vec<Report>) {
 pub fn starstream_to_wasm(source_code: &str) -> Result<Vec<u8>, String> {
     let ast = match parse(source_code) {
         (Some(ast), _) => ast,
-        (None, errors) => return Err(format_errors(source_code, &errors)),
+        (None, errors) => return Err(format_reports(source_code, &errors)),
     };
 
     let (ast, mut symbols) = match do_scope_analysis(ast) {
         Ok(ast) => ast,
-        Err(errors) => return Err(format_errors(source_code, &errors)),
+        Err(errors) => {
+            return Err(format_errors(source_code, &errors));
+        }
     };
 
     let ast = match do_type_inference(ast, &mut symbols) {
@@ -53,12 +77,14 @@ pub fn starstream_to_wasm(source_code: &str) -> Result<Vec<u8>, String> {
 
             ast
         }
-        Err(errors) => return Err(format_errors(source_code, &errors)),
+        Err(errors) => {
+            return Err(format_errors(source_code, &errors));
+        }
     };
 
     let module = match compile(&ast, symbols) {
         (Some(module), _) => module,
-        (None, errors) => return Err(format_errors(source_code, &errors)),
+        (None, errors) => return Err(format_reports(source_code, &errors)),
     };
     Ok(module)
 }

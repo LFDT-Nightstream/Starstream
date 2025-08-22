@@ -8,6 +8,7 @@ members = [
     "starstream_sys",
     "starstream_vm",
     "starstream_nova",
+    "starstream_lsp",
 ]
 resolver = "2"
 

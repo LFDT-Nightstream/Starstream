@@ -211,7 +211,9 @@ impl PartialEq for TypeArg {
                     storage: r_storage,
                 },
             ) => l_abi == r_abi && l_storage == r_storage,
-            (Self::TypeRef(l0), Self::TypeRef(r0)) => l0.0.uid.unwrap() == r0.0.uid.unwrap(),
+            (Self::TypeRef(l0), Self::TypeRef(r0)) if l0.0.uid.is_some() && r0.0.uid.is_some() => {
+                l0.0.uid.unwrap() == r0.0.uid.unwrap()
+            }
             (Self::TypeApplication(l0, l1), Self::TypeApplication(r0, r1)) => l0 == r0 && l1 == r1,
             (Self::FnType(l0), Self::FnType(r0)) => l0 == r0,
             (Self::Ref(l0), Self::Ref(r0)) => l0 == r0,

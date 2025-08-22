@@ -2365,8 +2365,10 @@ mod tests {
 
         let (program, _warnings) = do_type_inference(program, &mut symbols)
             .map_err(|errors| {
-                for e in errors {
-                    e.print(ariadne::Source::from(src)).unwrap();
+                for e in &errors {
+                    ariadne::Report::from(e)
+                        .print(ariadne::Source::from(src))
+                        .unwrap();
                 }
             })
             .unwrap();
@@ -2407,16 +2409,20 @@ mod tests {
 
         let (program, mut symbols) = do_scope_analysis(program)
             .map_err(|errors| {
-                for e in errors {
-                    e.print(ariadne::Source::from(src)).unwrap();
+                for e in &errors {
+                    ariadne::Report::from(e)
+                        .print(ariadne::Source::from(src))
+                        .unwrap();
                 }
             })
             .unwrap();
 
         let (program, _warnings) = do_type_inference(program, &mut symbols)
             .map_err(|errors| {
-                for e in errors {
-                    e.print(ariadne::Source::from(src)).unwrap();
+                for e in &errors {
+                    ariadne::Report::from(e)
+                        .print(ariadne::Source::from(src))
+                        .unwrap();
                 }
             })
             .unwrap();

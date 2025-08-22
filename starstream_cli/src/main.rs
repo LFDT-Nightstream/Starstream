@@ -67,7 +67,7 @@ fn main() {
                 Ok(success) => success,
                 Err(errors) => {
                     for error in errors {
-                        error.eprint(&source).unwrap();
+                        ariadne::Report::from(&error).eprint(&source).unwrap();
                     }
 
                     std::process::exit(1);
@@ -77,13 +77,13 @@ fn main() {
             let ast = match starstream_compiler::do_type_inference(ast, &mut symbols) {
                 Ok((ast, warnings)) => {
                     for warning in warnings {
-                        warning.eprint(&source).unwrap();
+                        ariadne::Report::from(&warning).eprint(&source).unwrap();
                     }
                     ast
                 }
                 Err(errors) => {
                     for error in errors {
-                        error.eprint(&source).unwrap();
+                        ariadne::Report::from(&error).eprint(&source).unwrap();
                     }
                     std::process::exit(1);
                 }
