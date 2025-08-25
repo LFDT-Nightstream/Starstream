@@ -1086,6 +1086,11 @@ impl Visitor {
         {
             if let Some(var) = self.symbols.vars.get_mut(&resolved_name) {
                 var.info.is_captured = true;
+                if var.info.is_argument {
+                    self.errors.push(NameResolutionError::InvalidCapture {
+                        span: var.span.unwrap(),
+                    });
+                }
             }
         }
 

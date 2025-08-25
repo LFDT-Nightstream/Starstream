@@ -39,6 +39,9 @@ pub enum NameResolutionError {
         def_span: SimpleSpan,
         abi_span: SimpleSpan,
     },
+    InvalidCapture {
+        span: SimpleSpan,
+    },
 }
 
 #[derive(Debug)]
@@ -102,6 +105,7 @@ impl DiagnosticError for NameResolutionError {
                 def_span: _,
                 abi_span: _,
             } => 2,
+            NameResolutionError::InvalidCapture { span: _ } => 3,
         };
 
         Code::NameResolution as u32 + offset
@@ -118,6 +122,7 @@ impl DiagnosticError for NameResolutionError {
                 def_span,
                 abi_span: _,
             } => *def_span,
+            NameResolutionError::InvalidCapture { span: ident } => *ident,
         }
     }
 
@@ -131,6 +136,9 @@ impl DiagnosticError for NameResolutionError {
                 def_span: _,
                 abi_span: _,
             } => "function doesn't match abi".to_string(),
+            NameResolutionError::InvalidCapture { span: _ } => {
+                "function arguments can't be used in handlers yet".to_string()
+            }
         }
     }
 
@@ -151,6 +159,11 @@ impl DiagnosticError for NameResolutionError {
                 location: *abi_span,
                 message: "defined here".to_string(),
                 color: Color::Green,
+            }],
+            NameResolutionError::InvalidCapture { span } => vec![DiagnosticAnnotation {
+                location: *span,
+                message: "defined here".to_string(),
+                color: Color::BrightRed,
             }],
         }
     }

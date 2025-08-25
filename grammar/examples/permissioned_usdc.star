@@ -47,6 +47,9 @@ script {
     to: PublicKey,
     output_amount: Value,
   ): PayToPublicKeyHash {
+    let proof_from = proof_from;
+    let proof_to = proof_to;
+
     let from = source.get_owner();
 
     let input_amount = 0;
@@ -129,6 +132,7 @@ script {
     amount: Value,
     proof: LinkedListNode,
   ): PayToPublicKeyHash {
+    let proof = proof;
     try {
       let out = PayToPublicKeyHash::new(owner);
       let intermediate = PermissionedUSDC::mint(amount);
