@@ -11,6 +11,7 @@ use nova::frontend::gadgets::poseidon::poseidon_hash_allocated;
 use nova::frontend::{ConstraintSystem, SynthesisError, num::AllocatedNum};
 use nova::frontend::{LinearCombination, PoseidonConstants, Variable};
 use nova::nebula::rs::{PublicParams, RecursiveSNARK, StepCircuit};
+use std::fmt::Debug;
 use std::ops::{Add, Mul, Sub};
 use std::sync::{Arc, Mutex};
 use typenum::U2;
@@ -75,7 +76,7 @@ impl<F: PrimeField> Witness<F> for DummyWitness {
 }
 
 pub trait CircuitBuilderVar:
-    Add<Self, Output = Self> + Sub<Self, Output = Self> + Mul<u128, Output = Self> + Clone
+    Add<Self, Output = Self> + Sub<Self, Output = Self> + Mul<u128, Output = Self> + Clone + Debug
 {
 }
 
@@ -85,15 +86,21 @@ pub trait CircuitBuilder {
 
     fn zero(&mut self) -> Self::Var;
     fn one(&mut self) -> Self::Var;
+    #[must_use]
     fn lit(&mut self, n: u128) -> Self::Var;
+    #[must_use]
     fn alloc(&mut self, location: Location) -> Self::Var;
     fn enforce(&mut self, location: Location, a: Self::Var, b: Self::Var, a_times_b: Self::Var);
+    #[must_use]
     fn nest<'a>(
         &'a mut self,
         location: Location,
     ) -> impl CircuitBuilder<Var = Self::Var, F = Self::F> + 'a;
+    #[must_use]
     fn from_allocated_num(&mut self, var: AllocatedNum<Self::F>) -> Self::Var;
+    #[must_use]
     fn to_allocated_num(&mut self, var: Self::Var) -> AllocatedNum<Self::F>;
+    #[must_use]
     fn inner(self) -> impl ConstraintSystem<Self::F>;
 }
 
@@ -114,14 +121,14 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
         _f: PhantomData<F>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     struct Single<F> {
         inner: Variable,
         scale: F,
         data: Option<F>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     enum VarImpl<F> {
         Zero,
         VarImpl(Vec<Single<F>>),
@@ -438,14 +445,14 @@ pub fn prove_test_circuit<
         _f: PhantomData<F>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     struct Single<F> {
         inner: Variable,
         scale: F,
         data: Option<F>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     enum VarImpl<F> {
         Zero,
         VarImpl(Vec<Single<F>>),
@@ -1070,6 +1077,98 @@ impl Circuit for StarstreamCircuit {
         switches.consume(consume_switches, cb.nest(l!()));
 
         io.to()
+    }
+}
+
+// NB: this is a really dumb "vm", which is just R1CS in R1CS basically.
+// Even if we were to adopt this approach, it would probably be more
+// efficient to use Spartan to reduce the amount of work necessary
+// rather than naively embedding R1CS in R1CS.
+#[allow(non_camel_case_types)]
+pub struct R1CS_DUMMY_VM;
+
+const R1CS_DUMMY_WITNESS_COUNT: usize = 254;
+const R1CS_DUMMY_CONSTRAINT_COUNT: usize = 256;
+
+fn mul<CB: CircuitBuilder>(mut cb: CB, x: CB::Var, y: CB::Var) -> CB::Var {
+    let r = cb.alloc(l!("mul"));
+    cb.enforce(l!("mul"), x, y, r.clone());
+    r
+}
+
+impl Circuit for R1CS_DUMMY_VM {
+    fn run<CB: CircuitBuilder>(&self, mut cb: CB, io: Vec<CB::Var>) -> Vec<CB::Var> {
+        let [scripts, ios] = io.try_into().expect("arity wrong");
+        let io = cb.alloc(l!("io"));
+        let witnesses: Vec<_> = (0..R1CS_DUMMY_WITNESS_COUNT)
+            .map(|_| cb.alloc(l!("witness")))
+            .collect();
+        let constraints_a: Vec<_> = (0..(R1CS_DUMMY_CONSTRAINT_COUNT
+            * (R1CS_DUMMY_WITNESS_COUNT + 2)))
+            .map(|_| cb.alloc(l!("factor_a")))
+            .collect();
+        let constraints_b: Vec<_> = (0..(R1CS_DUMMY_CONSTRAINT_COUNT
+            * (R1CS_DUMMY_WITNESS_COUNT + 2)))
+            .map(|_| cb.alloc(l!("factor_b")))
+            .collect();
+        let constraints_c: Vec<_> = (0..(R1CS_DUMMY_CONSTRAINT_COUNT
+            * (R1CS_DUMMY_WITNESS_COUNT + 2)))
+            .map(|_| cb.alloc(l!("factor_c")))
+            .collect();
+        let one = cb.one();
+        for i in 0..R1CS_DUMMY_CONSTRAINT_COUNT {
+            let a = constraints_a[i].clone();
+            let a = a + mul(
+                cb.nest(l!("io_a")),
+                io.clone(),
+                constraints_a[i + 1].clone(),
+            );
+            let a = (0..R1CS_DUMMY_WITNESS_COUNT).fold(a, |a, j| {
+                a + mul(
+                    cb.nest(l!("witness_factor_a_mul")),
+                    witnesses[j].clone(),
+                    constraints_a[i + j + 2].clone(),
+                )
+            });
+            let b = constraints_b[i].clone();
+            let b = b + mul(
+                cb.nest(l!("io_b")),
+                io.clone(),
+                constraints_b[i + 1].clone(),
+            );
+            let b = (0..R1CS_DUMMY_WITNESS_COUNT).fold(b, |b, j| {
+                b + mul(
+                    cb.nest(l!("witness_factor_b_mul")),
+                    witnesses[j].clone(),
+                    constraints_b[i + j + 2].clone(),
+                )
+            });
+            let c = constraints_c[i].clone();
+            let c = c + mul(
+                cb.nest(l!("io_c")),
+                io.clone(),
+                constraints_c[i + 1].clone(),
+            );
+            let c = (0..R1CS_DUMMY_WITNESS_COUNT).fold(c, |c, j| {
+                c + mul(
+                    cb.nest(l!("witness_factor_c_mul")),
+                    witnesses[j].clone(),
+                    constraints_c[i + j + 2].clone(),
+                )
+            });
+            cb.enforce(l!(), a, b, c);
+        }
+        let script_hash = hash(
+            cb.nest(l!()),
+            one.clone(),
+            constraints_a
+                .into_iter()
+                .chain(constraints_b)
+                .chain(constraints_c)
+                .collect(),
+        );
+        let scripts = hash(cb.nest(l!()), one, vec![script_hash, scripts]);
+        vec![scripts, ios]
     }
 }
 
