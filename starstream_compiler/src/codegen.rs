@@ -299,6 +299,8 @@ struct Compiler {
     symbols_table: Symbols,
 
     current_utxo: Vec<SymbolId>,
+
+    unbind_tokens_fn: Option<SymbolId>,
 }
 
 impl Compiler {
@@ -330,6 +332,18 @@ impl Compiler {
         this.global_scope_functions
             .insert("print_f64".to_owned(), print_f64);
 
+        let starstream_get_tokens = this.import_function(
+            "starstream_utxo_env",
+            "starstream_get_tokens",
+            StarFunctionType {
+                params: vec![StaticType::U32, StaticType::U32, StaticType::U32],
+                results: vec![StaticType::U32],
+            },
+        );
+
+        this.global_scope_functions
+            .insert("get_tokens".to_owned(), starstream_get_tokens);
+
         //
 
         // Always export memory 0. It's created in finish().
@@ -348,12 +362,39 @@ impl Compiler {
                     "starstream_utxo:this",
                     f_info.info.mangled_name.as_ref().unwrap(),
                     StarFunctionType {
-                        params: vec![
-                            StaticType::I64,
-                            StaticType::Reference(Box::new(StaticType::Void)),
-                        ],
+                        params: std::iter::once(StaticType::I64)
+                            .chain(
+                                f_info
+                                    .info
+                                    .effect_handlers
+                                    .iter()
+                                    // TODO: figure out a way of not having to repeat this everywhere
+                                    .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3)),
+                            )
+                            .chain(std::iter::once(StaticType::Reference(Box::new(
+                                StaticType::Void,
+                            ))))
+                            .collect(),
 
                         results: vec![],
+                    },
+                );
+
+                f_info.info.index.replace(index);
+            } else if f_info.source == "yield" && f_info.info.mangled_name.is_some() {
+                let index = this.import_function(
+                    "starstream_utxo_env:this",
+                    f_info.info.mangled_name.as_ref().unwrap(),
+                    StarFunctionType {
+                        // TODO: maybe could get this from the fn info
+                        params: std::iter::repeat_n(StaticType::U32, 6).collect(),
+                        results: f_info
+                            .info
+                            .effect_handlers
+                            .iter()
+                            // TODO: figure out a way of not having to repeat this
+                            .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3))
+                            .collect(),
                     },
                 );
 
@@ -583,11 +624,15 @@ impl Compiler {
 
                 let index = this.add_function(ty, f);
 
-                this.exports.export(
-                    f_info.info.mangled_name.as_ref().unwrap(),
-                    wasm_encoder::ExportKind::Func,
-                    index,
-                );
+                if f_info.source == "unbind_utxo_tokens" {
+                    this.unbind_tokens_fn.replace(*f_id);
+                } else {
+                    this.exports.export(
+                        f_info.info.mangled_name.as_ref().unwrap(),
+                        wasm_encoder::ExportKind::Func,
+                        index,
+                    );
+                }
 
                 assert!(f_info.info.index.replace(index).is_none());
             }
@@ -614,10 +659,16 @@ impl Compiler {
             f_info.info.frame_size = offset;
         }
 
-        Compiler {
+        let mut this = Compiler {
             symbols_table,
             ..this
+        };
+
+        if let Some(f_id) = this.unbind_tokens_fn {
+            add_builtin_unbind_tokens(&mut this, f_id);
         }
+
+        this
     }
 
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
@@ -809,6 +860,25 @@ impl Compiler {
                     let return_value =
                         self.visit_block(&mut function, &main.block, &effect_handlers);
                     self.drop_intermediate(&mut function, return_value);
+
+                    // this should unbind all the tokens from the current utxo
+                    let unbind_all_tokens_fn = self
+                        .symbols_table
+                        .functions
+                        .get(self.unbind_tokens_fn.as_ref().unwrap())
+                        .unwrap();
+
+                    let _im = self.visit_call(
+                        &mut function,
+                        SimpleSpan::from(0..0),
+                        Intermediate::ConstFunction(unbind_all_tokens_fn.info.index.unwrap()),
+                        &[],
+                        FunctionCallType::FunctionCall,
+                        &effect_handlers,
+                        unbind_all_tokens_fn.info.effect_handlers.clone(),
+                        None,
+                    );
+
                     function.instructions().end();
 
                     let index = self.add_function(ty, function);
@@ -1868,12 +1938,20 @@ impl Compiler {
         expr: &Option<Box<Spanned<Expr>>>,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
-        let f_id = self.global_scope_functions["starstream_yield"];
-
         // TODO: yielding outside utxos
         let utxo_id = self.current_utxo.last().unwrap();
 
         let utxo_info = self.symbols_table.types.get(utxo_id).unwrap();
+
+        let f_id = utxo_info.info.yield_fn.unwrap();
+        let f_id = self
+            .symbols_table
+            .functions
+            .get(&f_id)
+            .unwrap()
+            .info
+            .index
+            .unwrap();
 
         let utxo_name = utxo_info.source.clone();
         let ptr = self.alloc_constant(utxo_name.as_bytes());
@@ -1894,20 +1972,32 @@ impl Compiler {
             Intermediate::Void
         };
 
-        func.instructions()
+        let mut instructions = func.instructions();
+        instructions
             .i32_const(ptr.cast_signed())
             .i32_const(u32::try_from(len).unwrap().cast_signed());
 
         // data
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
         // data_len
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
         // resume_arg
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
         // resume_arg_len
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
 
-        func.instructions().call(f_id);
+        instructions.call(f_id);
+
+        // the call to resume may have set different handlers
+        // we need to pop those from the stack and assign them
+        //
+        // we need to do it in reverse because that's how multi-return works
+        //
+        // NOTE: this assumes that the effects before the first yield are the
+        // same as the effects after
+        for i in (0..effect_handlers.len() * 3).rev() {
+            instructions.local_set(i as u32);
+        }
 
         Intermediate::Void
     }
@@ -2194,6 +2284,64 @@ fn add_builtin_is_tx_signed_by(this: &mut Compiler) {
 
     this.global_scope_functions
         .insert("IsTxSignedBy".to_owned(), assert_fn);
+}
+
+fn add_builtin_unbind_tokens(this: &mut Compiler, f_id: SymbolId) {
+    let f_info = this.symbols_table.functions.get(&f_id).unwrap();
+    let f_index = f_info.info.index.unwrap();
+    let effect_handlers = f_info.info.effect_handlers.clone();
+
+    assert_eq!(effect_handlers.len(), 1);
+
+    let mut function = this.get_function_body(f_index);
+
+    let (_effect_id, effect_info) = this
+        .symbols_table
+        .effects
+        .iter()
+        .find(|(_, info)| &info.source == "TokenUnbound")
+        .unwrap();
+
+    // TODO: this function is not actually calling unbind on the tokens the main
+    // issue is that this needs some form of polymorphism, since the arity of
+    // the function will depend on its interfaces.
+
+    function
+        .instructions()
+        // pointer to memory
+        //
+        // this is just ephemeral, so we don't need to push and pop from the
+        // stack really.
+        //
+        // although we may need to generalize this later
+        .global_get(GLOBAL_STACK_PTR)
+        // how many tokens
+        .i32_const(1)
+        // skip
+        .i32_const(0)
+        .call(this.global_scope_functions["get_tokens"])
+        .if_(BlockType::Empty)
+        // the current handler for Starstream::TokenUnbound this function only
+        // has one effect, so we can fix these for now.
+        //
+        // but this will break if the Starstream abi gets a new effect
+        .local_get(0)
+        .local_get(1)
+        .local_get(2)
+        .global_get(GLOBAL_STACK_PTR)
+        .i64_load(MemArg {
+            offset: 0,
+            align: 0,
+            memory_index: 0,
+        })
+        // TODO: token id
+        .i32_const(0)
+        .call(effect_info.info.index.unwrap() as u32)
+        // end if
+        .end()
+        .end();
+
+    this.replace_function_body(f_index, function);
 }
 
 trait ReportExt {

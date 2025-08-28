@@ -48,6 +48,7 @@ pub struct TypeInfo {
     pub yield_ty: Option<TypeArg>,
     pub resume_ty: Option<TypeArg>,
     pub interfaces: EffectSet,
+    pub yield_fn: Option<SymbolId>,
 }
 
 #[derive(Debug, Clone, Default)]

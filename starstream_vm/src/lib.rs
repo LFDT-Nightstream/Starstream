@@ -365,7 +365,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
 }
 
 /// Fulfiller of imports from `starstream_utxo_env`.
-fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
+fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractCode) {
     linker
         .func_wrap(
             module,
@@ -435,6 +435,71 @@ fn starstream_utxo_env<T>(linker: &mut Linker<T>, module: &str) {
             },
         )
         .unwrap();
+
+    for import in this_code.module(linker.engine()).imports() {
+        if import.module() == "env" {
+            // already handled by code above
+        } else if let Some(rest) = import.module().strip_prefix("starstream_utxo_env:") {
+            let rest = rest.to_owned();
+            if let ExternType::Func(func_ty) = import.ty() {
+                let name = import.name().to_owned();
+                if import.name().starts_with("starstream_yield") {
+                    linker
+                        .func_new(
+                            import.module(),
+                            import.name(),
+                            func_ty.clone(),
+                            move |mut caller, inputs, outputs| {
+                                trace!("{rest}::{name}{inputs:?} -> {outputs:?}");
+
+                                let name = match inputs[0] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                let name_len = match inputs[1] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                let data = match inputs[2] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                let resume_arg = match inputs[3] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                let resume_arg_len = match inputs[4] {
+                                    Value::I32(id) => id as u32,
+                                    _ => todo!(),
+                                };
+
+                                trace!("starstream_yield()");
+                                host(Interrupt::Yield {
+                                    name: std::str::from_utf8(
+                                        &memory(&mut caller).0
+                                            [name as usize..(name + name_len) as usize],
+                                    )
+                                    .unwrap()
+                                    .to_owned(),
+                                    data,
+                                    resume_arg,
+                                    resume_arg_len,
+                                })
+                            },
+                        )
+                        .unwrap();
+                } else {
+                    panic!("bad import {import:?}");
+                }
+            } else {
+                panic!("bad import {import:?}");
+            }
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -499,7 +564,7 @@ fn utxo_linker(
 
     starstream_env(&mut linker, "env", utxo_code);
 
-    starstream_utxo_env(&mut linker, "starstream_utxo_env");
+    starstream_utxo_env(&mut linker, "starstream_utxo_env", utxo_code);
 
     let current_code_hash = utxo_code.hash();
 
@@ -577,7 +642,7 @@ fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<Trans
 
     starstream_env(&mut linker, "env", token_code);
 
-    starstream_utxo_env(&mut linker, "starstream_utxo_env");
+    starstream_utxo_env(&mut linker, "starstream_utxo_env", token_code);
 
     for import in token_code.module(engine).imports() {
         if import.module() != "starstream_utxo_env" {
@@ -1430,7 +1495,8 @@ impl Transaction {
                             other => panic!("cannot query a UTXO in state {other:?}"),
                         };
 
-                    let copy_from = match inputs[1] {
+                    let inputs_len = inputs.len();
+                    let copy_from = match inputs[inputs_len - 1] {
                         Value::I32(n) => n as usize,
                         Value::I64(n) => n as usize,
                         _ => panic!("Expected pointer as the first argument in UtxoResume"),
@@ -1450,7 +1516,13 @@ impl Transaction {
                         data: caller_memory_data,
                     }];
 
-                    self.resume(from_program, to_program, vec![], vec![], write_to_memory)
+                    self.resume(
+                        from_program,
+                        to_program,
+                        inputs.into_iter().skip(1).take(inputs_len - 2).collect(),
+                        vec![],
+                        write_to_memory,
+                    )
                 }
                 Err(Interrupt::UtxoQuery {
                     utxo_id,

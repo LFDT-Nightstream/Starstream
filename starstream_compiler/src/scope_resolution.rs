@@ -422,8 +422,28 @@ impl Visitor {
         let self_ty = TypeArg::TypeRef(TypeRef(utxo.name.clone()));
         let self_ty_ref = TypeArg::Ref(Box::new(self_ty.clone()));
 
-        let mut effects = self.implicit_effects();
-        effects.add(self.symbols.builtins[STARSTREAM]);
+        let effects = self.implicit_effects();
+
+        let yield_fid = self.push_function_declaration(
+            &mut Identifier::new("yield", None),
+            FuncInfo {
+                inputs_ty: std::iter::repeat_n(TypeArg::I32, 6).collect(),
+                output_ty: None,
+                effects: effects.clone(),
+                locals: vec![],
+                mangled_name: Some(format!("starstream_yield_{}", utxo.name.uid.unwrap().id)),
+                ..Default::default()
+            },
+        );
+
+        self.symbols
+            .types
+            .get_mut(&uid)
+            .unwrap()
+            .info
+            .yield_fn
+            .replace(yield_fid);
+
         self.push_function_declaration(
             &mut Identifier::new("resume", None),
             FuncInfo {
@@ -967,7 +987,7 @@ impl Visitor {
                 // TODO: cleanup the panics (compiler error)
                 let prev = self.symbols.functions.get(prev).unwrap();
 
-                self.push_redeclaration_error(&ident, prev.span.unwrap_or(SimpleSpan::from(0..0)));
+                self.push_redeclaration_error(ident, prev.span.unwrap_or(SimpleSpan::from(0..0)));
             }
         }
 
@@ -997,6 +1017,7 @@ impl Visitor {
                     resume_ty: None,
                     interfaces: EffectSet::empty(),
                     storage_ty: None,
+                    yield_fn: None,
                 },
             },
         );
