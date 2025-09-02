@@ -3,7 +3,6 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use byteorder::{LittleEndian, ReadBytesExt};
 pub use code::{CodeCache, CodeHash, ContractCode};
 use log::{debug, info, trace};
 use rand::RngCore;
@@ -146,17 +145,33 @@ enum Interrupt {
         name: String,
         inputs: Vec<Value>,
     },
-    // UTXO -> Token
-    TokenBind {
+    // Token 'constructor'
+    TokenMint {
         code: CodeHash,
         entry_point: String,
         inputs: Vec<Value>,
+        // some id for the token contract
+        // it should be something content-addressed eventually
+        token_type_id: u64,
+    },
+    // UTXO -> Token
+    TokenBind {
+        entry_point: String,
+        inputs: Vec<Value>,
+        token_id: TokenId,
     },
     TokenUnbind {
         token_id: TokenId,
         // Sanity checking - must match that of the token.
         //code: CodeHash,
-        //unbind_fn: String,
+        entry_point: String,
+    },
+    TokenBurn {
+        token_id: TokenId,
+    },
+    TokenSpend {
+        token_id: TokenId,
+        amount: u64,
     },
     GetTokens {
         data: u32,
@@ -188,7 +203,7 @@ fn starstream_eprint<T>(mut caller: Caller<T>, ptr: u32, len: u32) {
 
 /// Fulfiller of imports from `env`.
 #[allow(clippy::unused_unit)] // False positive. `clippy --fix` breaks the code.
-fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractCode) {
+fn starstream_env(linker: &mut Linker<TransactionInner>, module: &str, this_code: &ContractCode) {
     let this_code_hash = this_code.hash();
 
     linker
@@ -200,7 +215,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "eprint",
-            |caller: Caller<T>, ptr: u32, len: u32| -> () {
+            |caller: Caller<TransactionInner>, ptr: u32, len: u32| -> () {
                 starstream_eprint(caller, ptr, len);
             },
         )
@@ -219,7 +234,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_this_code",
-            move |mut caller: Caller<T>, return_addr: u32| {
+            move |mut caller: Caller<TransactionInner>, return_addr: u32| {
                 trace!("starstream_this_code({return_addr:#x})");
                 let (memory, _) = memory(&mut caller);
                 let hash = this_code_hash.raw();
@@ -232,7 +247,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_keccak256",
-            |mut caller: Caller<T>, ptr: u32, len: u32, return_addr: u32| {
+            |mut caller: Caller<TransactionInner>, ptr: u32, len: u32, return_addr: u32| {
                 let mut hasher = tiny_keccak::Keccak::v256();
 
                 let (memory, _) = memory(&mut caller);
@@ -249,7 +264,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_register_effect_handler",
-            move |mut caller: Caller<T>, ptr: u32, len: u32, handler_addr: i32| {
+            move |mut caller: Caller<TransactionInner>, ptr: u32, len: u32, handler_addr: i32| {
                 let (memory, _) = memory(&mut caller);
 
                 let name_slice = &memory[ptr as usize..(ptr + len) as usize];
@@ -266,7 +281,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_unregister_effect_handler",
-            move |mut caller: Caller<T>, ptr: u32, len: u32| {
+            move |mut caller: Caller<TransactionInner>, ptr: u32, len: u32| {
                 let (memory, _) = memory(&mut caller);
 
                 let slice = &memory[ptr as usize..(ptr + len) as usize];
@@ -280,7 +295,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_get_raised_effect_data",
-            move |mut caller: Caller<T>,
+            move |mut caller: Caller<TransactionInner>,
                   ptr: u32,
                   len: u32,
                   output_ptr_data: u32,
@@ -301,7 +316,7 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
         .func_wrap(
             module,
             "starstream_resume_throwing_program",
-            move |mut caller: Caller<T>, ptr: u32, len: u32, input_ptr_data: u32| {
+            move |mut caller: Caller<TransactionInner>, ptr: u32, len: u32, input_ptr_data: u32| {
                 let (memory, _) = memory(&mut caller);
 
                 let slice = &memory[ptr as usize..(ptr + len) as usize];
@@ -309,6 +324,67 @@ fn starstream_env<T>(linker: &mut Linker<T>, module: &str, this_code: &ContractC
                     name: String::from_utf8_lossy(slice).into_owned(),
                     input_ptr_data,
                 })
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_get_token_type",
+            |caller: Caller<TransactionInner>, token_id: i64| -> Result<u64, WasmiError> {
+                let token_id =
+                    TokenId::from_wasm(&Value::I64(token_id), caller.as_context()).unwrap();
+
+                let (_utxo, token) = caller.data().tokens.get(&token_id).unwrap();
+
+                Ok(token.token_type_id)
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_get_token_amount",
+            |caller: Caller<TransactionInner>, token_id: i64| -> Result<u64, WasmiError> {
+                let token_id =
+                    TokenId::from_wasm(&Value::I64(token_id), caller.as_context()).unwrap();
+
+                let (_utxo, token) = caller.data().tokens.get(&token_id).unwrap();
+
+                Ok(token.amount)
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_token_burn",
+            |caller: Caller<TransactionInner>, token_id: i64| -> Result<(), WasmiError> {
+                let token_id =
+                    TokenId::from_wasm(&Value::I64(token_id), caller.as_context()).unwrap();
+                host(Interrupt::TokenBurn { token_id })
+            },
+        )
+        .unwrap();
+
+    linker
+        .func_wrap(
+            module,
+            "starstream_token_spend",
+            |caller: Caller<TransactionInner>,
+             token_id: i64,
+             amount: i64|
+             -> Result<i64, WasmiError> {
+                let token_id =
+                    TokenId::from_wasm(&Value::I64(token_id), caller.as_context()).unwrap();
+                host(Interrupt::TokenSpend {
+                    token_id,
+                    amount: amount as u64,
+                })
+                .map(|_| unreachable!())
             },
         )
         .unwrap();
@@ -555,49 +631,39 @@ struct UtxoInstance {
 }
 */
 
-fn utxo_linker(
-    engine: &Engine,
-    code_cache: &Arc<CodeCache>,
-    utxo_code: &ContractCode,
-) -> Linker<TransactionInner> {
+fn utxo_linker(engine: &Engine, utxo_code: &ContractCode) -> Linker<TransactionInner> {
     let mut linker = Linker::<TransactionInner>::new(engine);
 
     starstream_env(&mut linker, "env", utxo_code);
 
     starstream_utxo_env(&mut linker, "starstream_utxo_env", utxo_code);
 
-    let current_code_hash = utxo_code.hash();
-
     for import in utxo_code.module(engine).imports() {
         if let ExternType::Func(func_ty) = import.ty() {
             if let Some(rest) = import.module().strip_prefix("starstream_token:") {
-                if import.name().starts_with("starstream_bind_") {
+                if import.name().starts_with("starstream_bind") {
                     let name = import.name().to_owned();
                     let rest = rest.to_owned();
-                    let code_cache = code_cache.clone();
                     linker
                         .func_new(
                             import.module(),
                             import.name(),
                             func_ty.clone(),
-                            move |_caller, inputs, _outputs| {
+                            move |caller, inputs, _outputs| {
                                 trace!("{rest}::{name}{inputs:?}");
 
-                                let code = if rest == "this" {
-                                    current_code_hash
-                                } else {
-                                    code_cache.load_debug(&rest).hash()
-                                };
+                                let token_id =
+                                    TokenId::from_wasm(&inputs[0], caller.as_context()).unwrap();
 
                                 host(Interrupt::TokenBind {
-                                    code,
                                     entry_point: name.clone(),
                                     inputs: inputs.to_vec(),
+                                    token_id,
                                 })
                             },
                         )
                         .unwrap();
-                } else if import.name().starts_with("starstream_unbind_") {
+                } else if import.name().starts_with("starstream_unbind") {
                     let name = import.name().to_owned();
                     let rest = rest.to_owned();
                     linker
@@ -612,7 +678,7 @@ fn utxo_linker(
                                 host(Interrupt::TokenUnbind {
                                     token_id,
                                     //hash,
-                                    //unbind_fn: name.clone(),
+                                    entry_point: name.clone(),
                                 })
                             },
                         )
@@ -655,10 +721,10 @@ fn token_linker(engine: &Engine, token_code: &Arc<ContractCode>) -> Linker<Trans
 
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct Token {
-    bind_program: ProgramIdx,
-    id: u64,
+    program: ProgramIdx,
+    token_type_id: u64,
     amount: u64,
 }
 
@@ -834,6 +900,41 @@ fn coordination_script_linker(
                             },
                         )
                         .unwrap();
+                } else if import.name().starts_with("starstream_mint_") {
+                    let code_cache = code_cache.clone();
+
+                    // TODO: hacky
+                    // get as a parameter instead
+                    let token_type_id: u64 = import
+                        .name()
+                        .strip_prefix("starstream_mint_")
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+
+                    linker
+                        .func_new(
+                            import.module(),
+                            import.name(),
+                            func_ty.clone(),
+                            move |_caller, inputs, _outputs| {
+                                trace!("{rest}::{name}{inputs:?}");
+
+                                let code = if rest == "this" {
+                                    current_code_hash
+                                } else {
+                                    code_cache.load_debug(&rest).hash()
+                                };
+
+                                host(Interrupt::TokenMint {
+                                    code,
+                                    entry_point: name.clone(),
+                                    inputs: inputs.to_vec(),
+                                    token_type_id,
+                                })
+                            },
+                        )
+                        .unwrap();
                 } else if import.name().starts_with("starstream_resume_") {
                     linker
                         .func_new(
@@ -950,7 +1051,7 @@ impl std::fmt::Debug for ProgramIdx {
 
 struct TxProgram {
     return_to: ProgramIdx,
-    return_is_token: bool,
+    return_is_token: Option<TokenId>,
     yield_to: Option<ProgramIdx>,
     yield_to_constructor: Option<Value>,
 
@@ -1139,6 +1240,7 @@ mod serde_value_vec {
 #[derive(Default)]
 struct TransactionInner {
     utxos: HashMap<UtxoId, Utxo>,
+    tokens: HashMap<TokenId, (Option<UtxoId>, Token)>,
     temporary_utxo_ids: HashMap<u64, UtxoId>,
     temporary_token_ids: HashMap<u64, TokenId>,
 
@@ -1265,46 +1367,13 @@ impl Transaction {
                         return result;
                     }
 
-                    let mut read_from_memory = vec![];
-                    if self.store.data().programs[from_program.0].return_is_token {
-                        // Transform id & amount in memory into [TokenId]. Kind of awkward?
-                        let instance = self.store.data().programs[from_program.0].instance;
-                        let memory = instance
-                            .get_export(&self.store, "memory")
-                            .unwrap()
-                            .into_memory()
-                            .unwrap()
-                            .data(&self.store);
-
-                        let addr = if self.rust_compat { 16usize } else { 0usize };
-                        let segment = MemorySegment {
-                            address: addr as u32,
-                            data: memory[addr..addr + 16].to_vec(),
-                        };
-                        let mut cursor = &segment.data[..];
-                        let id = cursor.read_u64::<LittleEndian>().unwrap();
-                        let amount = cursor.read_u64::<LittleEndian>().unwrap();
-                        read_from_memory.push(segment);
-
-                        let token_id = TokenId::random();
-                        let token = Token {
-                            // code and unbind_fn can be determined by the bind() program
-                            bind_program: from_program,
-                            id,
-                            amount,
-                        };
-                        let utxo_id = self.store.data_mut().programs[to_program.0].utxo.unwrap();
-                        self.store
-                            .data_mut()
-                            .utxos
-                            .get_mut(&utxo_id)
-                            .unwrap()
-                            .tokens
-                            .insert(token_id, token);
+                    if let Some(token_id) =
+                        self.store.data().programs[from_program.0].return_is_token
+                    {
                         values = vec![token_id.to_wasm_i64(self.store.as_context_mut())];
                     }
 
-                    self.resume(from_program, to_program, values, read_from_memory, vec![])
+                    self.resume(from_program, to_program, values, vec![], vec![])
                 }
 
                 // ------------------------------------------------------------
@@ -1452,7 +1521,7 @@ impl Transaction {
                     inputs,
                 }) => {
                     let code = self.code_cache.get(code_hash);
-                    let linker = utxo_linker(self.store.engine(), &self.code_cache, &code);
+                    let linker = utxo_linker(self.store.engine(), &code);
                     let id = UtxoId::random();
 
                     let (to_program, result) =
@@ -1630,37 +1699,65 @@ impl Transaction {
 
                     self.call_method(from_program, to_program, method, inputs)
                 }
-                Err(Interrupt::TokenBind {
+
+                Err(Interrupt::TokenMint {
                     code,
                     entry_point,
-                    mut inputs,
+                    inputs,
+                    token_type_id,
                 }) => {
                     let code = self.code_cache.get(code);
                     let linker = token_linker(self.store.engine(), &code);
-                    //let id = TokenId::random();
+                    let id = TokenId::random();
 
-                    // Prepend TokenStorage struct return address to inputs.
-                    // HACK: The 16 here is a low but nonzero memory address
-                    // that we're crossing our fingers and hoping that the WASM
-                    // doesn't actually use.
-                    // BETTER: Extend the WASM memory with a new page that we
-                    // know won't collide because it didn't exist before,
-                    // and return there (downside: uses more memory).
-                    // BEST: Use WASM multivalues (Rust -Ctarget-feature=+multivalue)
-                    // instead of struct return addresses in the first place.
-                    // TODO: Memory trace this or fix the hack described above.
-                    if self.rust_compat {
-                        let return_addr: usize = 16;
-                        inputs.insert(0, Value::I32(return_addr as i32));
-                    }
+                    let amount = match &inputs[0] {
+                        Value::I64(amount) => *amount as u64,
+                        _ => unreachable!(),
+                    };
 
                     let (to_program, result) =
                         self.start_program(from_program, &linker, &code, &entry_point, inputs);
-                    self.store.data_mut().programs[to_program.0].return_is_token = true;
+
+                    let token = Token {
+                        program: to_program,
+                        token_type_id,
+                        amount,
+                    };
+
+                    self.store.data_mut().tokens.insert(id, (None, token));
+
+                    self.store.data_mut().programs[to_program.0].return_is_token = Some(id);
 
                     (to_program, result)
                 }
-                Err(Interrupt::TokenUnbind { token_id }) => {
+                Err(Interrupt::TokenBind {
+                    entry_point,
+                    inputs,
+                    token_id,
+                }) => {
+                    let utxo_id = self.store.data_mut().programs[from_program.0].utxo.unwrap();
+                    let (_, token) = self.store.data_mut().tokens.get(&token_id).unwrap();
+                    let token = *token;
+
+                    let entry_point = format!("{}_{}", entry_point, token.token_type_id);
+
+                    let (to_program, result) =
+                        self.call_method(from_program, from_program, entry_point, inputs);
+
+                    self.store
+                        .data_mut()
+                        .utxos
+                        .get_mut(&utxo_id)
+                        .unwrap()
+                        .tokens
+                        .insert(token_id, token);
+
+                    (to_program, result)
+                }
+                Err(Interrupt::TokenUnbind {
+                    token_id,
+                    entry_point: unbind_fn,
+                }) => {
                     // assume that only the utxo that owns the token can unbind it?
                     let utxo_id = self.store.data_mut().programs[from_program.0].utxo.unwrap();
 
@@ -1674,25 +1771,41 @@ impl Transaction {
                         .remove(&token_id)
                         .unwrap();
 
-                    let code = self.store.data().programs[token.bind_program.0].code;
-                    let code = self.code_cache.get(code);
+                    let entry_point = format!("{}_{}", unbind_fn, token.token_type_id);
 
-                    let entry_point = self.store.data().programs[token.bind_program.0]
-                        .entry_point
-                        .replace("bind", "unbind");
+                    self.call_method(from_program, from_program, entry_point, vec![])
+                }
+                Err(Interrupt::TokenBurn { token_id }) => {
+                    let to_program = from_program;
 
-                    let linker = token_linker(self.store.engine(), &code);
+                    let data_mut = self.store.data_mut();
 
-                    let inputs = if self.rust_compat {
-                        vec![Value::I64(token.id as i64), Value::I64(token.amount as i64)]
-                    } else {
-                        vec![]
-                    };
+                    if let Some((utxo, _)) = data_mut.tokens.remove(&token_id) {
+                        assert!(utxo.is_none(), "can't burn token without unbinding first");
+                    }
 
-                    let (to_program, result) =
-                        self.start_program(from_program, &linker, &code, &entry_point, inputs);
+                    self.resume(from_program, to_program, vec![], vec![], vec![])
+                }
+                Err(Interrupt::TokenSpend { token_id, amount }) => {
+                    let to_program = from_program;
 
-                    (to_program, result)
+                    let data_mut = self.store.data_mut();
+
+                    let new_token_id = TokenId::random();
+                    if let Some((utxo, token)) = data_mut.tokens.get_mut(&token_id) {
+                        assert!(utxo.is_none(), "can't split token without unbinding first");
+
+                        let mut new_token = *token;
+                        new_token.amount = amount;
+
+                        token.amount = token.amount.checked_sub(amount).unwrap();
+
+                        data_mut.tokens.insert(new_token_id, (None, new_token));
+                    }
+
+                    let new_token_id = new_token_id.to_wasm_i64(self.store.as_context_mut());
+
+                    self.resume(from_program, to_program, vec![new_token_id], vec![], vec![])
                 }
                 Err(Interrupt::GetTokens {
                     data,
@@ -1775,7 +1888,7 @@ impl Transaction {
         let fuel = self.store.fuel_consumed().unwrap();
         let main = instance
             .get_func(&mut self.store, entry_point)
-            .expect(&entry_point);
+            .expect(entry_point);
         let num_outputs = main.ty(&mut self.store).results().len();
         let mut outputs = [Value::from(ExternRef::null())];
         let resumable = main
@@ -1797,7 +1910,7 @@ impl Transaction {
         debug!("= {result:?}");
         self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,
-            return_is_token: false,
+            return_is_token: None,
             yield_to: None,
             yield_to_constructor: None,
             code: code.hash(),
@@ -1937,7 +2050,7 @@ impl Transaction {
         let utxo = self.store.data().programs[to_program.0].utxo;
         self.store.data_mut().programs.push(TxProgram {
             return_to: from_program,
-            return_is_token: false,
+            return_is_token: None,
             yield_to: None,
             yield_to_constructor: None,
             code,

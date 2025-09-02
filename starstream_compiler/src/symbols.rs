@@ -41,6 +41,7 @@ pub struct VarInfo {
 #[derive(Debug, Clone)]
 pub struct TypeInfo {
     pub declarations: HashSet<SymbolId>,
+
     pub storage: Option<Storage>,
     pub storage_ty: Option<ComparableType>,
     // TODO: may want to separate typedefs from utxo and token types
@@ -84,6 +85,25 @@ pub struct FuncInfo {
     //
     // currently it's set to the index of the first non-argument local.
     pub saved_frame_local_index: Option<u32>,
+
+    // currently bind and unbind are compiled as different functions, but
+    // dispatched through a single import
+    //
+    // this has the function id of that dispatcher
+    //
+    // there is most likely a better abstraction for this
+    pub dispatch_through: Option<SymbolId>,
+    pub is_imported: Option<&'static str>,
+
+    // TODO: other constant types
+    pub is_constant: Option<u64>,
+
+    // kind of hacky, since in theory this should depend on the type
+    //
+    // but for now it just makes things simpler
+    //
+    // this means the function moves the receiver when used in method form
+    pub moves_variable: bool,
 }
 
 pub type EffectHandlers = BTreeMap<SymbolId, ArgOrConst>;
