@@ -23,20 +23,20 @@ pub fn main() {
         .output()
         .unwrap();
 
-    std::process::Command::new("wasm2wat")
-        .arg("--no-check")
-        .arg(&output_path)
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
+    // std::process::Command::new("wasm2wat")
+    //     .arg("--no-check")
+    //     .arg(&output_path)
+    //     .spawn()
+    //     .unwrap()
+    //     .wait()
+    //     .unwrap();
 
-    std::process::Command::new("wasm2wat")
-        .arg(&output_path)
-        .spawn()
-        .unwrap()
-        .wait()
-        .unwrap();
+    // std::process::Command::new("wasm2wat")
+    //     .arg(&output_path)
+    //     .spawn()
+    //     .unwrap()
+    //     .wait()
+    //     .unwrap();
 
     assert!(output.status.success());
 
