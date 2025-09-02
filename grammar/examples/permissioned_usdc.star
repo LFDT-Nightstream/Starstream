@@ -58,8 +58,8 @@ script {
     try {
       source.next();
     }
-    with Starstream::TokenUnbound(token: Intermediate<any, any>) {
-      if(token.type == PermissionedUSDC::type()) {
+    with StarstreamToken::TokenUnbound(token: Intermediate<any, any>) {
+      if(token.type == PermissionedUSDC::id()) {
         input_amount = input_amount + token.amount;
       }
       else {

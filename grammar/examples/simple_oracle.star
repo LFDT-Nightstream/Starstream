@@ -38,7 +38,7 @@ utxo SimpleOracle {
 }
 
 script {
-  fn main() / { StarstreamEnv, Starstream } {
+  fn main() / { StarstreamEnv } {
     let oracle = SimpleOracle::new(1);
 
     let token_intermediate = Token::mint(1);

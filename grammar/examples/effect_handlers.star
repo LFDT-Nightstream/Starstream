@@ -33,7 +33,7 @@ utxo Utxo {
 }
 
 script {
-  fn main() / { StarstreamEnv, Starstream } {
+  fn main() / { StarstreamEnv } {
     let x = 5;
     try {
       let utxo = Utxo::new();
