@@ -7,7 +7,7 @@ use crate::{
         Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
         FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, Spanned,
         StarstreamProgram, Statement, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeRef,
-        TypedBindings, Utxo, UtxoItem,
+        Utxo, UtxoItem,
     },
     typechecking::EffectSet,
 };
@@ -315,36 +315,8 @@ impl Visitor {
         let type_id = self.push_type_declaration(&mut identifier, None);
         self.symbols.builtins.insert("Intermediate", type_id);
 
-        let self_ty = TypeArg::Intermediate {
-            abi: any.clone(),
-            storage: any.clone(),
-        };
-
-        // TODO: maybe better to have builtin multi-return support.
-        let pair = Identifier::new("IntermediatePair", None);
-        let mut type_def = TypeDef {
-            name: pair,
-            ty: TypeDefRhs::Object(TypedBindings {
-                values: vec![
-                    (Identifier::new("fst", None), self_ty.clone()),
-                    (Identifier::new("snd", None), self_ty.clone()),
-                ],
-            }),
-        };
-        self.visit_type_def(&mut type_def);
-
         self.push_type_scope(type_id);
 
-        self.push_function_declaration(
-            &mut Identifier::new("change_for", None),
-            FuncInfo {
-                inputs_ty: vec![TypeArg::U32],
-                output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
-                effects: EffectSet::empty(),
-                locals: vec![],
-                ..Default::default()
-            },
-        );
         let intermediate_ty = TypeArg::Intermediate {
             abi: any.clone(),
             storage: any.clone(),
@@ -771,11 +743,10 @@ impl Visitor {
             &mut Identifier::new("id", None),
             FuncInfo {
                 inputs_ty: vec![],
-                // TODO: something else
+                // TODO: something else (something typed)
                 output_ty: Some(TypeArg::I64),
                 effects: effects.clone(),
                 is_constant: Some(uid.id),
-                locals: vec![],
                 ..Default::default()
             },
         );
@@ -795,7 +766,6 @@ impl Visitor {
                             }],
                             output_ty: None,
                             effects,
-                            locals: vec![],
                             is_main: true,
                             dispatch_through: Some(self.global_bind_fn.unwrap()),
                             mangled_name: Some(format!(
@@ -862,6 +832,7 @@ impl Visitor {
                             effects,
                             locals: vec![],
                             is_main: true,
+                            is_imported: Some("starstream_utxo:this"),
                             mangled_name: Some(format!(
                                 "starstream_mint_{}",
                                 token.name.uid.unwrap().id

@@ -518,40 +518,8 @@ impl Compiler {
                 );
 
                 f_info.info.index.replace(index);
-            } else if f_info.source == "mint" && f_info.info.mangled_name.is_some() {
-                let index = this.import_function(
-                    "starstream_utxo:this",
-                    f_info.info.mangled_name.as_ref().unwrap(),
-                    StarFunctionType {
-                        params: vec![StaticType::U64],
-                        results: vec![StaticType::I64],
-                    },
-                );
-
-                f_info.info.index.replace(index);
-            } else if f_info.source == "bind"
-                && f_info.info.mangled_name.is_some()
-                && f_info.info.dispatch_through.is_none()
-            {
-                // hacky, just to account for the token storage address passed
-                // currently by the scheduler.
-                //
-                // TODO: the way this is handled right now is not consistent
-                // with the other utxo "methods"
-                f_info.info.inputs_ty.insert(0, TypeArg::Unit);
-                let index = this.import_function(
-                    f_info.info.is_imported.unwrap(),
-                    f_info.info.mangled_name.as_ref().unwrap(),
-                    StarFunctionType {
-                        params: vec![StaticType::I64],
-                        results: vec![],
-                    },
-                );
-
-                f_info.info.index.replace(index);
-            } else if f_info.source == "unbind"
-                && f_info.info.mangled_name.is_some()
-                && f_info.info.dispatch_through.is_none()
+            } else if ["bind", "unbind"].contains(&f_info.source.as_str())
+                && f_info.info.is_imported.is_some()
             {
                 let index = this.import_function(
                     f_info.info.is_imported.unwrap(),
@@ -565,7 +533,7 @@ impl Compiler {
                 f_info.info.index.replace(index);
 
                 this.global_scope_functions
-                    .insert("unbind".to_string(), index);
+                    .insert(f_info.source.clone(), index);
             } else if ["spend", "burn", "amount", "type", "mint"].contains(&f_info.source.as_str())
                 && f_info.info.is_imported.is_some()
             {
