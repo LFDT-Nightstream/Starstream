@@ -91,6 +91,9 @@ pub trait CircuitBuilder {
     #[must_use]
     fn alloc(&mut self, location: Location) -> Self::Var;
     fn enforce(&mut self, location: Location, a: Self::Var, b: Self::Var, a_times_b: Self::Var);
+    // FIXME: this probably isn't the right API for lookups
+    fn lookup(&mut self, address: Self::Var, val: Self::Var);
+    fn memory(&mut self, address: Self::Var, old: Self::Var, new: Self::Var);
     #[must_use]
     fn nest<'a>(
         &'a mut self,
@@ -278,6 +281,12 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
                 |lc| to_lc(lc, a_times_b),
             );
             *self.counter += 1;
+        }
+        fn lookup(&mut self, address: Self::Var, val: Self::Var) {
+            unimplemented!()
+        }
+        fn memory(&mut self, _address: VarImpl<F>, _old: VarImpl<F>, _new: VarImpl<F>) {
+            unimplemented!()
         }
         fn nest<'b>(
             &'b mut self,
@@ -603,6 +612,12 @@ pub fn prove_test_circuit<
             );
             *self.counter += 1;
         }
+        fn lookup(&mut self, address: Self::Var, val: Self::Var) {
+            unimplemented!()
+        }
+        fn memory(&mut self, _address: VarImpl<F>, _old: VarImpl<F>, _new: VarImpl<F>) {
+            unimplemented!()
+        }
         fn nest<'b>(
             &'b mut self,
             location: Location,
@@ -750,7 +765,7 @@ struct Switches<Var>(Vec<Var>);
 struct ConsumeSwitches;
 
 // FIXME: Report compiler bug or find issue
-// This constraint is redundant, but rustc errs without it./
+// This constraint is redundant, but rustc errs without it.
 impl<Var: CircuitBuilderVar> Switches<Var> {
     fn new() -> (Switches<Var>, ConsumeSwitches) {
         (Switches(vec![]), ConsumeSwitches)
@@ -1169,6 +1184,65 @@ impl Circuit for R1CS_DUMMY_VM {
         );
         let scripts = hash(cb.nest(l!()), one, vec![script_hash, scripts]);
         vec![scripts, ios]
+    }
+}
+
+/* This is supposed to be a WASM VM.
+ * We don't support WASM as-is, but instead a simplified variant without types and
+ * type checking, mainly affecting (dynamic) function calls which can be called invalidly
+ * in our VM.
+ *
+ * TODO: We don't support memory for now as a simplification
+ *       but will in the future.
+ *
+ * Local variables are represented as ordinary "slots" in the stack
+ * and thus you can e.g. remove them with pop.
+ * This simplifies function calling heavily.
+ * Instructions to modify locals thus take an index into the stack,
+ * meaning you need to calculate the correct index when compiling from
+ * WASM to the IR (which should be trivial).
+ * Most instructions work directly on fields and modulus operations
+ * must be done separately for efficiency.
+ *
+ * TODO: range check via lookup
+ *
+ * We don't consider public input for now.
+ *
+ * TODO: implement techniques from EDEN/Zorp stuff for stack,
+ *       figure out how to do memory better than Nebula,
+ *       do lookups
+ */
+#[allow(non_camel_case_types)]
+pub struct WASM_VM;
+
+const WASM_INSTR_POP: usize = 0;
+const WASM_INSTR_DROP: usize = 1;
+const WASM_INSTR_CONST: usize = 2;
+const WASM_INSTR_ADD: usize = 3;
+const WASM_INSTR_GET: usize = 4;
+const WASM_INSTR_SET: usize = 5;
+
+fn visit_pop<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    opcode: CB::Var,
+    sp: CB::Var,
+    pc: CB::Var,
+) -> [CB::Var; 2] {
+    let mut cb = cb.nest(l!("visit_pop"));
+    let switch = switches.alloc(cb.nest(l!()));
+    [sp, pc]
+}
+
+impl Circuit for WASM_VM {
+    fn run<CB: CircuitBuilder>(&self, mut cb: CB, io: Vec<CB::Var>) -> Vec<CB::Var> {
+        let (mut switches, consume_switches) = Switches::new();
+        let [sp, pc] = io.try_into().expect("arity wrong");
+        let opcode = cb.alloc(l!("opcode"));
+        cb.lookup(pc.clone(), opcode.clone());
+        let [sp, pc] = visit_pop(cb.nest(l!()), &mut switches, opcode, sp, pc);
+        let pc = pc + cb.one();
+        vec![sp, pc]
     }
 }
 
