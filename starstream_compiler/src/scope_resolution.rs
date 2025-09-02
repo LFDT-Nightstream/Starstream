@@ -2,7 +2,6 @@ use crate::error::NameResolutionError;
 use crate::symbols::{
     self, AbiInfo, ConstInfo, FuncInfo, SymbolId, SymbolInformation, Symbols, TypeInfo, VarInfo,
 };
-use crate::typechecking::ComparableType;
 use crate::{
     ast::{
         Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
@@ -764,9 +763,6 @@ impl Visitor {
         let (uid, _) = self
             .resolve_name(&mut token.name, SymbolKind::Type)
             .unwrap();
-
-        let self_ty = TypeArg::TypeRef(TypeRef(token.name.clone()));
-        let self_ty_ref = TypeArg::Ref(Box::new(self_ty.clone()));
 
         self.push_type_scope(uid);
 
