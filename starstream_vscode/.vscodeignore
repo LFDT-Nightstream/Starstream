@@ -1,4 +1,7 @@
-.vscode/**
-.vscode-test/**
-.gitignore
-vsc-extension-quickstart.md
+**
+# Include only what we explicitly list:
+!LICENSE.md
+!README.md
+!package.json
+!dist/extension.js
+!syntaxes

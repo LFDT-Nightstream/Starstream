@@ -36,7 +36,20 @@
       }
     ]
   },
+  "scripts": {
+    "vscode:prepublish": "rm -r dist && webpack --mode production",
+    "build": "webpack --mode none"
+  },
   "devDependencies": {
-    "@vscode/vsce": "^3.2.2"
+    "@types/node": "^24.3.0",
+    "@types/vscode": "^1.98.0",
+    "@vscode/vsce": "^3.6.0",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.2",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }
