@@ -8,7 +8,9 @@ const webpack = require("webpack");
 
 /**@type {import('webpack').Configuration}*/
 const config = {
-  target: "webworker", // vscode extensions run in webworker context for VS Code web 📖 -> https://webpack.js.org/configuration/target/#target
+  target: "node",
+  // vscode extensions run in webworker context for VS Code web 📖 -> https://webpack.js.org/configuration/target/#target
+  // but the webworker version of vscode-languageclient of course doesn't let you spawn processes, so it's more work if we want that to work
 
   entry: "./src/extension.ts", // the entry point of this extension, 📖 -> https://webpack.js.org/configuration/entry-context/
   output: {

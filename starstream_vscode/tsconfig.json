@@ -1,11 +1,13 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
-    "target": "es6",
-    "outDir": "out",
-    "lib": ["es6"],
-    "sourceMap": true,
     "rootDir": "src",
+    "outDir": "out",
+    "sourceMap": true,
+
+    "module": "commonjs",
+    "target": "es2024",
+    "lib": ["ES2024"],
+
     "strict": true,
     "noUnusedLocals": true,
     "noImplicitReturns": true,

@@ -8,6 +8,7 @@
     "url": "https://github.com/PaimaStudios/Starstream",
     "directory": "starstream_vscode"
   },
+  "main": "./dist/extension",
   "engines": {
     "vscode": "^1.98.0"
   },
@@ -37,7 +38,7 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "rm -r dist && webpack --mode production",
+    "vscode:prepublish": "rm -rf dist && webpack --mode production",
     "build": "webpack --mode none"
   },
   "devDependencies": {
