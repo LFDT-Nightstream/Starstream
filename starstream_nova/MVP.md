@@ -18,9 +18,9 @@ If a transaction has no inputs, it is invalid.
 
 A transaction begins by invoking a "coordination script".
 The coordination script runs until it "yields", with one of the following options:
-- Call another coordination script, sharing the stack
+- Call another coordination script, sharing n elements of the stack
 - Create a fresh UTXO with the specified parameters
-- Call into an existing UTXO (in essence consuming and recreating it), sharing the stack
+- Call into an existing UTXO (in essence consuming and recreating it), sharing n elements of the stack
 - Return to calling coordination script, or exit, if none
 When it yields, the corresponding script is executed, until that script ends,
 and control is returned to the caller script.
@@ -70,6 +70,17 @@ For a UTXO to be consumed by a transaction, there must be a corresponding UTXO
 in the instance such that the state specified matches the state
 in the UTXO.
 
-TODO: fill out how stack sharing is done
-TOOD: fill out how coordination scripts are handled
+When calling into a script, n stack values are passed in, where n is a constant
+chosen by the program (after translation from WASM, so chosen by translator).
+When yielding, the reverse happens and n stack values can be passed back up
+for any constant n.
+
+Coordination scripts are treated similarly to UTXOs since they also can yield.
+This means you can call into a coordination script, it can run, and then it can yield,
+leaving you with a handle to its "instance", which you can treat essentially
+the same as a UTXO.
+
+Thus coordination scripts are in some sense treated similarly to ephemeral UTXOs
+that do not persist after the end of the transaction.
+
 TODO: fill out the rest
