@@ -75,6 +75,7 @@ impl<F: PrimeField> Witness<F> for DummyWitness {
     }
 }
 
+// TODO: consider making Copy, or at least making implementations clone shallowly
 pub trait CircuitBuilderVar:
     Add<Self, Output = Self> + Sub<Self, Output = Self> + Mul<u128, Output = Self> + Clone + Debug
 {
@@ -92,8 +93,8 @@ pub trait CircuitBuilder {
     fn alloc(&mut self, location: Location) -> Self::Var;
     fn enforce(&mut self, location: Location, a: Self::Var, b: Self::Var, a_times_b: Self::Var);
     // FIXME: this probably isn't the right API for lookups
-    fn lookup(&mut self, address: Self::Var, val: Self::Var);
-    fn memory(&mut self, address: Self::Var, old: Self::Var, new: Self::Var);
+    fn lookup(&mut self, table: u32, address: Self::Var, val: Self::Var);
+    fn memory(&mut self, table: u32, address: Self::Var, old: Self::Var, new: Self::Var);
     #[must_use]
     fn nest<'a>(
         &'a mut self,
@@ -282,10 +283,16 @@ pub fn test_circuit<F: PrimeField + PrimeFieldBits, W: Witness<F>, C: Circuit>(
             );
             *self.counter += 1;
         }
-        fn lookup(&mut self, address: Self::Var, val: Self::Var) {
+        fn lookup(&mut self, _table: u32, _address: Self::Var, _val: Self::Var) {
             unimplemented!()
         }
-        fn memory(&mut self, _address: VarImpl<F>, _old: VarImpl<F>, _new: VarImpl<F>) {
+        fn memory(
+            &mut self,
+            _table: u32,
+            _address: VarImpl<F>,
+            _old: VarImpl<F>,
+            _new: VarImpl<F>,
+        ) {
             unimplemented!()
         }
         fn nest<'b>(
@@ -612,10 +619,16 @@ pub fn prove_test_circuit<
             );
             *self.counter += 1;
         }
-        fn lookup(&mut self, address: Self::Var, val: Self::Var) {
+        fn lookup(&mut self, _table: u32, _address: Self::Var, _val: Self::Var) {
             unimplemented!()
         }
-        fn memory(&mut self, _address: VarImpl<F>, _old: VarImpl<F>, _new: VarImpl<F>) {
+        fn memory(
+            &mut self,
+            _table: u32,
+            _address: VarImpl<F>,
+            _old: VarImpl<F>,
+            _new: VarImpl<F>,
+        ) {
             unimplemented!()
         }
         fn nest<'b>(
@@ -760,6 +773,11 @@ pub fn prove_test_circuit<
         .expect("generated proof not valid");
 }
 
+#[derive(Clone)]
+struct Switch<Var> {
+    switch: Var,
+}
+
 struct Switches<Var>(Vec<Var>);
 #[must_use]
 struct ConsumeSwitches;
@@ -770,10 +788,10 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
     fn new() -> (Switches<Var>, ConsumeSwitches) {
         (Switches(vec![]), ConsumeSwitches)
     }
-    fn alloc(&mut self, mut cb: impl CircuitBuilder<Var = Var>) -> Var {
+    fn alloc(&mut self, mut cb: impl CircuitBuilder<Var = Var>) -> Switch<Var> {
         let switch = cb.alloc(l!("switch"));
         self.0.push(switch.clone());
-        switch
+        Switch { switch }
     }
     fn consume(self, _marker: ConsumeSwitches, mut cb: impl CircuitBuilder<Var = Var>) {
         let zero = cb.zero();
@@ -800,6 +818,32 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
     }
 }
 
+fn cond_assert<CB: CircuitBuilder>(mut cb: CB, switch: Switch<CB::Var>, a: CB::Var, b: CB::Var) {
+    let maybe_b = cb.alloc(l!("maybe_b"));
+    cb.enforce(l!(), switch.switch.clone(), b, maybe_b.clone());
+    cb.enforce(l!(), switch.switch, a, maybe_b);
+}
+
+// NB: this requires that the 0th index of the memory is always zero,
+// i.e. that *nullptr = 0
+// FIXME: this could be done more efficiently probably
+fn cond_memory<CB: CircuitBuilder>(
+    mut cb: CB,
+    table: u32,
+    switch: Switch<CB::Var>,
+    addr: CB::Var,
+    old: CB::Var,
+    new: CB::Var,
+) {
+    let real_addr = cb.alloc(l!("real_addr"));
+    let real_old = cb.alloc(l!("real_old"));
+    let real_new = cb.alloc(l!("real_new"));
+    cb.enforce(l!(), switch.switch.clone(), addr.clone(), real_addr.clone());
+    cb.enforce(l!(), switch.switch.clone(), old.clone(), real_old.clone());
+    cb.enforce(l!(), switch.switch.clone(), new.clone(), real_new.clone());
+    cb.memory(table, addr, old, new);
+}
+
 fn if_switch<CB: CircuitBuilder>(mut cb: CB, switch: CB::Var, n: CB::Var) -> CB::Var {
     let r = cb.alloc(l!("if_result"));
     cb.enforce(l!("if_switch"), switch, n, r.clone());
@@ -808,7 +852,7 @@ fn if_switch<CB: CircuitBuilder>(mut cb: CB, switch: CB::Var, n: CB::Var) -> CB:
 
 fn either_switch<CB: CircuitBuilder>(
     mut cb: CB,
-    switch: CB::Var,
+    switch: Switch<CB::Var>,
     case_true: CB::Var,
     case_false: CB::Var,
 ) -> CB::Var {
@@ -817,14 +861,14 @@ fn either_switch<CB: CircuitBuilder>(
     let r_true = cb.alloc(l!("either_switch_true"));
     cb.enforce(
         l!("either_switch.case_true"),
-        switch.clone(),
+        switch.switch.clone(),
         case_true.clone(),
         r_true.clone(),
     );
     let r_false = cb.alloc(l!("either_switch_false"));
     cb.enforce(
         l!("either_switch.case_true"),
-        one.clone() - switch.clone(),
+        one.clone() - switch.switch.clone(),
         case_false.clone(),
         r_false.clone(),
     );
@@ -972,7 +1016,7 @@ fn visit_enter<CB: CircuitBuilder>(
     let input = cb.alloc(l!("input"));
     push(
         cb.nest(l!()),
-        switch.clone(),
+        switch.switch.clone(),
         &mut io.rs,
         &mut io.ws,
         utxo_idx.clone(),
@@ -981,7 +1025,7 @@ fn visit_enter<CB: CircuitBuilder>(
     let zero = cb.zero();
     push(
         cb.nest(l!()),
-        switch,
+        switch.switch,
         &mut io.rs_coord,
         &mut io.ws_coord,
         io.coord_idx.clone(),
@@ -1000,7 +1044,7 @@ fn visit_push_coord<CB: CircuitBuilder>(
     let one = cb.one();
     push(
         cb.nest(l!()),
-        switch.clone(),
+        switch.switch.clone(),
         &mut io.rs_coord,
         &mut io.ws_coord,
         io.coord_idx.clone(),
@@ -1010,7 +1054,7 @@ fn visit_push_coord<CB: CircuitBuilder>(
     let two = cb.lit(2);
     push(
         cb.nest(l!()),
-        switch.clone(),
+        switch.switch.clone(),
         &mut io.rs_coord,
         &mut io.ws_coord,
         new_coord_idx.clone(),
@@ -1018,7 +1062,7 @@ fn visit_push_coord<CB: CircuitBuilder>(
         &[two, io.coord_idx.clone(), input],
     );
     let preimage = vec![io.coord_idx.clone(), io.coord_stack.clone()];
-    let new_coord_stack = hash(cb.nest(l!()), switch.clone(), preimage);
+    let new_coord_stack = hash(cb.nest(l!()), switch.switch.clone(), preimage);
     io.coord_idx = either_switch(
         cb.nest(l!()),
         switch.clone(),
@@ -1044,18 +1088,18 @@ fn visit_pop_coord<CB: CircuitBuilder>(
     let three = cb.lit(3);
     push(
         cb.nest(l!()),
-        switch.clone(),
+        switch.switch.clone(),
         &mut io.rs_coord,
         &mut io.ws_coord,
         io.coord_idx.clone(),
         &[three],
     );
     let preimage = vec![old_coord_idx.clone(), old_coord_stack.clone()];
-    let should_be = hash(cb.nest(l!()), switch.clone(), preimage);
+    let should_be = hash(cb.nest(l!()), switch.switch.clone(), preimage);
     cb.enforce(
         l!(),
         should_be.clone(),
-        switch.clone(),
+        switch.switch.clone(),
         io.coord_stack.clone(),
     );
     io.coord_idx = either_switch(
@@ -1211,38 +1255,352 @@ impl Circuit for R1CS_DUMMY_VM {
  * TODO: implement techniques from EDEN/Zorp stuff for stack,
  *       figure out how to do memory better than Nebula,
  *       do lookups
+ *
+ * TODO: use struct to carry around "global" vars (opcode, sp, pc, new_sp, new_pc)
  */
 #[allow(non_camel_case_types)]
 pub struct WASM_VM;
 
-const WASM_INSTR_POP: usize = 0;
-const WASM_INSTR_DROP: usize = 1;
-const WASM_INSTR_CONST: usize = 2;
-const WASM_INSTR_ADD: usize = 3;
-const WASM_INSTR_GET: usize = 4;
-const WASM_INSTR_SET: usize = 5;
+// x -> {}
+const WASM_INSTR_DROP: u128 = 0;
+// {} -> code[pc+1]
+const WASM_INSTR_CONST: u128 = 1;
+// x y -> x+y
+const WASM_INSTR_ADD: u128 = 2;
+// {} -> stack[pc+1]
+const WASM_INSTR_GET: u128 = 3;
+// x -> stack[pc+1] := x
+const WASM_INSTR_SET: u128 = 4;
+// b, new_pc -> {}; pc := new_pc if b == 1, else if b == 0 then pc := pc + 1
+const WASM_INSTR_JUMP: u128 = 5;
 
-fn visit_pop<CB: CircuitBuilder>(
+const WASM_MEMORY_STACK: u32 = 0;
+const WASM_TABLE_CODE: u32 = 0;
+
+#[allow(non_camel_case_types)]
+struct WASM_IO<Var> {
+    sp: Var,
+    pc: Var,
+}
+
+#[derive(Clone)]
+struct WASMGlobal<Var> {
+    opcode: Var,
+    sp: Var,
+    pc: Var,
+    new_sp: Var,
+    new_pc: Var,
+}
+
+impl<Var> WASM_IO<Var> {
+    fn of(fields: Vec<Var>) -> WASM_IO<Var> {
+        let Ok([sp, pc]): Result<[Var; 2], _> = fields.try_into() else {
+            unreachable!("wrong number of elements in io");
+        };
+        WASM_IO { sp, pc }
+    }
+    fn to(self) -> Vec<Var> {
+        let WASM_IO { sp, pc } = self;
+        vec![sp, pc]
+    }
+}
+
+fn visit_drop<CB: CircuitBuilder>(
     mut cb: CB,
     switches: &mut Switches<CB::Var>,
-    opcode: CB::Var,
-    sp: CB::Var,
-    pc: CB::Var,
-) -> [CB::Var; 2] {
-    let mut cb = cb.nest(l!("visit_pop"));
+    WASMGlobal {
+        opcode,
+        sp,
+        pc,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_drop"));
     let switch = switches.alloc(cb.nest(l!()));
-    [sp, pc]
+    let instr = cb.lit(WASM_INSTR_DROP);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let prev = cb.alloc(l!("prev"));
+    let zero = cb.zero();
+    let one = cb.one();
+    // FIXME: wrong
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone(),
+        prev,
+        zero,
+    );
+    // FIXME: do we need to check if sp == 0? is it problematic if it wraps around?
+    let one = cb.one();
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp - one.clone());
+    cond_assert(cb.nest(l!()), switch, new_pc, pc + one.clone());
+}
+
+fn visit_const<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    WASMGlobal {
+        opcode,
+        sp,
+        pc,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_const"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(WASM_INSTR_CONST);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let constant = cb.alloc(l!("constant"));
+    let zero = cb.zero();
+    let one = cb.one();
+    cb.lookup(WASM_TABLE_CODE, pc.clone() + one.clone(), constant.clone());
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone(),
+        zero,
+        constant,
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp + one.clone());
+    cond_assert(cb.nest(l!()), switch, new_pc, pc + one.clone() + one);
+}
+
+fn visit_add<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    WASMGlobal {
+        opcode,
+        sp,
+        pc,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_add"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(WASM_INSTR_ADD);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let first = cb.alloc(l!("first"));
+    let second = cb.alloc(l!("second"));
+    let one = cb.one();
+    let zero = cb.zero();
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone(),
+        first.clone(),
+        zero,
+    );
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone(),
+        second.clone(),
+        first + second,
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp - one.clone());
+    cond_assert(cb.nest(l!()), switch, new_pc, pc + one.clone());
+}
+
+fn visit_get<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    WASMGlobal {
+        opcode,
+        sp,
+        pc,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_get"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(WASM_INSTR_GET);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let index = cb.alloc(l!("index"));
+    let value = cb.alloc(l!("value"));
+    let zero = cb.zero();
+    let one = cb.one();
+    cb.lookup(WASM_TABLE_CODE, pc.clone() + one.clone(), index.clone());
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - index,
+        value.clone(),
+        value.clone(),
+    );
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone(),
+        zero,
+        value,
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp + one.clone());
+    cond_assert(cb.nest(l!()), switch, new_pc, pc + one.clone() + one);
+}
+
+fn visit_set<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    WASMGlobal {
+        opcode,
+        sp,
+        pc,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_set"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(WASM_INSTR_SET);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let index = cb.alloc(l!("index"));
+    let old = cb.alloc(l!("old"));
+    let new = cb.alloc(l!("new"));
+    let zero = cb.zero();
+    let one = cb.one();
+    cb.lookup(WASM_TABLE_CODE, pc.clone() + one.clone(), index.clone());
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone(),
+        new.clone(),
+        zero,
+    );
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - index,
+        old.clone(),
+        new.clone(),
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp - one.clone());
+    cond_assert(cb.nest(l!()), switch, new_pc, pc + one.clone() + one);
+}
+
+fn visit_jump_b_0<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    WASMGlobal {
+        opcode,
+        sp,
+        pc,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_jump_b_1"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(WASM_INSTR_JUMP);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let zero = cb.zero();
+    let one = cb.one();
+    let unused_pc = cb.alloc(l!("unused_pc"));
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone() - one.clone(),
+        zero.clone(),
+        zero.clone(),
+    );
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone(),
+        unused_pc,
+        zero.clone(),
+    );
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        new_sp,
+        sp - one.clone() - one.clone(),
+    );
+    cond_assert(cb.nest(l!()), switch, new_pc, pc + one);
+}
+
+fn visit_jump_b_1<CB: CircuitBuilder>(
+    mut cb: CB,
+    switches: &mut Switches<CB::Var>,
+    WASMGlobal {
+        opcode,
+        sp,
+        pc: _,
+        new_sp,
+        new_pc,
+    }: WASMGlobal<CB::Var>,
+) {
+    let mut cb = cb.nest(l!("visit_jump_b_0"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(WASM_INSTR_JUMP);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let zero = cb.zero();
+    let one = cb.one();
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone() - one.clone(),
+        one.clone(),
+        zero.clone(),
+    );
+    cond_memory(
+        cb.nest(l!()),
+        WASM_MEMORY_STACK,
+        switch.clone(),
+        sp.clone() - one.clone(),
+        new_pc,
+        zero,
+    );
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        new_sp,
+        sp - one.clone() - one.clone(),
+    );
 }
 
 impl Circuit for WASM_VM {
     fn run<CB: CircuitBuilder>(&self, mut cb: CB, io: Vec<CB::Var>) -> Vec<CB::Var> {
         let (mut switches, consume_switches) = Switches::new();
-        let [sp, pc] = io.try_into().expect("arity wrong");
+        let WASM_IO { sp, pc } = WASM_IO::of(io);
         let opcode = cb.alloc(l!("opcode"));
-        cb.lookup(pc.clone(), opcode.clone());
-        let [sp, pc] = visit_pop(cb.nest(l!()), &mut switches, opcode, sp, pc);
-        let pc = pc + cb.one();
-        vec![sp, pc]
+        cb.lookup(WASM_TABLE_CODE, pc.clone(), opcode.clone());
+        let new_sp = cb.alloc(l!("new_sp"));
+        let new_pc = cb.alloc(l!("new_pc"));
+        let global = WASMGlobal {
+            opcode,
+            sp,
+            pc,
+            new_sp,
+            new_pc,
+        };
+        visit_drop(cb.nest(l!()), &mut switches, global.clone());
+        visit_const(cb.nest(l!()), &mut switches, global.clone());
+        visit_add(cb.nest(l!()), &mut switches, global.clone());
+        visit_get(cb.nest(l!()), &mut switches, global.clone());
+        visit_set(cb.nest(l!()), &mut switches, global.clone());
+        visit_jump_b_0(cb.nest(l!()), &mut switches, global.clone());
+        visit_jump_b_1(cb.nest(l!()), &mut switches, global.clone());
+        switches.consume(consume_switches, cb.nest(l!()));
+        WASM_IO {
+            sp: global.new_sp,
+            pc: global.new_pc,
+        }
+        .to()
     }
 }
 
