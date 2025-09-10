@@ -18,7 +18,7 @@ If a transaction has no inputs, it is invalid.
 
 A transaction begins by invoking a "coordination script".
 The coordination script runs until it "yields", with one of the following options:
-- Call another coordination script, sharing n elements of the stack
+- Call another coordination script, sharing the whole stack
 - Create a fresh UTXO with the specified parameters
 - Call into an existing UTXO (in essence consuming and recreating it), sharing n elements of the stack
 - Return to calling coordination script, or exit, if none
@@ -70,17 +70,36 @@ For a UTXO to be consumed by a transaction, there must be a corresponding UTXO
 in the instance such that the state specified matches the state
 in the UTXO.
 
-When calling into a script, n stack values are passed in, where n is a constant
+When calling into a UTXO, n stack values are passed in, where n is a constant
 chosen by the program (after translation from WASM, so chosen by translator).
 When yielding, the reverse happens and n stack values can be passed back up
 for any constant n.
 
-Coordination scripts are treated similarly to UTXOs since they also can yield.
-This means you can call into a coordination script, it can run, and then it can yield,
-leaving you with a handle to its "instance", which you can treat essentially
-the same as a UTXO.
+Coordination scripts are handled "uniformly", in the sense that they share
+a single VM, and calls between the coordination scripts are handled similarly
+to normal function calls, i.e. you jump to a pc, then jump back.
 
-Thus coordination scripts are in some sense treated similarly to ephemeral UTXOs
-that do not persist after the end of the transaction.
+The number of coordination scripts in play is predetermined,
+and every "instance" has its own memory, but they all share
+the same stack.
+
+Passing pointers to functions from other WASM modules naively
+does not work, since the pointer in WASM land is just an i32,
+and that in the callee would reference their own memory after translation.
+
+There is instead functions to create "shared" strings,
+such that you call `create_string : ptr -> len -> string`,
+`len_string : string -> len` and `read_string : string -> ptr -> len -> ()`.
+
+You can pass these across module boundaries but they require you to
+serialize your data with e.g. serde, which isn't great.
+
+TODO: support structured data directly,
+      perhaps direct ADT support in a modified version of WASM?
 
 TODO: fill out the rest
+
+Non-extensive list of limitations:
+- You need to choose the coordination scripts and UTXOs you interact with beforehand (big limitation!)
+- You can't cooperate in as decentralized a manner as you would be able to with the other design
+- No tokens (probably easy to add though)
