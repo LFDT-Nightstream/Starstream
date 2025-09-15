@@ -380,8 +380,14 @@ impl<'a> TypeInference<'a> {
                 .unwrap_or(Multiplicity::Unused);
 
             if mult == Multiplicity::Unused && var.span.is_some() {
-                self.warnings
-                    .push(error_unused_variable(var, ty.is_linear()));
+                let is_error = ty.is_linear();
+                let error = error_unused_variable(var, is_error);
+
+                if is_error {
+                    self.errors.push(error);
+                } else {
+                    self.warnings.push(error);
+                }
             }
 
             if ty.is_linear() || ty.is_affine() {
@@ -510,6 +516,32 @@ impl<'a> TypeInference<'a> {
                 UtxoItem::Yield(_) => (),
                 UtxoItem::Resume(_) => (),
             }
+        }
+
+        // TODO: maybe we should do this in the previous stage
+        let utxo_info = self.symbols.types.get(&uid).unwrap();
+
+        let find_declaration = |source_name: &str| {
+            utxo_info
+                .info
+                .declarations
+                .iter()
+                .find(|declaration| {
+                    self.symbols.functions.get(declaration).unwrap().source == source_name
+                })
+                .unwrap()
+        };
+
+        let resume_fn = find_declaration("resume");
+        let yield_fn = find_declaration("yield");
+
+        for &fn_decl in &[resume_fn, yield_fn] {
+            let fn_info = self.symbols.functions.get_mut(fn_decl).unwrap();
+            fn_info.info.effects = fn_info
+                .info
+                .effects
+                .clone()
+                .combine(utxo_info.info.interfaces.clone());
         }
     }
 
@@ -1011,6 +1043,7 @@ impl<'a> TypeInference<'a> {
     fn infer_primary_expression(
         &mut self,
         primary_expr: &mut PrimaryExpr,
+        is_method_receiver: bool,
     ) -> (ComparableType, EffectSet) {
         match primary_expr {
             PrimaryExpr::Number { literal: _, ty } => {
@@ -1036,8 +1069,10 @@ impl<'a> TypeInference<'a> {
             PrimaryExpr::Namespace {
                 namespaces: _,
                 ident,
-            } => self.infer_identifier_expression(ident, false),
-            PrimaryExpr::Ident(identifier) => self.infer_identifier_expression(identifier, false),
+            } => self.infer_identifier_expression(ident, false, false),
+            PrimaryExpr::Ident(identifier) => {
+                self.infer_identifier_expression(identifier, false, is_method_receiver)
+            }
             PrimaryExpr::ParExpr(expr) => self.infer_expr(expr),
             PrimaryExpr::Yield(expr) => {
                 let current_coroutine = self.current_coroutine.last().unwrap();
@@ -1067,7 +1102,7 @@ impl<'a> TypeInference<'a> {
                 }
             }
             PrimaryExpr::Raise { ident } => {
-                let (ty, mut effects) = self.infer_identifier_expression(ident, false);
+                let (ty, mut effects) = self.infer_identifier_expression(ident, false, false);
 
                 // TODO: singleton interfaces are currently not registered, so
                 // this should always cause a type error.
@@ -1076,7 +1111,7 @@ impl<'a> TypeInference<'a> {
                 (ty, effects)
             }
             PrimaryExpr::RaiseNamespaced { namespaces, ident } => {
-                let (ty, mut effects) = self.infer_identifier_expression(ident, false);
+                let (ty, mut effects) = self.infer_identifier_expression(ident, false, false);
 
                 effects.add(namespaces[0].uid.unwrap());
 
@@ -1116,6 +1151,7 @@ impl<'a> TypeInference<'a> {
         &mut self,
         identifier: &mut IdentifierExpr,
         is_method_call: bool,
+        is_method_receiver: bool,
     ) -> (ComparableType, EffectSet) {
         if let Some(args) = &mut identifier.args {
             let effects = EffectSet::empty();
@@ -1166,7 +1202,7 @@ impl<'a> TypeInference<'a> {
             (output, effects)
         } else {
             let key = identifier.name.uid.unwrap();
-            if self.symbols.vars.contains_key(&key) {
+            if self.symbols.vars.contains_key(&key) && !is_method_receiver {
                 self.multiplicity_tracker
                     .consume(key, identifier.name.span.unwrap());
             }
@@ -1203,10 +1239,30 @@ impl<'a> TypeInference<'a> {
     ) -> (ComparableType, EffectSet) {
         match expr {
             FieldAccessExpression::PrimaryExpr(primary_expr) => {
-                self.infer_primary_expression(primary_expr)
+                self.infer_primary_expression(primary_expr, false)
             }
             FieldAccessExpression::FieldAccess { base, field } => {
-                let (ty, effects) = self.infer_field_access_expression(base);
+                let mut is_var = None;
+
+                // TODO: kind of hacky
+                //
+                // probably the proper way of implementing linear checking with
+                // "non moving" methods and functions is to split the linear
+                // checking into a different compiler stage
+                //
+                // because it's simpler when the types are already resolved
+                // maybe even we can desugar methods into function calls before
+                // that even
+                let (ty, effects) = match &mut **base {
+                    FieldAccessExpression::PrimaryExpr(p @ PrimaryExpr::Ident(_)) => {
+                        if let PrimaryExpr::Ident(identifier_expr) = p {
+                            is_var.replace(identifier_expr.clone());
+                        }
+
+                        self.infer_primary_expression(p, true)
+                    }
+                    base => self.infer_field_access_expression(base),
+                };
 
                 let ty = Self::substitute(&mut self.unification_table, ty, &self.is_numeric);
 
@@ -1227,8 +1283,10 @@ impl<'a> TypeInference<'a> {
                     }
                     ComparableType::Utxo(utxo, _) => {
                         if field.args.is_some() {
-                            self.resolve_method_name(field, utxo);
-                            let (ty, effects) = self.infer_identifier_expression(field, true);
+                            self.resolve_method_name_with_linearity(field, &is_var, utxo);
+
+                            let (ty, effects) =
+                                self.infer_identifier_expression(field, true, false);
 
                             return (
                                 Self::substitute(&mut self.unification_table, ty, &self.is_numeric),
@@ -1261,10 +1319,15 @@ impl<'a> TypeInference<'a> {
                         }
                     }
                     ComparableType::Intermediate => {
-                        if field.args.is_some() {
-                            self.resolve_method_name(field, self.symbols.builtins["Intermediate"]);
+                        self.resolve_method_name_with_linearity(
+                            field,
+                            &is_var,
+                            self.symbols.builtins["Intermediate"],
+                        );
 
-                            let (ty, effects) = self.infer_identifier_expression(field, true);
+                        if field.args.is_some() {
+                            let (ty, effects) =
+                                self.infer_identifier_expression(field, true, false);
 
                             return (
                                 Self::substitute(&mut self.unification_table, ty, &self.is_numeric),
@@ -1294,37 +1357,57 @@ impl<'a> TypeInference<'a> {
         }
     }
 
-    fn resolve_method_name(&mut self, field: &mut IdentifierExpr, type_id: SymbolId) {
+    fn resolve_method_name_with_linearity(
+        &mut self,
+        field: &mut IdentifierExpr,
+        is_var: &Option<IdentifierExpr>,
+        utxo: SymbolId,
+    ) {
+        let moves_variable = self.resolve_method_name(field, utxo);
+
+        if let Some((var, moved)) = is_var.as_ref().zip(moves_variable) {
+            let key = var.name.uid.unwrap();
+            if self.symbols.vars.contains_key(&key) && moved {
+                self.multiplicity_tracker
+                    .consume(key, var.name.span.unwrap());
+            }
+        }
+    }
+
+    fn resolve_method_name(
+        &mut self,
+        field: &mut IdentifierExpr,
+        type_id: SymbolId,
+    ) -> Option<bool> {
         // methods are not resolved during name resolution, since it can't be
         // done without first knowing the type of the variable
         //
         // in this case, we try to find a declaration in the utxo/token that
         // matches the name of the method we are typechecking
         if field.name.uid.is_none() {
-            let method_declaration = self
-                .symbols
-                .types
-                .get(&type_id)
-                .unwrap()
-                .info
-                .declarations
-                .iter()
-                .find_map(|uid| {
-                    self.symbols
-                        .functions
-                        .get(uid)
-                        .filter(|f| f.source == field.name.raw)
-                        .map(|_| uid)
-                });
+            let type_info = self.symbols.types.get(&type_id).unwrap();
+            let method_declaration = type_info.info.declarations.iter().find_map(|uid| {
+                self.symbols
+                    .functions
+                    .get(uid)
+                    .filter(|f| f.source == field.name.raw)
+                    .map(|f| (uid, f.info.moves_variable))
+            });
 
-            if let Some(method_declaration) = method_declaration {
+            if let Some((method_declaration, moves_variable)) = method_declaration {
                 field.name.uid.replace(*method_declaration);
+
+                Some(moves_variable)
             } else {
                 self.errors.push(error_field_not_found(
                     field.name.span.unwrap(),
                     &field.name.raw,
                 ));
+
+                None
             }
+        } else {
+            Some(true)
         }
     }
 
@@ -1729,6 +1812,22 @@ mod tests {
     }
 
     #[test]
+    fn typecheck_handler_linear() {
+        let input = r#"
+        script {
+            fn foo(x: Intermediate<any, any>) {
+                try {}
+                with StarstreamToken::TokenUnbound(i: Intermediate<any, any>) {
+                }
+            }
+
+            fn consume(x: Intermediate<any, any>) {}
+        }"#;
+
+        typecheck_str_expect_error(input);
+    }
+
+    #[test]
     fn typecheck_utxo_main() {
         let input = r#"
             utxo Utxo {
@@ -2040,7 +2139,7 @@ mod tests {
         }
 
         script {
-            fn main(utxo: U, x: u32) / { StarstreamEnv, Starstream } {
+            fn main(utxo: U, x: u32) / { StarstreamEnv } {
                 let utxo = utxo.resume(x);
                 utxo.resume(x);
             }

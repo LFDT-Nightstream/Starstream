@@ -1,5 +1,3 @@
-const FeeToken = 3;
-
 typedef Data = string
 
 const ORACLE_FEE = 10;
@@ -44,6 +42,8 @@ utxo OracleContract {
   }
 }
 
+token FeeToken {}
+
 script {
   fn get_oracle_data(input: PayToPublicKeyHash, oracle: OracleContract): Data / { StarstreamEnv, Oracle } {
     let change_utxo = PayToPublicKeyHash::new(raise StarstreamEnv::Caller());
@@ -53,11 +53,11 @@ script {
     try {
       input.resume();
     }
-    with Starstream::TokenUnbound(intermediate: Intermediate<any, any>, type: u32) {
-      if(type == FeeToken) {
-        let intermediates = intermediate.change_for(ORACLE_FEE);
-        change_utxo.attach(intermediates.fst);
-        fee_utxo.attach(intermediates.snd);
+    with StarstreamToken::TokenUnbound(intermediate: Intermediate<any, any>) {
+      if(intermediate.type() == FeeToken::id()) {
+        let fee = intermediate.spend(10);
+        change_utxo.attach(intermediate);
+        fee_utxo.attach(fee);
       }
       else {
         change_utxo.attach(intermediate);

@@ -6,7 +6,7 @@ utxo PayToPublicKeyHash {
 }
 
 script {
-  fn main() / { StarstreamEnv, Starstream } {
+  fn main() / { StarstreamEnv } {
     let input = PayToPublicKeyHash::new(1);
     input.resume(());
   }

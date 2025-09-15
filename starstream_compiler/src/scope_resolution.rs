@@ -7,7 +7,7 @@ use crate::{
         Abi, AbiElem, Block, BlockExpr, EffectDecl, Expr, ExprOrStatement, FieldAccessExpression,
         FnDef, FnType, Identifier, LoopBody, PrimaryExpr, ProgramItem, Script, Sig, Spanned,
         StarstreamProgram, Statement, Token, TokenItem, TypeArg, TypeDef, TypeDefRhs, TypeRef,
-        TypedBindings, Utxo, UtxoItem,
+        Utxo, UtxoItem,
     },
     typechecking::EffectSet,
 };
@@ -62,6 +62,9 @@ struct Visitor {
     symbol_counter: u64,
     errors: Vec<NameResolutionError>,
     symbols: Symbols,
+
+    global_bind_fn: Option<SymbolId>,
+    global_unbind_fn: Option<SymbolId>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,6 +84,8 @@ impl Visitor {
             symbol_counter: 0,
             errors: vec![],
             symbols: Symbols::default(),
+            global_bind_fn: None,
+            global_unbind_fn: None,
         }
     }
 
@@ -175,7 +180,6 @@ impl Visitor {
                 inputs_ty: vec![],
                 output_ty: None,
                 effects: EffectSet::empty(),
-                locals: vec![],
                 ..Default::default()
             },
         );
@@ -186,7 +190,16 @@ impl Visitor {
                 inputs_ty: vec![TypeArg::String],
                 output_ty: None,
                 effects: EffectSet::empty(),
-                locals: vec![],
+                ..Default::default()
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("amount", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                output_ty: None,
+                effects: EffectSet::empty(),
                 ..Default::default()
             },
         );
@@ -197,7 +210,6 @@ impl Visitor {
                 inputs_ty: vec![TypeArg::U32],
                 output_ty: Some(TypeArg::Bool),
                 effects: EffectSet::empty(),
-                locals: vec![],
                 ..Default::default()
             },
         );
@@ -212,24 +224,34 @@ impl Visitor {
         });
 
         let mut abi = Abi {
-            name: Identifier::new("Starstream", None),
+            name: Identifier::new("StarstreamToken", None),
             values: vec![AbiElem::EffectDecl(EffectDecl::EffectSig(Sig {
                 name: Identifier::new("TokenUnbound", None),
-                input_types: vec![
-                    TypeArg::Intermediate {
-                        abi: any.clone(),
-                        storage: any.clone(),
-                    },
-                    TypeArg::U32,
-                ],
+                input_types: vec![TypeArg::Intermediate {
+                    abi: any.clone(),
+                    storage: any.clone(),
+                }],
                 output_type: None,
             }))],
         };
 
-        self.visit_abi(&mut abi, false);
+        self.visit_abi(&mut abi, true);
+
         self.symbols
             .builtins
             .insert(STARSTREAM, abi.name.uid.unwrap());
+
+        self.push_function_declaration(
+            &mut Identifier::new("unbind_utxo_tokens", None),
+            FuncInfo {
+                inputs_ty: vec![],
+                output_ty: None,
+                effects: EffectSet::singleton(abi.name.uid.unwrap()),
+                mangled_name: Some("unbind_utxo_tokens".to_string()),
+                locals: vec![],
+                ..Default::default()
+            },
+        );
 
         let mut abi = Abi {
             name: Identifier::new("StarstreamEnv", None),
@@ -293,35 +315,84 @@ impl Visitor {
         let type_id = self.push_type_declaration(&mut identifier, None);
         self.symbols.builtins.insert("Intermediate", type_id);
 
-        let self_ty = TypeArg::Intermediate {
-            abi: any.clone(),
-            storage: any,
-        };
-
-        let pair = Identifier::new("IntermediatePair", None);
-        let mut type_def = TypeDef {
-            name: pair,
-            ty: TypeDefRhs::Object(TypedBindings {
-                values: vec![
-                    (Identifier::new("fst", None), self_ty.clone()),
-                    (Identifier::new("snd", None), self_ty.clone()),
-                ],
-            }),
-        };
-        self.visit_type_def(&mut type_def);
-
         self.push_type_scope(type_id);
 
+        let intermediate_ty = TypeArg::Intermediate {
+            abi: any.clone(),
+            storage: any.clone(),
+        };
+
         self.push_function_declaration(
-            &mut Identifier::new("change_for", None),
+            &mut Identifier::new("type", None),
             FuncInfo {
-                inputs_ty: vec![TypeArg::U32],
-                output_ty: Some(TypeArg::TypeRef(TypeRef(type_def.name.clone()))),
-                effects: EffectSet::empty(),
-                locals: vec![],
+                inputs_ty: vec![intermediate_ty.clone()],
+                output_ty: Some(TypeArg::I64),
+                mangled_name: Some("starstream_get_token_type".to_string()),
+                is_imported: Some("env"),
                 ..Default::default()
             },
         );
+
+        self.push_function_declaration(
+            &mut Identifier::new("amount", None),
+            FuncInfo {
+                inputs_ty: vec![intermediate_ty.clone()],
+                output_ty: Some(TypeArg::U64),
+                mangled_name: Some("starstream_get_token_amount".to_string()),
+                is_imported: Some("env"),
+                ..Default::default()
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("burn", None),
+            FuncInfo {
+                inputs_ty: vec![intermediate_ty.clone()],
+                mangled_name: Some("starstream_token_burn".to_string()),
+                is_imported: Some("env"),
+                moves_variable: true,
+                ..Default::default()
+            },
+        );
+
+        self.push_function_declaration(
+            &mut Identifier::new("spend", None),
+            FuncInfo {
+                inputs_ty: vec![intermediate_ty.clone(), TypeArg::U64],
+                output_ty: Some(intermediate_ty.clone()),
+                mangled_name: Some("starstream_token_spend".to_string()),
+                is_imported: Some("env"),
+                ..Default::default()
+            },
+        );
+
+        let bind_fn = self.push_function_declaration(
+            &mut Identifier::new("bind", None),
+            FuncInfo {
+                inputs_ty: vec![intermediate_ty.clone()],
+                output_ty: None,
+                mangled_name: Some("starstream_bind".to_string()),
+                is_imported: Some("starstream_token:this"),
+                moves_variable: true,
+                ..Default::default()
+            },
+        );
+
+        // fixme?: maybe just setup this in new to avoid the unwrap
+        self.global_bind_fn.replace(bind_fn);
+
+        let unbind_fn = self.push_function_declaration(
+            &mut Identifier::new("unbind", None),
+            FuncInfo {
+                inputs_ty: vec![intermediate_ty.clone()],
+                output_ty: Some(TypeArg::I64),
+                mangled_name: Some("starstream_unbind".to_string()),
+                is_imported: Some("starstream_token:this"),
+                ..Default::default()
+            },
+        );
+        // fixme?: maybe just setup this in new to avoid the unwrap
+        self.global_unbind_fn.replace(unbind_fn);
 
         self.pop_scope();
     }
@@ -422,8 +493,28 @@ impl Visitor {
         let self_ty = TypeArg::TypeRef(TypeRef(utxo.name.clone()));
         let self_ty_ref = TypeArg::Ref(Box::new(self_ty.clone()));
 
-        let mut effects = self.implicit_effects();
-        effects.add(self.symbols.builtins[STARSTREAM]);
+        let effects = self.implicit_effects();
+
+        let yield_fid = self.push_function_declaration(
+            &mut Identifier::new("yield", None),
+            FuncInfo {
+                inputs_ty: std::iter::repeat_n(TypeArg::I32, 6).collect(),
+                output_ty: None,
+                effects: effects.clone(),
+                locals: vec![],
+                mangled_name: Some(format!("starstream_yield_{}", utxo.name.uid.unwrap().id)),
+                ..Default::default()
+            },
+        );
+
+        self.symbols
+            .types
+            .get_mut(&uid)
+            .unwrap()
+            .info
+            .yield_fn
+            .replace(yield_fid);
+
         self.push_function_declaration(
             &mut Identifier::new("resume", None),
             FuncInfo {
@@ -442,6 +533,7 @@ impl Visitor {
                 effects,
                 locals: vec![],
                 mangled_name: Some(format!("starstream_resume_{}", utxo.name.raw)),
+                moves_variable: true,
                 ..Default::default()
             },
         );
@@ -644,30 +736,27 @@ impl Visitor {
             .resolve_name(&mut token.name, SymbolKind::Type)
             .unwrap();
 
-        let self_ty = TypeArg::TypeRef(TypeRef(token.name.clone()));
-        let self_ty_ref = TypeArg::Ref(Box::new(self_ty.clone()));
-
         self.push_type_scope(uid);
 
         let effects = self.implicit_effects();
         self.push_function_declaration(
-            &mut Identifier::new("type", None),
+            &mut Identifier::new("id", None),
             FuncInfo {
                 inputs_ty: vec![],
-                // TODO: something else
-                output_ty: Some(TypeArg::U32),
+                // TODO: something else (something typed)
+                output_ty: Some(TypeArg::I64),
                 effects: effects.clone(),
-                locals: vec![],
+                is_constant: Some(uid.id),
                 ..Default::default()
             },
         );
+        let any = Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None))));
 
         for item in &mut token.items {
             let effects = self.implicit_effects();
 
             match item {
                 TokenItem::Bind(bind) => {
-                    let any = Box::new(TypeArg::TypeRef(TypeRef(Identifier::new("any", None))));
                     self.push_function_declaration(
                         &mut bind.1,
                         FuncInfo {
@@ -675,11 +764,14 @@ impl Visitor {
                                 abi: any.clone(),
                                 storage: any.clone(),
                             }],
-                            output_ty: Some(self_ty_ref.clone()),
+                            output_ty: None,
                             effects,
-                            locals: vec![],
                             is_main: true,
-                            mangled_name: Some(format!("starstream_bind_{}", token.name.raw)),
+                            dispatch_through: Some(self.global_bind_fn.unwrap()),
+                            mangled_name: Some(format!(
+                                "starstream_bind_{}",
+                                token.name.uid.unwrap().id
+                            )),
                             ..Default::default()
                         },
                     );
@@ -711,8 +803,12 @@ impl Visitor {
                             }),
                             effects,
                             locals: vec![],
-                            is_main: false,
-                            mangled_name: Some(format!("starstream_unbind_{}", token.name.raw)),
+                            is_main: true,
+                            dispatch_through: Some(self.global_unbind_fn.unwrap()),
+                            mangled_name: Some(format!(
+                                "starstream_unbind_{}",
+                                token.name.uid.unwrap().id
+                            )),
                             ..Default::default()
                         },
                     );
@@ -728,15 +824,19 @@ impl Visitor {
                     self.push_function_declaration(
                         &mut mint.1,
                         FuncInfo {
-                            inputs_ty: vec![TypeArg::I64],
+                            inputs_ty: vec![TypeArg::U64],
                             output_ty: Some(TypeArg::Intermediate {
                                 abi: any.clone(),
                                 storage: any,
                             }),
                             effects,
                             locals: vec![],
-                            is_main: false,
-                            mangled_name: Some(format!("starstream_mint_{}", token.name.raw)),
+                            is_main: true,
+                            is_imported: Some("starstream_utxo:this"),
+                            mangled_name: Some(format!(
+                                "starstream_mint_{}",
+                                token.name.uid.unwrap().id
+                            )),
                             ..Default::default()
                         },
                     );
@@ -967,7 +1067,7 @@ impl Visitor {
                 // TODO: cleanup the panics (compiler error)
                 let prev = self.symbols.functions.get(prev).unwrap();
 
-                self.push_redeclaration_error(&ident, prev.span.unwrap_or(SimpleSpan::from(0..0)));
+                self.push_redeclaration_error(ident, prev.span.unwrap_or(SimpleSpan::from(0..0)));
             }
         }
 
@@ -997,6 +1097,7 @@ impl Visitor {
                     resume_ty: None,
                     interfaces: EffectSet::empty(),
                     storage_ty: None,
+                    yield_fn: None,
                 },
             },
         );
@@ -1216,7 +1317,9 @@ impl Visitor {
                     let mut namespace = [&mut decl.interface];
                     self.resolve_name_in_namespace(&mut namespace, &mut decl.ident);
 
-                    let effect_id = decl.ident.uid.unwrap();
+                    let Some(effect_id) = decl.ident.uid else {
+                        return;
+                    };
 
                     let effect_info = self.symbols.effects.get(&effect_id).unwrap();
 
@@ -1850,12 +1953,12 @@ mod tests {
                         f.info
                             .mangled_name
                             .as_ref()
-                            .map(|name| name == "starstream_mint_MyToken")
+                            .map(|name| name.starts_with("starstream_mint_"))
                             .unwrap_or(false)
                     })
                     .unwrap();
 
-                assert_eq!(mint.info.inputs_ty, vec![TypeArg::I64]);
+                assert_eq!(mint.info.inputs_ty, vec![TypeArg::U64]);
 
                 let TypeArg::Intermediate { .. } = mint.info.output_ty.clone().unwrap() else {
                     panic!();

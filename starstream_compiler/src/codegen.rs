@@ -116,6 +116,7 @@ impl StaticType {
             ComparableType::Primitive(PrimitiveType::F32) => StaticType::F32,
             ComparableType::Primitive(PrimitiveType::F64) => StaticType::F64,
             ComparableType::Primitive(PrimitiveType::Bool) => StaticType::Bool,
+            ComparableType::Primitive(PrimitiveType::StrRef) => StaticType::I32,
             ComparableType::Intermediate => StaticType::I64,
             ComparableType::FnType(_, _) => todo!(),
             ComparableType::Utxo(_symbol_id, _) => StaticType::I64,
@@ -299,6 +300,8 @@ struct Compiler {
     symbols_table: Symbols,
 
     current_utxo: Vec<SymbolId>,
+
+    unbind_tokens_fn: Option<SymbolId>,
 }
 
 impl Compiler {
@@ -330,6 +333,18 @@ impl Compiler {
         this.global_scope_functions
             .insert("print_f64".to_owned(), print_f64);
 
+        let starstream_get_tokens = this.import_function(
+            "starstream_utxo_env",
+            "starstream_get_tokens",
+            StarFunctionType {
+                params: vec![StaticType::U32, StaticType::U32, StaticType::U32],
+                results: vec![StaticType::U32],
+            },
+        );
+
+        this.global_scope_functions
+            .insert("get_tokens".to_owned(), starstream_get_tokens);
+
         //
 
         // Always export memory 0. It's created in finish().
@@ -348,12 +363,39 @@ impl Compiler {
                     "starstream_utxo:this",
                     f_info.info.mangled_name.as_ref().unwrap(),
                     StarFunctionType {
-                        params: vec![
-                            StaticType::I64,
-                            StaticType::Reference(Box::new(StaticType::Void)),
-                        ],
+                        params: std::iter::once(StaticType::I64)
+                            .chain(
+                                f_info
+                                    .info
+                                    .effect_handlers
+                                    .iter()
+                                    // TODO: figure out a way of not having to repeat this everywhere
+                                    .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3)),
+                            )
+                            .chain(std::iter::once(StaticType::Reference(Box::new(
+                                StaticType::Void,
+                            ))))
+                            .collect(),
 
                         results: vec![],
+                    },
+                );
+
+                f_info.info.index.replace(index);
+            } else if f_info.source == "yield" && f_info.info.mangled_name.is_some() {
+                let index = this.import_function(
+                    "starstream_utxo_env:this",
+                    f_info.info.mangled_name.as_ref().unwrap(),
+                    StarFunctionType {
+                        // TODO: maybe could get this from the fn info
+                        params: std::iter::repeat_n(StaticType::U32, 6).collect(),
+                        results: f_info
+                            .info
+                            .effect_handlers
+                            .iter()
+                            // TODO: figure out a way of not having to repeat this
+                            .flat_map(|_effect_id| std::iter::repeat_n(StaticType::I32, 3))
+                            .collect(),
                     },
                 );
 
@@ -476,31 +518,50 @@ impl Compiler {
                 );
 
                 f_info.info.index.replace(index);
-            } else if f_info.source == "bind" && f_info.info.mangled_name.is_some() {
-                // hacky, just to account for the token storage address passed
-                // currently by the scheduler.
-                //
-                // TODO: the way this is handled right now is not consistent
-                // with the other utxo "methods"
-                f_info.info.inputs_ty.insert(0, TypeArg::Unit);
+            } else if ["bind", "unbind"].contains(&f_info.source.as_str())
+                && f_info.info.is_imported.is_some()
+            {
                 let index = this.import_function(
-                    "starstream_token:this",
+                    f_info.info.is_imported.unwrap(),
                     f_info.info.mangled_name.as_ref().unwrap(),
                     StarFunctionType {
                         params: vec![StaticType::I64],
-                        results: vec![StaticType::I64],
+                        results: vec![],
                     },
                 );
 
                 f_info.info.index.replace(index);
-            } else if f_info.source == "unbind" && f_info.info.mangled_name.is_some() {
+
+                this.global_scope_functions
+                    .insert(f_info.source.clone(), index);
+            } else if ["spend", "burn", "amount", "type", "mint"].contains(&f_info.source.as_str())
+                && f_info.info.is_imported.is_some()
+            {
+                let map_canonical_to_static_type = |ty: &TypeArg| {
+                    StaticType::from_canonical_type(
+                        &ty.canonical_form_tys(&symbols_table.types),
+                        &symbols_table.type_vars,
+                    )
+                };
+
+                let params = f_info
+                    .info
+                    .inputs_ty
+                    .iter()
+                    .map(map_canonical_to_static_type)
+                    .collect();
+
+                let results = f_info
+                    .info
+                    .output_ty
+                    .iter()
+                    .map(map_canonical_to_static_type)
+                    .collect();
+
                 let index = this.import_function(
-                    "starstream_token:this",
+                    f_info.info.is_imported.unwrap(),
                     f_info.info.mangled_name.as_ref().unwrap(),
-                    StarFunctionType {
-                        params: vec![StaticType::I64],
-                        results: vec![StaticType::I64],
-                    },
+                    StarFunctionType { params, results },
                 );
 
                 f_info.info.index.replace(index);
@@ -570,7 +631,11 @@ impl Compiler {
 
         // exports have to be after all the imports
         for (f_id, f_info) in fns {
-            if f_info.info.mangled_name.is_some() && f_info.info.index.is_none() {
+            if f_info.info.mangled_name.is_some()
+                && f_info.info.index.is_none()
+                && f_info.info.is_imported.is_none()
+                && f_info.info.is_constant.is_none()
+            {
                 cache_required_effect_handlers(&symbols_table.interfaces, f_info);
 
                 let (ty, f) = build_func(
@@ -582,6 +647,10 @@ impl Compiler {
                 );
 
                 let index = this.add_function(ty, f);
+
+                if f_info.source == "unbind_utxo_tokens" {
+                    this.unbind_tokens_fn.replace(*f_id);
+                }
 
                 this.exports.export(
                     f_info.info.mangled_name.as_ref().unwrap(),
@@ -614,10 +683,16 @@ impl Compiler {
             f_info.info.frame_size = offset;
         }
 
-        Compiler {
+        let mut this = Compiler {
             symbols_table,
             ..this
+        };
+
+        if let Some(f_id) = this.unbind_tokens_fn {
+            add_builtin_unbind_tokens(&mut this, f_id);
         }
+
+        this
     }
 
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<Report<'static>>) {
@@ -809,6 +884,7 @@ impl Compiler {
                     let return_value =
                         self.visit_block(&mut function, &main.block, &effect_handlers);
                     self.drop_intermediate(&mut function, return_value);
+
                     function.instructions().end();
 
                     let index = self.add_function(ty, function);
@@ -840,114 +916,66 @@ impl Compiler {
             match item {
                 TokenItem::Mint(mint) => {
                     let symbol_id = mint.1.uid.unwrap();
+                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
+
+                    let (ty, mut function) = build_func(
+                        symbol_id,
+                        f_info,
+                        &self.symbols_table.type_vars,
+                        &self.symbols_table.vars,
+                        f_info.info.is_main,
+                    );
+
+                    let symbol_id = mint.1.uid.unwrap();
                     let f_info = self.symbols_table.functions.get(&symbol_id).unwrap();
+                    let effect_handlers = f_info.info.effect_handlers.clone();
+
+                    let return_value = self.visit_block(&mut function, &mint.0, &effect_handlers);
+                    self.drop_intermediate(&mut function, return_value);
+                    function.instructions().end();
+
+                    let index = self.add_function(ty, function);
+                    let name = self
+                        .symbols_table
+                        .functions
+                        .get(&mint.1.uid.unwrap())
+                        .unwrap()
+                        .info
+                        .mangled_name
+                        .clone()
+                        .unwrap();
+
+                    self.exports
+                        .export(&name, wasm_encoder::ExportKind::Func, index);
+                }
+                p @ (TokenItem::Bind(_) | TokenItem::Unbind(_)) => {
+                    let symbol_id = match p {
+                        TokenItem::Bind(bind) => bind.1.uid.unwrap(),
+                        TokenItem::Unbind(unbind) => unbind.1.uid.unwrap(),
+                        _ => unreachable!(),
+                    };
+
+                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
                     let effect_handlers = f_info.info.effect_handlers.clone();
 
                     let index = f_info.info.index.unwrap();
                     let mut function = self.get_function_body(index);
 
-                    let return_value = self.visit_block(&mut function, &mint.0, &effect_handlers);
+                    let return_value = match p {
+                        TokenItem::Bind(bind) => {
+                            self.visit_block(&mut function, &bind.0, &effect_handlers)
+                        }
+                        TokenItem::Unbind(unbind) => {
+                            self.visit_block(&mut function, &unbind.0, &effect_handlers)
+                        }
+                        _ => unreachable!(),
+                    };
 
                     self.drop_intermediate(&mut function, return_value);
-
-                    function.instructions().local_get(0).end();
-
-                    self.replace_function_body(index, function);
-
-                    let func_info = self
-                        .symbols_table
-                        .functions
-                        .get_mut(&mint.1.uid.unwrap())
-                        .unwrap();
-
-                    func_info.info.index.replace(index);
-                }
-                TokenItem::Bind(bind) => {
-                    let symbol_id = bind.1.uid.unwrap();
-                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
-
-                    let (ty, mut function) = build_func(
-                        symbol_id,
-                        f_info,
-                        &self.symbols_table.type_vars,
-                        &self.symbols_table.vars,
-                        f_info.info.is_main,
-                    );
-
-                    let effect_handlers = f_info.info.effect_handlers.clone();
-                    let return_value = self.visit_block(&mut function, &bind.0, &effect_handlers);
-
-                    self.drop_intermediate(&mut function, return_value);
-
-                    function
-                        .instructions()
-                        // TODO: ignore the ID for now
-                        .i32_const(8)
-                        .local_get(0)
-                        .i64_store(MemArg {
-                            offset: 0,
-                            align: 0,
-                            memory_index: 0,
-                        })
-                        .end();
-
-                    let index = self.add_function(ty, function);
-
-                    // TODO: probably can avoid this lookup
-                    let name = self
-                        .symbols_table
-                        .functions
-                        .get(&bind.1.uid.unwrap())
-                        .unwrap()
-                        .info
-                        .mangled_name
-                        .clone()
-                        .unwrap();
-
-                    self.exports
-                        .export(&name, wasm_encoder::ExportKind::Func, index);
-                }
-                TokenItem::Unbind(unbind) => {
-                    let symbol_id = unbind.1.uid.unwrap();
-                    let f_info = self.symbols_table.functions.get_mut(&symbol_id).unwrap();
-
-                    let (ty, mut function) = build_func(
-                        symbol_id,
-                        f_info,
-                        &self.symbols_table.type_vars,
-                        &self.symbols_table.vars,
-                        f_info.info.is_main,
-                    );
-
-                    let effect_handlers = f_info.info.effect_handlers.clone();
-                    let return_value = self.visit_block(&mut function, &unbind.0, &effect_handlers);
-
-                    self.drop_intermediate(&mut function, return_value);
-
-                    // amount
-                    function.instructions().i32_const(0).i64_load(MemArg {
-                        offset: 8,
-                        align: 0,
-                        memory_index: 0,
-                    });
 
                     function.instructions().end();
 
-                    let index = self.add_function(ty, function);
-
-                    // TODO: probably can avoid this lookup
-                    let name = self
-                        .symbols_table
-                        .functions
-                        .get(&unbind.1.uid.unwrap())
-                        .unwrap()
-                        .info
-                        .mangled_name
-                        .clone()
-                        .unwrap();
-
-                    self.exports
-                        .export(&name, wasm_encoder::ExportKind::Func, index);
+                    self.replace_function_body(index, function);
                 }
             }
         }
@@ -1580,13 +1608,28 @@ impl Compiler {
                 }
 
                 if let Some(args) = &expr.args {
-                    let f_info = self
-                        .symbols_table
-                        .functions
-                        .get(&expr.name.uid.unwrap())
-                        .unwrap();
+                    let Some(f_info) = self.symbols_table.functions.get(&expr.name.uid.unwrap())
+                    else {
+                        Report::build(ReportKind::Error, expr.name.span.unwrap().into_range())
+                            .with_message(format_args!(
+                                "function info not found for {}",
+                                expr.name.raw
+                            ))
+                            .push(self);
 
-                    let f_index = f_info.info.index.unwrap();
+                        return Intermediate::Error;
+                    };
+
+                    let Some(f_index) = f_info.info.index else {
+                        Report::build(ReportKind::Error, expr.name.span.unwrap().into_range())
+                            .with_message(format_args!(
+                                "function not supported yet {}",
+                                expr.name.raw
+                            ))
+                            .push(self);
+
+                        return Intermediate::Error;
+                    };
                     let func_im = Intermediate::ConstFunction(f_index);
 
                     let xs = &args.xs;
@@ -1737,13 +1780,21 @@ impl Compiler {
                         self.global_scope_functions.get(&ident.name.raw)
                     {
                         Intermediate::ConstFunction(*global_scope_fn)
-                    } else if let Some(symbol_table_fn) =
+                    } else if let Some(mut fn_info) =
                         self.symbols_table.functions.get(&ident.name.uid.unwrap())
                     {
-                        if let Some(index) = symbol_table_fn.info.index {
-                            effect_handlers_required = symbol_table_fn.info.effect_handlers.clone();
+                        if let Some(proxy) = fn_info.info.dispatch_through {
+                            fn_info = self.symbols_table.functions.get(&proxy).unwrap();
+                        };
+
+                        if let Some(index) = fn_info.info.index {
+                            effect_handlers_required = fn_info.info.effect_handlers.clone();
 
                             Intermediate::ConstFunction(index)
+                        } else if let Some(constant_value) = fn_info.info.is_constant {
+                            // TODO: other types
+                            func.instructions().i64_const(constant_value as i64);
+                            return Intermediate::StackI64;
                         } else {
                             Report::build(ReportKind::Error, ident.name.span.unwrap().into_range())
                                 .with_message(format_args!(
@@ -1779,11 +1830,17 @@ impl Compiler {
                     )
                 } else {
                     // Not a function call, so look in the variable table.
-                    let var_info = self
-                        .symbols_table
-                        .vars
-                        .get(&ident.name.uid.unwrap())
-                        .unwrap();
+                    let Some(var_info) = self.symbols_table.vars.get(&ident.name.uid.unwrap())
+                    else {
+                        Report::build(ReportKind::Error, ident.name.span.unwrap().into_range())
+                            .with_message(format_args!(
+                                "variable info not found for {}",
+                                ident.name.raw
+                            ))
+                            .push(self);
+
+                        return Intermediate::Error;
+                    };
 
                     let ty = var_info.info.ty.as_ref().unwrap().clone();
                     let static_type =
@@ -1829,10 +1886,20 @@ impl Compiler {
                         .unwrap()
                         .info;
 
+                    let Some(index) = effect_info.index else {
+                        Report::build(ReportKind::Error, 0..0)
+                            .with_message(format_args!(
+                                "TODO: effect can't be called: {:?}",
+                                ident.name
+                            ))
+                            .push(self);
+                        return Intermediate::Error;
+                    };
+
                     self.visit_call(
                         func,
                         ident.name.span.unwrap(),
-                        Intermediate::ConstFunction(effect_info.index.unwrap() as u32),
+                        Intermediate::ConstFunction(index as u32),
                         &args.xs,
                         FunctionCallType::EffectHandler,
                         effect_handlers,
@@ -1868,12 +1935,20 @@ impl Compiler {
         expr: &Option<Box<Spanned<Expr>>>,
         effect_handlers: &EffectHandlers,
     ) -> Intermediate {
-        let f_id = self.global_scope_functions["starstream_yield"];
-
         // TODO: yielding outside utxos
         let utxo_id = self.current_utxo.last().unwrap();
 
         let utxo_info = self.symbols_table.types.get(utxo_id).unwrap();
+
+        let f_id = utxo_info.info.yield_fn.unwrap();
+        let f_id = self
+            .symbols_table
+            .functions
+            .get(&f_id)
+            .unwrap()
+            .info
+            .index
+            .unwrap();
 
         let utxo_name = utxo_info.source.clone();
         let ptr = self.alloc_constant(utxo_name.as_bytes());
@@ -1894,20 +1969,32 @@ impl Compiler {
             Intermediate::Void
         };
 
-        func.instructions()
+        let mut instructions = func.instructions();
+        instructions
             .i32_const(ptr.cast_signed())
             .i32_const(u32::try_from(len).unwrap().cast_signed());
 
         // data
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
         // data_len
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
         // resume_arg
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
         // resume_arg_len
-        func.instructions().i32_const(0);
+        instructions.i32_const(0);
 
-        func.instructions().call(f_id);
+        instructions.call(f_id);
+
+        // the call to resume may have set different handlers
+        // we need to pop those from the stack and assign them
+        //
+        // we need to do it in reverse because that's how multi-return works
+        //
+        // NOTE: this assumes that the effects before the first yield are the
+        // same as the effects after
+        for i in (0..effect_handlers.len() * 3).rev() {
+            instructions.local_set(i as u32);
+        }
 
         Intermediate::Void
     }
@@ -1929,7 +2016,9 @@ impl Compiler {
                 let func_type = self.functions_builder[id as usize].0.clone();
 
                 for effect in effect_handlers_required.keys().chain(handler_for.iter()) {
-                    let handler = effect_handlers_in_scope.get(effect).unwrap();
+                    let Some(handler) = effect_handlers_in_scope.get(effect) else {
+                        continue;
+                    };
 
                     match handler {
                         ArgOrConst::Arg(index) => {
@@ -1982,7 +2071,6 @@ impl Compiler {
                                     "parameter type mismatch: expected {param:?}, got {arg:?}"
                                 ))
                                 .push(self);
-                            panic!();
                         }
                     }
                 }
@@ -2196,6 +2284,72 @@ fn add_builtin_is_tx_signed_by(this: &mut Compiler) {
         .insert("IsTxSignedBy".to_owned(), assert_fn);
 }
 
+// the DSL still doesn't have enough features to write this directly
+// so we just add it as an intrinsic for now
+fn add_builtin_unbind_tokens(this: &mut Compiler, f_id: SymbolId) {
+    let f_info = this.symbols_table.functions.get(&f_id).unwrap();
+    let f_index = f_info.info.index.unwrap();
+    let effect_handlers = f_info.info.effect_handlers.clone();
+
+    assert_eq!(effect_handlers.len(), 1);
+
+    let mut function = this.get_function_body(f_index);
+
+    let (_effect_id, effect_info) = this
+        .symbols_table
+        .effects
+        .iter()
+        .find(|(_, info)| &info.source == "TokenUnbound")
+        .unwrap();
+
+    function
+        .instructions()
+        .loop_(BlockType::Empty)
+        // pointer to memory
+        //
+        // this is just ephemeral, so we don't need to push and pop from the
+        // stack really.
+        //
+        // although we may need to generalize this later
+        .global_get(GLOBAL_STACK_PTR)
+        // how many tokens
+        .i32_const(1)
+        // skip
+        .i32_const(0)
+        .call(this.global_scope_functions["get_tokens"])
+        .if_(BlockType::Empty)
+        .global_get(GLOBAL_STACK_PTR)
+        .i64_load(MemArg {
+            offset: 0,
+            align: 0,
+            memory_index: 0,
+        })
+        .call(this.global_scope_functions["unbind"])
+        // the current handler for Starstream::TokenUnbound this function only
+        // has one effect, so we can fix these for now.
+        //
+        // but this will break if the Starstream abi gets a new effect
+        .local_get(0)
+        .local_get(1)
+        .local_get(2)
+        // we read it again for the effect
+        .global_get(GLOBAL_STACK_PTR)
+        .i64_load(MemArg {
+            offset: 0,
+            align: 0,
+            memory_index: 0,
+        })
+        .call(effect_info.info.index.unwrap() as u32)
+        .br(0)
+        // end if
+        .end()
+        // end loop
+        .end()
+        .end();
+
+    this.replace_function_body(f_index, function);
+}
+
 trait ReportExt {
     fn push(self, c: &mut Compiler);
 }
@@ -2399,6 +2553,12 @@ mod tests {
     #[test]
     fn compile_effect_handlers() {
         let src = include_str!("../../grammar/examples/effect_handlers.star");
+        test_example(src);
+    }
+
+    #[test]
+    fn compile_token_binding() {
+        let src = include_str!("../../grammar/examples/tokens.star");
         test_example(src);
     }
 
