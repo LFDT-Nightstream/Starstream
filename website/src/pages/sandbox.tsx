@@ -170,9 +170,16 @@ function Tabs(props: {
         <div className="flex--grow">{props.after}</div>
         <div>{props.right}</div>
       </div>
-      <div className="sandbox-tabs__area" key={current}>
-        {props.tabs.find((tab) => current === tab.key)?.body}
-      </div>
+      {/* Put all tabs in the DOM upfront to avoid unmounting/remounting the Monaco editor constantly. */}
+      {props.tabs.map((tab) => (
+        <div
+          className="sandbox-tabs__area"
+          key={tab.key}
+          hidden={tab.key !== current}
+        >
+          {tab.body}
+        </div>
+      ))}
     </div>
   );
 }
@@ -228,8 +235,16 @@ interface RunLog {
   body: string;
 }
 
+interface LedgerState {}
+
+function ShowLedgerState(props: { data: LedgerState }) {
+  return <pre>{JSON.stringify(props.data)}</pre>;
+}
+
 export function Sandbox() {
+  const [inputTab, setInputTab] = useState("");
   const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
+  const [inputLedgerState, setInputLedgerState] = useState({});
 
   const [outputTab, setOutputTab] = useState("");
   const [busy, setBusy] = useState(false);
@@ -242,6 +257,7 @@ export function Sandbox() {
   const [wat, setWat] = useState("");
   const [runLog, setRunLog] = useState<RunLog[]>([]);
   const [sequenceDiagram, setSequenceDiagram] = useState("");
+  const [outputLedgerState, setOutputLedgerState] = useState({});
 
   const [proofFile, setProofFile] = useState<ArrayBuffer | null>(null);
   const [proofFileUrl, setProofFileUrl] = useState<string | null>(null);
@@ -311,16 +327,32 @@ export function Sandbox() {
     <div className="flex--grow row">
       <div className="col col--6 flex--column">
         <Tabs
-          current="Contract Code"
-          setCurrent={(_: string) => {}}
+          current={inputTab}
+          setCurrent={setInputTab}
           tabs={[
             {
-              key: "Contract Code",
+              key: "Contract code",
               body: (
                 <Editor
                   ref={editor}
                   theme={theme === "dark" ? "vs-dark" : "vs"}
                 />
+              ),
+            },
+            {
+              key: "Ledger state",
+              body: (
+                <div className="margin--sm">
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setInputLedgerState({})}
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  <ShowLedgerState data={inputLedgerState} />
+                </div>
               ),
             },
           ]}
@@ -494,11 +526,25 @@ export function Sandbox() {
               key: "Sequence diagram",
               body: <MermaidDiagram text={sequenceDiagram} />,
             },
-            /*
             {
               key: "Ledger state",
+              body: (
+                <div className="margin--sm">
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInputLedgerState(outputLedgerState);
+                        setInputTab("Ledger state");
+                      }}
+                    >
+                      Commit to input
+                    </button>
+                  </div>
+                  <ShowLedgerState data={outputLedgerState} />
+                </div>
+              ),
             },
-            */
           ]}
         />
       </div>

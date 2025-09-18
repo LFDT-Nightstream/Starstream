@@ -86,7 +86,7 @@
   background-color: transparent;
 }
 
-.sandbox-tabs__area {
+.sandbox-tabs__area:not([hidden]) {
   flex-grow: 1;
   flex-basis: 0;
   border: 1px solid lightgray;

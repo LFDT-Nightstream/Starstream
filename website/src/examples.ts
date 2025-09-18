@@ -30,7 +30,7 @@ function cache<R>(fn: () => R): () => R {
   };
 }
 
-export default {
+const examples: Record<string, () => Promise<string>> = {
   "Hello World": cache(fetchCode(hello)),
   Event: cache(fetchCode(event)),
   PayToPublicKeyHash: cache(fetchCode(payToPublicKeyHash)),
@@ -39,4 +39,5 @@ export default {
   "Token api": cache(fetchCode(tokens)),
   Oracle: cache(fetchCode(oracle)),
   "Permissioned Token": cache(fetchCode(permissionedToken)),
-} as Record<string, () => Promise<string>>;
+};
+export default examples;
