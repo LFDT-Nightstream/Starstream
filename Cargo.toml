@@ -9,6 +9,7 @@ members = [
     "starstream_vm",
     "starstream_nova",
     "starstream_lsp",
+    "starstream_ivc_proto",
 ]
 resolver = "2"
 
@@ -19,3 +20,11 @@ overflow-checks = false
 
 [profile.release]
 panic = "abort"
+
+[patch.crates-io]
+ark-relations = {  git = "https://github.com/arkworks-rs/snark/" }
+ark-snark = {  git = "https://github.com/arkworks-rs/snark/" }
+ark-r1cs-std = {  git = "https://github.com/arkworks-rs/r1cs-std" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra"}
+ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives"}
+
