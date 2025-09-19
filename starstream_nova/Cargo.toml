@@ -9,7 +9,7 @@ license = "MIT"
 # but we keep it the same
 ff = "*"
 typenum = "*"
-nova = { git = "https://github.com/wyattbenno777/arecibo", branch = "hypernova-ivc", package = "arecibo" }
+wasmbin = "0.8.1"
 
 [dev-dependencies]
 env_logger = "0.11.8"

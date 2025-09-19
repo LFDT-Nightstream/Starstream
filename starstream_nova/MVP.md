@@ -95,7 +95,9 @@ You can pass these across module boundaries but they require you to
 serialize your data with e.g. serde, which isn't great.
 
 TODO: support structured data directly,
-      perhaps direct ADT support in a modified version of WASM?
+      perhaps direct ADT support in a modified version of WASM
+      using Zorp's Dyck word trick? Albeit this involves committing
+      to random field elements and the security depends on field size.
 
 TODO: fill out the rest
 
@@ -103,3 +105,22 @@ Non-extensive list of limitations:
 - You need to choose the coordination scripts and UTXOs you interact with beforehand (big limitation!)
 - You can't cooperate in as decentralized a manner as you would be able to with the other design
 - No tokens (probably easy to add though)
+
+## Possible proper solution
+
+The proper solution is to split the VM from the Starstream specifics,
+probably using something like "multi-level folding".
+
+The core idea is that we can do arbitrary efficient PCD using folding
+by just keeping running instances for each R1CS/CCS structure we fold with.
+Of course this doesn't allow PCD with unknown circuits (i.e. a "dynamic" "vk")
+without compressing the instance, or encoding the instance in a CCS structure
+that emulates CCS within itself (inefficiently).
+
+There are multiple possible designs, but one possible solution
+is taking the above, removing all instructions, and then instead building
+up a multiset-like thing that summarizes how the VM should have executed,
+which you can compare with what you have in the public input of the instances
+for the VM folding proofs.
+
+This does still mean the VM must be adapted to work with Starstream to some extent.
