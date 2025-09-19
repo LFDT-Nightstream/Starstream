@@ -10,8 +10,6 @@ struct Switches<Var>(Vec<Var>);
 #[must_use]
 struct ConsumeSwitches;
 
-// FIXME: Report compiler bug or find issue
-// This constraint is redundant, but rustc errs without it.
 impl<Var: CircuitBuilderVar> Switches<Var> {
     fn new() -> (Switches<Var>, ConsumeSwitches) {
         (Switches(vec![]), ConsumeSwitches)
