@@ -9,6 +9,7 @@ members = [
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
+  "starstream_ivc_proto"
 ]
 exclude = ["old"]
 
@@ -41,3 +42,10 @@ wit-component = "0.240.0"
 
 [profile.dev.package]
 insta.opt-level = 3
+
+[patch.crates-io]
+ark-relations = {  git = "https://github.com/arkworks-rs/snark/" }
+ark-snark = {  git = "https://github.com/arkworks-rs/snark/" }
+ark-r1cs-std = {  git = "https://github.com/arkworks-rs/r1cs-std" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra"}
+ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives"}
