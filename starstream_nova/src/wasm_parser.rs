@@ -1,4 +1,3 @@
-use combine::ParseResult;
 use combine::Parser;
 use combine::Stream;
 use combine::any;

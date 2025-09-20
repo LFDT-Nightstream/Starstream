@@ -5,6 +5,7 @@ pub mod interface;
 pub mod circuits;
 pub mod test;
 pub mod wasm_parser;
+pub mod r1cs;
 
 /*
 fn format_location(

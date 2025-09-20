@@ -46,15 +46,18 @@ macro_rules! l {
 
 // TODO: consider making Copy, or at least making implementations clone shallowly
 pub trait CircuitBuilderVar:
-    Add<Self, Output = Self> + Sub<Self, Output = Self> + Mul<u128, Output = Self> + Clone + Debug
+    Add<Self, Output = Self> + Sub<Self, Output = Self> + Mul<i128, Output = Self> + Clone + Debug
 {
 }
 
 pub trait CircuitBuilder<Var> {
     fn zero(&mut self) -> Var;
     fn one(&mut self) -> Var;
+    // Literals are always specified as i128,
+    // albeit the actual value in the field is `n % p`,
+    // such that `-1i128` will be `p - 1` in the field, and so on.
     #[must_use]
-    fn lit(&mut self, n: u128) -> Var;
+    fn lit(&mut self, n: i128) -> Var;
     #[must_use]
     fn alloc(&mut self, location: Location) -> Var;
     fn enforce(&mut self, location: Location, a: Var, b: Var, a_times_b: Var);

@@ -496,21 +496,21 @@ impl Circuit for R1CS_DUMMY_VM {
 pub struct WASM_VM;
 
 // x -> {}
-const WASM_INSTR_DROP: u128 = 0;
+const WASM_INSTR_DROP: i128 = 0;
 // {} -> code[pc+1]
-const WASM_INSTR_CONST: u128 = 1;
+const WASM_INSTR_CONST: i128 = 1;
 // x y -> x+y
-const WASM_INSTR_ADD: u128 = 2;
+const WASM_INSTR_ADD: i128 = 2;
 // {} -> stack[pc+1]
-const WASM_INSTR_GET: u128 = 3;
+const WASM_INSTR_GET: i128 = 3;
 // x -> stack[pc+1] := x
-const WASM_INSTR_SET: u128 = 4;
+const WASM_INSTR_SET: i128 = 4;
 // b new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace if b == 1, else if b == 0 then pc := pc + 1
-const WASM_INSTR_JUMP: u128 = 5;
+const WASM_INSTR_JUMP: i128 = 5;
 // ptr -> memory[ptr]
-const WASM_INSTR_READ: u128 = 6;
+const WASM_INSTR_READ: i128 = 6;
 // ptr data -> {}; memory[ptr] = data
-const WASM_INSTR_WRITE: u128 = 7;
+const WASM_INSTR_WRITE: i128 = 7;
 
 #[allow(non_camel_case_types)]
 struct WASM_IO<Var> {

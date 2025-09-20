@@ -49,10 +49,10 @@ fn calculate_tag(locations: Locations<'_>) -> u64 {
 }
 
 // grok generated goldilocks impl
-const P: u128 = 18446744069414584321u128;
+const P: i128 = 18446744069414584321i128;
 
 pub fn add(a: u64, b: u64) -> u64 {
-    let sum = a as u128 + b as u128;
+    let sum = a as i128 + b as i128;
     if sum >= P {
         (sum - P) as u64
     } else {
@@ -61,11 +61,11 @@ pub fn add(a: u64, b: u64) -> u64 {
 }
 
 pub fn neg(a: u64) -> u64 {
-    if a == 0 { 0 } else { (P - a as u128) as u64 }
+    if a == 0 { 0 } else { (P - a as i128) as u64 }
 }
 
-pub fn mul(a: u64, scalar: u128) -> u64 {
-    let prod = a as u128 * scalar;
+pub fn mul(a: u64, scalar: i128) -> u64 {
+    let prod = a as i128 * scalar;
     (prod % P) as u64
 }
 
@@ -114,9 +114,9 @@ pub fn test_circuit_goldilocks<C: Circuit>(
         }
     }
 
-    impl Mul<u128> for Var {
+    impl Mul<i128> for Var {
         type Output = Var;
-        fn mul(self, rhs: u128) -> Var {
+        fn mul(self, rhs: i128) -> Var {
             Var(mul(self.0, rhs))
         }
     }
@@ -137,7 +137,7 @@ pub fn test_circuit_goldilocks<C: Circuit>(
         fn one(&mut self) -> Var {
             Var(1)
         }
-        fn lit(&mut self, n: u128) -> Var {
+        fn lit(&mut self, n: i128) -> Var {
             Var((n % P) as u64)
         }
         fn alloc(&mut self, location: Location) -> Var {
@@ -151,7 +151,7 @@ pub fn test_circuit_goldilocks<C: Circuit>(
         }
         fn enforce(&mut self, location: Location, Var(a): Var, Var(b): Var, Var(a_times_b): Var) {
             let locations = cons(location, &self.locations);
-            let r = mul(a, b as u128);
+            let r = mul(a, b as i128);
             if r != a_times_b {
                 self.handler.failed_enforce(locations, a, b, r, a_times_b);
             }
