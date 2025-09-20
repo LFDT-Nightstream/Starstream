@@ -5,11 +5,12 @@ use std::{
 
 use crate::interface::{Circuit, CircuitBuilder, CircuitBuilderVar, Location};
 
+#[derive(Debug)]
 pub struct R1CS {
     // A, B, C: F^(n_constraints * (1 + n_io + n_witnesses))
     // z: F^(1 + n_io + n_witnesses)
-    pub n_witnesses: usize,
     pub n_io: usize,
+    pub n_witnesses: usize,
     pub n_constraints: usize,
     // len(structure) = (1 + n_io + n_witnesses) * n_constraints * 3
     // order is as above, that is,
@@ -138,13 +139,9 @@ fn calculate_structure(
         type Output = Var;
         fn sub(self, Var(rhs): Var) -> Self::Output {
             let Var(mut lhs) = self;
-            union_with(
-                &mut lhs,
-                rhs.into_iter().map(|(i, c)| (i, -c)),
-                |x, y| {
-                    *x += y;
-                },
-            );
+            union_with(&mut lhs, rhs.into_iter().map(|(i, c)| (i, -c)), |x, y| {
+                *x += y;
+            });
             Var(lhs)
         }
     }
@@ -243,8 +240,8 @@ pub fn gen_r1cs_structure(circuit: impl Circuit, n_io: usize) -> R1CS {
     let (n_witnesses, n_constraints) = calculate_dimensions(&circuit, n_io);
     let structure = calculate_structure(&circuit, n_io, n_witnesses, n_constraints);
     R1CS {
-        n_witnesses,
         n_io,
+        n_witnesses,
         n_constraints,
         structure,
     }
