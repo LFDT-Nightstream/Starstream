@@ -17,6 +17,7 @@ use wasmi::{
 
 mod code;
 mod mermaid;
+mod mock_ledger;
 mod nebula;
 mod util;
 
@@ -1292,6 +1293,23 @@ impl Transaction {
         &self.code_cache
     }
 
+    pub fn add_utxo(&mut self, utxo: &mock_ledger::Utxo) -> Value {
+        let data = self.store.data_mut();
+
+        //
+        let program: ProgramIdx = todo!();
+
+        let utxo = Utxo {
+            program,
+            // TODO: remember tokens
+            tokens: Default::default(),
+        };
+
+        let id = UtxoId::random();
+        data.utxos.insert(id, utxo);
+        id.to_wasm_externref(self.store.as_context_mut())
+    }
+
     /// Run a coordination script in this transaction.
     pub fn run_coordination_script(
         &mut self,
@@ -2180,10 +2198,6 @@ impl TransactionProof {
         Ok(())
     }
 }
-
-// TODO: Universe or World type which can spawn transactions (loading a subset
-// of UTXOs into WASM memories) and commit them (verify, flush WASM instances).
-// In the long term it should be possible to commit ZK proofs of transactions.
 
 /// A hash of a UTXO's Wasm linear memory at a point in time.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
