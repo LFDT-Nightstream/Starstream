@@ -1,5 +1,5 @@
 use starstream_nova::{circuits::WASM_VM, r1cs::gen_r1cs_structure};
-use std::hash::{Hash, Hasher, DefaultHasher};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[test]
 fn compile_to_r1cs() {

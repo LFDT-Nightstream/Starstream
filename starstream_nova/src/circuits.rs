@@ -44,7 +44,12 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
     }
 }
 
-fn cond_assert<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(mut cb: B, switch: Switch<Var>, a: Var, b: Var) {
+fn cond_assert<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+    mut cb: B,
+    switch: Switch<Var>,
+    a: Var,
+    b: Var,
+) {
     let maybe_b = cb.alloc(l!("maybe_b"));
     cb.enforce(l!(), switch.switch.clone(), b, maybe_b.clone());
     cb.enforce(l!(), switch.switch, a, maybe_b);
@@ -1057,7 +1062,11 @@ fn visit_write<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 }
 
 impl Circuit for WASM_VM {
-    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(&self, mut cb: B, io: Vec<Var>) -> Vec<Var> {
+    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+        &self,
+        mut cb: B,
+        io: Vec<Var>,
+    ) -> Vec<Var> {
         let (mut switches, consume_switches) = Switches::new();
         let WASM_IO {
             sp_namespace,
@@ -1112,4 +1121,3 @@ impl Circuit for WASM_VM {
         .to()
     }
 }
-

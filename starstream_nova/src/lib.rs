@@ -1,11 +1,11 @@
 #![allow(clippy::uninlined_format_args)]
 #![allow(clippy::suspicious_arithmetic_impl)]
 
-pub mod interface;
 pub mod circuits;
+pub mod interface;
+pub mod r1cs;
 pub mod test;
 pub mod wasm_parser;
-pub mod r1cs;
 
 /*
 fn format_location(
