@@ -600,8 +600,12 @@ where
                     v.push(0);
                     v.push(circuits::Instr::Jump as i32);
                     function_calls_to_patch.push((patch_location, fn_idx));
+                    // FIXME: calculate stack size change from types
                 }
-                Instr::Select => {}
+                Instr::Select => {
+                    v.push(circuits::Instr::Select as i32);
+                    stack_size -= 2;
+                }
                 Instr::Eqz => {}
                 Instr::Eq => {}
                 Instr::Ne => {}

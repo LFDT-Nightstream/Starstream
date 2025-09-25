@@ -520,7 +520,7 @@ pub enum Instr {
     // x -> stack[sp - code[pc+1]]; stack[sp - code[pc+1]] := x
     // NB: code[pc+1] must be greater than 0
     Swap,
-    // b new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace if b == 1, else if b == 0 then pc := pc + 1
+    // c new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace if c == 0, else if c != 0 then pc := pc + 1
     CondJump,
     // new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace
     Jump,
@@ -530,6 +530,9 @@ pub enum Instr {
     Write,
     // {} -> code[pc+1] zeroes
     Alloc,
+    // x y c -> y if c == 0
+    // x y c -> x if c != 0
+    Select,
 }
 
 #[allow(non_camel_case_types)]
@@ -955,7 +958,7 @@ fn visit_swap<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     cond_assert(cb.nest(l!()), switch, pc_namespace, new_pc_namespace);
 }
 
-fn visit_cond_jump_b_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+fn visit_cond_jump_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     mut cb: B,
     switches: &mut Switches<Var>,
     WASMGlobal {
@@ -970,7 +973,7 @@ fn visit_cond_jump_b_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         new_pc,
     }: WASMGlobal<Var>,
 ) {
-    let mut cb = cb.nest(l!("visit_cond_jump_b_0"));
+    let mut cb = cb.nest(l!("visit_cond_jump_c_not_0"));
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::CondJump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -980,12 +983,22 @@ fn visit_cond_jump_b_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     let unused_pc_namespace = cb.alloc(l!("unused_pc_namespace"));
     let two = cb.lit(2);
     let three = cb.lit(3);
+    let c = cb.alloc(l!("c"));
+    let c_inv = cb.alloc(l!("c_inv"));
+    let maybe_one = cb.alloc(l!("maybe_one"));
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        one.clone(),
+        maybe_one.clone(),
+    );
+    cb.enforce(l!(), c.clone(), c_inv, maybe_one.clone());
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
         sp_namespace.clone(),
         sp.clone() - three.clone(),
-        zero.clone(),
+        c.clone(),
         zero.clone(),
     );
     cond_memory(
@@ -1015,7 +1028,7 @@ fn visit_cond_jump_b_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     cond_assert(cb.nest(l!()), switch, pc_namespace, new_pc_namespace);
 }
 
-fn visit_cond_jump_b_1<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+fn visit_cond_jump_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     mut cb: B,
     switches: &mut Switches<Var>,
     WASMGlobal {
@@ -1030,7 +1043,7 @@ fn visit_cond_jump_b_1<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         new_pc,
     }: WASMGlobal<Var>,
 ) {
-    let mut cb = cb.nest(l!("visit_cond_jump_b_1"));
+    let mut cb = cb.nest(l!("visit_cond_jump_c_0"));
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::CondJump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -1043,7 +1056,7 @@ fn visit_cond_jump_b_1<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         switch.clone(),
         sp_namespace.clone(),
         sp.clone() - three.clone(),
-        one.clone(),
+        zero.clone(),
         zero.clone(),
     );
     cond_memory(
@@ -1058,7 +1071,7 @@ fn visit_cond_jump_b_1<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         cb.nest(l!()),
         switch.clone(),
         sp_namespace.clone(),
-        sp.clone() - one.clone(),
+        sp.clone() - one,
         new_pc,
         zero,
     );
@@ -1237,6 +1250,132 @@ fn visit_write<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     );
 }
 
+fn visit_select_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+    mut cb: B,
+    switches: &mut Switches<Var>,
+    WASMGlobal {
+        opcode,
+        sp_namespace,
+        sp,
+        pc_namespace,
+        pc,
+        new_sp_namespace,
+        new_sp,
+        new_pc_namespace,
+        new_pc,
+    }: WASMGlobal<Var>,
+) {
+    let mut cb = cb.nest(l!("visit_select_c_not_0"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(Instr::Select as i128);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let zero = cb.zero();
+    let one = cb.one();
+    let two = cb.lit(2);
+    let three = cb.lit(3);
+    let c = cb.alloc(l!("c"));
+    let c_inv = cb.alloc(l!("c_inv"));
+    let maybe_one = cb.alloc(l!("maybe_one"));
+    let y = cb.alloc(l!("y"));
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        one.clone(),
+        maybe_one.clone(),
+    );
+    cb.enforce(l!(), c.clone(), c_inv, maybe_one.clone());
+    cond_memory(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace.clone(),
+        sp.clone() - two.clone(),
+        y,
+        zero.clone(),
+    );
+    cond_memory(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace.clone(),
+        sp.clone() - one.clone(),
+        c,
+        zero.clone(),
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp - two);
+    cond_assert(cb.nest(l!()), switch.clone(), new_pc, pc + one);
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace,
+        new_sp_namespace,
+    );
+    cond_assert(cb.nest(l!()), switch, pc_namespace, new_pc_namespace);
+}
+
+fn visit_select_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+    mut cb: B,
+    switches: &mut Switches<Var>,
+    WASMGlobal {
+        opcode,
+        sp_namespace,
+        sp,
+        pc_namespace,
+        pc,
+        new_sp_namespace,
+        new_sp,
+        new_pc_namespace,
+        new_pc,
+    }: WASMGlobal<Var>,
+) {
+    let mut cb = cb.nest(l!("visit_select_c_0"));
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(Instr::Select as i128);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let zero = cb.zero();
+    let one = cb.one();
+    let two = cb.lit(2);
+    let three = cb.lit(3);
+    let x = cb.alloc(l!("x"));
+    let y = cb.alloc(l!("y"));
+    cond_memory(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace.clone(),
+        sp.clone() - three.clone(),
+        x.clone(),
+        y.clone(),
+    );
+    cond_memory(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace.clone(),
+        sp.clone() - two.clone(),
+        y,
+        zero.clone(),
+    );
+    cond_memory(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace.clone(),
+        sp.clone() - one.clone(),
+        zero.clone(),
+        zero,
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp - two);
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace,
+        new_sp_namespace,
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_pc, pc + one);
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        new_pc_namespace,
+        pc_namespace,
+    );
+}
+
 impl Circuit for WASM_VM {
     fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         &self,
@@ -1274,11 +1413,13 @@ impl Circuit for WASM_VM {
         visit_get(cb.nest(l!()), &mut switches, global.clone());
         visit_set(cb.nest(l!()), &mut switches, global.clone());
         visit_swap(cb.nest(l!()), &mut switches, global.clone());
-        visit_cond_jump_b_0(cb.nest(l!()), &mut switches, global.clone());
-        visit_cond_jump_b_1(cb.nest(l!()), &mut switches, global.clone());
+        visit_cond_jump_c_not_0(cb.nest(l!()), &mut switches, global.clone());
+        visit_cond_jump_c_0(cb.nest(l!()), &mut switches, global.clone());
         visit_jump(cb.nest(l!()), &mut switches, global.clone());
         visit_read(cb.nest(l!()), &mut switches, global.clone());
         visit_write(cb.nest(l!()), &mut switches, global.clone());
+        visit_select_c_not_0(cb.nest(l!()), &mut switches, global.clone());
+        visit_select_c_0(cb.nest(l!()), &mut switches, global.clone());
         switches.consume(consume_switches, cb.nest(l!()));
         let WASMGlobal {
             opcode: _,
