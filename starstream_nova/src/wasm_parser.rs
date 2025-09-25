@@ -96,14 +96,6 @@ fn u32_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = u32> {
     leb128()
 }
 
-fn u64_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    leb128().map(|_: u64| ())
-}
-
-fn s33_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    sleb128(33).map(|_| ())
-}
-
 fn list_p<Input: Stream<Token = u8>, P: Parser<Input>>(
     mut x_p: impl FnMut() -> P,
 ) -> impl Parser<Input, Output = Vec<P::Output>> {
@@ -120,28 +112,12 @@ fn bytestring_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> 
     list_p(any).map(|_| ())
 }
 
-fn name_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    bytestring_p()
-}
-
 fn numtype_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
     byte(0x7F).map(|_| ())
 }
 
 fn valtype_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
     numtype_p()
-}
-
-fn limits_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    choice((
-        byte(0x00).with(u64_p()),
-        byte(0x01).with(u64_p()).with(u64_p()),
-    ))
-    .map(|_| ())
-}
-
-fn blocktype_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    choice((byte(0x40).map(|_| ()), valtype_p(), s33_p()))
 }
 
 fn memarg_offset_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = u32> {
@@ -367,15 +343,6 @@ fn locals_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = u32> {
     u32_p().skip(valtype_p())
 }
 
-fn func_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    // list_p(locals_p).with(expr_p())
-    parser(|_| unimplemented!())
-}
-
-fn code_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    sized_p(func_p()).map(|_| ())
-}
-
 fn magic_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
     (byte(0x00), byte(0x61), byte(0x73), byte(0x6D)).map(|_| ())
 }
@@ -470,6 +437,10 @@ where
     let (n_functions, input) = leb128::<u32, _>().parse(input).unwrap();
     assert_eq!(n_functions as usize, func_types.len());
     let mut v: Vec<i32> = Vec::new();
+    // A call is 7 cells in the code,
+    // alloc <n_locals> const <target pc_namespace> const <target pc> jump,
+    // and we have to patch in the current 3 values, which we only know
+    // after finishing parsing the whole module(s).
     let mut function_calls_to_patch: Vec<(usize, u32)> = Vec::new();
     let mut input = input;
     for (n_args, n_results) in func_types {
@@ -479,9 +450,10 @@ where
             .unwrap()
             .into_iter()
             .fold(0, Add::add);
-        // One for each argument, one for each local, and one for the pointer to jump back.
+        // One for each argument, one for each local,
+        // and two for the pc_namespace and pc to jump back to.
         // They are all allocated by the caller, albeit the locals are to be `0` by convention.
-        let n_frame_vars = n_args + n_locals + 1;
+        let n_frame_vars = n_args + n_locals + 2;
         // the ith local is stored in the stack at sp - stack_size - n_frame_vars + i,
         // where sp equals the length of the stack at runtime, and stack_size
         // is the number of entries used up by the current function.
@@ -582,24 +554,53 @@ where
                             v.push(circuits::Instr::Drop as i32);
                             stack_size -= 1;
                         }
-                        if n_args + n_locals == n_results {
+
+                        let excess = n_args + n_locals - n_results;
+                        // we have no unnecessary stack variables left,
+                        // so we just jump back to caller
+                        if excess == 0 {
                             v.push(circuits::Instr::Jump as i32);
+                        // we have one unnecessary stack variable,
+                        // so we first swap the top two elements
+                        // (pc_namespace, pc -> pc, pc_namespace),
+                        // then set the stack variable at index [sp-3] to pc_namespace,
+                        // and then jump
+                        } else if excess == 1 {
+                            v.push(circuits::Instr::Swap as i32);
+                            v.push(2);
+                            v.push(circuits::Instr::Set as i32);
+                            v.push(3);
+                            v.push(circuits::Instr::Jump as i32);
+                        // we first put the pc_namespace and pc where they ought to be,
+                        // then drop all unnecessary stack variables
                         } else {
+                            assert!(excess > 1);
                             let idx = n_frame_vars - n_results;
-                            if idx > 1 {
-                                v.push(circuits::Instr::Set as i32);
-                                v.push(idx as i32);
-                            } else {
-                                assert_eq!(idx, 1);
-                            }
-                            for _ in 0..(idx - 1) {
+                            assert!(idx > 2);
+                            v.push(circuits::Instr::Set as i32);
+                            v.push(idx as i32 - 1);
+                            v.push(circuits::Instr::Set as i32);
+                            // NB: the stack is one smaller now,
+                            // hence why it's still idx - 1
+                            v.push(idx as i32 - 1);
+                            for _ in 0..(excess - 4) {
                                 v.push(circuits::Instr::Drop as i32);
                             }
                             v.push(circuits::Instr::Jump as i32);
                         }
                     }
                 }
-                Instr::Call { fn_idx } => {}
+                Instr::Call { fn_idx } => {
+                    let patch_location = v.len();
+                    v.push(circuits::Instr::Alloc as i32);
+                    v.push(0);
+                    v.push(circuits::Instr::Const as i32);
+                    v.push(0);
+                    v.push(circuits::Instr::Const as i32);
+                    v.push(0);
+                    v.push(circuits::Instr::Jump as i32);
+                    function_calls_to_patch.push((patch_location, fn_idx));
+                }
                 Instr::Select => {}
                 Instr::Eqz => {}
                 Instr::Eq => {}
