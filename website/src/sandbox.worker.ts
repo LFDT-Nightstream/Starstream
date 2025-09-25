@@ -1,8 +1,9 @@
 import starstreamSandboxWasm from "file-loader!../../target/wasm32-unknown-unknown/release/starstream_sandbox.wasm";
+import { encode } from "cbor2";
 
 export interface SandboxWorkerRequest {
   request_id: number;
-  input: string;
+  code: string;
   run: boolean;
   prove: boolean;
 }
@@ -40,6 +41,12 @@ export type SandboxWorkerResponse = {
     }
 );
 
+// ----------------------------------------------------------------------------
+// These interfaces should match `starsteam_sandbox/src/main.rs`.
+interface SandboxInput {
+  code: string;
+}
+
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
   getrandom(ptr: number, len: number): void;
 
@@ -68,6 +75,7 @@ interface SandboxWasmExports {
   memory: WebAssembly.Memory;
   run(input_len: number, run: boolean, prove: boolean): void;
 }
+// ----------------------------------------------------------------------------
 
 let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
   null;
@@ -100,7 +108,9 @@ function send(r: SandboxWorkerResponse, opts?: WindowPostMessageOptions) {
 
 self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
   const request_id = data.request_id;
-  const input = new TextEncoder().encode(data.input);
+  const input = encode({
+    code: data.code,
+  } satisfies SandboxInput);
   const wasm = await getWasmInstance({
     getrandom(ptr, len) {
       crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, ptr, len));

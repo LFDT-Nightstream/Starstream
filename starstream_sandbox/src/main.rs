@@ -28,6 +28,11 @@ unsafe extern "C" {
     unsafe fn set_proof_file(ptr: *const u8, len: usize);
 }
 
+#[derive(serde::Deserialize)]
+struct Input<'a> {
+    code: &'a str,
+}
+
 // Register a getrandom implementation for wasm32-unknown-unknown.
 // Not using getrandom's "js" feature because it somehow causes Cargo to panic
 // during feature resolution.
@@ -60,13 +65,14 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     // Fetch the input.
     let mut input = vec![0; input_len];
     unsafe { read_input(input.as_mut_ptr(), input.len()) };
-    let input = std::str::from_utf8(&input).unwrap();
+    let input: Input = serde_cbor::from_slice(&input).unwrap();
+    let code = input.code;
 
     // Parse to AST and format for the AST tab.
-    let (ast, errors) = starstream_compiler::parse(input);
+    let (ast, errors) = starstream_compiler::parse(code);
     let mut compiler_output = Vec::new();
     let mut error_count = errors.len() as u32;
-    write_reports(&mut compiler_output, input, &errors);
+    write_reports(&mut compiler_output, code, &errors);
     unsafe {
         set_compiler_log(
             compiler_output.as_ptr(),
@@ -83,7 +89,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
         Err(errors) => {
             let mut compiler_output = Vec::new();
             let error_count = errors.len() as u32;
-            write_errors(&mut compiler_output, input, &errors);
+            write_errors(&mut compiler_output, code, &errors);
             unsafe {
                 set_compiler_log(
                     compiler_output.as_ptr(),
@@ -101,7 +107,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     let ast = match starstream_compiler::do_type_inference(ast, &mut symbols) {
         Ok((ast, warnings)) => {
             let warning_count = warnings.len() as u32;
-            write_errors(&mut compiler_output, input, &warnings);
+            write_errors(&mut compiler_output, code, &warnings);
             unsafe {
                 set_compiler_log(
                     compiler_output.as_ptr(),
@@ -116,7 +122,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
         Err(errors) => {
             let mut compiler_output = Vec::new();
             let error_count = errors.len() as u32;
-            write_errors(&mut compiler_output, input, &errors);
+            write_errors(&mut compiler_output, code, &errors);
             unsafe {
                 set_compiler_log(
                     compiler_output.as_ptr(),
@@ -137,7 +143,7 @@ pub unsafe extern "C" fn run(input_len: usize, run: bool, prove: bool) {
     // Compile to Wasm.
     let (wasm, errors) = starstream_compiler::compile(&ast, symbols);
     error_count += errors.len() as u32;
-    write_reports(&mut compiler_output, input, &errors);
+    write_reports(&mut compiler_output, code, &errors);
     unsafe {
         set_compiler_log(
             compiler_output.as_ptr(),

@@ -396,7 +396,7 @@ export function Sandbox() {
                   setProofFile(null);
                   worker.request({
                     request_id: request_id.current,
-                    input: editor.current?.getModel()?.getValue() ?? "",
+                    code: editor.current?.getModel()?.getValue() ?? "",
                     run: true,
                     prove,
                   });
