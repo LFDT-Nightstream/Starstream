@@ -113,7 +113,7 @@ fn calculate_structure(
     n_witnesses: usize,
     n_constraints: usize,
 ) -> Box<[i128]> {
-    // A "variable" is less a variable and more a posssibly unfinished
+    // A "variable" is less a variable and more a possibly unfinished
     // linear function on the input vector of variables,
     // i.e. of the form c_0 * v_0 + c_1 * v_1 + ... + c_n * v_n,
     // where v_0 is conventionally taken to be 1.

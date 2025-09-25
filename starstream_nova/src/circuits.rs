@@ -496,26 +496,41 @@ impl Circuit for R1CS_DUMMY_VM {
  *       do lookups
  *
  * TODO: use struct to carry around "global" vars (opcode, sp, pc, new_sp, new_pc)
+ *
+ * FIXME: incorrect handling of sp
  */
 #[allow(non_camel_case_types)]
 pub struct WASM_VM;
 
-// x -> {}
-const WASM_INSTR_DROP: i128 = 0;
-// {} -> code[pc+1]
-const WASM_INSTR_CONST: i128 = 1;
-// x y -> x+y
-const WASM_INSTR_ADD: i128 = 2;
-// {} -> stack[pc+1]
-const WASM_INSTR_GET: i128 = 3;
-// x -> stack[pc+1] := x
-const WASM_INSTR_SET: i128 = 4;
-// b new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace if b == 1, else if b == 0 then pc := pc + 1
-const WASM_INSTR_JUMP: i128 = 5;
-// ptr -> memory[ptr]
-const WASM_INSTR_READ: i128 = 6;
-// ptr data -> {}; memory[ptr] = data
-const WASM_INSTR_WRITE: i128 = 7;
+#[repr(u32)]
+pub enum Instr {
+    // not provable
+    Unreachable = 0,
+    Nop,
+    // x -> {}
+    Drop,
+    // {} -> code[pc+1]
+    Const,
+    // x y -> x+y
+    Add,
+    // {} -> stack[sp - code[pc+1]]
+    // NB: code[pc+1] must be greater than 0
+    Get,
+    // x -> stack[sp - code[pc+1]] := x
+    // NB: code[pc+1] must be greater than 1
+    Set,
+    // b new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace if b == 1, else if b == 0 then pc := pc + 1
+    CondJump,
+    // new_pc_namespace new_pc -> {}; pc := new_pc, pc_namespace := new_pc_namespace
+    // FIXME: implement
+    Jump,
+    // ptr -> memory[ptr]
+    Read,
+    // ptr data -> {}; memory[ptr] = data
+    Write,
+    // {} -> code[pc+1] zeroes
+    Alloc,
+}
 
 #[allow(non_camel_case_types)]
 struct WASM_IO<Var> {
@@ -579,7 +594,7 @@ fn visit_drop<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_drop"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_DROP);
+    let instr = cb.lit(Instr::Drop as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let prev = cb.alloc(l!("prev"));
     let zero = cb.zero();
@@ -621,7 +636,7 @@ fn visit_const<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_const"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_CONST);
+    let instr = cb.lit(Instr::Const as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let constant = cb.alloc(l!("constant"));
     let zero = cb.zero();
@@ -672,7 +687,7 @@ fn visit_add<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_add"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_ADD);
+    let instr = cb.lit(Instr::Add as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let first = cb.alloc(l!("first"));
     let second = cb.alloc(l!("second"));
@@ -722,7 +737,7 @@ fn visit_get<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_get"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_GET);
+    let instr = cb.lit(Instr::Get as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let index = cb.alloc(l!("index"));
     let value = cb.alloc(l!("value"));
@@ -782,7 +797,7 @@ fn visit_set<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_set"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_SET);
+    let instr = cb.lit(Instr::Set as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let index = cb.alloc(l!("index"));
     let old = cb.alloc(l!("old"));
@@ -843,7 +858,7 @@ fn visit_jump_b_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_jump_b_1"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_JUMP);
+    let instr = cb.lit(Instr::CondJump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let zero = cb.zero();
     let one = cb.one();
@@ -903,7 +918,7 @@ fn visit_jump_b_1<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_jump_b_0"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_JUMP);
+    let instr = cb.lit(Instr::CondJump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let zero = cb.zero();
     let one = cb.one();
@@ -959,7 +974,7 @@ fn visit_read<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_read"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_READ);
+    let instr = cb.lit(Instr::Read as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let address = cb.alloc(l!("address"));
     let value = cb.alloc(l!("value"));
@@ -1013,7 +1028,7 @@ fn visit_write<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
 ) {
     let mut cb = cb.nest(l!("visit_write"));
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(WASM_INSTR_WRITE);
+    let instr = cb.lit(Instr::Write as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let address = cb.alloc(l!("address"));
     let old = cb.alloc(l!("old"));
