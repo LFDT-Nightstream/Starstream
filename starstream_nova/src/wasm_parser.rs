@@ -666,7 +666,8 @@ where
                     unimplemented!()
                 }
                 Instr::Add => {
-                    unimplemented!()
+                    v.push(circuits::Instr::Add as i32);
+                    stack_size -= 1;
                 }
                 Instr::Sub => {
                     unimplemented!()
