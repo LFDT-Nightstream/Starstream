@@ -24,25 +24,22 @@
 //! Here, however, we choose to opt for a two-pass approach to avoid this problem.
 
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::ops::Add;
 use std::ops::BitOrAssign;
 use std::ops::Shl;
 
+use combine::EasyParser;
 use combine::Parser;
 use combine::Stream;
 use combine::any;
 use combine::choice;
 use combine::count;
-use combine::eof;
 use combine::error::Commit;
 use combine::many;
-use combine::optional;
 use combine::parser;
 use combine::parser::byte::byte;
-use combine::parser::function;
 use combine::value;
-// FIXME: do we need this?
-use combine::parser::combinator::lazy;
 
 use crate::circuits;
 
@@ -435,8 +432,15 @@ struct FunctionInfo {
 pub fn parse<Input: Stream<Token = u8>>(input: Input) -> Vec<i32>
 where
     Input::Error: Debug,
+    Input::Range: PartialEq + Debug + Display,
+    Input::Position: Default + Debug + Display,
 {
-    let (func_types, input) = prelude().parse(input).unwrap();
+    let (func_types, input) = match prelude().easy_parse(input) {
+        Ok(r) => r,
+        Err(e) => {
+            panic!("{}", e);
+        }
+    };
     let (_, input) = byte(10).parse(input).unwrap(); // codesec section id
     let (_codesec_size, input) = leb128::<u32, _>().parse(input).unwrap();
     let (n_functions, input) = leb128::<u32, _>().parse(input).unwrap();
@@ -513,42 +517,42 @@ where
                     assert!(idx > 0);
                     v.push(idx as i32 + 1);
                 }
-                Instr::Load { offset } => {
+                Instr::Load { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Read as i32);
                     stack_size += 1;
                 }
-                Instr::Load8_s { offset } => {
+                Instr::Load8_s { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Read as i32);
                     stack_size += 1;
                 }
-                Instr::Load8_u { offset } => {
+                Instr::Load8_u { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Read as i32);
                     stack_size += 1;
                 }
-                Instr::Load16_s { offset } => {
+                Instr::Load16_s { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Read as i32);
                     stack_size += 1;
                 }
-                Instr::Load16_u { offset } => {
+                Instr::Load16_u { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Read as i32);
                     stack_size += 1;
                 }
-                Instr::Store { offset } => {
+                Instr::Store { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Write as i32);
                     stack_size -= 2;
                 }
-                Instr::Store8 { offset } => {
+                Instr::Store8 { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Write as i32);
                     stack_size -= 2;
                 }
-                Instr::Store16 { offset } => {
+                Instr::Store16 { offset: _ } => {
                     // FIXME
                     v.push(circuits::Instr::Write as i32);
                     stack_size -= 2;
