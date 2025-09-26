@@ -426,6 +426,11 @@ fn postlude<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
         .skip(custom_sections_p())
 }
 
+struct FunctionInfo {
+    n_locals: u32,
+    pc: usize,
+}
+
 // FIXME: handle partial parsing correctly
 pub fn parse<Input: Stream<Token = u8>>(input: Input) -> Vec<i32>
 where
@@ -438,18 +443,25 @@ where
     assert_eq!(n_functions as usize, func_types.len());
     let mut v: Vec<i32> = Vec::new();
     // A call is 7 cells in the code,
-    // alloc <n_locals> const <target pc_namespace> const <target pc> jump,
-    // and we have to patch in the current 3 values, which we only know
+    // alloc <n_locals> const <source pc_namespace> const <source pc> const <target pc_namespace> const <target pc> jump,
+    // and we have to patch in the unknown values, which we only know
     // after finishing parsing the whole module(s).
     let mut function_calls_to_patch: Vec<(usize, u32)> = Vec::new();
+    let mut function_info: Vec<FunctionInfo> = Vec::new();
     let mut input = input;
-    for (n_args, n_results) in func_types {
+    for (n_args, n_results) in &func_types {
+        let n_args = *n_args;
+        let n_results = *n_results;
         let _function_size: u32 = leb128().parse_with_state(&mut input, &mut ()).unwrap();
         let n_locals = list_p(locals_p)
             .parse_with_state(&mut input, &mut Default::default())
             .unwrap()
             .into_iter()
             .fold(0, Add::add);
+        function_info.push(FunctionInfo {
+            n_locals,
+            pc: v.len(),
+        });
         // One for each argument, one for each local,
         // and two for the pc_namespace and pc to jump back to.
         // They are all allocated by the caller, albeit the locals are to be `0` by convention.
@@ -462,7 +474,7 @@ where
         // NB: the 0th local is the first argument, the nth argument is the nth local, and so on.
         let mut stack_size: u32 = 0;
         let mut iter = non_rec_instr_p().iter(&mut input);
-        for instr in iter {
+        for instr in &mut iter {
             match instr {
                 Instr::Unreachable => {
                     v.push(circuits::Instr::Unreachable as i32);
@@ -591,50 +603,122 @@ where
                     }
                 }
                 Instr::Call { fn_idx } => {
+                    // FIXME: support multiple modules
+                    let source_pc_namespace: i32 = 0;
+                    let target_pc_namespace: i32 = 0;
+                    let source_pc = v.len() + 11;
                     let patch_location = v.len();
                     v.push(circuits::Instr::Alloc as i32);
                     v.push(0);
+                    // our pc_namespace
                     v.push(circuits::Instr::Const as i32);
-                    v.push(0);
+                    v.push(source_pc_namespace);
+                    // our pc
+                    v.push(circuits::Instr::Const as i32);
+                    v.push(source_pc as i32);
+                    // callee pc_namespace
+                    v.push(circuits::Instr::Const as i32);
+                    v.push(target_pc_namespace);
+                    // callee pc
                     v.push(circuits::Instr::Const as i32);
                     v.push(0);
                     v.push(circuits::Instr::Jump as i32);
+                    assert_eq!(v.len(), source_pc);
                     function_calls_to_patch.push((patch_location, fn_idx));
-                    // FIXME: calculate stack size change from types
+                    let (callee_n_args, callee_n_results) = func_types[fn_idx as usize];
+                    stack_size = stack_size - callee_n_args + callee_n_results;
                 }
                 Instr::Select => {
                     v.push(circuits::Instr::Select as i32);
                     stack_size -= 2;
                 }
-                Instr::Eqz => {}
-                Instr::Eq => {}
-                Instr::Ne => {}
-                Instr::Lt_s => {}
-                Instr::Lt_u => {}
-                Instr::Gt_s => {}
-                Instr::Gt_u => {}
-                Instr::Le_s => {}
-                Instr::Le_u => {}
-                Instr::Ge_s => {}
-                Instr::Ge_u => {}
-                Instr::Add => {}
-                Instr::Sub => {}
-                Instr::Mul => {}
-                Instr::Div_s => {}
-                Instr::Div_u => {}
-                Instr::Rem_s => {}
-                Instr::Rem_u => {}
-                Instr::And => {}
-                Instr::Or => {}
-                Instr::Xor => {}
-                Instr::Shl => {}
-                Instr::Shr_s => {}
-                Instr::Shr_u => {}
-                Instr::Rotl => {}
-                Instr::Rotr => {}
+                Instr::Eqz => {
+                    unimplemented!()
+                }
+                Instr::Eq => {
+                    unimplemented!()
+                }
+                Instr::Ne => {
+                    unimplemented!()
+                }
+                Instr::Lt_s => {
+                    unimplemented!()
+                }
+                Instr::Lt_u => {
+                    unimplemented!()
+                }
+                Instr::Gt_s => {
+                    unimplemented!()
+                }
+                Instr::Gt_u => {
+                    unimplemented!()
+                }
+                Instr::Le_s => {
+                    unimplemented!()
+                }
+                Instr::Le_u => {
+                    unimplemented!()
+                }
+                Instr::Ge_s => {
+                    unimplemented!()
+                }
+                Instr::Ge_u => {
+                    unimplemented!()
+                }
+                Instr::Add => {
+                    unimplemented!()
+                }
+                Instr::Sub => {
+                    unimplemented!()
+                }
+                Instr::Mul => {
+                    unimplemented!()
+                }
+                Instr::Div_s => {
+                    unimplemented!()
+                }
+                Instr::Div_u => {
+                    unimplemented!()
+                }
+                Instr::Rem_s => {
+                    unimplemented!()
+                }
+                Instr::Rem_u => {
+                    unimplemented!()
+                }
+                Instr::And => {
+                    unimplemented!()
+                }
+                Instr::Or => {
+                    unimplemented!()
+                }
+                Instr::Xor => {
+                    unimplemented!()
+                }
+                Instr::Shl => {
+                    unimplemented!()
+                }
+                Instr::Shr_s => {
+                    unimplemented!()
+                }
+                Instr::Shr_u => {
+                    unimplemented!()
+                }
+                Instr::Rotl => {
+                    unimplemented!()
+                }
+                Instr::Rotr => {
+                    unimplemented!()
+                }
             }
         }
+        iter.into_result(()).unwrap();
         byte(0x0B).parse_with_state(&mut input, &mut ()).unwrap();
+    }
+    for (patch_location, fn_idx) in function_calls_to_patch {
+        // for alloc instr
+        v[patch_location + 1] = function_info[fn_idx as usize].n_locals as i32;
+        v[patch_location + 9] = function_info[fn_idx as usize].pc as i32;
     }
     let ((), _) = postlude().parse(input).unwrap();
     v
