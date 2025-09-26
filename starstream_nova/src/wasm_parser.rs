@@ -37,6 +37,7 @@ use combine::choice;
 use combine::count;
 use combine::error::Commit;
 use combine::many;
+use combine::optional;
 use combine::parser;
 use combine::parser::byte::byte;
 use combine::value;
@@ -360,7 +361,7 @@ fn custom_sections_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output =
 }
 
 fn unknown_section_p<Input: Stream<Token = u8>>(id: u8) -> impl Parser<Input, Output = ()> {
-    byte(id).with(bytestring_p())
+    optional(byte(id).with(bytestring_p())).map(|_| ())
 }
 
 fn type_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = (u32, u32)> {

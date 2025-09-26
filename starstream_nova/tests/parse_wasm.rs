@@ -44,7 +44,6 @@ impl<'a> Positioned for DisplayAsHex<'a> {
 }
 
 #[test]
-#[ignore]
 fn parse_wasm() {
     let example_module = r#"
         (module
