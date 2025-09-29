@@ -2,7 +2,8 @@
 name = "starstream_nova"
 version = "0.0.0"
 edition = "2024"
-license = "MIT"
+license.workspace = true
+
 
 [dependencies]
 # same as zkEngine, technically could be different,

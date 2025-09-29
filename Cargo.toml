@@ -1,4 +1,5 @@
 [workspace]
+package.license = "Apache-2.0"
 members = [
     "example_contract",
     "example_contract_permissioned",
