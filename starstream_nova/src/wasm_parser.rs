@@ -21,7 +21,7 @@
 //! we could reduce the work by precomputing the value of g^(2^12) for
 //! each generator g.
 //!
-//! Here, however, we choose to opt for a two-pass approach to avoid this problem.
+//! Here, however, we choose to opt for patching the result post-parse for simplicity.
 
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -446,7 +446,8 @@ where
     let (_codesec_size, input) = leb128::<u32, _>().parse(input).unwrap();
     let (n_functions, input) = leb128::<u32, _>().parse(input).unwrap();
     assert_eq!(n_functions as usize, func_types.len());
-    let mut v: Vec<i32> = Vec::new();
+    // NB: we must have an initial 0 for cond_lookup to work
+    let mut v: Vec<i32> = vec![0];
     // A call is 7 cells in the code,
     // alloc <n_locals> const <source pc_namespace> const <source pc> const <target pc_namespace> const <target pc> jump,
     // and we have to patch in the unknown values, which we only know
@@ -609,8 +610,8 @@ where
                 }
                 Instr::Call { fn_idx } => {
                     // FIXME: support multiple modules
-                    let source_pc_namespace: i32 = 0;
-                    let target_pc_namespace: i32 = 0;
+                    let source_pc_namespace: i32 = 1;
+                    let target_pc_namespace: i32 = 1;
                     let source_pc = v.len() + 11;
                     let patch_location = v.len();
                     v.push(circuits::Instr::Alloc as i32);

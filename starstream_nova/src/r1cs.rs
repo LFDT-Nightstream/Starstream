@@ -7,21 +7,21 @@ use crate::interface::{Circuit, CircuitBuilder, CircuitBuilderVar, Location};
 
 #[derive(Debug)]
 pub struct R1CS {
-    // A, B, C: F^(n_constraints * (1 + n_io + n_witnesses))
-    // z: F^(1 + n_io + n_witnesses)
+    // A, B, C: F^(n_constraints * (1 + n_io + n_io + n_witnesses))
+    // z: F^(1 + n_io + n_io + n_witnesses)
     pub n_io: usize,
     pub n_witnesses: usize,
     pub n_constraints: usize,
-    // len(structure) = (1 + n_io + n_witnesses) * n_constraints * 3
+    // len(structure) = (1 + (input) n_io + (output) n_io + n_witnesses) * n_constraints * 3
     // order is as above, that is,
     // first split into 3 for the three matrices A, B, C,
     // then split into n_constraints rows,
-    // then split into (1 + n_io + n_witnesses) entries,
+    // then split into (1 + n_io + n_io + n_witnesses) entries,
     // such that you can read row by row, starting from A, then B, then C.
-    pub structure: Box<[i128]>,
+    pub structure: Box<[(i128, i128)]>,
 }
 
-fn calculate_dimensions(c: &impl Circuit, n_io: usize) -> (usize, usize) {
+fn calculate_dimensions<IO>(c: &impl Circuit<IO>) -> (usize, usize) {
     #[derive(Clone, Debug)]
     struct Var;
 
@@ -46,11 +46,20 @@ fn calculate_dimensions(c: &impl Circuit, n_io: usize) -> (usize, usize) {
         }
     }
 
+    impl Mul<(i128, i128)> for Var {
+        type Output = Var;
+        fn mul(self, _: (i128, i128)) -> Self::Output {
+            Var
+        }
+    }
+
     impl CircuitBuilderVar for Var {}
 
     struct Builder<'a> {
         n_witnesses: &'a mut usize,
         n_constraints: &'a mut usize,
+        // FIXME: bad hack, assert_offset should take a label probably
+        label: &'static str,
     }
 
     impl<'a> CircuitBuilder<Var> for Builder<'a> {
@@ -63,6 +72,9 @@ fn calculate_dimensions(c: &impl Circuit, n_io: usize) -> (usize, usize) {
         fn lit(&mut self, _: i128) -> Var {
             Var
         }
+        fn lit_rat(&mut self, _: i128, _: i128) -> Var {
+            Var
+        }
         fn alloc(&mut self, _: Location) -> Var {
             *self.n_witnesses += 1;
             Var
@@ -72,22 +84,27 @@ fn calculate_dimensions(c: &impl Circuit, n_io: usize) -> (usize, usize) {
         }
         fn lookup(&mut self, _: Var, _: Var, _: Var) {}
         fn memory(&mut self, _: Var, _: Var, _: Var, _: Var) {}
-        fn nest<'b>(&'b mut self, _: Location) -> impl CircuitBuilder<Var> + 'b {
+        fn nest<'b>(&'b mut self, l: Location) -> impl CircuitBuilder<Var> + 'b {
             Builder {
                 n_witnesses: self.n_witnesses,
                 n_constraints: self.n_constraints,
+                label: l.label,
             }
+        }
+        fn assert_offset(&mut self, offset: usize) {
+            eprintln!("asserting for {}", self.label);
+            assert_eq!(*self.n_witnesses, offset);
         }
     }
 
     let mut n_witnesses = 0;
     let mut n_constraints = 0;
-    let io = vec![Var; n_io];
     let builder = Builder {
         n_witnesses: &mut n_witnesses,
         n_constraints: &mut n_constraints,
+        label: "",
     };
-    c.run(builder, io);
+    c.run(builder, |_| Var, |_| Var);
 
     (n_witnesses, n_constraints)
 }
@@ -107,12 +124,13 @@ fn union_with<K: Ord, V>(
     }
 }
 
-fn calculate_structure(
-    c: &impl Circuit,
+fn calculate_structure<IO>(
+    c: &impl Circuit<IO>,
+    io_mapping: impl Fn(IO) -> usize,
     n_io: usize,
     n_witnesses: usize,
     n_constraints: usize,
-) -> Box<[i128]> {
+) -> Box<[(i128, i128)]> {
     // A "variable" is less a variable and more a possibly unfinished
     // linear function on the input vector of variables,
     // i.e. of the form c_0 * v_0 + c_1 * v_1 + ... + c_n * v_n,
@@ -122,14 +140,23 @@ fn calculate_structure(
     // A non-existent entry means the constant is zero,
     // albeit zero entries may also exist if you do x - x.
     #[derive(Clone, Debug)]
-    struct Var(BTreeMap<usize, i128>);
+    struct Var(BTreeMap<usize, (i128, i128)>);
 
     impl Add<Var> for Var {
         type Output = Var;
         fn add(self, Var(rhs): Var) -> Self::Output {
             let Var(mut lhs) = self;
-            union_with(&mut lhs, rhs.into_iter(), |x, y| {
-                *x += y;
+            union_with(&mut lhs, rhs.into_iter(), |x, (y_n, y_d)| {
+                let (x_n, x_d) = *x;
+                let r = if x_d == y_d {
+                    (x_n + y_n, x_d)
+                } else {
+                    let d = x_d * y_d;
+                    let x_n = x_n * y_d;
+                    let y_n = y_n * x_d;
+                    (x_n + y_n, d)
+                };
+                *x = r;
             });
             Var(lhs)
         }
@@ -139,8 +166,17 @@ fn calculate_structure(
         type Output = Var;
         fn sub(self, Var(rhs): Var) -> Self::Output {
             let Var(mut lhs) = self;
-            union_with(&mut lhs, rhs.into_iter().map(|(i, c)| (i, -c)), |x, y| {
-                *x += y;
+            union_with(&mut lhs, rhs.into_iter(), |x, (y_n, y_d)| {
+                let (x_n, x_d) = *x;
+                let r = if x_d == y_d {
+                    (x_n - y_n, x_d)
+                } else {
+                    let d = x_d * y_d;
+                    let x_n = x_n * y_d;
+                    let y_n = y_n * x_d;
+                    (x_n - y_n, d)
+                };
+                *x = r;
             });
             Var(lhs)
         }
@@ -150,14 +186,28 @@ fn calculate_structure(
         type Output = Var;
         fn mul(self, rhs: i128) -> Self::Output {
             let Var(lhs) = self;
-            Var(lhs.into_iter().map(|(i, c)| (i, c * rhs)).collect())
+            Var(lhs
+                .into_iter()
+                .map(|(i, (c_n, c_d))| (i, (c_n * rhs, c_d)))
+                .collect())
+        }
+    }
+
+    impl Mul<(i128, i128)> for Var {
+        type Output = Var;
+        fn mul(self, (n, d): (i128, i128)) -> Self::Output {
+            let Var(lhs) = self;
+            Var(lhs
+                .into_iter()
+                .map(|(i, (c_n, c_d))| (i, (c_n * n, c_d * d)))
+                .collect())
         }
     }
 
     impl CircuitBuilderVar for Var {}
 
     struct Builder<'a> {
-        structure: &'a mut [i128],
+        structure: &'a mut [(i128, i128)],
         witness_counter: &'a mut usize,
         constraint_counter: &'a mut usize,
         n_io: usize,
@@ -170,19 +220,22 @@ fn calculate_structure(
             Var(BTreeMap::new())
         }
         fn one(&mut self) -> Var {
-            Var([(0, 1)].into_iter().collect())
+            Var([(0, (1, 1))].into_iter().collect())
         }
         fn lit(&mut self, n: i128) -> Var {
-            Var([(0, n)].into_iter().collect())
+            Var([(0, (n, 1))].into_iter().collect())
+        }
+        fn lit_rat(&mut self, n: i128, d: i128) -> Var {
+            Var([(0, (n, d))].into_iter().collect())
         }
         fn alloc(&mut self, _: Location) -> Var {
             let i = *self.witness_counter;
             assert!(i < self.n_witnesses);
             *self.witness_counter += 1;
-            Var([(i, 1)].into_iter().collect())
+            Var([(i, (1, 1))].into_iter().collect())
         }
         fn enforce(&mut self, _: Location, Var(a): Var, Var(b): Var, Var(c): Var) {
-            let row_size = 1 + self.n_io + self.n_witnesses;
+            let row_size = 1 + self.n_io + self.n_io + self.n_witnesses;
             let n_rows = self.n_constraints;
             let matrix_size = row_size * n_rows;
             let row = *self.constraint_counter;
@@ -210,16 +263,16 @@ fn calculate_structure(
                 n_constraints: self.n_constraints,
             }
         }
+        fn assert_offset(&mut self, _: usize) {}
     }
 
-    let mut structure =
-        vec![0i128; n_constraints * (1 + n_witnesses + n_io) * 3].into_boxed_slice();
+    let mut structure = vec![(0i128, 1i128); n_constraints * (1 + n_witnesses + n_io + n_io) * 3]
+        .into_boxed_slice();
     let mut witness_counter = 0;
     let mut constraint_counter = 0;
 
-    let io = (1..=n_io)
-        .map(|i| Var([(i, 1)].into_iter().collect()))
-        .collect();
+    let input = |idx| Var([(io_mapping(idx), (1, 1))].into_iter().collect());
+    let output = |idx| Var([(io_mapping(idx) + n_io, (1, 1))].into_iter().collect());
     let builder = Builder {
         structure: &mut structure,
         witness_counter: &mut witness_counter,
@@ -228,7 +281,7 @@ fn calculate_structure(
         n_witnesses,
         n_constraints,
     };
-    c.run(builder, io);
+    c.run(builder, input, output);
 
     assert_eq!(witness_counter, n_witnesses);
     assert_eq!(constraint_counter, n_constraints);
@@ -236,9 +289,13 @@ fn calculate_structure(
     structure
 }
 
-pub fn gen_r1cs_structure(circuit: impl Circuit, n_io: usize) -> R1CS {
-    let (n_witnesses, n_constraints) = calculate_dimensions(&circuit, n_io);
-    let structure = calculate_structure(&circuit, n_io, n_witnesses, n_constraints);
+pub fn gen_r1cs_structure<IO>(
+    circuit: impl Circuit<IO>,
+    n_io: usize,
+    io_mapping: impl Fn(IO) -> usize,
+) -> R1CS {
+    let (n_witnesses, n_constraints) = calculate_dimensions(&circuit);
+    let structure = calculate_structure(&circuit, io_mapping, n_io, n_witnesses, n_constraints);
     R1CS {
         n_io,
         n_witnesses,

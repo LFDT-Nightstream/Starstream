@@ -19,18 +19,17 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
         self.0.push(switch.clone());
         Switch { switch }
     }
-    fn consume(self, _marker: ConsumeSwitches, mut cb: impl CircuitBuilder<Var>) {
+    #[must_use]
+    fn consume(self, _marker: ConsumeSwitches, mut cb: impl CircuitBuilder<Var>) -> Switch<Var> {
         let zero = cb.zero();
         let one = cb.one();
-        cb.enforce(
-            l!("only one switch must be on"),
-            self.0
-                .iter()
-                .fold(zero.clone(), |acc, switch| acc + switch.clone()),
-            one.clone(),
-            one.clone(),
-        );
 
+        let sum = self
+            .0
+            .iter()
+            .fold(zero.clone(), |acc, switch| acc + switch.clone());
+
+        // ensures that sum is # switches on
         for switch in &self.0 {
             cb.enforce(
                 l!("switch must be binary"),
@@ -40,7 +39,14 @@ impl<Var: CircuitBuilderVar> Switches<Var> {
             );
         }
 
-        std::mem::forget(self)
+        cb.enforce(
+            l!("one switch or no switch"),
+            sum.clone(),
+            one.clone(),
+            one.clone(),
+        );
+
+        Switch { switch: one - sum }
     }
 }
 
@@ -50,15 +56,17 @@ fn cond_assert<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     a: Var,
     b: Var,
 ) {
-    let maybe_b = cb.alloc(l!("maybe_b"));
-    cb.enforce(l!(), switch.switch.clone(), b, maybe_b.clone());
-    cb.enforce(l!(), switch.switch, a, maybe_b);
+    let zero = cb.zero();
+    // Either switch is one, in which case this is `a - b = 0 <=> a = b`,
+    // or switch is zero, in which case this is always true.
+    cb.enforce(l!(), a - b, switch.switch, zero);
 }
 
 // NB: this requires that the 0th index of the memory is always zero,
 // i.e. that *nullptr = 0
 // FIXME: this could be done more efficiently probably
 // FIXME: make this part of the interface
+// FIXME: make variants that allocate old and new to reduce variables
 fn cond_memory<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     mut cb: B,
     switch: Switch<Var>,
@@ -73,403 +81,8 @@ fn cond_memory<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     cb.enforce(l!(), switch.switch.clone(), addr.clone(), real_addr.clone());
     cb.enforce(l!(), switch.switch.clone(), old.clone(), real_old.clone());
     cb.enforce(l!(), switch.switch.clone(), new.clone(), real_new.clone());
-    cb.memory(namespace, addr, old, new);
+    cb.memory(namespace, real_addr, real_old, real_new);
 }
-
-/*
-fn if_switch<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(mut cb: B, switch: Var, n: Var) -> Var {
-    let r = cb.alloc(l!("if_result"));
-    cb.enforce(l!("if_switch"), switch, n, r.clone());
-    r
-}
-
-fn either_switch<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
-    mut cb: B,
-    switch: Switch<Var>,
-    case_true: Var,
-    case_false: Var,
-) -> Var {
-    let zero = cb.zero();
-    let one = cb.one();
-    let r_true = cb.alloc(l!("either_switch_true"));
-    cb.enforce(
-        l!("either_switch.case_true"),
-        switch.switch.clone(),
-        case_true.clone(),
-        r_true.clone(),
-    );
-    let r_false = cb.alloc(l!("either_switch_false"));
-    cb.enforce(
-        l!("either_switch.case_true"),
-        one.clone() - switch.switch.clone(),
-        case_false.clone(),
-        r_false.clone(),
-    );
-    cb.enforce(
-        l!("either_switch.combine"),
-        r_true.clone(),
-        r_false.clone(),
-        zero.clone(),
-    );
-    let r = cb.alloc(l!("either_switch_r"));
-    cb.enforce(
-        l!("either_switch.either"),
-        r_true.clone() + r_false.clone(),
-        one.clone(),
-        r.clone(),
-    );
-    r
-}
-*/
-
-/*
-// FIXME: we shouldn't use hashing
-// FIXME: this just adds together all elements
-fn hash<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(mut cb: B, switch: Var, input: Vec<Var>) -> Var {
-    let mut cb = cb.nest(l!("hash"));
-    let out = cb.alloc(l!("out"));
-    // FIXME: poseidon_hash_allocated doesn't take a switch,
-    // so all its constraints cost even if they aren't used.
-    let mut input: Vec<AllocatedNum<B::F>> = input
-        .into_iter()
-        .map(|var| cb.to_allocated_num(var))
-        .collect();
-    // FIXME: HORRIBLE!
-    // poseidon_hash_allocated is buggy I assume,
-    // because it can't handle larger inputs,
-    // or it expects us to pass in a `U` that fits
-    // exactly, but that seems unlikely, and not really possible
-    // to abstract over because of the private trait constraint.
-    input.truncate(2);
-    let constants = PoseidonConstants::<B::F, U2>::new();
-    let hash: AllocatedNum<B::F> =
-        poseidon_hash_allocated(cb.nest(l!()).inner(), input, &constants)
-            .expect("poseidon_hash_allocated failed");
-    let hash = cb.from_allocated_num(hash);
-    if_switch(cb.nest(l!("switch_hash")), switch, hash)
-}
-
-// adds H(a, v, t) to the multiset
-fn memory<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
-    mut cb: B,
-    switch: Var,
-    multiset: Var,
-    a: Var,
-    v: Var,
-    t: Var,
-) -> Var {
-    let preimage = vec![a, v, t];
-    let hash = hash(cb.nest(l!()), switch, preimage);
-    multiset + hash
-}
-
-fn push<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
-    mut cb: B,
-    switch: Var,
-    rs: &mut Var,
-    ws: &mut Var,
-    idx: Var,
-    data: &[Var],
-) {
-    let prev = cb.alloc(l!("prev"));
-    let timestamp = cb.alloc(l!("timestamp"));
-    let new_timestamp = cb.alloc(l!("new_timestamp"));
-    cb.enforce(
-        l!(),
-        new_timestamp.clone() - timestamp.clone(),
-        switch.clone(),
-        switch.clone(),
-    );
-    let zero = cb.zero();
-    let one = cb.one();
-    cb.enforce(l!(), zero.clone(), one, zero.clone());
-    let preimage = {
-        let mut v = Vec::from(data);
-        v.push(prev.clone());
-        v
-    };
-    let updated = hash(cb.nest(l!()), switch.clone(), preimage);
-    *rs = memory(
-        cb.nest(l!()),
-        switch.clone(),
-        rs.clone(),
-        idx.clone(),
-        prev,
-        timestamp,
-    );
-    *ws = memory(
-        cb.nest(l!()),
-        switch,
-        ws.clone(),
-        idx,
-        updated,
-        new_timestamp,
-    );
-}
-
-struct StarstreamIO<Var> {
-    rs: Var,
-    ws: Var,
-    rs_coord: Var,
-    ws_coord: Var,
-    coord_idx: Var,
-    coord_stack: Var,
-}
-
-impl<Var> StarstreamIO<Var> {
-    fn of(fields: Vec<Var>) -> StarstreamIO<Var> {
-        let Ok([rs, ws, rs_coord, ws_coord, coord_idx, coord_stack]): Result<[Var; 6], _> =
-            fields.try_into()
-        else {
-            unreachable!("wrong number of elements in io");
-        };
-        StarstreamIO {
-            rs,
-            ws,
-            rs_coord,
-            ws_coord,
-            coord_idx,
-            coord_stack,
-        }
-    }
-    fn to(self) -> Vec<Var> {
-        let StarstreamIO {
-            rs,
-            ws,
-            rs_coord,
-            ws_coord,
-            coord_idx,
-            coord_stack,
-        } = self;
-        vec![rs, ws, rs_coord, ws_coord, coord_idx, coord_stack]
-    }
-}
-
-fn visit_enter<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
-    mut cb: B,
-    switches: &mut Switches<Var>,
-    io: &mut StarstreamIO<Var>,
-) {
-    let switch = switches.alloc(cb.nest(l!()));
-    let utxo_idx = cb.alloc(l!("utxo_idx"));
-    let input = cb.alloc(l!("input"));
-    push(
-        cb.nest(l!()),
-        switch.switch.clone(),
-        &mut io.rs,
-        &mut io.ws,
-        utxo_idx.clone(),
-        &[input.clone()],
-    );
-    let zero = cb.zero();
-    push(
-        cb.nest(l!()),
-        switch.switch,
-        &mut io.rs_coord,
-        &mut io.ws_coord,
-        io.coord_idx.clone(),
-        &[zero, utxo_idx, input],
-    );
-}
-
-fn visit_push_coord<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
-    mut cb: B,
-    switches: &mut Switches<Var>,
-    io: &mut StarstreamIO<Var>,
-) {
-    let switch = switches.alloc(cb.nest(l!()));
-    let new_coord_idx = cb.alloc(l!("new_coord_idx"));
-    let input = cb.alloc(l!("input"));
-    let one = cb.one();
-    push(
-        cb.nest(l!()),
-        switch.switch.clone(),
-        &mut io.rs_coord,
-        &mut io.ws_coord,
-        io.coord_idx.clone(),
-        // FIXME: use hash instead of idx
-        &[one, new_coord_idx.clone(), input.clone()],
-    );
-    let two = cb.lit(2);
-    push(
-        cb.nest(l!()),
-        switch.switch.clone(),
-        &mut io.rs_coord,
-        &mut io.ws_coord,
-        new_coord_idx.clone(),
-        // FIXME: use hash instead of idx
-        &[two, io.coord_idx.clone(), input],
-    );
-    let preimage = vec![io.coord_idx.clone(), io.coord_stack.clone()];
-    let new_coord_stack = hash(cb.nest(l!()), switch.switch.clone(), preimage);
-    io.coord_idx = either_switch(
-        cb.nest(l!()),
-        switch.clone(),
-        new_coord_idx,
-        io.coord_idx.clone(),
-    );
-    io.coord_stack = either_switch(
-        cb.nest(l!()),
-        switch,
-        new_coord_stack,
-        io.coord_stack.clone(),
-    );
-}
-
-fn visit_pop_coord<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
-    mut cb: B,
-    switches: &mut Switches<Var>,
-    io: &mut StarstreamIO<Var>,
-) {
-    let switch = switches.alloc(cb.nest(l!()));
-    let old_coord_idx = cb.alloc(l!("old_coord_idx"));
-    let old_coord_stack = cb.alloc(l!("old_coord_stack"));
-    let three = cb.lit(3);
-    push(
-        cb.nest(l!()),
-        switch.switch.clone(),
-        &mut io.rs_coord,
-        &mut io.ws_coord,
-        io.coord_idx.clone(),
-        &[three],
-    );
-    let preimage = vec![old_coord_idx.clone(), old_coord_stack.clone()];
-    let should_be = hash(cb.nest(l!()), switch.switch.clone(), preimage);
-    cb.enforce(
-        l!(),
-        should_be.clone(),
-        switch.switch.clone(),
-        io.coord_stack.clone(),
-    );
-    io.coord_idx = either_switch(
-        cb.nest(l!()),
-        switch.clone(),
-        old_coord_idx,
-        io.coord_idx.clone(),
-    );
-    io.coord_stack = either_switch(
-        cb.nest(l!()),
-        switch,
-        old_coord_stack,
-        io.coord_stack.clone(),
-    );
-}
-
-fn visit_nop<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(mut cb: B, switches: &mut Switches<Var>) {
-    let _switch = switches.alloc(cb.nest(l!()));
-}
-
-pub struct StarstreamCircuit;
-
-impl Circuit for StarstreamCircuit {
-    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(&self, mut cb: B, io: Vec<Var>) -> Vec<Var> {
-        let (mut switches, consume_switches) = Switches::new();
-
-        let mut io = StarstreamIO::of(io);
-
-        visit_enter(cb.nest(l!()), &mut switches, &mut io);
-        visit_push_coord(cb.nest(l!()), &mut switches, &mut io);
-        visit_pop_coord(cb.nest(l!()), &mut switches, &mut io);
-        visit_nop(cb.nest(l!()), &mut switches);
-
-        switches.consume(consume_switches, cb.nest(l!()));
-
-        io.to()
-    }
-}
-
-// NB: this is a really dumb "vm", which is just R1CS in R1CS basically.
-// Even if we were to adopt this approach, it would probably be more
-// efficient to use Spartan to reduce the amount of work necessary
-// rather than naively embedding R1CS in R1CS.
-#[allow(non_camel_case_types)]
-pub struct R1CS_DUMMY_VM;
-
-const R1CS_DUMMY_WITNESS_COUNT: usize = 254;
-const R1CS_DUMMY_CONSTRAINT_COUNT: usize = 256;
-
-fn mul<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(mut cb: B, x: Var, y: Var) -> Var {
-    let r = cb.alloc(l!("mul"));
-    cb.enforce(l!("mul"), x, y, r.clone());
-    r
-}
-
-impl Circuit for R1CS_DUMMY_VM {
-    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(&self, mut cb: B, io: Vec<Var>) -> Vec<Var> {
-        let [scripts, ios] = io.try_into().expect("arity wrong");
-        let io = cb.alloc(l!("io"));
-        let witnesses: Vec<_> = (0..R1CS_DUMMY_WITNESS_COUNT)
-            .map(|_| cb.alloc(l!("witness")))
-            .collect();
-        let constraints_a: Vec<_> = (0..(R1CS_DUMMY_CONSTRAINT_COUNT
-            * (R1CS_DUMMY_WITNESS_COUNT + 2)))
-            .map(|_| cb.alloc(l!("factor_a")))
-            .collect();
-        let constraints_b: Vec<_> = (0..(R1CS_DUMMY_CONSTRAINT_COUNT
-            * (R1CS_DUMMY_WITNESS_COUNT + 2)))
-            .map(|_| cb.alloc(l!("factor_b")))
-            .collect();
-        let constraints_c: Vec<_> = (0..(R1CS_DUMMY_CONSTRAINT_COUNT
-            * (R1CS_DUMMY_WITNESS_COUNT + 2)))
-            .map(|_| cb.alloc(l!("factor_c")))
-            .collect();
-        let one = cb.one();
-        for i in 0..R1CS_DUMMY_CONSTRAINT_COUNT {
-            let a = constraints_a[i].clone();
-            let a = a + mul(
-                cb.nest(l!("io_a")),
-                io.clone(),
-                constraints_a[i + 1].clone(),
-            );
-            let a = (0..R1CS_DUMMY_WITNESS_COUNT).fold(a, |a, j| {
-                a + mul(
-                    cb.nest(l!("witness_factor_a_mul")),
-                    witnesses[j].clone(),
-                    constraints_a[i + j + 2].clone(),
-                )
-            });
-            let b = constraints_b[i].clone();
-            let b = b + mul(
-                cb.nest(l!("io_b")),
-                io.clone(),
-                constraints_b[i + 1].clone(),
-            );
-            let b = (0..R1CS_DUMMY_WITNESS_COUNT).fold(b, |b, j| {
-                b + mul(
-                    cb.nest(l!("witness_factor_b_mul")),
-                    witnesses[j].clone(),
-                    constraints_b[i + j + 2].clone(),
-                )
-            });
-            let c = constraints_c[i].clone();
-            let c = c + mul(
-                cb.nest(l!("io_c")),
-                io.clone(),
-                constraints_c[i + 1].clone(),
-            );
-            let c = (0..R1CS_DUMMY_WITNESS_COUNT).fold(c, |c, j| {
-                c + mul(
-                    cb.nest(l!("witness_factor_c_mul")),
-                    witnesses[j].clone(),
-                    constraints_c[i + j + 2].clone(),
-                )
-            });
-            cb.enforce(l!(), a, b, c);
-        }
-        let script_hash = hash(
-            cb.nest(l!()),
-            one.clone(),
-            constraints_a
-                .into_iter()
-                .chain(constraints_b)
-                .chain(constraints_c)
-                .collect(),
-        );
-        let scripts = hash(cb.nest(l!()), one, vec![script_hash, scripts]);
-        vec![scripts, ios]
-    }
-}
-*/
 
 /* This is supposed to be a WASM VM.
  * We don't support WASM as-is, but instead a simplified variant without types and
@@ -533,18 +146,41 @@ pub enum Instr {
     // x y c -> y if c == 0
     // x y c -> x if c != 0
     Select,
+    // not an instruction, signifies end of enum
+    _End,
 }
 
+pub const N_GLOBAL_WITNESSES: usize = 2;
+pub const WITNESS_OFFSET_NOP: usize = N_GLOBAL_WITNESSES;
+pub const WITNESS_OFFSET_DROP: usize = WITNESS_OFFSET_NOP + 1;
+pub const WITNESS_OFFSET_CONST: usize = WITNESS_OFFSET_DROP + 5;
+pub const WITNESS_OFFSET_ADD: usize = WITNESS_OFFSET_CONST + 4;
+pub const WITNESS_OFFSET_GET: usize = WITNESS_OFFSET_ADD + 42;
+pub const WITNESS_OFFSET_SET: usize = WITNESS_OFFSET_GET + 8;
+pub const WITNESS_OFFSET_SWAP: usize = WITNESS_OFFSET_SET + 9;
+pub const WITNESS_OFFSET_COND_JUMP_C_NOT_0: usize = WITNESS_OFFSET_SWAP + 10;
+pub const WITNESS_OFFSET_COND_JUMP_C_0: usize = WITNESS_OFFSET_COND_JUMP_C_NOT_0 + 14;
+pub const WITNESS_OFFSET_JUMP: usize = WITNESS_OFFSET_COND_JUMP_C_0 + 10;
+pub const WITNESS_OFFSET_READ: usize = WITNESS_OFFSET_JUMP + 7;
+pub const WITNESS_OFFSET_WRITE: usize = WITNESS_OFFSET_READ + 9;
+pub const WITNESS_OFFSET_ALLOC: usize = WITNESS_OFFSET_WRITE + 13;
+pub const WITNESS_OFFSET_SELECT_C_NOT_0: usize = WITNESS_OFFSET_ALLOC + 1;
+pub const WITNESS_OFFSET_SELECT_C_0: usize = WITNESS_OFFSET_SELECT_C_NOT_0 + 10;
+pub const WITNESS_OFFSET_EMPTY_STEP: usize = WITNESS_OFFSET_SELECT_C_0 + 12;
+pub const WITNESS_OFFSET_OPCODE_LOOKUP: usize = WITNESS_OFFSET_EMPTY_STEP;
+pub const N_TOTAL_WITNESSES: usize = WITNESS_OFFSET_OPCODE_LOOKUP + 2;
+
 #[allow(non_camel_case_types)]
-struct WASM_IO<Var> {
+pub enum WASM_IO {
     /// When we're in a UTXO, our stack switches to that of the UTXO.
     /// All coordination scripts share the same stack.
-    /// namespace 0 is for coordination scripts.
-    sp_namespace: Var,
+    ///
+    /// The concrete namespace is decided by the "host".
+    sp_namespace,
     /// This is the stack pointer. It starts at 0, and thus,
     /// it points to the first new element, and the value is
     /// also equal to the size of the stack.
-    sp: Var,
+    sp,
     /// This is the namespace used for looking up instructions
     /// and for performing linear memory operations.
     /// Although coordination scripts share the same stack,
@@ -553,16 +189,21 @@ struct WASM_IO<Var> {
     /// NB: This means that if you have e.g. two UTXOs with the same code,
     /// that code must unfortunately be duplicated into two separate namespaces,
     /// since otherwise they would share the same memory.
-    pc_namespace: Var,
+    ///
+    /// The concrete namespace is decided by the "host".
+    pc_namespace,
     /// Points to the next instruction. Many instructions will
     /// also carry a constant at the cell one after the instruction.
-    pc: Var,
+    pc,
 }
 
 #[derive(Clone)]
 struct WASMGlobal<Var> {
     // The variable containing the opcode, shared for convenience.
     opcode: Var,
+    // The parameter to the instruction, or the next instruction.
+    // Only used in the former case.
+    param: Var,
     // The old state of the VM
     sp_namespace: Var,
     sp: Var,
@@ -575,35 +216,12 @@ struct WASMGlobal<Var> {
     new_pc: Var,
 }
 
-impl<Var> WASM_IO<Var> {
-    fn of(fields: Vec<Var>) -> WASM_IO<Var> {
-        let Ok([sp_namespace, sp, pc_namespace, pc]): Result<[Var; 4], _> = fields.try_into()
-        else {
-            unreachable!("wrong number of elements in io");
-        };
-        WASM_IO {
-            sp_namespace,
-            sp,
-            pc_namespace,
-            pc,
-        }
-    }
-    fn to(self) -> Vec<Var> {
-        let WASM_IO {
-            sp_namespace,
-            sp,
-            pc_namespace,
-            pc,
-        } = self;
-        vec![sp_namespace, sp, pc_namespace, pc]
-    }
-}
-
 fn visit_nop<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     mut cb: B,
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -615,6 +233,7 @@ fn visit_nop<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_nop"));
+    cb.assert_offset(WITNESS_OFFSET_NOP);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Nop as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -639,6 +258,7 @@ fn visit_drop<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -650,6 +270,7 @@ fn visit_drop<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_drop"));
+    cb.assert_offset(WITNESS_OFFSET_DROP);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Drop as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -680,6 +301,7 @@ fn visit_const<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: constant,
         sp_namespace,
         sp,
         pc_namespace,
@@ -691,17 +313,12 @@ fn visit_const<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_const"));
+    cb.assert_offset(WITNESS_OFFSET_CONST);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Const as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
-    let constant = cb.alloc(l!("constant"));
     let zero = cb.zero();
     let one = cb.one();
-    cb.lookup(
-        pc_namespace.clone(),
-        pc.clone() + one.clone(),
-        constant.clone(),
-    );
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
@@ -731,6 +348,7 @@ fn visit_add<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -742,6 +360,7 @@ fn visit_add<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_add"));
+    cb.assert_offset(WITNESS_OFFSET_ADD);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Add as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -750,11 +369,35 @@ fn visit_add<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     let one = cb.one();
     let two = cb.lit(2);
     let zero = cb.zero();
+    // TODO: implement this with lookups instead
+    let result_mod_2_32 = (0..32)
+        .map(|i| {
+            let bit = cb.alloc(l!("bit"));
+            cb.enforce(l!(), bit.clone(), one.clone() - bit.clone(), zero.clone());
+            bit * 2i128.pow(i)
+        })
+        .fold(zero.clone(), |acc, power| acc + power);
+    let result = {
+        let last_bit = cb.alloc(l!("last_bit"));
+        cb.enforce(
+            l!(),
+            last_bit.clone(),
+            one.clone() - last_bit.clone(),
+            zero.clone(),
+        );
+        result_mod_2_32.clone() + last_bit * 2i128.pow(32)
+    };
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        first.clone() + second.clone(),
+        result.clone(),
+    );
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
         sp_namespace.clone(),
-        sp.clone() - two,
+        sp.clone() - one.clone(),
         first.clone(),
         zero,
     );
@@ -762,9 +405,9 @@ fn visit_add<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         cb.nest(l!()),
         switch.clone(),
         sp_namespace.clone(),
-        sp.clone() - one.clone(),
+        sp.clone() - two,
         second.clone(),
-        first + second,
+        result_mod_2_32,
     );
     cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp - one.clone());
     cond_assert(cb.nest(l!()), switch.clone(), new_pc, pc + one.clone());
@@ -782,6 +425,7 @@ fn visit_get<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: index,
         sp_namespace,
         sp,
         pc_namespace,
@@ -793,18 +437,13 @@ fn visit_get<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_get"));
+    cb.assert_offset(WITNESS_OFFSET_GET);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Get as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
-    let index = cb.alloc(l!("index"));
     let value = cb.alloc(l!("value"));
     let zero = cb.zero();
     let one = cb.one();
-    cb.lookup(
-        pc_namespace.clone(),
-        pc.clone() + one.clone(),
-        index.clone(),
-    );
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
@@ -842,6 +481,7 @@ fn visit_set<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: index,
         sp_namespace,
         sp,
         pc_namespace,
@@ -853,19 +493,14 @@ fn visit_set<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_set"));
+    cb.assert_offset(WITNESS_OFFSET_SET);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Set as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
-    let index = cb.alloc(l!("index"));
     let old = cb.alloc(l!("old"));
     let new = cb.alloc(l!("new"));
     let zero = cb.zero();
     let one = cb.one();
-    cb.lookup(
-        pc_namespace.clone(),
-        pc.clone() + one.clone(),
-        index.clone(),
-    );
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
@@ -903,6 +538,7 @@ fn visit_swap<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: index,
         sp_namespace,
         sp,
         pc_namespace,
@@ -914,18 +550,13 @@ fn visit_swap<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_swap"));
+    cb.assert_offset(WITNESS_OFFSET_SWAP);
     let switch = switches.alloc(cb.nest(l!()));
-    let instr = cb.lit(Instr::Set as i128);
+    let instr = cb.lit(Instr::Swap as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
-    let index = cb.alloc(l!("index"));
     let x = cb.alloc(l!("x"));
     let y = cb.alloc(l!("y"));
     let one = cb.one();
-    cb.lookup(
-        pc_namespace.clone(),
-        pc.clone() + one.clone(),
-        index.clone(),
-    );
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
@@ -963,6 +594,7 @@ fn visit_cond_jump_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -974,6 +606,7 @@ fn visit_cond_jump_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_cond_jump_c_not_0"));
+    cb.assert_offset(WITNESS_OFFSET_COND_JUMP_C_NOT_0);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::CondJump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -985,14 +618,7 @@ fn visit_cond_jump_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     let three = cb.lit(3);
     let c = cb.alloc(l!("c"));
     let c_inv = cb.alloc(l!("c_inv"));
-    let maybe_one = cb.alloc(l!("maybe_one"));
-    cond_assert(
-        cb.nest(l!()),
-        switch.clone(),
-        one.clone(),
-        maybe_one.clone(),
-    );
-    cb.enforce(l!(), c.clone(), c_inv, maybe_one.clone());
+    cb.enforce(l!(), c.clone(), c_inv, switch.switch.clone());
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
@@ -1033,6 +659,7 @@ fn visit_cond_jump_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace: _,
@@ -1044,6 +671,7 @@ fn visit_cond_jump_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_cond_jump_c_0"));
+    cb.assert_offset(WITNESS_OFFSET_COND_JUMP_C_0);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::CondJump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -1089,6 +717,7 @@ fn visit_jump<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace: _,
@@ -1100,6 +729,7 @@ fn visit_jump<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_jump"));
+    cb.assert_offset(WITNESS_OFFSET_JUMP);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Jump as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -1136,6 +766,7 @@ fn visit_read<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -1147,6 +778,7 @@ fn visit_read<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_read"));
+    cb.assert_offset(WITNESS_OFFSET_READ);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Read as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -1190,6 +822,7 @@ fn visit_write<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -1201,6 +834,7 @@ fn visit_write<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_write"));
+    cb.assert_offset(WITNESS_OFFSET_WRITE);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Write as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -1250,11 +884,50 @@ fn visit_write<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     );
 }
 
+fn visit_alloc<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+    mut cb: B,
+    switches: &mut Switches<Var>,
+    WASMGlobal {
+        opcode,
+        param: count,
+        sp_namespace,
+        sp,
+        pc_namespace,
+        pc,
+        new_sp_namespace,
+        new_sp,
+        new_pc_namespace,
+        new_pc,
+    }: WASMGlobal<Var>,
+) {
+    let mut cb = cb.nest(l!("visit_alloc"));
+    cb.assert_offset(WITNESS_OFFSET_ALLOC);
+    let switch = switches.alloc(cb.nest(l!()));
+    let instr = cb.lit(Instr::Alloc as i128);
+    cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
+    let one = cb.one();
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp + count);
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        new_pc,
+        pc + one.clone() + one,
+    );
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace,
+        new_sp_namespace,
+    );
+    cond_assert(cb.nest(l!()), switch, pc_namespace, new_pc_namespace);
+}
+
 fn visit_select_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     mut cb: B,
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -1266,24 +939,17 @@ fn visit_select_c_not_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_select_c_not_0"));
+    cb.assert_offset(WITNESS_OFFSET_SELECT_C_NOT_0);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Select as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let zero = cb.zero();
     let one = cb.one();
     let two = cb.lit(2);
-    let three = cb.lit(3);
     let c = cb.alloc(l!("c"));
     let c_inv = cb.alloc(l!("c_inv"));
-    let maybe_one = cb.alloc(l!("maybe_one"));
     let y = cb.alloc(l!("y"));
-    cond_assert(
-        cb.nest(l!()),
-        switch.clone(),
-        one.clone(),
-        maybe_one.clone(),
-    );
-    cb.enforce(l!(), c.clone(), c_inv, maybe_one.clone());
+    cb.enforce(l!(), c.clone(), c_inv, switch.switch.clone());
     cond_memory(
         cb.nest(l!()),
         switch.clone(),
@@ -1316,6 +982,7 @@ fn visit_select_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     switches: &mut Switches<Var>,
     WASMGlobal {
         opcode,
+        param: _,
         sp_namespace,
         sp,
         pc_namespace,
@@ -1327,6 +994,7 @@ fn visit_select_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     }: WASMGlobal<Var>,
 ) {
     let mut cb = cb.nest(l!("visit_select_c_0"));
+    cb.assert_offset(WITNESS_OFFSET_SELECT_C_0);
     let switch = switches.alloc(cb.nest(l!()));
     let instr = cb.lit(Instr::Select as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
@@ -1376,27 +1044,64 @@ fn visit_select_c_0<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
     );
 }
 
-impl Circuit for WASM_VM {
+fn visit_empty_step<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+    mut cb: B,
+    switch: Switch<Var>,
+    WASMGlobal {
+        opcode: _,
+        param: _,
+        sp_namespace,
+        sp,
+        pc_namespace,
+        pc,
+        new_sp_namespace,
+        new_sp,
+        new_pc_namespace,
+        new_pc,
+    }: WASMGlobal<Var>,
+) {
+    let mut cb = cb.nest(l!("visit_empty_step"));
+    // NB: We must allocate no new variables in visit_empty_step
+    cb.assert_offset(WITNESS_OFFSET_EMPTY_STEP);
+    cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp);
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        sp_namespace,
+        new_sp_namespace,
+    );
+    cond_assert(cb.nest(l!()), switch.clone(), new_pc, pc);
+    cond_assert(
+        cb.nest(l!()),
+        switch.clone(),
+        new_pc_namespace,
+        pc_namespace,
+    );
+    // Verifies that no variables have been allocated
+    cb.assert_offset(WITNESS_OFFSET_EMPTY_STEP);
+}
+
+impl Circuit<WASM_IO> for WASM_VM {
     fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
         &self,
         mut cb: B,
-        io: Vec<Var>,
-    ) -> Vec<Var> {
+        input: impl Fn(WASM_IO) -> Var,
+        output: impl Fn(WASM_IO) -> Var,
+    ) {
         let (mut switches, consume_switches) = Switches::new();
-        let WASM_IO {
-            sp_namespace,
-            sp,
-            pc_namespace,
-            pc,
-        } = WASM_IO::of(io);
+        let sp_namespace = input(WASM_IO::sp_namespace);
+        let sp = input(WASM_IO::sp);
+        let pc_namespace = input(WASM_IO::pc_namespace);
+        let pc = input(WASM_IO::pc);
+        let new_sp_namespace = output(WASM_IO::sp_namespace);
+        let new_sp = output(WASM_IO::sp);
+        let new_pc_namespace = output(WASM_IO::pc_namespace);
+        let new_pc = output(WASM_IO::pc);
         let opcode = cb.alloc(l!("opcode"));
-        cb.lookup(pc_namespace.clone(), pc.clone(), opcode.clone());
-        let new_sp_namespace = cb.alloc(l!("new_sp_namespace"));
-        let new_sp = cb.alloc(l!("new_sp"));
-        let new_pc_namespace = cb.alloc(l!("new_pc_namespace"));
-        let new_pc = cb.alloc(l!("new_pc"));
+        let param = cb.alloc(l!("param"));
         let global = WASMGlobal {
             opcode,
+            param,
             sp_namespace,
             sp,
             pc_namespace,
@@ -1406,6 +1111,7 @@ impl Circuit for WASM_VM {
             new_pc_namespace,
             new_pc,
         };
+        cb.assert_offset(N_GLOBAL_WITNESSES);
         visit_nop(cb.nest(l!()), &mut switches, global.clone());
         visit_drop(cb.nest(l!()), &mut switches, global.clone());
         visit_const(cb.nest(l!()), &mut switches, global.clone());
@@ -1418,26 +1124,43 @@ impl Circuit for WASM_VM {
         visit_jump(cb.nest(l!()), &mut switches, global.clone());
         visit_read(cb.nest(l!()), &mut switches, global.clone());
         visit_write(cb.nest(l!()), &mut switches, global.clone());
+        visit_alloc(cb.nest(l!()), &mut switches, global.clone());
         visit_select_c_not_0(cb.nest(l!()), &mut switches, global.clone());
         visit_select_c_0(cb.nest(l!()), &mut switches, global.clone());
-        switches.consume(consume_switches, cb.nest(l!()));
-        let WASMGlobal {
-            opcode: _,
-            sp_namespace: _,
-            sp: _,
-            pc_namespace: _,
-            pc: _,
-            new_sp_namespace: sp_namespace,
-            new_sp: sp,
-            new_pc_namespace: pc_namespace,
-            new_pc: pc,
-        } = global;
-        WASM_IO {
-            sp_namespace,
-            sp,
-            pc_namespace,
-            pc,
+        let is_empty_step = switches.consume(consume_switches, cb.nest(l!()));
+        visit_empty_step(cb.nest(l!()), is_empty_step.clone(), global.clone());
+        {
+            let mut cb = cb.nest(l!("opcode lookup"));
+            cb.assert_offset(WITNESS_OFFSET_OPCODE_LOOKUP);
+            let one = cb.one();
+            let real_opcode_idx = cb.alloc(l!("real_opcode_idx"));
+            let real_param_idx = cb.alloc(l!("real_param_idx"));
+            let switch = Switch {
+                switch: one.clone() - is_empty_step.switch.clone(),
+            };
+            cb.enforce(
+                l!(),
+                switch.switch.clone(),
+                global.pc.clone(),
+                real_opcode_idx.clone(),
+            );
+            cb.enforce(
+                l!(),
+                switch.switch.clone(),
+                global.pc.clone() + one.clone(),
+                real_param_idx.clone(),
+            );
+            cb.lookup(
+                global.pc_namespace.clone(),
+                real_opcode_idx,
+                global.opcode.clone(),
+            );
+            cb.lookup(
+                global.pc_namespace.clone(),
+                real_param_idx,
+                global.param.clone(),
+            );
+            cb.assert_offset(N_TOTAL_WITNESSES);
         }
-        .to()
     }
 }

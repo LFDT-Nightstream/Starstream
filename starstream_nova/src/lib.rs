@@ -2,6 +2,7 @@
 #![allow(clippy::suspicious_arithmetic_impl)]
 
 pub mod circuits;
+pub mod exec;
 pub mod interface;
 pub mod r1cs;
 pub mod test;

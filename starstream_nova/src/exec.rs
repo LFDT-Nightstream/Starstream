@@ -1,0 +1,403 @@
+// take a list of WASM modules, hash each to give them names,
+// then the entry point,
+// execute that to generate a transaction and a corresponding dummy proof
+
+use crate::{
+    circuits::{
+        Instr, WITNESS_OFFSET_ADD, WITNESS_OFFSET_ALLOC, WITNESS_OFFSET_COND_JUMP_C_0,
+        WITNESS_OFFSET_COND_JUMP_C_NOT_0, WITNESS_OFFSET_CONST, WITNESS_OFFSET_DROP,
+        WITNESS_OFFSET_GET, WITNESS_OFFSET_JUMP, WITNESS_OFFSET_NOP, WITNESS_OFFSET_READ,
+        WITNESS_OFFSET_SELECT_C_0, WITNESS_OFFSET_SELECT_C_NOT_0, WITNESS_OFFSET_SET,
+        WITNESS_OFFSET_SWAP, WITNESS_OFFSET_WRITE,
+    },
+    interface::const_hash_str,
+};
+
+pub struct State {
+    pub memory: Vec<i32>,
+    pub stack: Vec<i32>,
+    pub pc: i32,
+}
+
+const fn tag(s: &str) -> u64 {
+    const_hash_str(s)
+}
+
+const fn cons_tag(head: &str, tail: u64) -> u64 {
+    const C: u64 = 6872849445662101858;
+    let head = tag(head);
+    tail.wrapping_mul(C).wrapping_add(head)
+}
+
+pub struct Witnesses {
+    pub v: Vec<(u64, i32, i32)>,
+    pub offset: usize,
+}
+
+// FIXME: support namespaces
+/// Execute one step of the VM and generate the witnesses for the
+/// part of the switchboad executed. The usize returned indicates
+/// the offset into the array of witnesses. All other witnesses except
+/// the global witnesses are to be 0. The global witnesses can be
+/// calculated trivially by the caller given the old and the new state.
+pub fn step(code: &[i32], state: &mut State) -> Witnesses {
+    let opcode = code[state.pc as usize];
+    eprintln!("opcode is {}", opcode);
+    match opcode {
+        o if o == Instr::Unreachable as i32 => panic!("code jumped to unreachable area"),
+        o if o == Instr::Nop as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_nop"))
+            }
+            state.pc += 1;
+            let v = vec![(t("switch"), 1, 1)];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_NOP,
+            }
+        }
+        o if o == Instr::Drop as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_drop"))
+            }
+            state.pc += 1;
+            let popped = state.stack.pop().expect("empty stack");
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("prev"), popped, 1),
+                (t("real_addr"), state.stack.len() as i32, 1),
+                (t("real_old"), popped, 1),
+                (t("real_new"), 0, 1),
+            ];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_DROP,
+            }
+        }
+        o if o == Instr::Const as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_const"))
+            }
+            let pushed = code[state.pc as usize + 1];
+            let sp = state.stack.len();
+            state.stack.push(pushed);
+            state.pc += 2;
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("real_addr"), sp as i32, 1),
+                (t("real_old"), 0, 1),
+                (t("real_new"), pushed, 1),
+            ];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_CONST,
+            }
+        }
+        o if o == Instr::Add as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_add"))
+            }
+            let sp = state.stack.len() as i32;
+            let first = state.stack.pop().expect("empty stack");
+            let second = state.stack.pop().expect("empty stack");
+            state.stack.push(first + second);
+            state.pc += 1;
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("first"), first, 1),
+                (t("second"), second, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), first, 1),
+                (t("real_new"), 0, 1),
+                (t("real_addr"), sp - 2, 1),
+                (t("real_old"), second, 1),
+                (t("real_new"), first + second, 1),
+            ];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_ADD,
+            }
+        }
+        o if o == Instr::Get as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_get"))
+            }
+            let idx = code[state.pc as usize + 1];
+            let sp = state.stack.len() as i32;
+            let val = state.stack[(sp - idx) as usize];
+            state.stack.push(val);
+            state.pc += 2;
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("value"), val, 1),
+                (t("real_addr"), sp - idx, 1),
+                (t("real_old"), val, 1),
+                (t("real_new"), val, 1),
+                (t("real_addr"), sp, 1),
+                (t("real_old"), 0, 1),
+                (t("real_new"), val, 1),
+            ];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_GET,
+            }
+        }
+        o if o == Instr::Set as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_set"))
+            }
+            let idx = code[state.pc as usize + 1];
+            let sp = state.stack.len() as i32;
+            let old = state.stack[(sp - idx) as usize];
+            let new = state.stack.pop().expect("empty stack");
+            state.stack[(sp - idx) as usize] = new;
+            state.pc += 2;
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("old"), old, 1),
+                (t("new"), new, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), new, 1),
+                (t("real_new"), 0, 1),
+                (t("real_addr"), sp - idx, 1),
+                (t("real_old"), old, 1),
+                (t("real_new"), new, 1),
+            ];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_SET,
+            }
+        }
+        o if o == Instr::Swap as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_swap"))
+            }
+            let idx = code[state.pc as usize + 1];
+            let sp = state.stack.len() as i32;
+            let old = state.stack[(sp - idx) as usize];
+            let new = state.stack.pop().expect("empty stack");
+            state.stack[(sp - idx) as usize] = new;
+            state.pc += 2;
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("old"), old, 1),
+                (t("new"), new, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), new, 1),
+                (t("real_new"), 0, 1),
+                (t("real_addr"), sp - idx, 1),
+                (t("real_old"), old, 1),
+                (t("real_new"), new, 1),
+            ];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_SWAP,
+            }
+        }
+        o if o == Instr::CondJump as i32 => {
+            let sp = state.stack.len() as i32;
+            let new_pc = state.stack.pop().expect("empty stack");
+            let new_pc_namespace = state.stack.pop().expect("empty stack");
+            let c = state.stack.pop().expect("empty stack");
+            // FIXME: support multiple modules (and thus namespaces)
+            assert_eq!(new_pc_namespace, 0);
+            if c == 0 {
+                const fn t(l: &str) -> u64 {
+                    cons_tag(l, tag("visit_cond_jump_c_0"))
+                }
+                let v = vec![
+                    (t("switch"), 1, 1),
+                    (t("real_addr"), sp - 3, 1),
+                    (t("real_old"), 0, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 2, 1),
+                    (t("real_old"), new_pc_namespace, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 1, 1),
+                    (t("real_old"), new_pc, 1),
+                    (t("real_new"), 0, 1),
+                ];
+                state.pc = new_pc;
+                Witnesses {
+                    v,
+                    offset: WITNESS_OFFSET_COND_JUMP_C_0,
+                }
+            } else {
+                const fn t(l: &str) -> u64 {
+                    cons_tag(l, tag("visit_cond_jump_c_not_0"))
+                }
+                let v = vec![
+                    (t("switch"), 1, 1),
+                    (t("unused_pc"), new_pc, 1),
+                    (t("unused_pc_namespace"), new_pc_namespace, 1),
+                    (t("c"), c, 1),
+                    (t("c_inv"), 1, c),
+                    (t("real_addr"), sp - 3, 1),
+                    (t("real_old"), c, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 2, 1),
+                    (t("real_old"), new_pc_namespace, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 1, 1),
+                    (t("real_old"), new_pc, 1),
+                    (t("real_new"), 0, 1),
+                ];
+                state.pc += 1;
+                Witnesses {
+                    v,
+                    offset: WITNESS_OFFSET_COND_JUMP_C_NOT_0,
+                }
+            }
+        }
+        o if o == Instr::Jump as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_jump"))
+            }
+            let sp = state.stack.len() as i32;
+            let new_pc = state.stack.pop().expect("empty stack");
+            let new_pc_namespace = state.stack.pop().expect("empty stack");
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("real_addr"), sp - 2, 1),
+                (t("real_old"), new_pc_namespace, 1),
+                (t("real_new"), 0, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), new_pc, 1),
+                (t("real_new"), 0, 1),
+            ];
+            state.pc = new_pc;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_JUMP,
+            }
+        }
+        o if o == Instr::Read as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_read"))
+            }
+            let sp = state.stack.len() as i32;
+            let address = state.stack.pop().expect("empty stack");
+            let value = *state.memory.get(address as usize).unwrap_or(&0);
+            state.stack.push(value);
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("address"), address, 1),
+                (t("value"), value, 1),
+                (t("real_addr"), address, 1),
+                (t("real_old"), value, 1),
+                (t("real_new"), value, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), address, 1),
+                (t("real_new"), value, 1),
+            ];
+            state.pc += 1;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_READ,
+            }
+        }
+        o if o == Instr::Write as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_write"))
+            }
+            let sp = state.stack.len() as i32;
+            let new = state.stack.pop().expect("empty stack");
+            let address = state.stack.pop().expect("empty stack");
+            let old = *state.memory.get(address as usize).unwrap_or(&0);
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("address"), address, 1),
+                (t("old"), old, 1),
+                (t("new"), new, 1),
+                (t("real_addr"), address, 1),
+                (t("real_old"), old, 1),
+                (t("real_new"), new, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), new, 1),
+                (t("real_new"), 0, 1),
+                (t("real_addr"), sp - 2, 1),
+                (t("real_old"), address, 1),
+                (t("real_new"), 0, 1),
+            ];
+            state.pc += 1;
+            if state.memory.len() <= address as usize {
+                state.memory.resize(address as usize + 1, 0);
+            }
+            state.memory[address as usize] = new;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_WRITE,
+            }
+        }
+        o if o == Instr::Alloc as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_alloc"))
+            }
+            let count = code[state.pc as usize + 1];
+            state.stack.resize(state.stack.len() + count as usize, 0);
+            state.pc += 2;
+            let v = vec![(t("switch"), 1, 1)];
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_ALLOC,
+            }
+        }
+        o if o == Instr::Select as i32 => {
+            let sp = state.stack.len() as i32;
+            let c = state.stack.pop().expect("empty stack");
+            let y = state.stack.pop().expect("empty stack");
+            let x = state.stack.pop().expect("empty stack");
+            if c == 0 {
+                const fn t(l: &str) -> u64 {
+                    cons_tag(l, tag("visit_select_c_0"))
+                }
+                let v = vec![
+                    (t("switch"), 1, 1),
+                    (t("x"), x, 1),
+                    (t("y"), y, 1),
+                    (t("real_addr"), sp - 3, 1),
+                    (t("real_old"), x, 1),
+                    (t("real_new"), y, 1),
+                    (t("real_addr"), sp - 2, 1),
+                    (t("real_old"), y, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 1, 1),
+                    (t("real_old"), 0, 1),
+                    (t("real_new"), 0, 1),
+                ];
+                state.stack.push(x);
+                state.pc += 1;
+                Witnesses {
+                    v,
+                    offset: WITNESS_OFFSET_SELECT_C_0,
+                }
+            } else {
+                const fn t(l: &str) -> u64 {
+                    cons_tag(l, tag("visit_select_c_not_0"))
+                }
+                let v = vec![
+                    (t("switch"), 1, 1),
+                    (t("c"), c, 1),
+                    (t("c_inv"), 1, c),
+                    (t("y"), y, 1),
+                    (t("real_addr"), sp - 2, 1),
+                    (t("real_old"), y, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 1, 1),
+                    (t("real_old"), c, 1),
+                    (t("real_new"), 0, 1),
+                ];
+                state.stack.push(y);
+                state.pc += 1;
+                Witnesses {
+                    v,
+                    offset: WITNESS_OFFSET_SELECT_C_NOT_0,
+                }
+            }
+        }
+        o if o >= Instr::_End as i32 => {
+            panic!("invalid instruction")
+        }
+        _ => unreachable!("rustc can't tell this won't happen"),
+    }
+}
