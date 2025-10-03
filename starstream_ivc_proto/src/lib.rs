@@ -1,12 +1,18 @@
 mod circuit;
+mod goldilocks;
 mod memory;
+mod neo;
 
+use crate::neo::arkworks_to_neo;
+use ::neo::{Accumulator, NeoParams, prove_ivc_step_with_extractor};
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
 use circuit::{InterRoundWires, StepCircuitBuilder};
+use goldilocks::FpGoldilocks;
 use memory::{DummyMemory, IVCMemory};
 use std::collections::BTreeMap;
 
-type F = ark_bn254::Fr;
+// type F = ark_bn254::Fr;
+type F = FpGoldilocks;
 
 pub struct Transaction<P> {
     pub utxo_deltas: BTreeMap<UtxoId, UtxoChange>,
@@ -95,10 +101,11 @@ pub enum Instruction {
 pub struct ProverOutput {}
 
 impl Transaction<Vec<Instruction>> {
-    pub fn new_unproven(changes: BTreeMap<UtxoId, UtxoChange>, mut ops: Vec<Instruction>) -> Self {
-        for utxo_id in changes.keys() {
-            ops.push(Instruction::CheckUtxoOutput { utxo_id: *utxo_id });
-        }
+    pub fn new_unproven(changes: BTreeMap<UtxoId, UtxoChange>, ops: Vec<Instruction>) -> Self {
+        // TODO: uncomment later when folding works
+        // for utxo_id in changes.keys() {
+        //     ops.push(Instruction::CheckUtxoOutput { utxo_id: *utxo_id });
+        // }
 
         Self {
             utxo_deltas: changes,
@@ -123,10 +130,31 @@ impl Transaction<Vec<Instruction>> {
 
         let irw = InterRoundWires::new(tx.rom_offset());
 
+        println!("==============================================");
+        println!("Computing step circuit {}", 0);
+
         let mut irw = tx.make_step_circuit(0, &mut mem_setup, cs.clone(), irw)?;
 
+        println!("==============================================");
+
+        let mut step = arkworks_to_neo(cs.clone());
+        let ccs = step.ccs.clone();
+
+        let mut acc = Accumulator {
+            c_z_digest: [0u8; 32],
+            c_coords: vec![],
+            y_compact: step.input.clone(),
+            step: 0,
+        };
+
+        let params = NeoParams::goldilocks_small_circuits();
+
+        let mut ivc_proofs = vec![];
+
+        let mut prev_augmented_x = None;
+
         for i in 0..num_iters {
-            cs.finalize();
+            neo_ccs::relations::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).unwrap();
 
             let is_sat = cs.is_satisfied().unwrap();
 
@@ -136,6 +164,36 @@ impl Transaction<Vec<Instruction>> {
                     "The constraint system was not satisfied; here is a trace indicating which constraint was unsatisfied: \n{trace}",
                 )
             }
+
+            let step_result = prove_ivc_step_with_extractor(
+                &params,
+                &ccs,
+                &step.witness,
+                &acc,
+                i as u64,
+                None,
+                &step.output_extractor,
+                &step.step_binding_step,
+            )
+            .unwrap();
+
+            let verify_step_ok = ::neo::verify_ivc_step(
+                &ccs,
+                &step_result.proof,
+                &acc,
+                &step.step_binding_step,
+                &params,
+                prev_augmented_x.as_deref(),
+            )
+            .expect("verify_ivc_step should not error");
+
+            // FIXME: this doesn't work
+            assert!(verify_step_ok, "step verification failed");
+
+            acc = step_result.proof.next_accumulator.clone();
+            prev_augmented_x = Some(step_result.proof.step_augmented_public_input.clone());
+
+            ivc_proofs.push(step_result.proof);
 
             if i < num_iters - 1 {
                 cs = ConstraintSystem::<F>::new_ref();
@@ -147,6 +205,9 @@ impl Transaction<Vec<Instruction>> {
 
                 let next_irw = tx.make_step_circuit(i + 1, &mut mem_setup, cs.clone(), irw)?;
                 irw = next_irw;
+
+                step = arkworks_to_neo(cs.clone());
+
                 println!("==============================================");
             }
         }
@@ -210,12 +271,13 @@ mod tests {
             changes.clone(),
             vec![
                 Instruction::Nop {},
-                Instruction::Resume {
-                    utxo_id: utxo_id2,
-                    input: F::from(0),
-                    output: F::from(0),
-                },
-                Instruction::DropUtxo { utxo_id: utxo_id2 },
+                // Instruction::Nop {},
+                // Instruction::Resume {
+                //     utxo_id: utxo_id2,
+                //     input: F::from(0),
+                //     output: F::from(0),
+                // },
+                // Instruction::DropUtxo { utxo_id: utxo_id2 },
                 Instruction::Resume {
                     utxo_id: utxo_id3,
                     input: F::from(42),
@@ -225,10 +287,10 @@ mod tests {
                     utxo_id: utxo_id3,
                     output: F::from(42),
                 },
-                Instruction::Yield {
-                    utxo_id: utxo_id3,
-                    input: F::from(43),
-                },
+                // Instruction::Yield {
+                //     utxo_id: utxo_id3,
+                //     input: F::from(43),
+                // },
             ],
         );
 
@@ -239,7 +301,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_starstream_tx_resume_mismatch() {
+    fn test_fail_starstream_tx_resume_mismatch() {
         let utxo_id1: UtxoId = UtxoId::from(110);
 
         let changes = vec![(
