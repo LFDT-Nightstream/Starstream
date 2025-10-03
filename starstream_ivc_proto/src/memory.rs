@@ -159,11 +159,12 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
 
             Ok(vals)
         } else {
-            Ok(std::iter::repeat_n(
-                FpVar::new_constant(self.get_cs(), F::from(0)).unwrap(),
-                self.mems.get(&address.tag).copied().unwrap() as usize,
-            )
-            .collect())
+            let vals = std::iter::repeat_with(|| {
+                FpVar::new_witness(self.get_cs(), || Ok(F::from(0))).unwrap()
+            })
+            .take(self.mems.get(&address.tag).copied().unwrap() as usize);
+
+            Ok(vals.collect())
         }
     }
 
