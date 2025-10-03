@@ -206,6 +206,7 @@ impl Wires {
         coord_write_values: &ProgramState,
     ) -> Result<Wires, SynthesisError> {
         let cs = rm.get_cs();
+
         // io vars
         let current_program = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.current_program))?;
         let utxos_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.utxos_len))?;
