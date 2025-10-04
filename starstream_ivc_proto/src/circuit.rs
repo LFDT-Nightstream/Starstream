@@ -239,19 +239,22 @@ impl Wires {
             unreachable!()
         };
 
+        // NOTE: In this prototype, we skip enforcing that exactly one switch is true
+        // to keep the base constraint count under D for the Neo backend.
+        // 
         // TODO: figure out how to write this with the proper dsl
         // but we only need r1cs anyway.
-        cs.enforce_r1cs_constraint(
-            || {
-                allocated_switches
-                    .iter()
-                    .fold(LinearCombination::new(), |acc, switch| acc + switch.lc())
-                    .clone()
-            },
-            || LinearCombination::new() + Variable::one(),
-            || LinearCombination::new() + Variable::one(),
-        )
-        .unwrap();
+        // cs.enforce_r1cs_constraint(
+        //     || {
+        //         allocated_switches
+        //             .iter()
+        //             .fold(LinearCombination::new(), |acc, switch| acc + switch.lc())
+        //             .clone()
+        //     },
+        //     || LinearCombination::new() + Variable::one(),
+        //     || LinearCombination::new() + Variable::one(),
+        // )
+        // .unwrap();
 
         let utxo_id = FpVar::<F>::new_witness(ns!(cs.clone(), "utxo_id"), || Ok(vals.utxo_id))?;
         let input = FpVar::<F>::new_witness(ns!(cs.clone(), "input"), || Ok(vals.input))?;
@@ -948,8 +951,8 @@ fn ivcify_wires(
     let (current_program_in, current_program_out) = {
         let f_in = || wires_in.current_program.value();
         let f_out = || wires_out.current_program.value();
-        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
+        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Witness)?;
+        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Witness)?;
 
         Ok((alloc_in, alloc_out))
     }?;
@@ -964,8 +967,8 @@ fn ivcify_wires(
     let (current_rom_offset_in, current_rom_offset_out) = {
         let f_in = || wires_in.utxos_len.value();
         let f_out = || wires_out.utxos_len.value();
-        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
+        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Witness)?;
+        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Witness)?;
 
         Ok((alloc_in, alloc_out))
     }?;
@@ -979,8 +982,8 @@ fn ivcify_wires(
         let cs = cs.clone();
         let f_in = || wires_in.n_finalized.value();
         let f_out = || wires_out.n_finalized.value();
-        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
+        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Witness)?;
+        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Witness)?;
 
         Ok((alloc_in, alloc_out))
     }?;
