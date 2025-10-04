@@ -1,17 +1,16 @@
 use crate::goldilocks::FpGoldilocks;
-use ark_ff::{Field, PrimeField};
-use ark_relations::gr1cs::ConstraintSystemRef;
-use neo::{CcsStructure, F, IndexExtractor, ivc::StepBindingSpec};
+use ark_ff::PrimeField;
+use ark_relations::gr1cs::{ConstraintSystemRef, OptimizationGoal, ConstraintSystem};
+use neo::{CcsStructure, F};
 use p3_field::PrimeCharacteristicRing;
+use crate::circuit::{InterRoundWires, StepCircuitBuilder};
+use crate::memory::{DummyMemory, IVCMemory};
+use ::neo::{NeoStep as SessionNeoStep, StepArtifacts, StepSpec, StepDescriptor};
 
 pub(crate) struct NeoStep {
     pub(crate) ccs: CcsStructure<F>,
-    // instance + witness assignments
+    /// Full variable vector expected by CCS: [instance || witness]
     pub(crate) witness: Vec<F>,
-    // only input assignments
-    pub(crate) input: Vec<F>,
-    pub(crate) step_binding_step: StepBindingSpec,
-    pub(crate) output_extractor: IndexExtractor,
 }
 
 pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoStep {
@@ -19,31 +18,18 @@ pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoStep 
 
     let matrices = &cs.to_matrices().unwrap()["R1CS"];
 
-    dbg!(cs.num_constraints());
-    dbg!(cs.num_instance_variables());
-    dbg!(cs.num_witness_variables());
+    #[cfg(debug_assertions)]
+    {
+        dbg!(cs.num_constraints());
+        dbg!(cs.num_instance_variables());
+        dbg!(cs.num_witness_variables());
+    }
 
     let a_mat = ark_matrix_to_neo(&cs, &matrices[0]);
     let b_mat = ark_matrix_to_neo(&cs, &matrices[1]);
     let c_mat = ark_matrix_to_neo(&cs, &matrices[2]);
 
     let ccs = neo_ccs::r1cs_to_ccs(a_mat, b_mat, c_mat);
-
-    let instance_assignment = cs.instance_assignment().unwrap();
-    assert_eq!(instance_assignment[0], FpGoldilocks::ONE);
-    assert_eq!(instance_assignment.len() % 2, 1);
-
-    // NOTE: this is not inherent to arkworks, it's just how the circuit is
-    // constructed (see circuit.rs/ivcify_wires).
-    //
-    // input-output pairs are allocated contiguously
-    //
-    // we start from 1 to skip the 1 constant
-    let input_assignments: Vec<_> = instance_assignment[1..]
-        .iter()
-        .step_by(2)
-        .map(ark_field_to_p3_goldilocks)
-        .collect();
 
     let instance = cs
         .instance_assignment()
@@ -59,44 +45,7 @@ pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoStep 
         .map(ark_field_to_p3_goldilocks)
         .collect::<Vec<_>>();
 
-    let binding_spec = StepBindingSpec {
-        // indices of output variables (we allocate contiguous input, output
-        // pairs for ivc).
-        //
-        // see circuit.rs/ivcify_wires
-        y_step_offsets: (2..)
-            .step_by(2)
-            .take(input_assignments.len())
-            .collect::<Vec<_>>(),
-
-        // TODO: what's this for?
-        x_witness_indices: vec![],
-        // indices of input variables (we allocate contiguous input, output
-        // pairs for ivc)
-        //
-        // see circuit.rs/ivcify_wires
-        y_prev_witness_indices: (1..)
-            .step_by(2)
-            .take(input_assignments.len())
-            .collect::<Vec<_>>(),
-
-        const1_witness_index: 0,
-    };
-
-    let output_extractor = IndexExtractor {
-        indices: (2..)
-            .step_by(2)
-            .take(input_assignments.len())
-            .collect::<Vec<_>>(),
-    };
-
-    NeoStep {
-        ccs,
-        witness: [instance, witness].concat(),
-        input: input_assignments,
-        step_binding_step: binding_spec,
-        output_extractor,
-    }
+    NeoStep { ccs, witness: [instance, witness].concat() }
 }
 
 fn ark_matrix_to_neo(
@@ -120,4 +69,75 @@ fn ark_matrix_to_neo(
 
 fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
     F::from_u64(col_v.into_bigint().0[0])
+}
+
+// High-level session adapter that synthesizes Arkworks steps and exposes them to Neo
+pub(crate) struct ArkStepAdapter {
+    pub builder: StepCircuitBuilder<DummyMemory<FpGoldilocks>>,
+    pub mem_setup: <DummyMemory<FpGoldilocks> as IVCMemory<FpGoldilocks>>::Allocator,
+    pub irw: InterRoundWires,
+    shape_ccs: Option<CcsStructure<::neo::F>>, // stable shape across steps
+}
+
+impl ArkStepAdapter {
+    pub fn new(mut builder: StepCircuitBuilder<DummyMemory<FpGoldilocks>>) -> Self {
+        let mb = builder.trace_memory_ops(());
+        let mem_setup = mb.constraints();
+        let irw = InterRoundWires::new(builder.rom_offset());
+        Self { builder, mem_setup, irw, shape_ccs: None }
+    }
+
+    pub fn descriptor(&self) -> StepDescriptor {
+        StepDescriptor {
+            ccs: self.shape_ccs.as_ref().expect("shape CCS available").clone(),
+            spec: self.step_spec(),
+        }
+    }
+}
+
+impl SessionNeoStep for ArkStepAdapter {
+    type ExternalInputs = ();
+
+    fn state_len(&self) -> usize { 0 }
+
+    fn step_spec(&self) -> StepSpec {
+        StepSpec {
+            y_len: 0,
+            const1_index: 0,
+            y_step_indices: vec![],
+            y_prev_indices: None,
+            // Do not bind app inputs in CCS (transcript-only app inputs)
+            app_input_indices: None,
+        }
+    }
+
+    fn synthesize_step(
+        &mut self,
+        step_idx: usize,
+        _z_prev: &[::neo::F],
+        _inputs: &Self::ExternalInputs,
+    ) -> StepArtifacts {
+        let cs = ConstraintSystem::<FpGoldilocks>::new_ref();
+        cs.set_optimization_goal(OptimizationGoal::Constraints);
+
+        let next_irw = self
+            .builder
+            .make_step_circuit(step_idx, &mut self.mem_setup, cs.clone(), self.irw.clone())
+            .expect("step synthesis");
+        self.irw = next_irw;
+
+        let step = arkworks_to_neo(cs.clone());
+
+        if self.shape_ccs.is_none() {
+            self.shape_ccs = Some(step.ccs.clone());
+        }
+
+        StepArtifacts {
+            ccs: step.ccs,
+            witness: step.witness,
+            // Provide one app input matching const-1 to satisfy X-binder checks
+            public_app_inputs: vec![::neo::F::ONE],
+            spec: self.step_spec(),
+        }
+    }
 }
