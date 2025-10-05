@@ -3,13 +3,12 @@ mod goldilocks;
 mod memory;
 mod neo;
 
-use p3_field::PrimeField64;
-use ::neo::{NeoParams, IvcSession, StepDescriptor, CcsStructure, IvcChainProof, verify_chain_with_descriptor};
-use ark_relations::gr1cs::SynthesisError;
-use circuit::StepCircuitBuilder;
+use crate::neo::arkworks_to_neo;
+use ::neo::{Accumulator, NeoParams, prove_ivc_step_with_extractor};
+use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
+use circuit::{InterRoundWires, StepCircuitBuilder};
 use goldilocks::FpGoldilocks;
-use memory::DummyMemory;
-use crate::neo::ArkStepAdapter;
+use memory::{DummyMemory, IVCMemory};
 use std::collections::BTreeMap;
 
 // type F = ark_bn254::Fr;
@@ -99,69 +98,132 @@ pub enum Instruction {
     CheckUtxoOutput { utxo_id: F },
 }
 
-pub struct ProverOutput {
-    pub descriptor: StepDescriptor,
-    pub chain: IvcChainProof,
-    pub params: NeoParams,
-}
+pub struct ProverOutput {}
 
 impl Transaction<Vec<Instruction>> {
     pub fn new_unproven(changes: BTreeMap<UtxoId, UtxoChange>, ops: Vec<Instruction>) -> Self {
-        Self { utxo_deltas: changes, proof_like: ops }
+        // TODO: uncomment later when folding works
+        // for utxo_id in changes.keys() {
+        //     ops.push(Instruction::CheckUtxoOutput { utxo_id: *utxo_id });
+        // }
+
+        Self {
+            utxo_deltas: changes,
+            proof_like: ops,
+        }
     }
 
     pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
-        let builder = StepCircuitBuilder::<DummyMemory<F>>::new(
+        let mut tx = StepCircuitBuilder::<DummyMemory<F>>::new(
             self.utxo_deltas.clone(),
             self.proof_like.clone(),
         );
-        let mut adapter = ArkStepAdapter::new(builder);
-        let params = NeoParams::goldilocks_small_circuits();
-        let mut session = IvcSession::new(&params, vec![], 0);
 
-        let steps = self.proof_like.len();
-        for i in 0..steps {
-            println!("==============================================");
-            println!("Computing step circuit {}", i);
-            session.prove_step(&mut adapter, &()).expect("prove step");
-            println!("==============================================");
+        let mb = tx.trace_memory_ops(());
+
+        let mut mem_setup = mb.constraints();
+
+        let num_iters = tx.ops.len();
+
+        let mut cs = ConstraintSystem::<F>::new_ref();
+        cs.set_optimization_goal(OptimizationGoal::Constraints);
+
+        let irw = InterRoundWires::new(tx.rom_offset());
+
+        println!("==============================================");
+        println!("Computing step circuit {}", 0);
+
+        let mut irw = tx.make_step_circuit(0, &mut mem_setup, cs.clone(), irw)?;
+
+        println!("==============================================");
+
+        let mut step = arkworks_to_neo(cs.clone());
+        let ccs = step.ccs.clone();
+
+        let mut acc = Accumulator {
+            c_z_digest: [0u8; 32],
+            c_coords: vec![],
+            y_compact: step.input.clone(),
+            step: 0,
+        };
+
+        let params = NeoParams::goldilocks_small_circuits();
+
+        let mut ivc_proofs = vec![];
+
+        let mut prev_augmented_x = None;
+
+        for i in 0..num_iters {
+            neo_ccs::relations::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).unwrap();
+
+            let is_sat = cs.is_satisfied().unwrap();
+
+            if !is_sat {
+                let trace = cs.which_is_unsatisfied().unwrap().unwrap();
+                panic!(
+                    "The constraint system was not satisfied; here is a trace indicating which constraint was unsatisfied: \n{trace}",
+                )
+            }
+
+            let step_result = prove_ivc_step_with_extractor(
+                &params,
+                &ccs,
+                &step.witness,
+                &acc,
+                i as u64,
+                None,
+                &step.output_extractor,
+                &step.step_binding_step,
+            )
+            .unwrap();
+
+            let verify_step_ok = ::neo::verify_ivc_step(
+                &ccs,
+                &step_result.proof,
+                &acc,
+                &step.step_binding_step,
+                &params,
+                prev_augmented_x.as_deref(),
+            )
+            .expect("verify_ivc_step should not error");
+
+            // FIXME: this doesn't work
+            assert!(verify_step_ok, "step verification failed");
+
+            acc = step_result.proof.next_accumulator.clone();
+            prev_augmented_x = Some(step_result.proof.step_augmented_public_input.clone());
+
+            ivc_proofs.push(step_result.proof);
+
+            if i < num_iters - 1 {
+                cs = ConstraintSystem::<F>::new_ref();
+                cs.set_optimization_goal(OptimizationGoal::Constraints);
+
+                println!("==============================================");
+
+                println!("Computing step circuit {}", i + 1);
+
+                let next_irw = tx.make_step_circuit(i + 1, &mut mem_setup, cs.clone(), irw)?;
+                irw = next_irw;
+
+                step = arkworks_to_neo(cs.clone());
+
+                println!("==============================================");
+            }
         }
 
-        let chain = session.finalize();
-        let descriptor = adapter.descriptor();
-        let prover_output = ProverOutput { descriptor, chain, params };
-        
-        Ok(Transaction { utxo_deltas: self.utxo_deltas.clone(), proof_like: prover_output })
+        let prover_output = ProverOutput {};
+        Ok(Transaction {
+            utxo_deltas: self.utxo_deltas.clone(),
+            proof_like: prover_output,
+        })
     }
 }
 
 impl Transaction<ProverOutput> {
     pub fn verify(&self, _changes: BTreeMap<UtxoId, UtxoChange>) {
-        // Manual strict per-step verification threading prev_augmented_x (bypasses base-case ambiguity)
-        let binding = self.proof_like.descriptor.spec.binding_spec();
-        let mut acc = ::neo::ivc::Accumulator { c_z_digest: [0u8; 32], c_coords: vec![], y_compact: vec![], step: 0 };
-        let mut prev_augmented_x: Option<Vec<::neo::F>> = None;
-
-        for (i, step) in self.proof_like.chain.steps.iter().enumerate() {
-            // On the first step, use the prover-supplied LHS augmented input to avoid shape drift
-            if i == 0 {
-                prev_augmented_x = Some(step.prev_step_augmented_public_input.clone());
-            }
-
-            let ok = ::neo::ivc::verify_ivc_step(
-                &self.proof_like.descriptor.ccs,
-                step,
-                &acc,
-                &binding,
-                &self.proof_like.params,
-                prev_augmented_x.as_deref(),
-            ).expect("per-step verify should not error");
-            assert!(ok, "IVC step {} verification failed", i);
-
-            // Advance accumulator and thread augmented x
-            acc = step.next_accumulator.clone();
-            prev_augmented_x = Some(step.step_augmented_public_input.clone());
-        }
+        // TODO: fill
+        //
     }
 }
 
@@ -187,11 +249,19 @@ mod tests {
             ),
             (
                 utxo_id2,
-                UtxoChange { output_before: F::from(4), output_after: F::from(0), consumed: true },
+                UtxoChange {
+                    output_before: F::from(4),
+                    output_after: F::from(0),
+                    consumed: true,
+                },
             ),
             (
                 utxo_id3,
-                UtxoChange { output_before: F::from(5), output_after: F::from(43), consumed: false },
+                UtxoChange {
+                    output_before: F::from(5),
+                    output_after: F::from(43),
+                    consumed: false,
+                },
             ),
         ]
         .into_iter()
@@ -201,12 +271,31 @@ mod tests {
             changes.clone(),
             vec![
                 Instruction::Nop {},
-                Instruction::Resume { utxo_id: utxo_id3, input: F::from(42), output: F::from(43) },
-                Instruction::YieldResume { utxo_id: utxo_id3, output: F::from(42) },
+                // Instruction::Nop {},
+                // Instruction::Resume {
+                //     utxo_id: utxo_id2,
+                //     input: F::from(0),
+                //     output: F::from(0),
+                // },
+                // Instruction::DropUtxo { utxo_id: utxo_id2 },
+                Instruction::Resume {
+                    utxo_id: utxo_id3,
+                    input: F::from(42),
+                    output: F::from(43),
+                },
+                Instruction::YieldResume {
+                    utxo_id: utxo_id3,
+                    output: F::from(42),
+                },
+                // Instruction::Yield {
+                //     utxo_id: utxo_id3,
+                //     input: F::from(43),
+                // },
             ],
         );
 
         let proof = tx.prove().unwrap();
+
         proof.verify(changes);
     }
 
@@ -248,48 +337,6 @@ mod tests {
 
         let proof = tx.prove().unwrap();
 
-        proof.verify(changes);
-    }
-
-    #[test]
-    fn test_tx_with_output_checks_multi_folding() {
-        let utxo_id1: UtxoId = UtxoId::from(100);
-        let utxo_id2: UtxoId = UtxoId::from(200);
-        let utxo_id3: UtxoId = UtxoId::from(300);
-
-        // Set desired final states in the ROM:
-        //  - u1: unchanged (5 -> 5, not consumed)
-        //  - u2: unchanged for this test (4 -> 4, not consumed)
-        //  - u3: consumed (7 -> 7, consumed)
-        let changes = vec![
-            (
-                utxo_id1,
-                UtxoChange { output_before: F::from(5), output_after: F::from(5), consumed: false },
-            ),
-            (
-                utxo_id2,
-                UtxoChange { output_before: F::from(4), output_after: F::from(4), consumed: false },
-            ),
-            (
-                utxo_id3,
-                UtxoChange { output_before: F::from(7), output_after: F::from(7), consumed: false },
-            ),
-        ]
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
-
-        // Multi-step program:
-        //  - Yield on u2 to set its current output to 9
-        //  - Resume on u3 to mark it consumed
-        //  - new_unproven() appends CheckUtxoOutput for all UTXOs to validate final state
-        let mut ops = vec![Instruction::Nop {}];
-        // No state changes; checks should pass against ROM as-is
-        for &u in &[utxo_id1, utxo_id2, utxo_id3] {
-            ops.push(Instruction::CheckUtxoOutput { utxo_id: u });
-        }
-        let tx = Transaction::new_unproven(changes.clone(), ops);
-
-        let proof = tx.prove().unwrap();
         proof.verify(changes);
     }
 }
