@@ -70,7 +70,7 @@ pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoStep 
             .collect::<Vec<_>>(),
 
         // TODO: what's this for?
-        x_witness_indices: vec![],
+        step_program_input_witness_indices: vec![],
         // indices of input variables (we allocate contiguous input, output
         // pairs for ivc)
         //
