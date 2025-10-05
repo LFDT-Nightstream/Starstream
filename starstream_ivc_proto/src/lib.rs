@@ -232,8 +232,25 @@ mod tests {
     use crate::{F, Instruction, Transaction, UtxoChange, UtxoId};
     use std::collections::BTreeMap;
 
+    use tracing_subscriber::{EnvFilter, fmt};
+
+    fn init_test_logging() {
+        static INIT: std::sync::Once = std::sync::Once::new();
+
+        INIT.call_once(|| {
+            fmt()
+                .with_env_filter(
+                    EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()),
+                )
+                .with_test_writer()
+                .init();
+        });
+    }
+
     #[test]
     fn test_starstream_tx() {
+        init_test_logging();
+
         let utxo_id1: UtxoId = UtxoId::from(110);
         let utxo_id2: UtxoId = UtxoId::from(300);
         let utxo_id3: UtxoId = UtxoId::from(400);
