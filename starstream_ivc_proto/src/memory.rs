@@ -18,7 +18,7 @@ pub trait IVCMemory<F: PrimeField> {
 
     fn new(info: Self::Params) -> Self;
 
-    fn register_mem(&mut self, tag: u64, size: u64);
+    fn register_mem(&mut self, tag: u64, size: u64, debug_name: &'static str);
 
     fn init(&mut self, address: Address<u64>, values: Vec<F>);
 
@@ -53,7 +53,7 @@ pub struct DummyMemory<F> {
     writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
     init: BTreeMap<Address<u64>, Vec<F>>,
 
-    mems: BTreeMap<u64, u64>,
+    mems: BTreeMap<u64, (u64, &'static str)>,
 }
 
 impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
@@ -71,8 +71,8 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
         }
     }
 
-    fn register_mem(&mut self, tag: u64, size: u64) {
-        self.mems.insert(tag, size);
+    fn register_mem(&mut self, tag: u64, size: u64, debug_name: &'static str) {
+        self.mems.insert(tag, (size, debug_name));
     }
 
     fn init(&mut self, address: Address<u64>, values: Vec<F>) {
@@ -118,7 +118,7 @@ pub struct DummyMemoryConstraints<F: PrimeField> {
     reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
     writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
 
-    mems: BTreeMap<u64, u64>,
+    mems: BTreeMap<u64, (u64, &'static str)>,
 }
 
 impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
@@ -142,6 +142,10 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
         cond: &Boolean<F>,
         address: &Address<FpVar<F>>,
     ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let _guard = tracing::debug_span!("conditional_read").entered();
+
+        let mem = self.mems.get(&address.tag).copied().unwrap();
+
         if cond.value().unwrap() {
             let address = Address {
                 addr: address.addr.value().unwrap().into_bigint().as_ref()[0],
@@ -157,12 +161,21 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
                 .map(|v| FpVar::new_witness(self.get_cs(), || Ok(v)).unwrap())
                 .collect::<Vec<_>>();
 
+            tracing::debug!(
+                "read {:?} at address {} in segment {}",
+                vals.iter()
+                    .map(|v| v.value().unwrap().into_bigint())
+                    .collect::<Vec<_>>(),
+                address.addr,
+                mem.1,
+            );
+
             Ok(vals)
         } else {
             let vals = std::iter::repeat_with(|| {
                 FpVar::new_witness(self.get_cs(), || Ok(F::from(0))).unwrap()
             })
-            .take(self.mems.get(&address.tag).copied().unwrap() as usize);
+            .take(mem.0 as usize);
 
             Ok(vals.collect())
         }
@@ -174,6 +187,8 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
         address: &Address<FpVar<F>>,
         vals: &[FpVar<F>],
     ) -> Result<(), SynthesisError> {
+        let _guard = tracing::debug_span!("conditional_write").entered();
+
         if cond.value().unwrap() {
             let address = Address {
                 addr: address.addr.value().unwrap().into_bigint().as_ref()[0],
@@ -187,6 +202,16 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
             for ((_, val), expected) in vals.iter().enumerate().zip(expected_vals.iter()) {
                 assert_eq!(val.value().unwrap(), *expected);
             }
+
+            let mem = self.mems.get(&address.tag).copied().unwrap();
+            tracing::debug!(
+                "write values {:?} at address {} in segment {}",
+                vals.iter()
+                    .map(|v| v.value().unwrap().into_bigint())
+                    .collect::<Vec<_>>(),
+                address.addr,
+                mem.1,
+            );
         }
 
         Ok(())

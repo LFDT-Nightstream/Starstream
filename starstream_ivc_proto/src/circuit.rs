@@ -11,6 +11,7 @@ use ark_relations::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
+use tracing::debug_span;
 
 /// The RAM part is an array of ProgramState
 pub const RAM_SEGMENT: u64 = 9u64;
@@ -205,6 +206,8 @@ impl Wires {
         utxo_write_values: &ProgramState,
         coord_write_values: &ProgramState,
     ) -> Result<Wires, SynthesisError> {
+        vals.debug_print();
+
         let cs = rm.get_cs();
 
         // io vars
@@ -254,6 +257,7 @@ impl Wires {
         .unwrap();
 
         let utxo_id = FpVar::<F>::new_witness(ns!(cs.clone(), "utxo_id"), || Ok(vals.utxo_id))?;
+
         let input = FpVar::<F>::new_witness(ns!(cs.clone(), "input"), || Ok(vals.input))?;
         let output = FpVar::<F>::new_witness(ns!(cs.clone(), "output"), || Ok(vals.output))?;
 
@@ -369,8 +373,30 @@ impl InterRoundWires {
     }
 
     pub fn update(&mut self, res: Wires) {
+        let _guard = debug_span!("update ivc state").entered();
+
+        tracing::debug!(
+            "current_program from {} to {}",
+            self.current_program,
+            res.current_program.value().unwrap()
+        );
+
         self.current_program = res.current_program.value().unwrap();
+
+        tracing::debug!(
+            "utxos_len from {} to {}",
+            self.utxos_len,
+            res.utxos_len.value().unwrap()
+        );
+
         self.utxos_len = res.utxos_len.value().unwrap();
+
+        tracing::debug!(
+            "n_finalized from {} to {}",
+            self.n_finalized,
+            res.n_finalized.value().unwrap()
+        );
+
         self.n_finalized = res.n_finalized.value().unwrap();
     }
 }
@@ -485,6 +511,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     ) -> Result<InterRoundWires, SynthesisError> {
         rm.start_step(cs.clone()).unwrap();
 
+        let _guard = tracing::info_span!("make_step_circuit", i = i, op = ?self.ops[i]).entered();
+
         let wires_in = self.allocate_vars(i, rm, &irw)?;
         let next_wires = wires_in.clone();
 
@@ -510,9 +538,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let (mut mb, utxo_order_mapping) = {
             let mut mb = M::new(params);
 
-            mb.register_mem(RAM_SEGMENT, PROGRAM_STATE_SIZE);
-            mb.register_mem(UTXO_INDEX_MAPPING_SEGMENT, UTXO_INDEX_MAPPING_SIZE);
-            mb.register_mem(OUTPUT_CHECK_SEGMENT, OUTPUT_CHECK_SIZE);
+            mb.register_mem(RAM_SEGMENT, PROGRAM_STATE_SIZE, "RAM");
+            mb.register_mem(
+                UTXO_INDEX_MAPPING_SEGMENT,
+                UTXO_INDEX_MAPPING_SIZE,
+                "UTXO_INDEX_MAPPING",
+            );
+            mb.register_mem(OUTPUT_CHECK_SEGMENT, OUTPUT_CHECK_SIZE, "EXPECTED_OUTPUTS");
 
             let mut utxo_order_mapping: HashMap<F, usize> = Default::default();
 
@@ -1019,6 +1051,14 @@ impl PreWires {
             irw,
         }
     }
+
+    pub fn debug_print(&self) {
+        let _guard = debug_span!("witness assignments").entered();
+
+        tracing::debug!("utxo_id={}", self.utxo_id);
+        tracing::debug!("utxo_address={}", self.utxo_address);
+        tracing::debug!("coord_address={}", self.coord_address);
+    }
 }
 
 impl ProgramState {
@@ -1046,5 +1086,12 @@ impl ProgramState {
             self.input,
             self.output,
         ]
+    }
+
+    pub fn debug_print(&self) {
+        tracing::debug!("consumed={}", self.consumed);
+        tracing::debug!("finalized={}", self.finalized);
+        tracing::debug!("input={}", self.input);
+        tracing::debug!("output={}", self.output);
     }
 }
