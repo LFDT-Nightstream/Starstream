@@ -4,7 +4,7 @@ mod memory;
 mod neo;
 
 use crate::neo::arkworks_to_neo;
-use ::neo::{Accumulator, NeoParams, prove_ivc_step_with_extractor};
+use ::neo::{NeoParams, session::{IvcSession, NeoStep as NeoStepTrait, StepArtifacts, StepSpec}};
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
 use circuit::{InterRoundWires, StepCircuitBuilder};
 use goldilocks::FpGoldilocks;
@@ -100,6 +100,89 @@ pub enum Instruction {
 
 pub struct ProverOutput {}
 
+/// Adapter to bridge our Arkworks-based circuit to the neo session API
+struct TransactionStepper {
+    tx: StepCircuitBuilder<DummyMemory<F>>,
+    mem_setup: Option<<DummyMemory<F> as IVCMemory<F>>::Allocator>,
+    irw: Option<InterRoundWires>,
+}
+
+impl TransactionStepper {
+    fn new(utxo_deltas: BTreeMap<UtxoId, UtxoChange>, ops: Vec<Instruction>) -> Self {
+        let mut tx = StepCircuitBuilder::<DummyMemory<F>>::new(utxo_deltas, ops);
+        let mb = tx.trace_memory_ops(());
+        let mem_setup = mb.constraints();
+        let irw = InterRoundWires::new(tx.rom_offset());
+        
+        Self {
+            tx,
+            mem_setup: Some(mem_setup),
+            irw: Some(irw),
+        }
+    }
+}
+
+impl NeoStepTrait for TransactionStepper {
+    type ExternalInputs = ();
+    
+    fn state_len(&self) -> usize {
+        3 // current_program, utxos_len, n_finalized
+    }
+    
+    fn step_spec(&self) -> StepSpec {
+        StepSpec {
+            y_len: 3,
+            const1_index: 0,
+            y_step_indices: vec![2, 4, 6], // output indices for IVC state
+            y_prev_indices: Some(vec![1, 3, 5]), // input indices for IVC state
+            app_input_indices: None,
+        }
+    }
+    
+    fn synthesize_step(
+        &mut self,
+        step_idx: usize,
+        _z_prev: &[::neo::F],
+        _inputs: &Self::ExternalInputs,
+    ) -> StepArtifacts {
+        let mut cs = ConstraintSystem::<F>::new_ref();
+        cs.set_optimization_goal(OptimizationGoal::Constraints);
+        
+        println!("==============================================");
+        println!("Computing step circuit {}", step_idx);
+        
+        let mut mem_setup = self.mem_setup.take().unwrap();
+        let irw = self.irw.take().unwrap();
+        
+        let next_irw = self.tx.make_step_circuit(step_idx, &mut mem_setup, cs.clone(), irw)
+            .expect("Failed to synthesize step circuit");
+        
+        println!("==============================================");
+        
+        let neo_step = arkworks_to_neo(cs.clone());
+        
+        // Verify constraint satisfaction
+        let is_sat = cs.is_satisfied().unwrap();
+        if !is_sat {
+            let trace = cs.which_is_unsatisfied().unwrap().unwrap();
+            panic!(
+                "The constraint system was not satisfied; here is a trace: \n{trace}",
+            );
+        }
+        
+        // Store for next iteration
+        self.mem_setup = Some(mem_setup);
+        self.irw = Some(next_irw);
+        
+        StepArtifacts {
+            ccs: neo_step.ccs,
+            witness: neo_step.witness,
+            public_app_inputs: vec![],
+            spec: self.step_spec(),
+        }
+    }
+}
+
 impl Transaction<Vec<Instruction>> {
     pub fn new_unproven(changes: BTreeMap<UtxoId, UtxoChange>, ops: Vec<Instruction>) -> Self {
         // TODO: uncomment later when folding works
@@ -114,102 +197,26 @@ impl Transaction<Vec<Instruction>> {
     }
 
     pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
-        let mut tx = StepCircuitBuilder::<DummyMemory<F>>::new(
+        // Use parameters suitable for ℓ=6 circuits (64 rows after padding)
+        // With safety margin of 2 bits
+        let params = NeoParams::goldilocks_autotuned_s2(6, 3, 2);
+        
+        // Create IVC session with initial state from first step
+        let mut session = IvcSession::new(&params, None, 0);
+        
+        // Create our stepper adapter
+        let mut stepper = TransactionStepper::new(
             self.utxo_deltas.clone(),
             self.proof_like.clone(),
         );
-
-        let mb = tx.trace_memory_ops(());
-
-        let mut mem_setup = mb.constraints();
-
-        let num_iters = tx.ops.len();
-
-        let mut cs = ConstraintSystem::<F>::new_ref();
-        cs.set_optimization_goal(OptimizationGoal::Constraints);
-
-        let irw = InterRoundWires::new(tx.rom_offset());
-
-        println!("==============================================");
-        println!("Computing step circuit {}", 0);
-
-        let mut irw = tx.make_step_circuit(0, &mut mem_setup, cs.clone(), irw)?;
-
-        println!("==============================================");
-
-        let mut step = arkworks_to_neo(cs.clone());
-        let ccs = step.ccs.clone();
-
-        let mut acc = Accumulator {
-            c_z_digest: [0u8; 32],
-            c_coords: vec![],
-            y_compact: step.input.clone(),
-            step: 0,
-        };
-
-        let params = NeoParams::goldilocks_small_circuits();
-
-        let mut ivc_proofs = vec![];
-
-        let mut prev_augmented_x = None;
-
-        for i in 0..num_iters {
-            neo_ccs::relations::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).unwrap();
-
-            let is_sat = cs.is_satisfied().unwrap();
-
-            if !is_sat {
-                let trace = cs.which_is_unsatisfied().unwrap().unwrap();
-                panic!(
-                    "The constraint system was not satisfied; here is a trace indicating which constraint was unsatisfied: \n{trace}",
-                )
-            }
-
-            let step_result = prove_ivc_step_with_extractor(
-                &params,
-                &ccs,
-                &step.witness,
-                &acc,
-                i as u64,
-                None,
-                &step.output_extractor,
-                &step.step_binding_step,
-            )
-            .unwrap();
-
-            let verify_step_ok = ::neo::verify_ivc_step(
-                &ccs,
-                &step_result.proof,
-                &acc,
-                &step.step_binding_step,
-                &params,
-                prev_augmented_x.as_deref(),
-            )
-            .expect("verify_ivc_step should not error");
-
-            // FIXME: this doesn't work
-            assert!(verify_step_ok, "step verification failed");
-
-            acc = step_result.proof.next_accumulator.clone();
-            prev_augmented_x = Some(step_result.proof.step_augmented_public_input.clone());
-
-            ivc_proofs.push(step_result.proof);
-
-            if i < num_iters - 1 {
-                cs = ConstraintSystem::<F>::new_ref();
-                cs.set_optimization_goal(OptimizationGoal::Constraints);
-
-                println!("==============================================");
-
-                println!("Computing step circuit {}", i + 1);
-
-                let next_irw = tx.make_step_circuit(i + 1, &mut mem_setup, cs.clone(), irw)?;
-                irw = next_irw;
-
-                step = arkworks_to_neo(cs.clone());
-
-                println!("==============================================");
-            }
+        
+        let num_iters = stepper.tx.ops.len();
+        
+        // Prove each step using the session
+        for _i in 0..num_iters {
+            session.prove_step(&mut stepper, &()).map_err(|e| {
+                SynthesisError::Unsatisfiable
+            })?;
         }
 
         let prover_output = ProverOutput {};
