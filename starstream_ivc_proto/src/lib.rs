@@ -4,11 +4,20 @@ mod memory;
 mod neo;
 
 use crate::neo::arkworks_to_neo;
-use ::neo::{NeoParams, session::{IvcSession, NeoStep as NeoStepTrait, StepArtifacts, StepSpec}};
+use ::neo::{
+    F as NeoF,
+    NeoParams,
+    verify as neo_verify,
+    session::{
+        IvcSession, NeoStep as NeoStepTrait, StepArtifacts, StepSpec,
+        StepDescriptor, IvcFinalizeOptions, finalize_ivc_chain_with_options
+    }
+};
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
 use circuit::{InterRoundWires, StepCircuitBuilder};
 use goldilocks::FpGoldilocks;
 use memory::{DummyMemory, IVCMemory};
+use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 
 // type F = ark_bn254::Fr;
@@ -98,13 +107,23 @@ pub enum Instruction {
     CheckUtxoOutput { utxo_id: F },
 }
 
-pub struct ProverOutput {}
+/// What we return from the prover: enough to verify.
+pub struct ProverOutput {
+    /// Final succinct proof (Stage 5)
+    pub final_proof: ::neo::Proof,
+    /// Augmented CCS used by the final SNARK
+    pub final_ccs: neo_ccs::CcsStructure<NeoF>,
+    /// Final public input for the SNARK
+    pub final_public_input: Vec<NeoF>,
+}
 
 /// Adapter to bridge our Arkworks-based circuit to the neo session API
 struct TransactionStepper {
     tx: StepCircuitBuilder<DummyMemory<F>>,
     mem_setup: Option<<DummyMemory<F> as IVCMemory<F>>::Allocator>,
     irw: Option<InterRoundWires>,
+    /// Keep the (single) step shape so we can finalize/verify later
+    step_ccs: Option<neo_ccs::CcsStructure<NeoF>>,
 }
 
 impl TransactionStepper {
@@ -118,6 +137,7 @@ impl TransactionStepper {
             tx,
             mem_setup: Some(mem_setup),
             irw: Some(irw),
+            step_ccs: None,
         }
     }
 }
@@ -145,7 +165,7 @@ impl NeoStepTrait for TransactionStepper {
         _z_prev: &[::neo::F],
         _inputs: &Self::ExternalInputs,
     ) -> StepArtifacts {
-        let mut cs = ConstraintSystem::<F>::new_ref();
+        let cs = ConstraintSystem::<F>::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
         
         println!("==============================================");
@@ -160,6 +180,10 @@ impl NeoStepTrait for TransactionStepper {
         println!("==============================================");
         
         let neo_step = arkworks_to_neo(cs.clone());
+        // Cache the step CCS "shape" (single shape for all steps)
+        if self.step_ccs.is_none() {
+            self.step_ccs = Some(neo_step.ccs.clone());
+        }
         
         // Verify constraint satisfaction
         let is_sat = cs.is_satisfied().unwrap();
@@ -197,40 +221,72 @@ impl Transaction<Vec<Instruction>> {
     }
 
     pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
-        // Use parameters suitable for ℓ=6 circuits (64 rows after padding)
-        // With safety margin of 2 bits
-        let params = NeoParams::goldilocks_autotuned_s2(6, 3, 2);
-        
-        // Create IVC session with initial state from first step
-        let mut session = IvcSession::new(&params, None, 0);
-        
-        // Create our stepper adapter
+        // Use "small circuits" preset from halo3 (simple & robust to start)
+        let params = NeoParams::goldilocks_small_circuits();
+
+        // Create our stepper adapter *first* so we can derive y0
         let mut stepper = TransactionStepper::new(
             self.utxo_deltas.clone(),
             self.proof_like.clone(),
         );
+
+        // IMPORTANT: initialize IVC with the same state your circuit exposes
+        // as y_prev in step 0 (matches `ivcify_wires` input slots).
+        let y0 = vec![
+            NeoF::from_u64(1),                              // current_program_in
+            NeoF::from_u64(stepper.tx.utxos.len() as u64),  // utxos_len_in
+            NeoF::from_u64(0),                              // n_finalized_in
+        ];
+
+        let mut session = IvcSession::new(&params, Some(y0.clone()), 0);
         
         let num_iters = stepper.tx.ops.len();
         
         // Prove each step using the session
         for _i in 0..num_iters {
-            session.prove_step(&mut stepper, &()).map_err(|e| {
+            session.prove_step(&mut stepper, &()).map_err(|_e| {
                 SynthesisError::Unsatisfiable
             })?;
         }
 
-        let prover_output = ProverOutput {};
+        // Finalize the IVC chain into a succinct SNARK (Stage 5)
+        let descriptor = StepDescriptor {
+            ccs: stepper.step_ccs.clone().expect("missing step CCS"),
+            spec: stepper.step_spec(),
+        };
+        let chain = session.finalize();
+        let (final_proof, final_ccs, final_public_input) =
+            finalize_ivc_chain_with_options(
+                &descriptor, &params, chain,
+                IvcFinalizeOptions { embed_ivc_ev: false }
+            )
+            .map_err(|_| SynthesisError::Unsatisfiable)?
+            .ok_or(SynthesisError::Unsatisfiable)?;
+
+        // Optional: self-check the final SNARK before returning
+        let ok = neo_verify(&final_ccs, &final_public_input, &final_proof)
+            .map_err(|_| SynthesisError::Unsatisfiable)?;
+        if !ok {
+            return Err(SynthesisError::Unsatisfiable);
+        }
+
         Ok(Transaction {
             utxo_deltas: self.utxo_deltas.clone(),
-            proof_like: prover_output,
+            proof_like: ProverOutput {
+                final_proof,
+                final_ccs,
+                final_public_input,
+            },
         })
     }
 }
 
 impl Transaction<ProverOutput> {
     pub fn verify(&self, _changes: BTreeMap<UtxoId, UtxoChange>) {
-        // TODO: fill
-        //
+        // Verify the succinct outer proof
+        let ok = neo_verify(&self.proof_like.final_ccs, &self.proof_like.final_public_input, &self.proof_like.final_proof)
+            .expect("SNARK verification errored");
+        assert!(ok, "Final SNARK verification failed");
     }
 }
 
