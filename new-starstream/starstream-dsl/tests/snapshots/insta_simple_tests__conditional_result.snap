@@ -1,0 +1,8 @@
+---
+source: tests/insta_simple_tests.rs
+expression: final_state
+---
+{
+  "x": 10,
+  "y": 0
+}

@@ -1,0 +1,157 @@
+---
+source: tests/insta_simple_tests.rs
+expression: "serde_json::to_string_pretty(&program).unwrap()"
+---
+{
+  "items": [
+    {
+      "Script": {
+        "definitions": [
+          {
+            "ident": {
+              "raw": "main",
+              "uid": null
+            },
+            "inputs": [],
+            "output": null,
+            "body": {
+              "Chain": {
+                "head": {
+                  "Statement": {
+                    "BindVar": {
+                      "var": {
+                        "raw": "x",
+                        "uid": null
+                      },
+                      "mutable": false,
+                      "ty": null,
+                      "value": {
+                        "node": {
+                          "PrimaryExpr": {
+                            "PrimaryExpr": {
+                              "Number": {
+                                "literal": 0
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "tail": {
+                  "Chain": {
+                    "head": {
+                      "Statement": {
+                        "While": [
+                          {
+                            "node": {
+                              "LessThan": [
+                                {
+                                  "node": {
+                                    "PrimaryExpr": {
+                                      "PrimaryExpr": {
+                                        "Ident": {
+                                          "name": {
+                                            "raw": "x",
+                                            "uid": null
+                                          },
+                                          "args": null
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "node": {
+                                    "PrimaryExpr": {
+                                      "PrimaryExpr": {
+                                        "Number": {
+                                          "literal": 3
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "Block": {
+                              "Chain": {
+                                "head": {
+                                  "Statement": {
+                                    "Assign": {
+                                      "var": {
+                                        "PrimaryExpr": {
+                                          "Ident": {
+                                            "name": {
+                                              "raw": "x",
+                                              "uid": null
+                                            },
+                                            "args": null
+                                          }
+                                        }
+                                      },
+                                      "expr": {
+                                        "node": {
+                                          "Add": [
+                                            {
+                                              "node": {
+                                                "PrimaryExpr": {
+                                                  "PrimaryExpr": {
+                                                    "Ident": {
+                                                      "name": {
+                                                        "raw": "x",
+                                                        "uid": null
+                                                      },
+                                                      "args": null
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "node": {
+                                                "PrimaryExpr": {
+                                                  "PrimaryExpr": {
+                                                    "Number": {
+                                                      "literal": 1
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                "tail": {
+                                  "Close": {
+                                    "semicolon": false
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "tail": {
+                      "Close": {
+                        "semicolon": false
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "effects": []
+          }
+        ]
+      }
+    }
+  ]
+}
