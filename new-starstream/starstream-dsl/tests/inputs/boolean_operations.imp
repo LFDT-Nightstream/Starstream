@@ -1,0 +1,8 @@
+script {
+    fn main() {
+        let a = true;
+        let b = false;
+        let result = a && b;
+        let comparison = 5 > 3;
+    }
+}

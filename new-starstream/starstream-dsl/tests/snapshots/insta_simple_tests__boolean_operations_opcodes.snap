@@ -1,0 +1,42 @@
+---
+source: tests/insta_simple_tests.rs
+expression: "serde_json::to_string_pretty(&opcodes).unwrap()"
+---
+{
+  "opcodes": [
+    {
+      "Push": 1
+    },
+    {
+      "Store": "a"
+    },
+    {
+      "Push": 0
+    },
+    {
+      "Store": "b"
+    },
+    {
+      "Load": "a"
+    },
+    {
+      "Load": "b"
+    },
+    "And",
+    {
+      "Store": "result"
+    },
+    {
+      "Push": 5
+    },
+    {
+      "Push": 3
+    },
+    "GreaterThan",
+    {
+      "Store": "comparison"
+    },
+    "Halt"
+  ],
+  "labels": {}
+}

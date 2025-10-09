@@ -1,0 +1,10 @@
+script {
+    fn main() {
+        let x = 10;
+        if (x > 5) {
+            let y = 20;
+        } else {
+            let y = 0;
+        }
+    }
+}

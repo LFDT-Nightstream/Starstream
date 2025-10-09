@@ -1,0 +1,174 @@
+---
+source: tests/insta_simple_tests.rs
+expression: "serde_json::to_string_pretty(&program).unwrap()"
+---
+{
+  "items": [
+    {
+      "Script": {
+        "definitions": [
+          {
+            "ident": {
+              "raw": "main",
+              "uid": null
+            },
+            "inputs": [],
+            "output": null,
+            "body": {
+              "Chain": {
+                "head": {
+                  "Statement": {
+                    "BindVar": {
+                      "var": {
+                        "raw": "a",
+                        "uid": null
+                      },
+                      "mutable": false,
+                      "ty": null,
+                      "value": {
+                        "node": {
+                          "PrimaryExpr": {
+                            "PrimaryExpr": {
+                              "Bool": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "tail": {
+                  "Chain": {
+                    "head": {
+                      "Statement": {
+                        "BindVar": {
+                          "var": {
+                            "raw": "b",
+                            "uid": null
+                          },
+                          "mutable": false,
+                          "ty": null,
+                          "value": {
+                            "node": {
+                              "PrimaryExpr": {
+                                "PrimaryExpr": {
+                                  "Bool": false
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "tail": {
+                      "Chain": {
+                        "head": {
+                          "Statement": {
+                            "BindVar": {
+                              "var": {
+                                "raw": "result",
+                                "uid": null
+                              },
+                              "mutable": false,
+                              "ty": null,
+                              "value": {
+                                "node": {
+                                  "And": [
+                                    {
+                                      "node": {
+                                        "PrimaryExpr": {
+                                          "PrimaryExpr": {
+                                            "Ident": {
+                                              "name": {
+                                                "raw": "a",
+                                                "uid": null
+                                              },
+                                              "args": null
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "node": {
+                                        "PrimaryExpr": {
+                                          "PrimaryExpr": {
+                                            "Ident": {
+                                              "name": {
+                                                "raw": "b",
+                                                "uid": null
+                                              },
+                                              "args": null
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "tail": {
+                          "Chain": {
+                            "head": {
+                              "Statement": {
+                                "BindVar": {
+                                  "var": {
+                                    "raw": "comparison",
+                                    "uid": null
+                                  },
+                                  "mutable": false,
+                                  "ty": null,
+                                  "value": {
+                                    "node": {
+                                      "GreaterThan": [
+                                        {
+                                          "node": {
+                                            "PrimaryExpr": {
+                                              "PrimaryExpr": {
+                                                "Number": {
+                                                  "literal": 5
+                                                }
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "node": {
+                                            "PrimaryExpr": {
+                                              "PrimaryExpr": {
+                                                "Number": {
+                                                  "literal": 3
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "tail": {
+                              "Close": {
+                                "semicolon": false
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "effects": []
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[package]
+name = "starstream-compiler"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sebastien <sebastien@example.com>"]
+description = "Compiler for the Starstream DSL"
+license = "MIT"
+
+[dependencies]
+starstream-types = { path = "../starstream-types" }
+chumsky = { version = "0.11", features = ["pratt"] }
+ariadne = "0.5.1"

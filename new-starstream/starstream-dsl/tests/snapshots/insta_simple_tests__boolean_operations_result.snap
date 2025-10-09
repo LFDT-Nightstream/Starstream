@@ -1,0 +1,10 @@
+---
+source: tests/insta_simple_tests.rs
+expression: final_state
+---
+{
+  "a": 1,
+  "b": 0,
+  "comparison": 1,
+  "result": 0
+}
