@@ -2,7 +2,7 @@
 name = "starstream_vm"
 version = "0.0.0"
 edition = "2024"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 #binaryen = "0.13.0"

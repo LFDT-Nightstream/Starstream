@@ -4,7 +4,7 @@ cargo-features = ["per-package-target"]
 name = "example_contract_permissioned"
 version = "0.0.0"
 edition = "2024"
-license = "MIT"
+license.workspace = true
 
 forced-target = "wasm32-unknown-unknown"
 
