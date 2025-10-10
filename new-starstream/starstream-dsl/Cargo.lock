@@ -669,10 +669,8 @@ dependencies = [
 
 [[package]]
 name = "starstream-interpreter"
-version = "0.1.0"
+version = "0.0.0"
 dependencies = [
- "quickcheck",
- "quickcheck_macros",
  "starstream-types",
 ]
 
