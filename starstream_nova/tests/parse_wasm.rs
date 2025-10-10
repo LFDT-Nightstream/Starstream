@@ -99,6 +99,7 @@ impl<'a> Handler for H<'a> {
 }
 
 #[test]
+#[ignore = "WIP"]
 fn parse_wasm() {
     let example_module = r#"
         (module

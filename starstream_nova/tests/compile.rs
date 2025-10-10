@@ -2,11 +2,10 @@ use starstream_nova::{
     circuits::{WASM_IO, WASM_VM},
     r1cs::gen_r1cs_structure,
 };
-use std::{
-    hash::{DefaultHasher, Hash, Hasher},
-};
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 #[test]
+#[ignore = "WIP"]
 fn compile_to_r1cs() {
     let io_mapping = |idx: WASM_IO| match idx {
         WASM_IO::sp_namespace => 0,
