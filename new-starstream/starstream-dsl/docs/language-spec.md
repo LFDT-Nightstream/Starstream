@@ -144,10 +144,13 @@ Expressions:
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
   way.
   - We assume wrapping signed 32-bit two's complement integers.
-- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept integers and
+  - `%` is the Euclid remainder (least non-negative).
+- Unary `-` applies to integers. Unary `!` applies to booleans.
+- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) or (boolean, boolean) and
   produce booleans.
-- The boolean operators `!`, `&&`, and `||` accept booleans and produce
+- The boolean operators `!`, `&&`, `||` accept booleans and produce
   booleans.
+  - `&&` and `||` are short-circuiting.
 
 Statements:
 

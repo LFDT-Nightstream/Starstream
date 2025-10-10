@@ -34,12 +34,12 @@ pub fn eval(expr: &Expr /* , locals: &BTreeMap<String, Value>*/) -> Value {
         Expr::Mod(lhs, rhs) => eval(&lhs.node) % eval(&rhs.node),
         Expr::Neg(lhs) => -eval(&lhs.node),
         Expr::Not(lhs) => !eval(&lhs.node),
-        Expr::BitNot(lhs) => eval(&lhs.node).bitnot(),
-        Expr::BitAnd(lhs, rhs) => eval(&lhs.node) & eval(&rhs.node),
-        Expr::BitOr(lhs, rhs) => eval(&lhs.node) | eval(&rhs.node),
-        Expr::BitXor(lhs, rhs) => eval(&lhs.node) ^ eval(&rhs.node),
-        Expr::LShift(lhs, rhs) => eval(&lhs.node) << eval(&rhs.node),
-        Expr::RShift(lhs, rhs) => eval(&lhs.node) >> eval(&rhs.node),
+        // Expr::BitNot(lhs) => eval(&lhs.node).bitnot(),
+        // Expr::BitAnd(lhs, rhs) => eval(&lhs.node) & eval(&rhs.node),
+        // Expr::BitOr(lhs, rhs) => eval(&lhs.node) | eval(&rhs.node),
+        // Expr::BitXor(lhs, rhs) => eval(&lhs.node) ^ eval(&rhs.node),
+        // Expr::LShift(lhs, rhs) => eval(&lhs.node) << eval(&rhs.node),
+        // Expr::RShift(lhs, rhs) => eval(&lhs.node) >> eval(&rhs.node),
         // Comparison operators
         Expr::Equals(lhs, rhs) => Value::from(eval(&lhs.node) == eval(&rhs.node)),
         Expr::NotEquals(lhs, rhs) => Value::from(eval(&lhs.node) != eval(&rhs.node)),
@@ -229,6 +229,7 @@ impl Not for Value {
     }
 }
 
+/*
 impl Value {
     pub fn bitnot(self) -> Value {
         match (self) {
@@ -294,6 +295,7 @@ impl Shr for Value {
         }
     }
 }
+*/
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
