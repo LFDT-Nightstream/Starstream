@@ -2,7 +2,7 @@
 name = "starstream-interpreter"
 version = "0.0.0"
 edition = "2024"
-#license.workspace = true
+license.workspace = true
 
 [dependencies]
 starstream-types = { path = "../starstream-types" }
