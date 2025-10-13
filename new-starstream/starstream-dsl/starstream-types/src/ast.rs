@@ -113,4 +113,8 @@ impl<T> Spanned<T> {
     pub fn new(node: T, span: SimpleSpan) -> Self {
         Self { node, span }
     }
+
+    pub fn none(node: T) -> Spanned<T> {
+        Spanned { node, span: SimpleSpan { start: 0, end: 0, context: () } }
+    }
 }
