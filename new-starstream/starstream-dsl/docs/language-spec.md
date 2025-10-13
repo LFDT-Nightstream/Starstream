@@ -143,7 +143,7 @@ Expressions:
   one of its parents, but not child scopes.
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
   way.
-  - We assume wrapping signed 32-bit two's complement integers.
+  - We assume wrapping signed 64-bit two's complement integers.
   - `%` is the Euclid remainder (least non-negative).
 - Unary `-` applies to integers. Unary `!` applies to booleans.
 - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) or (boolean, boolean) and
