@@ -6,10 +6,4 @@
 
 pub mod parser;
 
-use chumsky::Parser;
 pub use parser::*;
-use starstream_types::StarstreamProgram;
-
-pub fn parse_program(source: &str) -> Result<StarstreamProgram, String> {
-    parser::starstream_program().parse(source).into_result().map_err(|_| "Broken".to_string())
-}

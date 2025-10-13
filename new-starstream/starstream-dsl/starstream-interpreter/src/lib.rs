@@ -8,15 +8,14 @@ use starstream_types::ast::*;
 // ----------------------------------------------------------------------------
 // Tree walker
 
-/// Run a coordination script.
-pub fn run_script(program: &StarstreamProgram, entry_point: &str, args: Vec<Value>) -> Value {
-    todo!()
-}
-
-fn eval_block(block: &Block) -> Value {
-    match block {
-        Block::Close { semicolon: _ } => Value::None,
-        Block::Chain { head, tail } => todo!(),
+fn eval_block(block: &Block) {
+    for statement in &block.statements {
+        match statement {
+            Statement::Expression(expr) => {
+                eval(&expr.node);
+            }
+            _ => todo!(),
+        }
     }
 }
 
@@ -24,16 +23,43 @@ fn eval_block(block: &Block) -> Value {
 pub fn eval(expr: &Expr /* , locals: &BTreeMap<String, Value>*/) -> Value {
     match expr {
         // Literals
-        Expr::PrimaryExpr(fae) => eval_field_access(fae),
+        Expr::Literal(Literal::Integer(i)) => Value::Number(*i),
+        Expr::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
         // Arithmetic operators
         // Non-control-flow operators
-        Expr::Add(lhs, rhs) => eval(&lhs.node) + eval(&rhs.node),
-        Expr::Sub(lhs, rhs) => eval(&lhs.node) - eval(&rhs.node),
-        Expr::Mul(lhs, rhs) => eval(&lhs.node) * eval(&rhs.node),
-        Expr::Div(lhs, rhs) => eval(&lhs.node) / eval(&rhs.node),
-        Expr::Mod(lhs, rhs) => eval(&lhs.node) % eval(&rhs.node),
-        Expr::Neg(lhs) => -eval(&lhs.node),
-        Expr::Not(lhs) => !eval(&lhs.node),
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left,
+            right,
+        } => eval(&left.node) + eval(&right.node),
+        Expr::Binary {
+            op: BinaryOp::Subtract,
+            left,
+            right,
+        } => eval(&left.node) - eval(&right.node),
+        Expr::Binary {
+            op: BinaryOp::Multiply,
+            left,
+            right,
+        } => eval(&left.node) * eval(&right.node),
+        Expr::Binary {
+            op: BinaryOp::Divide,
+            left,
+            right,
+        } => eval(&left.node) / eval(&right.node),
+        Expr::Binary {
+            op: BinaryOp::Remainder,
+            left,
+            right,
+        } => eval(&left.node) % eval(&right.node),
+        Expr::Unary {
+            op: UnaryOp::Negate,
+            expr,
+        } => -eval(&expr.node),
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => !eval(&expr.node),
         // Expr::BitNot(lhs) => eval(&lhs.node).bitnot(),
         // Expr::BitAnd(lhs, rhs) => eval(&lhs.node) & eval(&rhs.node),
         // Expr::BitOr(lhs, rhs) => eval(&lhs.node) | eval(&rhs.node),
@@ -41,40 +67,63 @@ pub fn eval(expr: &Expr /* , locals: &BTreeMap<String, Value>*/) -> Value {
         // Expr::LShift(lhs, rhs) => eval(&lhs.node) << eval(&rhs.node),
         // Expr::RShift(lhs, rhs) => eval(&lhs.node) >> eval(&rhs.node),
         // Comparison operators
-        Expr::Equals(lhs, rhs) => Value::from(eval(&lhs.node) == eval(&rhs.node)),
-        Expr::NotEquals(lhs, rhs) => Value::from(eval(&lhs.node) != eval(&rhs.node)),
-        Expr::LessThan(lhs, rhs) => Value::from(eval(&lhs.node) < eval(&rhs.node)),
-        Expr::GreaterThan(lhs, rhs) => Value::from(eval(&lhs.node) > eval(&rhs.node)),
-        Expr::LessEq(lhs, rhs) => Value::from(eval(&lhs.node) <= eval(&rhs.node)),
-        Expr::GreaterEq(lhs, rhs) => Value::from(eval(&lhs.node) >= eval(&rhs.node)),
+        Expr::Binary {
+            op: BinaryOp::Equal,
+            left,
+            right,
+        } => Value::from(eval(&left.node) == eval(&right.node)),
+        Expr::Binary {
+            op: BinaryOp::NotEqual,
+            left,
+            right,
+        } => Value::from(eval(&left.node) != eval(&right.node)),
+        Expr::Binary {
+            op: BinaryOp::Less,
+            left,
+            right,
+        } => Value::from(eval(&left.node) < eval(&right.node)),
+        Expr::Binary {
+            op: BinaryOp::Greater,
+            left,
+            right,
+        } => Value::from(eval(&left.node) > eval(&right.node)),
+        Expr::Binary {
+            op: BinaryOp::LessEqual,
+            left,
+            right,
+        } => Value::from(eval(&left.node) <= eval(&right.node)),
+        Expr::Binary {
+            op: BinaryOp::GreaterEqual,
+            left,
+            right,
+        } => Value::from(eval(&left.node) >= eval(&right.node)),
         // Short-circuiting operators
-        Expr::And(lhs, rhs) => {
-            let left = eval(&lhs.node);
+        Expr::Binary {
+            op: BinaryOp::And,
+            left,
+            right,
+        } => {
+            let left = eval(&left.node);
             if left.to_bool() {
-                eval(&rhs.node)
+                eval(&right.node)
             } else {
                 left
             }
         }
-        Expr::Or(lhs, rhs) => {
-            let left = eval(&lhs.node);
+        Expr::Binary {
+            op: BinaryOp::Or,
+            left,
+            right,
+        } => {
+            let left = eval(&left.node);
             if left.to_bool() {
                 left
             } else {
-                eval(&rhs.node)
+                eval(&right.node)
             }
         }
         // Nesting
-        Expr::BlockExpr(BlockExpr::Block(block)) => eval_block(block),
-        Expr::BlockExpr(BlockExpr::IfThenElse(cond, if_true, if_false)) => {
-            if eval(&cond.node).to_bool() {
-                eval_block(if_true)
-            } else if let Some(if_false) = if_false {
-                eval_block(if_false)
-            } else {
-                Value::None
-            }
-        }
+        Expr::Grouping(expr) => eval(&expr.node),
         _ => todo!(),
     }
 }
@@ -82,36 +131,13 @@ pub fn eval(expr: &Expr /* , locals: &BTreeMap<String, Value>*/) -> Value {
 #[test]
 fn eval_math() {
     assert_eq!(
-        eval(&Expr::Add(
-            Box::new(Spanned::none(Expr::PrimaryExpr(
-                FieldAccessExpression::PrimaryExpr(PrimaryExpr::Number {
-                    literal: 17,
-                    ty: None
-                })
-            ))),
-            Box::new(Spanned::none(Expr::PrimaryExpr(
-                FieldAccessExpression::PrimaryExpr(PrimaryExpr::Number {
-                    literal: 33,
-                    ty: None
-                })
-            ))),
-        )),
+        eval(&Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Spanned::none(Expr::Literal(Literal::Integer(17)))),
+            right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(33)))),
+        }),
         Value::Number(50)
     );
-}
-
-fn eval_field_access(expr: &FieldAccessExpression) -> Value {
-    match expr {
-        FieldAccessExpression::PrimaryExpr(PrimaryExpr::Number { literal, ty: _ }) => {
-            Value::from(*literal)
-        }
-        FieldAccessExpression::PrimaryExpr(PrimaryExpr::Bool(bool)) => Value::from(*bool),
-        FieldAccessExpression::PrimaryExpr(_) => todo!(),
-        FieldAccessExpression::FieldAccess { base, field } => {
-            let lhs = eval_field_access(base);
-            todo!()
-        }
-    }
 }
 
 // ----------------------------------------------------------------------------
@@ -121,18 +147,12 @@ fn eval_field_access(expr: &FieldAccessExpression) -> Value {
 pub enum Value {
     None,
     // Primitive values
-    Number(i32),
+    Number(i64),
     Boolean(bool),
 }
 
-impl From<u32> for Value {
-    fn from(value: u32) -> Self {
-        Value::Number(i32::try_from(value).unwrap())
-    }
-}
-
-impl From<i32> for Value {
-    fn from(value: i32) -> Self {
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
         Value::Number(value)
     }
 }
