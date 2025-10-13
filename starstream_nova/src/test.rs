@@ -130,7 +130,7 @@ fn pretty(n: u64) -> i128 {
     }
 }
 
-pub trait Handler {
+pub trait Handler<L, M> {
     fn failed_enforce(
         &mut self,
         locations: Locations<'_>,
@@ -139,11 +139,11 @@ pub trait Handler {
         actual: i128,
         expected: i128,
     );
-    fn lookup(&mut self, locations: Locations<'_>, namespace: i128, address: i128, val: i128);
+    fn lookup(&mut self, locations: Locations<'_>, namespace: L, address: i128, val: i128);
     fn invalid_memory(
         &mut self,
         locations: Locations<'_>,
-        namespace: i128,
+        namespace: M,
         address: i128,
         expected: i128,
         actual: i128,
@@ -158,13 +158,33 @@ pub trait Handler {
     fn missing_witness(&mut self, locations: Locations<'_>, expected_tag: u64);
 }
 
-pub fn test_circuit_goldilocks<IO, C: Circuit<IO>>(
+pub struct Memories(Vec<Vec<u64>>);
+
+pub fn init_memories(x: Vec<Vec<(i128, i128)>>) -> Memories {
+    Memories(
+        x.into_iter()
+            .map(|memory| memory.into_iter().map(of_i128_rat).collect())
+            .collect(),
+    )
+}
+
+// TODO: accumulate errors somehow
+pub fn assert_memories(Memories(mem): Memories, should_be: Vec<Vec<(i128, i128)>>) {
+    for (x, y) in mem.into_iter().zip(should_be.into_iter()) {
+        for (x_, y_) in x.into_iter().zip(y.into_iter()) {
+            assert_eq!(x_, of_i128_rat(y_));
+        }
+    }
+}
+
+pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
     input: impl Fn(IO) -> (i128, i128),
     output: impl Fn(IO) -> (i128, i128),
     circuit: C,
     mut witness: impl Iterator<Item = (u64, (i128, i128))>,
-    mut handler: impl Handler,
-    memories: Vec<Vec<(i128, i128)>>,
+    mut handler: impl Handler<L, M>,
+    memories: &mut Memories,
+    mut memory_mapping: impl FnMut(M) -> (M, usize),
 ) {
     #[derive(Clone, Copy, Debug)]
     struct Var(u64);
@@ -199,16 +219,23 @@ pub fn test_circuit_goldilocks<IO, C: Circuit<IO>>(
 
     impl CircuitBuilderVar for Var {}
 
-    struct Builder<'a, W, H> {
+    struct Builder<'a, W, H, Mem> {
         locations: Locations<'a>,
         witness: &'a mut W,
         handler: &'a mut H,
+        memory_mapping: &'a mut Mem,
         memories: &'a mut Vec<Vec<u64>>,
         witness_count: &'a mut usize,
     }
 
-    impl<'a, W: Iterator<Item = (u64, (i128, i128))>, H: Handler> CircuitBuilder<Var>
-        for Builder<'a, W, H>
+    impl<
+        'a,
+        W: Iterator<Item = (u64, (i128, i128))>,
+        L,
+        M,
+        H: Handler<L, M>,
+        Mem: FnMut(M) -> (M, usize),
+    > CircuitBuilder<Var, L, M> for Builder<'a, W, H, Mem>
     {
         fn zero(&mut self) -> Var {
             Var(0)
@@ -262,24 +289,20 @@ pub fn test_circuit_goldilocks<IO, C: Circuit<IO>>(
                 );
             }
         }
-        fn lookup(&mut self, Var(namespace): Var, Var(address): Var, Var(val): Var) {
-            self.handler.lookup(
-                self.locations,
-                pretty(namespace),
-                pretty(address),
-                pretty(val),
-            );
+        fn lookup(&mut self, namespace: L, Var(address): Var, Var(val): Var) {
+            self.handler
+                .lookup(self.locations, namespace, pretty(address), pretty(val));
         }
-        fn memory(&mut self, Var(namespace): Var, Var(address): Var, Var(old): Var, Var(new): Var) {
-            self.memories
-                .resize_with(namespace as usize + 1, Vec::default);
-            let m = &mut self.memories[namespace as usize];
+        fn memory(&mut self, namespace: M, Var(address): Var, Var(old): Var, Var(new): Var) {
+            let (namespace, idx) = (self.memory_mapping)(namespace);
+            self.memories.resize_with(idx + 1, Vec::default);
+            let m = &mut self.memories[idx];
             m.resize_with(address as usize + 1, u64::default);
             let old_ = m[address as usize];
             if old_ != old {
                 self.handler.invalid_memory(
                     self.locations,
-                    pretty(namespace),
+                    namespace,
                     pretty(address),
                     pretty(old),
                     pretty(old_),
@@ -288,11 +311,12 @@ pub fn test_circuit_goldilocks<IO, C: Circuit<IO>>(
             }
             m[address as usize] = new;
         }
-        fn nest<'b>(&'b mut self, location: Location) -> impl CircuitBuilder<Var> + 'b {
+        fn nest<'b>(&'b mut self, location: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
             Builder {
                 locations: cons(location, &self.locations),
                 witness: self.witness,
                 handler: self.handler,
+                memory_mapping: self.memory_mapping,
                 memories: self.memories,
                 witness_count: self.witness_count,
             }
@@ -303,16 +327,12 @@ pub fn test_circuit_goldilocks<IO, C: Circuit<IO>>(
         }
     }
 
-    let mut memories = memories
-        .into_iter()
-        .map(|memory| memory.into_iter().map(of_i128_rat).collect())
-        .collect();
-
     let builder = Builder {
         locations: Locations::Nil,
         witness: &mut witness,
         handler: &mut handler,
-        memories: &mut memories,
+        memory_mapping: &mut memory_mapping,
+        memories: &mut memories.0,
         witness_count: &mut 0,
     };
 

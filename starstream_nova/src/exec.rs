@@ -2,13 +2,18 @@
 // then the entry point,
 // execute that to generate a transaction and a corresponding dummy proof
 
+use std::ops::{BitAnd, Shr};
+
 use crate::{
     circuits::{
         Instr, WITNESS_OFFSET_ADD, WITNESS_OFFSET_ALLOC, WITNESS_OFFSET_COND_JUMP_C_0,
         WITNESS_OFFSET_COND_JUMP_C_NOT_0, WITNESS_OFFSET_CONST, WITNESS_OFFSET_DROP,
-        WITNESS_OFFSET_GET, WITNESS_OFFSET_JUMP, WITNESS_OFFSET_NOP, WITNESS_OFFSET_READ,
-        WITNESS_OFFSET_SELECT_C_0, WITNESS_OFFSET_SELECT_C_NOT_0, WITNESS_OFFSET_SET,
-        WITNESS_OFFSET_SWAP, WITNESS_OFFSET_WRITE,
+        WITNESS_OFFSET_FROM_HELPER, WITNESS_OFFSET_FROM_HOST, WITNESS_OFFSET_GET,
+        WITNESS_OFFSET_GET_REG, WITNESS_OFFSET_INIT_HOST_CALL, WITNESS_OFFSET_JUMP,
+        WITNESS_OFFSET_NOP, WITNESS_OFFSET_READ, WITNESS_OFFSET_SELECT_C_0,
+        WITNESS_OFFSET_SELECT_C_NOT_0, WITNESS_OFFSET_SET, WITNESS_OFFSET_SET_REG,
+        WITNESS_OFFSET_SWAP, WITNESS_OFFSET_TO_HELPER, WITNESS_OFFSET_TO_HOST,
+        WITNESS_OFFSET_WRITE,
     },
     interface::const_hash_str,
 };
@@ -16,7 +21,14 @@ use crate::{
 pub struct State {
     pub memory: Vec<i32>,
     pub stack: Vec<i32>,
+    pub helper_stack: Vec<i32>,
     pub pc: i32,
+    pub cc: i32,
+    pub reg: i32,
+    // FIXME: use enum, and shouldn't be pub
+    pub host_call: i32,
+    pub host_args: Vec<i32>,
+    pub getting_from_host: bool,
 }
 
 const fn tag(s: &str) -> u64 {
@@ -34,13 +46,16 @@ pub struct Witnesses {
     pub offset: usize,
 }
 
-// FIXME: support namespaces
 /// Execute one step of the VM and generate the witnesses for the
-/// part of the switchboad executed. The usize returned indicates
+/// part of the switchboard executed. The usize returned indicates
 /// the offset into the array of witnesses. All other witnesses except
 /// the global witnesses are to be 0. The global witnesses can be
 /// calculated trivially by the caller given the old and the new state.
-pub fn step(code: &[i32], state: &mut State) -> Witnesses {
+pub fn step(
+    code: &[i32],
+    state: &mut State,
+    mut host: impl FnMut(i32, Vec<i32>) -> Vec<i32>,
+) -> Witnesses {
     let opcode = code[state.pc as usize];
     eprintln!("opcode is {}", opcode);
     match opcode {
@@ -67,7 +82,6 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                 (t("prev"), popped, 1),
                 (t("real_addr"), state.stack.len() as i32, 1),
                 (t("real_old"), popped, 1),
-                (t("real_new"), 0, 1),
             ];
             Witnesses {
                 v,
@@ -102,17 +116,35 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
             let second = state.stack.pop().expect("empty stack");
             state.stack.push(first + second);
             state.pc += 1;
-            let v = vec![
+            let r = (first + second) as u32;
+            let v: Vec<_> = [
                 (t("switch"), 1, 1),
                 (t("first"), first, 1),
                 (t("second"), second, 1),
-                (t("real_addr"), sp - 1, 1),
-                (t("real_old"), first, 1),
-                (t("real_new"), 0, 1),
-                (t("real_addr"), sp - 2, 1),
-                (t("real_old"), second, 1),
-                (t("real_new"), first + second, 1),
-            ];
+            ]
+            .into_iter()
+            .chain((0..32).map(|i: u32| (t("bit"), r.shr(i).bitand(1) as i32, 1)))
+            .chain(
+                [
+                    (
+                        t("last_bit"),
+                        if r < first as u32 || r < second as u32 {
+                            1
+                        } else {
+                            0
+                        },
+                        1,
+                    ),
+                    (t("real_addr"), sp - 1, 1),
+                    (t("real_old"), first, 1),
+                    (t("real_new"), 0, 1),
+                    (t("real_addr"), sp - 2, 1),
+                    (t("real_old"), second, 1),
+                    (t("real_new"), first + second, 1),
+                ]
+                .into_iter(),
+            )
+            .collect();
             Witnesses {
                 v,
                 offset: WITNESS_OFFSET_ADD,
@@ -134,7 +166,6 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                 (t("real_old"), val, 1),
                 (t("real_new"), val, 1),
                 (t("real_addr"), sp, 1),
-                (t("real_old"), 0, 1),
                 (t("real_new"), val, 1),
             ];
             Witnesses {
@@ -158,7 +189,6 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                 (t("new"), new, 1),
                 (t("real_addr"), sp - 1, 1),
                 (t("real_old"), new, 1),
-                (t("real_new"), 0, 1),
                 (t("real_addr"), sp - idx, 1),
                 (t("real_old"), old, 1),
                 (t("real_new"), new, 1),
@@ -174,20 +204,21 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
             }
             let idx = code[state.pc as usize + 1];
             let sp = state.stack.len() as i32;
-            let old = state.stack[(sp - idx) as usize];
-            let new = state.stack.pop().expect("empty stack");
-            state.stack[(sp - idx) as usize] = new;
+            let x = state.stack.pop().expect("empty stack");
+            let y = state.stack[sp as usize - idx as usize];
+            state.stack[sp as usize - idx as usize] = x;
+            state.stack.push(y);
             state.pc += 2;
             let v = vec![
                 (t("switch"), 1, 1),
-                (t("old"), old, 1),
-                (t("new"), new, 1),
+                (t("x"), x, 1),
+                (t("y"), y, 1),
                 (t("real_addr"), sp - 1, 1),
-                (t("real_old"), new, 1),
-                (t("real_new"), 0, 1),
+                (t("real_old"), x, 1),
+                (t("real_new"), y, 1),
                 (t("real_addr"), sp - idx, 1),
-                (t("real_old"), old, 1),
-                (t("real_new"), new, 1),
+                (t("real_old"), y, 1),
+                (t("real_new"), x, 1),
             ];
             Witnesses {
                 v,
@@ -197,25 +228,16 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
         o if o == Instr::CondJump as i32 => {
             let sp = state.stack.len() as i32;
             let new_pc = state.stack.pop().expect("empty stack");
-            let new_pc_namespace = state.stack.pop().expect("empty stack");
             let c = state.stack.pop().expect("empty stack");
-            // FIXME: support multiple modules (and thus namespaces)
-            assert_eq!(new_pc_namespace, 0);
             if c == 0 {
                 const fn t(l: &str) -> u64 {
                     cons_tag(l, tag("visit_cond_jump_c_0"))
                 }
                 let v = vec![
                     (t("switch"), 1, 1),
-                    (t("real_addr"), sp - 3, 1),
-                    (t("real_old"), 0, 1),
-                    (t("real_new"), 0, 1),
                     (t("real_addr"), sp - 2, 1),
-                    (t("real_old"), new_pc_namespace, 1),
-                    (t("real_new"), 0, 1),
                     (t("real_addr"), sp - 1, 1),
                     (t("real_old"), new_pc, 1),
-                    (t("real_new"), 0, 1),
                 ];
                 state.pc = new_pc;
                 Witnesses {
@@ -229,18 +251,12 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                 let v = vec![
                     (t("switch"), 1, 1),
                     (t("unused_pc"), new_pc, 1),
-                    (t("unused_pc_namespace"), new_pc_namespace, 1),
                     (t("c"), c, 1),
                     (t("c_inv"), 1, c),
-                    (t("real_addr"), sp - 3, 1),
-                    (t("real_old"), c, 1),
-                    (t("real_new"), 0, 1),
                     (t("real_addr"), sp - 2, 1),
-                    (t("real_old"), new_pc_namespace, 1),
-                    (t("real_new"), 0, 1),
+                    (t("real_old"), c, 1),
                     (t("real_addr"), sp - 1, 1),
                     (t("real_old"), new_pc, 1),
-                    (t("real_new"), 0, 1),
                 ];
                 state.pc += 1;
                 Witnesses {
@@ -255,15 +271,10 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
             }
             let sp = state.stack.len() as i32;
             let new_pc = state.stack.pop().expect("empty stack");
-            let new_pc_namespace = state.stack.pop().expect("empty stack");
             let v = vec![
                 (t("switch"), 1, 1),
-                (t("real_addr"), sp - 2, 1),
-                (t("real_old"), new_pc_namespace, 1),
-                (t("real_new"), 0, 1),
                 (t("real_addr"), sp - 1, 1),
                 (t("real_old"), new_pc, 1),
-                (t("real_new"), 0, 1),
             ];
             state.pc = new_pc;
             Witnesses {
@@ -314,10 +325,8 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                 (t("real_new"), new, 1),
                 (t("real_addr"), sp - 1, 1),
                 (t("real_old"), new, 1),
-                (t("real_new"), 0, 1),
                 (t("real_addr"), sp - 2, 1),
                 (t("real_old"), address, 1),
-                (t("real_new"), 0, 1),
             ];
             state.pc += 1;
             if state.memory.len() <= address as usize {
@@ -360,10 +369,7 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                     (t("real_new"), y, 1),
                     (t("real_addr"), sp - 2, 1),
                     (t("real_old"), y, 1),
-                    (t("real_new"), 0, 1),
                     (t("real_addr"), sp - 1, 1),
-                    (t("real_old"), 0, 1),
-                    (t("real_new"), 0, 1),
                 ];
                 state.stack.push(x);
                 state.pc += 1;
@@ -382,10 +388,8 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                     (t("y"), y, 1),
                     (t("real_addr"), sp - 2, 1),
                     (t("real_old"), y, 1),
-                    (t("real_new"), 0, 1),
                     (t("real_addr"), sp - 1, 1),
                     (t("real_old"), c, 1),
-                    (t("real_new"), 0, 1),
                 ];
                 state.stack.push(y);
                 state.pc += 1;
@@ -393,6 +397,159 @@ pub fn step(code: &[i32], state: &mut State) -> Witnesses {
                     v,
                     offset: WITNESS_OFFSET_SELECT_C_NOT_0,
                 }
+            }
+        }
+        o if o == Instr::SetReg as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_set_reg"))
+            }
+            let sp = state.stack.len() as i32;
+            let val = state.stack.pop().expect("empty stack");
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("val"), val, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), val, 1),
+            ];
+            state.reg = val;
+            state.pc += 1;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_SET_REG,
+            }
+        }
+        o if o == Instr::GetReg as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_get_reg"))
+            }
+            let sp = state.stack.len() as i32;
+            state.stack.push(state.reg);
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("val"), state.reg, 1),
+                (t("real_addr"), sp, 1),
+                (t("real_new"), state.reg, 1),
+            ];
+            state.pc += 1;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_GET_REG,
+            }
+        }
+        o if o == Instr::ToHelper as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_to_helper"))
+            }
+            let sp = state.stack.len() as i32;
+            let helper_sp = state.helper_stack.len() as i32;
+            let val = state.stack.pop().expect("empty stack");
+            state.helper_stack.push(val);
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("val"), val, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), val, 1),
+                (t("real_addr"), helper_sp, 1),
+                (t("real_new"), val, 1),
+            ];
+            state.pc += 1;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_TO_HELPER,
+            }
+        }
+        o if o == Instr::FromHelper as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_from_helper"))
+            }
+            let sp = state.stack.len() as i32;
+            let helper_sp = state.helper_stack.len() as i32;
+            let val = state.helper_stack.pop().expect("empty stack");
+            state.stack.push(val);
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("val"), val, 1),
+                (t("real_addr"), helper_sp - 1, 1),
+                (t("real_old"), val, 1),
+                (t("real_addr"), sp, 1),
+                (t("real_new"), val, 1),
+            ];
+            state.pc += 1;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_FROM_HELPER,
+            }
+        }
+        o if o == Instr::InitHostCall as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_init_host_call"))
+            }
+            let host_call = code[state.pc as usize + 1];
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("real_addr"), state.cc, 1),
+                (t("real_val"), host_call, 1),
+            ];
+            state.cc += 1;
+            state.pc += 2;
+            state.host_call = host_call;
+            state.host_args = Vec::new();
+            state.getting_from_host = false;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_INIT_HOST_CALL,
+            }
+        }
+        o if o == Instr::ToHost as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_to_host"))
+            }
+            let sp = state.stack.len() as i32;
+            let val = state.stack.pop().expect("empty stack");
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("val"), val, 1),
+                (t("real_addr"), sp - 1, 1),
+                (t("real_old"), val, 1),
+                (t("real_addr"), state.cc, 1),
+                (t("real_val"), val, 1),
+            ];
+            state.pc += 1;
+            state.cc += 1;
+            state.host_args.push(val);
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_TO_HOST,
+            }
+        }
+        o if o == Instr::FromHost as i32 => {
+            const fn t(l: &str) -> u64 {
+                cons_tag(l, tag("visit_from_host"))
+            }
+            let sp = state.stack.len() as i32;
+            if !state.getting_from_host {
+                state.getting_from_host = true;
+                let host_args = std::mem::take(&mut state.host_args);
+                state.host_args = host(state.host_call, host_args);
+            }
+            let val = state
+                .host_args
+                .pop()
+                .expect("host call didn't return enough values");
+            state.stack.push(val);
+            let v = vec![
+                (t("switch"), 1, 1),
+                (t("val"), val, 1),
+                (t("real_addr"), sp, 1),
+                (t("real_old"), val, 1),
+                (t("real_addr"), state.cc, 1),
+                (t("real_val"), val, 1),
+            ];
+            state.pc += 1;
+            state.cc += 1;
+            Witnesses {
+                v,
+                offset: WITNESS_OFFSET_FROM_HOST,
             }
         }
         o if o >= Instr::_End as i32 => {

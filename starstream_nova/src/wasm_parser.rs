@@ -110,6 +110,10 @@ fn bytestring_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> 
     list_p(any).map(|_| ())
 }
 
+fn name_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
+    bytestring_p()
+}
+
 fn numtype_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
     byte(0x7F).map(|_| ())
 }
@@ -132,6 +136,7 @@ enum Instr {
     Get { local: u32 },
     Set { local: u32 },
     Tee { local: u32 },
+    GlobalGet { global: u32 },
     Load { offset: u32 },
     Load8_s { offset: u32 },
     Load8_u { offset: u32 },
@@ -199,6 +204,9 @@ fn variable_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr>
         byte(0x20).with(u32_p()).map(|local| Instr::Get { local }),
         byte(0x21).with(u32_p()).map(|local| Instr::Set { local }),
         byte(0x22).with(u32_p()).map(|local| Instr::Tee { local }),
+        byte(0x23)
+            .with(u32_p())
+            .map(|global| Instr::GlobalGet { global }),
     ))
 }
 
@@ -380,20 +388,50 @@ fn typesec_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<(u3
     section_p(1, list_p(type_p))
 }
 
+enum Import {
+    Fn(u32),
+    Global,
+}
+
+fn import_fun_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
+    name_p()
+        .skip(name_p())
+        .skip(byte(0))
+        .with(u32_p())
+        .map(Import::Fn)
+}
+
+fn import_i32_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
+    name_p()
+        .skip(name_p())
+        .skip(byte(3))
+        .skip(byte(0x7E))
+        .skip(byte(0))
+        .map(|_| Import::Global)
+}
+
+fn import_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
+    choice((import_fun_p(), import_i32_p()))
+}
+
+fn importsec_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<Import>> {
+    section_p(2, list_p(import_p))
+}
+
 fn funcsec_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<u32>> {
     section_p(3, list_p(u32_p))
 }
 
 // returns the list of argument and result lengths of each function
-fn prelude<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<(u32, u32)>> {
+fn prelude<Input: Stream<Token = u8>>()
+-> impl Parser<Input, Output = (u32, Vec<(u32, u32)>, Vec<(u32, u32)>)> {
     (
         magic_p()
             .skip(version_p())
             .skip(custom_sections_p())
             .with(typesec_p())
-            .skip(custom_sections_p())
-            .skip(unknown_section_p(2))
             .skip(custom_sections_p()),
+        importsec_p().skip(custom_sections_p()),
         funcsec_p(),
     )
         .skip(custom_sections_p())
@@ -409,12 +447,23 @@ fn prelude<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<(u32,
         .skip(custom_sections_p())
         .skip(unknown_section_p(9))
         .skip(custom_sections_p())
-        .map(|(types, idxs)| {
-            let mut out = Vec::new();
-            for idx in idxs {
-                out.push(types[idx as usize])
-            }
-            out
+        .map(|(types, import_idxs, func_idxs)| {
+            let funcs = func_idxs
+                .into_iter()
+                .map(|idx| types[idx as usize])
+                .collect();
+            let mut global_counter = 0;
+            let imports = import_idxs
+                .into_iter()
+                .filter_map(|import| match import {
+                    Import::Fn(idx) => Some(types[idx as usize]),
+                    Import::Global => {
+                        global_counter += 1;
+                        None
+                    }
+                })
+                .collect();
+            (global_counter, imports, funcs)
         })
 }
 
@@ -425,307 +474,291 @@ fn postlude<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
 }
 
 struct FunctionInfo {
-    n_locals: u32,
     pc: usize,
 }
 
+enum Datum {
+    Raw(i32),
+    CurrentAddr,
+    FnAddr(u32),
+}
+
+struct R {
+    stack_diff: i32,
+}
+
+// pc
+const RETURN_INFO_SIZE: i32 = 1;
+
+fn calculate_local_idx(local: u32, stack_size: i32, n_args: i32) -> i32 {
+    let local = local as i32;
+    if local < n_args {
+        stack_size + RETURN_INFO_SIZE + n_args - local
+    } else {
+        stack_size - local + n_args
+    }
+}
+
+struct StackSize(i32);
+
+fn instr_get_set(
+    instr: circuits::Instr,
+    local: u32,
+    StackSize(stack_size): StackSize,
+    n_args: i32,
+    out: impl FnMut(Datum) -> (),
+    min_idx: i32,
+) {
+    let idx = calculate_local_idx(local, stack_size, n_args);
+    assert!(idx >= min_idx);
+    [instr as i32, idx]
+        .into_iter()
+        .map(Datum::Raw)
+        .for_each(out);
+}
+
+fn handle_instruction(
+    instr: Instr,
+    stack_size: i32,
+    n_args: i32,
+    n_results: i32,
+    func_types: &[(u32, u32)],
+    imports: &[(u32, u32)],
+    globals: &[i32],
+    out: impl FnMut(Datum) -> (),
+) -> R {
+    match instr {
+        Instr::Unreachable => {
+            [circuits::Instr::Unreachable as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: 0 }
+        }
+        Instr::Nop => {
+            [circuits::Instr::Nop as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: 0 }
+        }
+        Instr::Drop => {
+            [circuits::Instr::Drop as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: -1 }
+        }
+        Instr::Const(c) => {
+            [circuits::Instr::Const as i32, c]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: 1 }
+        }
+        Instr::Get { local } => {
+            instr_get_set(
+                circuits::Instr::Get,
+                local,
+                StackSize(stack_size),
+                n_args,
+                out,
+                1,
+            );
+            R { stack_diff: 1 }
+        }
+        Instr::Set { local } => {
+            instr_get_set(
+                circuits::Instr::Set,
+                local,
+                StackSize(stack_size),
+                n_args,
+                out,
+                2,
+            );
+            R { stack_diff: -1 }
+        }
+        Instr::Tee { local } => {
+            let idx = calculate_local_idx(local, stack_size + 1, n_args);
+            [
+                (circuits::Instr::Get as i32),
+                (1),
+                (circuits::Instr::Set as i32),
+                idx,
+            ]
+            .into_iter()
+            .map(Datum::Raw)
+            .for_each(out);
+            R { stack_diff: 0 }
+        }
+        Instr::GlobalGet { global } => {
+            [circuits::Instr::Const as i32, globals[global as usize]]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: 1 }
+        }
+        Instr::Load { offset: _ } => unimplemented!(),
+        Instr::Load8_s { offset: _ } => unimplemented!(),
+        Instr::Load8_u { offset: _ } => unimplemented!(),
+        Instr::Load16_s { offset: _ } => unimplemented!(),
+        Instr::Load16_u { offset: _ } => unimplemented!(),
+        Instr::Store { offset: _ } => unimplemented!(),
+        Instr::Store8 { offset: _ } => unimplemented!(),
+        Instr::Store16 { offset: _ } => unimplemented!(),
+        Instr::Call { fn_idx } if (fn_idx as usize) < imports.len() => {
+            let (host_n_args, host_n_results) = imports[fn_idx as usize];
+            [
+                Datum::Raw(circuits::Instr::InitHostCall as i32),
+                Datum::Raw(fn_idx as i32),
+            ]
+            .into_iter()
+            .chain((0..host_n_args).map(|_| Datum::Raw(circuits::Instr::ToHost as i32)))
+            .chain((0..host_n_results).map(|_| Datum::Raw(circuits::Instr::FromHost as i32)))
+            .for_each(out);
+            R {
+                stack_diff: host_n_results as i32 - host_n_args as i32,
+            }
+        }
+        Instr::Call { fn_idx } => {
+            assert!(fn_idx >= imports.len() as u32);
+            let fn_idx = fn_idx - imports.len() as u32;
+            [
+                Datum::Raw(circuits::Instr::Const as i32),
+                Datum::CurrentAddr,
+                Datum::Raw(circuits::Instr::Const as i32),
+                Datum::FnAddr(fn_idx),
+                Datum::Raw(circuits::Instr::Jump as i32),
+            ]
+            .into_iter()
+            .for_each(out);
+            R {
+                stack_diff: match func_types[fn_idx as usize] {
+                    (callee_n_args, callee_n_results) => {
+                        callee_n_results as i32 - callee_n_args as i32
+                    }
+                },
+            }
+        }
+        Instr::Return => {
+            (0..n_results)
+                .map(|_| circuits::Instr::ToHelper as i32)
+                .chain((0..stack_size - n_results).map(|_| circuits::Instr::Drop as i32))
+                .chain(Some(circuits::Instr::SetReg as i32))
+                .chain((0..n_args).map(|_| circuits::Instr::Drop as i32))
+                .chain((0..n_results).map(|_| circuits::Instr::FromHelper as i32))
+                .chain(Some(circuits::Instr::GetReg as i32))
+                .chain(Some(circuits::Instr::Jump as i32))
+                .map(Datum::Raw)
+                .for_each(out);
+            R {
+                stack_diff: -stack_size,
+            }
+        }
+        Instr::Select => {
+            [circuits::Instr::Select as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: -2 }
+        }
+        Instr::Eqz => unimplemented!(),
+        Instr::Eq => unimplemented!(),
+        Instr::Ne => unimplemented!(),
+        Instr::Lt_s => unimplemented!(),
+        Instr::Lt_u => unimplemented!(),
+        Instr::Gt_s => unimplemented!(),
+        Instr::Gt_u => unimplemented!(),
+        Instr::Le_s => unimplemented!(),
+        Instr::Le_u => unimplemented!(),
+        Instr::Ge_s => unimplemented!(),
+        Instr::Ge_u => unimplemented!(),
+        Instr::Add => {
+            [circuits::Instr::Add as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R { stack_diff: -1 }
+        }
+        Instr::Sub => unimplemented!(),
+        Instr::Mul => unimplemented!(),
+        Instr::Div_s => unimplemented!(),
+        Instr::Div_u => unimplemented!(),
+        Instr::Rem_s => unimplemented!(),
+        Instr::Rem_u => unimplemented!(),
+        Instr::And => unimplemented!(),
+        Instr::Or => unimplemented!(),
+        Instr::Xor => unimplemented!(),
+        Instr::Shl => unimplemented!(),
+        Instr::Shr_s => unimplemented!(),
+        Instr::Shr_u => unimplemented!(),
+        Instr::Rotl => unimplemented!(),
+        Instr::Rotr => unimplemented!(),
+    }
+}
+
 // FIXME: handle partial parsing correctly
-pub fn parse<Input: Stream<Token = u8>>(input: Input) -> Vec<i32>
+pub fn parse<Input: Stream<Token = u8>>(input: Input, globals: &[i32]) -> Vec<i32>
 where
     Input::Error: Debug,
     Input::Range: PartialEq + Debug + Display,
     Input::Position: Default + Debug + Display,
 {
-    let (func_types, input) = match prelude().easy_parse(input) {
+    let ((n_globals, imports, func_types), input) = match prelude().easy_parse(input) {
         Ok(r) => r,
         Err(e) => {
             panic!("{}", e);
         }
     };
+    if n_globals as usize != globals.len() {
+        panic!("need {} globals, got {}", globals.len(), n_globals);
+    }
     let (_, input) = byte(10).parse(input).unwrap(); // codesec section id
     let (_codesec_size, input) = leb128::<u32, _>().parse(input).unwrap();
     let (n_functions, input) = leb128::<u32, _>().parse(input).unwrap();
     assert_eq!(n_functions as usize, func_types.len());
     // NB: we must have an initial 0 for cond_lookup to work
     let mut v: Vec<i32> = vec![0];
-    // A call is 7 cells in the code,
-    // alloc <n_locals> const <source pc_namespace> const <source pc> const <target pc_namespace> const <target pc> jump,
-    // and we have to patch in the unknown values, which we only know
-    // after finishing parsing the whole module(s).
     let mut function_calls_to_patch: Vec<(usize, u32)> = Vec::new();
     let mut function_info: Vec<FunctionInfo> = Vec::new();
     let mut input = input;
     for (n_args, n_results) in &func_types {
-        let n_args = *n_args;
-        let n_results = *n_results;
+        let n_args = *n_args as i32;
+        let n_results = *n_results as i32;
         let _function_size: u32 = leb128().parse_with_state(&mut input, &mut ()).unwrap();
         let n_locals = list_p(locals_p)
             .parse_with_state(&mut input, &mut Default::default())
             .unwrap()
             .into_iter()
-            .fold(0, Add::add);
-        function_info.push(FunctionInfo {
-            n_locals,
-            pc: v.len(),
-        });
-        // One for each argument, one for each local,
-        // and two for the pc_namespace and pc to jump back to.
-        // They are all allocated by the caller, albeit the locals are to be `0` by convention.
-        let n_frame_vars = n_args + n_locals + 2;
-        // the ith local is stored in the stack at sp - stack_size - n_frame_vars + i,
-        // where sp equals the length of the stack at runtime, and stack_size
-        // is the number of entries used up by the current function.
-        // circuits::Instr::Get gets an arbitrary element from the stack relative to sp,
-        // such that when we want to access the ith local, we put in `stack_size - n_frame_vars + i`.
-        // NB: the 0th local is the first argument, the nth argument is the nth local, and so on.
-        let mut stack_size: u32 = 0;
+            .fold(0, Add::add) as i32;
+        function_info.push(FunctionInfo { pc: v.len() });
+        let mut stack_size: i32 = n_locals;
         let mut iter = non_rec_instr_p().iter(&mut input);
         for instr in &mut iter {
-            match instr {
-                Instr::Unreachable => {
-                    v.push(circuits::Instr::Unreachable as i32);
-                }
-                Instr::Nop => {
-                    v.push(circuits::Instr::Nop as i32);
-                }
-                Instr::Drop => {
-                    v.push(circuits::Instr::Drop as i32);
-                    stack_size -= 1;
-                }
-                Instr::Const(c) => {
-                    v.push(circuits::Instr::Const as i32);
-                    v.push(c);
-                    stack_size += 1;
-                }
-                Instr::Get { local } => {
-                    let idx = stack_size + n_frame_vars - local;
-                    v.push(circuits::Instr::Get as i32);
-                    assert!(idx > 0);
-                    v.push(idx as i32);
-                    stack_size += 1;
-                }
-                Instr::Set { local } => {
-                    let idx = stack_size + n_frame_vars - local;
-                    v.push(circuits::Instr::Set as i32);
-                    assert!(idx > 1);
-                    v.push(idx as i32);
-                    stack_size -= 1;
-                }
-                Instr::Tee { local } => {
-                    let idx = stack_size + n_frame_vars - local;
-                    v.push(circuits::Instr::Get as i32);
-                    v.push(1);
-                    v.push(circuits::Instr::Set as i32);
-                    assert!(idx > 0);
-                    v.push(idx as i32 + 1);
-                }
-                Instr::Load { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Read as i32);
-                    stack_size += 1;
-                }
-                Instr::Load8_s { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Read as i32);
-                    stack_size += 1;
-                }
-                Instr::Load8_u { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Read as i32);
-                    stack_size += 1;
-                }
-                Instr::Load16_s { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Read as i32);
-                    stack_size += 1;
-                }
-                Instr::Load16_u { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Read as i32);
-                    stack_size += 1;
-                }
-                Instr::Store { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Write as i32);
-                    stack_size -= 2;
-                }
-                Instr::Store8 { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Write as i32);
-                    stack_size -= 2;
-                }
-                Instr::Store16 { offset: _ } => {
-                    // FIXME
-                    v.push(circuits::Instr::Write as i32);
-                    stack_size -= 2;
-                }
-                Instr::Return => {
-                    assert!(stack_size > n_results);
-                    if n_args + n_locals >= n_results {
-                        for i in (0..n_results).rev() {
-                            v.push(circuits::Instr::Set as i32);
-                            let idx = stack_size + n_frame_vars - i;
-                            v.push(idx as i32);
-                            stack_size -= 1;
-                        }
-                        while stack_size > 0 {
-                            v.push(circuits::Instr::Drop as i32);
-                            stack_size -= 1;
-                        }
-
-                        let excess = n_args + n_locals - n_results;
-                        // we have no unnecessary stack variables left,
-                        // so we just jump back to caller
-                        if excess == 0 {
-                            v.push(circuits::Instr::Jump as i32);
-                        // we have one unnecessary stack variable,
-                        // so we first swap the top two elements
-                        // (pc_namespace, pc -> pc, pc_namespace),
-                        // then set the stack variable at index [sp-3] to pc_namespace,
-                        // and then jump
-                        } else if excess == 1 {
-                            v.push(circuits::Instr::Swap as i32);
-                            v.push(2);
-                            v.push(circuits::Instr::Set as i32);
-                            v.push(3);
-                            v.push(circuits::Instr::Jump as i32);
-                        // we first put the pc_namespace and pc where they ought to be,
-                        // then drop all unnecessary stack variables
-                        } else {
-                            assert!(excess > 1);
-                            let idx = n_frame_vars - n_results;
-                            assert!(idx > 2);
-                            v.push(circuits::Instr::Set as i32);
-                            v.push(idx as i32 - 1);
-                            v.push(circuits::Instr::Set as i32);
-                            // NB: the stack is one smaller now,
-                            // hence why it's still idx - 1
-                            v.push(idx as i32 - 1);
-                            for _ in 0..(excess - 4) {
-                                v.push(circuits::Instr::Drop as i32);
-                            }
-                            v.push(circuits::Instr::Jump as i32);
-                        }
+            let R { stack_diff } = handle_instruction(
+                instr,
+                stack_size,
+                n_args,
+                n_results,
+                func_types.as_slice(),
+                imports.as_slice(),
+                globals,
+                |d| match d {
+                    Datum::Raw(n) => v.push(n),
+                    Datum::CurrentAddr => v.push(v.len() as i32),
+                    Datum::FnAddr(fn_idx) => {
+                        function_calls_to_patch.push((v.len(), fn_idx));
+                        v.push(0); // placeholder
                     }
-                }
-                Instr::Call { fn_idx } => {
-                    // FIXME: support multiple modules
-                    let source_pc_namespace: i32 = 1;
-                    let target_pc_namespace: i32 = 1;
-                    let source_pc = v.len() + 11;
-                    let patch_location = v.len();
-                    v.push(circuits::Instr::Alloc as i32);
-                    v.push(0);
-                    // our pc_namespace
-                    v.push(circuits::Instr::Const as i32);
-                    v.push(source_pc_namespace);
-                    // our pc
-                    v.push(circuits::Instr::Const as i32);
-                    v.push(source_pc as i32);
-                    // callee pc_namespace
-                    v.push(circuits::Instr::Const as i32);
-                    v.push(target_pc_namespace);
-                    // callee pc
-                    v.push(circuits::Instr::Const as i32);
-                    v.push(0);
-                    v.push(circuits::Instr::Jump as i32);
-                    assert_eq!(v.len(), source_pc);
-                    function_calls_to_patch.push((patch_location, fn_idx));
-                    let (callee_n_args, callee_n_results) = func_types[fn_idx as usize];
-                    stack_size = stack_size - callee_n_args + callee_n_results;
-                }
-                Instr::Select => {
-                    v.push(circuits::Instr::Select as i32);
-                    stack_size -= 2;
-                }
-                Instr::Eqz => {
-                    unimplemented!()
-                }
-                Instr::Eq => {
-                    unimplemented!()
-                }
-                Instr::Ne => {
-                    unimplemented!()
-                }
-                Instr::Lt_s => {
-                    unimplemented!()
-                }
-                Instr::Lt_u => {
-                    unimplemented!()
-                }
-                Instr::Gt_s => {
-                    unimplemented!()
-                }
-                Instr::Gt_u => {
-                    unimplemented!()
-                }
-                Instr::Le_s => {
-                    unimplemented!()
-                }
-                Instr::Le_u => {
-                    unimplemented!()
-                }
-                Instr::Ge_s => {
-                    unimplemented!()
-                }
-                Instr::Ge_u => {
-                    unimplemented!()
-                }
-                Instr::Add => {
-                    v.push(circuits::Instr::Add as i32);
-                    stack_size -= 1;
-                }
-                Instr::Sub => {
-                    unimplemented!()
-                }
-                Instr::Mul => {
-                    unimplemented!()
-                }
-                Instr::Div_s => {
-                    unimplemented!()
-                }
-                Instr::Div_u => {
-                    unimplemented!()
-                }
-                Instr::Rem_s => {
-                    unimplemented!()
-                }
-                Instr::Rem_u => {
-                    unimplemented!()
-                }
-                Instr::And => {
-                    unimplemented!()
-                }
-                Instr::Or => {
-                    unimplemented!()
-                }
-                Instr::Xor => {
-                    unimplemented!()
-                }
-                Instr::Shl => {
-                    unimplemented!()
-                }
-                Instr::Shr_s => {
-                    unimplemented!()
-                }
-                Instr::Shr_u => {
-                    unimplemented!()
-                }
-                Instr::Rotl => {
-                    unimplemented!()
-                }
-                Instr::Rotr => {
-                    unimplemented!()
-                }
-            }
+                },
+            );
+            stack_size += stack_diff;
         }
         iter.into_result(()).unwrap();
         byte(0x0B).parse_with_state(&mut input, &mut ()).unwrap();
     }
     for (patch_location, fn_idx) in function_calls_to_patch {
-        // for alloc instr
-        v[patch_location + 1] = function_info[fn_idx as usize].n_locals as i32;
-        v[patch_location + 9] = function_info[fn_idx as usize].pc as i32;
+        v[patch_location] = function_info[fn_idx as usize].pc as i32;
     }
     let ((), _) = postlude().parse(input).unwrap();
     v

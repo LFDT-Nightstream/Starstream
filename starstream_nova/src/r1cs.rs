@@ -1,3 +1,5 @@
+// TODO: somehow represent lookups and memory representations in output
+
 use std::{
     collections::BTreeMap,
     ops::{Add, Mul, Sub},
@@ -21,7 +23,7 @@ pub struct R1CS {
     pub structure: Box<[(i128, i128)]>,
 }
 
-fn calculate_dimensions<IO>(c: &impl Circuit<IO>) -> (usize, usize) {
+fn calculate_dimensions<IO, L, M>(c: &impl Circuit<IO, L, M>) -> (usize, usize) {
     #[derive(Clone, Debug)]
     struct Var;
 
@@ -62,7 +64,7 @@ fn calculate_dimensions<IO>(c: &impl Circuit<IO>) -> (usize, usize) {
         label: &'static str,
     }
 
-    impl<'a> CircuitBuilder<Var> for Builder<'a> {
+    impl<'a, L, M> CircuitBuilder<Var, L, M> for Builder<'a> {
         fn zero(&mut self) -> Var {
             Var
         }
@@ -82,9 +84,9 @@ fn calculate_dimensions<IO>(c: &impl Circuit<IO>) -> (usize, usize) {
         fn enforce(&mut self, _: Location, _: Var, _: Var, _: Var) {
             *self.n_constraints += 1;
         }
-        fn lookup(&mut self, _: Var, _: Var, _: Var) {}
-        fn memory(&mut self, _: Var, _: Var, _: Var, _: Var) {}
-        fn nest<'b>(&'b mut self, l: Location) -> impl CircuitBuilder<Var> + 'b {
+        fn lookup(&mut self, _: L, _: Var, _: Var) {}
+        fn memory(&mut self, _: M, _: Var, _: Var, _: Var) {}
+        fn nest<'b>(&'b mut self, l: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
             Builder {
                 n_witnesses: self.n_witnesses,
                 n_constraints: self.n_constraints,
@@ -124,8 +126,8 @@ fn union_with<K: Ord, V>(
     }
 }
 
-fn calculate_structure<IO>(
-    c: &impl Circuit<IO>,
+fn calculate_structure<IO, L, M>(
+    c: &impl Circuit<IO, L, M>,
     io_mapping: impl Fn(IO) -> usize,
     n_io: usize,
     n_witnesses: usize,
@@ -215,7 +217,7 @@ fn calculate_structure<IO>(
         n_constraints: usize,
     }
 
-    impl<'a> CircuitBuilder<Var> for Builder<'a> {
+    impl<'a, L, M> CircuitBuilder<Var, L, M> for Builder<'a> {
         fn zero(&mut self) -> Var {
             Var(BTreeMap::new())
         }
@@ -251,9 +253,9 @@ fn calculate_structure<IO>(
                 self.structure[matrix_size * 2 + row * row_size + col] = coeff;
             }
         }
-        fn lookup(&mut self, _: Var, _: Var, _: Var) {}
-        fn memory(&mut self, _: Var, _: Var, _: Var, _: Var) {}
-        fn nest<'b>(&'b mut self, _: Location) -> impl CircuitBuilder<Var> + 'b {
+        fn lookup(&mut self, _: L, _: Var, _: Var) {}
+        fn memory(&mut self, _: M, _: Var, _: Var, _: Var) {}
+        fn nest<'b>(&'b mut self, _: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
             Builder {
                 structure: self.structure,
                 witness_counter: self.witness_counter,
@@ -289,8 +291,8 @@ fn calculate_structure<IO>(
     structure
 }
 
-pub fn gen_r1cs_structure<IO>(
-    circuit: impl Circuit<IO>,
+pub fn gen_r1cs_structure<IO, L, M>(
+    circuit: impl Circuit<IO, L, M>,
     n_io: usize,
     io_mapping: impl Fn(IO) -> usize,
 ) -> R1CS {

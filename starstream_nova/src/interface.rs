@@ -56,7 +56,7 @@ pub trait CircuitBuilderVar:
 {
 }
 
-pub trait CircuitBuilder<Var> {
+pub trait CircuitBuilder<Var, L, M> {
     fn zero(&mut self) -> Var;
     fn one(&mut self) -> Var;
     // Literals are always specified as i128,
@@ -69,17 +69,17 @@ pub trait CircuitBuilder<Var> {
     #[must_use]
     fn alloc(&mut self, location: Location) -> Var;
     fn enforce(&mut self, location: Location, a: Var, b: Var, a_times_b: Var);
-    fn lookup(&mut self, namespace: Var, address: Var, val: Var);
-    fn memory(&mut self, namespace: Var, address: Var, old: Var, new: Var);
+    fn lookup(&mut self, namespace: L, address: Var, val: Var);
+    fn memory(&mut self, namespace: M, address: Var, old: Var, new: Var);
     #[must_use]
-    fn nest<'a>(&'a mut self, location: Location) -> impl CircuitBuilder<Var> + 'a;
+    fn nest<'a>(&'a mut self, location: Location) -> impl CircuitBuilder<Var, L, M> + 'a;
     /// Check that `offset` witnesses have been allocated until now.
     /// Useful for ensuring witness generation is done correctly.
     fn assert_offset(&mut self, offset: usize);
 }
 
-pub trait Circuit<IO>: Send + Sync {
-    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var>>(
+pub trait Circuit<IO, L, M>: Send + Sync {
+    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var, L, M>>(
         &self,
         builder: B,
         // TODO: maybe you should get it from the builder?
