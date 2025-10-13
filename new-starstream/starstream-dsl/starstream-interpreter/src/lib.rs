@@ -8,9 +8,14 @@ use starstream_types::ast::*;
 // ----------------------------------------------------------------------------
 // Tree walker
 
-fn eval_block<'l>(block: &Block, locals: &Locals) {
+/// Execute a program.
+pub fn exec_program(program: &Program) {
+    eval_block(&program.statements, &Default::default());
+}
+
+fn eval_block<'l>(block: &[Statement], locals: &Locals) -> Locals {
     let mut locals = locals.clone();
-    for statement in &block.statements {
+    for statement in block {
         match statement {
             Statement::VariableDeclaration { name, value } => {
                 let value = eval(&value.node, &locals);
@@ -26,7 +31,7 @@ fn eval_block<'l>(block: &Block, locals: &Locals) {
                 eval(&expr.node, &locals);
             }
             Statement::Block(block) => {
-                eval_block(block, &locals);
+                eval_block(&block.statements, &locals);
             }
             Statement::If {
                 condition,
@@ -34,18 +39,19 @@ fn eval_block<'l>(block: &Block, locals: &Locals) {
                 else_branch,
             } => {
                 if eval(&condition.node, &locals).to_bool() {
-                    eval_block(then_branch, &locals);
+                    eval_block(&then_branch.statements, &locals);
                 } else if let Some(else_branch) = else_branch {
-                    eval_block(else_branch, &locals);
+                    eval_block(&else_branch.statements, &locals);
                 }
             }
             Statement::While { condition, body } => {
                 while eval(&condition.node, &locals).to_bool() {
-                    eval_block(body, &locals);
+                    eval_block(&body.statements, &locals);
                 }
             }
         }
     }
+    locals
 }
 
 /// Evaluate an expression.
@@ -173,21 +179,27 @@ fn eval_math() {
 }
 
 #[test]
-fn eval_scopes() {
-    eval_block(
-        &Block {
-            statements: vec![
-                Statement::VariableDeclaration {
-                    name: Identifier::new("foo", None),
-                    value: Spanned::none(Expr::Literal(Literal::Integer(6))),
-                },
-                Statement::Expression(Spanned::none(Expr::Identifier(Identifier::new(
-                    "foo", None,
-                )))),
-            ],
-        },
+fn eval_locals() {
+    let locals = eval_block(
+        &[
+            Statement::VariableDeclaration {
+                name: Identifier::new("foo", None),
+                value: Spanned::none(Expr::Literal(Literal::Integer(6))),
+            },
+            Statement::Assignment {
+                target: Identifier::new("foo", None),
+                value: Spanned::none(Expr::Binary {
+                    op: BinaryOp::Multiply,
+                    left: Box::new(Spanned::none(Expr::Identifier(Identifier::new(
+                        "foo", None,
+                    )))),
+                    right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(3)))),
+                }),
+            },
+        ],
         &Default::default(),
     );
+    assert_eq!(locals.get("foo"), Value::Number(18));
 }
 
 // ----------------------------------------------------------------------------
