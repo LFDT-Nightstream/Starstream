@@ -1,111 +1,141 @@
 //! Tree-walking interpreter for the Starstream DSL.
 #![allow(dead_code, unused)]
 
-use std::ops::*;
+use std::{cell::Cell, collections::BTreeMap, ops::*, rc::Rc};
 
 use starstream_types::ast::*;
 
 // ----------------------------------------------------------------------------
 // Tree walker
 
-fn eval_block(block: &Block) {
+fn eval_block<'l>(block: &Block, locals: &Locals) {
+    let mut locals = locals.clone();
     for statement in &block.statements {
         match statement {
-            Statement::Expression(expr) => {
-                eval(&expr.node);
+            Statement::VariableDeclaration { name, value } => {
+                let value = eval(&value.node, &locals);
+                locals
+                    .vars
+                    .insert(name.name.clone(), Rc::new(Cell::new(value)));
             }
-            _ => todo!(),
+            Statement::Assignment { target, value } => {
+                let value = eval(&value.node, &locals);
+                locals.set(&target.name, value);
+            }
+            Statement::Expression(expr) => {
+                eval(&expr.node, &locals);
+            }
+            Statement::Block(block) => {
+                eval_block(block, &locals);
+            }
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if eval(&condition.node, &locals).to_bool() {
+                    eval_block(then_branch, &locals);
+                } else if let Some(else_branch) = else_branch {
+                    eval_block(else_branch, &locals);
+                }
+            }
+            Statement::While { condition, body } => {
+                while eval(&condition.node, &locals).to_bool() {
+                    eval_block(body, &locals);
+                }
+            }
         }
     }
 }
 
 /// Evaluate an expression.
-pub fn eval(expr: &Expr /* , locals: &BTreeMap<String, Value>*/) -> Value {
+pub fn eval(expr: &Expr, locals: &Locals) -> Value {
     match expr {
+        // Identifiers
+        Expr::Identifier(Identifier { name, .. }) => locals.get(name).clone(),
         // Literals
         Expr::Literal(Literal::Integer(i)) => Value::Number(*i),
         Expr::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
         // Arithmetic operators
-        // Non-control-flow operators
         Expr::Binary {
             op: BinaryOp::Add,
             left,
             right,
-        } => eval(&left.node) + eval(&right.node),
+        } => eval(&left.node, locals) + eval(&right.node, locals),
         Expr::Binary {
             op: BinaryOp::Subtract,
             left,
             right,
-        } => eval(&left.node) - eval(&right.node),
+        } => eval(&left.node, locals) - eval(&right.node, locals),
         Expr::Binary {
             op: BinaryOp::Multiply,
             left,
             right,
-        } => eval(&left.node) * eval(&right.node),
+        } => eval(&left.node, locals) * eval(&right.node, locals),
         Expr::Binary {
             op: BinaryOp::Divide,
             left,
             right,
-        } => eval(&left.node) / eval(&right.node),
+        } => eval(&left.node, locals) / eval(&right.node, locals),
         Expr::Binary {
             op: BinaryOp::Remainder,
             left,
             right,
-        } => eval(&left.node) % eval(&right.node),
+        } => eval(&left.node, locals) % eval(&right.node, locals),
         Expr::Unary {
             op: UnaryOp::Negate,
             expr,
-        } => -eval(&expr.node),
+        } => -eval(&expr.node, locals),
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
-        } => !eval(&expr.node),
-        // Expr::BitNot(lhs) => eval(&lhs.node).bitnot(),
-        // Expr::BitAnd(lhs, rhs) => eval(&lhs.node) & eval(&rhs.node),
-        // Expr::BitOr(lhs, rhs) => eval(&lhs.node) | eval(&rhs.node),
-        // Expr::BitXor(lhs, rhs) => eval(&lhs.node) ^ eval(&rhs.node),
-        // Expr::LShift(lhs, rhs) => eval(&lhs.node) << eval(&rhs.node),
-        // Expr::RShift(lhs, rhs) => eval(&lhs.node) >> eval(&rhs.node),
+        } => !eval(&expr.node, locals),
+        // Expr::BitNot(lhs) => eval(&lhs.node, locals).bitnot(),
+        // Expr::BitAnd(lhs, rhs) => eval(&lhs.node, locals) & eval(&rhs.node, locals),
+        // Expr::BitOr(lhs, rhs) => eval(&lhs.node, locals) | eval(&rhs.node, locals),
+        // Expr::BitXor(lhs, rhs) => eval(&lhs.node, locals) ^ eval(&rhs.node, locals),
+        // Expr::LShift(lhs, rhs) => eval(&lhs.node, locals) << eval(&rhs.node, locals),
+        // Expr::RShift(lhs, rhs) => eval(&lhs.node, locals) >> eval(&rhs.node, locals),
         // Comparison operators
         Expr::Binary {
             op: BinaryOp::Equal,
             left,
             right,
-        } => Value::from(eval(&left.node) == eval(&right.node)),
+        } => Value::from(eval(&left.node, locals) == eval(&right.node, locals)),
         Expr::Binary {
             op: BinaryOp::NotEqual,
             left,
             right,
-        } => Value::from(eval(&left.node) != eval(&right.node)),
+        } => Value::from(eval(&left.node, locals) != eval(&right.node, locals)),
         Expr::Binary {
             op: BinaryOp::Less,
             left,
             right,
-        } => Value::from(eval(&left.node) < eval(&right.node)),
+        } => Value::from(eval(&left.node, locals) < eval(&right.node, locals)),
         Expr::Binary {
             op: BinaryOp::Greater,
             left,
             right,
-        } => Value::from(eval(&left.node) > eval(&right.node)),
+        } => Value::from(eval(&left.node, locals) > eval(&right.node, locals)),
         Expr::Binary {
             op: BinaryOp::LessEqual,
             left,
             right,
-        } => Value::from(eval(&left.node) <= eval(&right.node)),
+        } => Value::from(eval(&left.node, locals) <= eval(&right.node, locals)),
         Expr::Binary {
             op: BinaryOp::GreaterEqual,
             left,
             right,
-        } => Value::from(eval(&left.node) >= eval(&right.node)),
+        } => Value::from(eval(&left.node, locals) >= eval(&right.node, locals)),
         // Short-circuiting operators
         Expr::Binary {
             op: BinaryOp::And,
             left,
             right,
         } => {
-            let left = eval(&left.node);
+            let left = eval(&left.node, locals);
             if left.to_bool() {
-                eval(&right.node)
+                eval(&right.node, locals)
             } else {
                 left
             }
@@ -115,35 +145,81 @@ pub fn eval(expr: &Expr /* , locals: &BTreeMap<String, Value>*/) -> Value {
             left,
             right,
         } => {
-            let left = eval(&left.node);
+            let left = eval(&left.node, locals);
             if left.to_bool() {
                 left
             } else {
-                eval(&right.node)
+                eval(&right.node, locals)
             }
         }
         // Nesting
-        Expr::Grouping(expr) => eval(&expr.node),
-        _ => todo!(),
+        Expr::Grouping(expr) => eval(&expr.node, locals),
     }
 }
 
 #[test]
 fn eval_math() {
     assert_eq!(
-        eval(&Expr::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(Spanned::none(Expr::Literal(Literal::Integer(17)))),
-            right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(33)))),
-        }),
+        eval(
+            &Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Spanned::none(Expr::Literal(Literal::Integer(17)))),
+                right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(33)))),
+            },
+            &mut Default::default()
+        ),
         Value::Number(50)
     );
+}
+
+#[test]
+fn eval_scopes() {
+    eval_block(
+        &Block {
+            statements: vec![
+                Statement::VariableDeclaration {
+                    name: Identifier::new("foo", None),
+                    value: Spanned::none(Expr::Literal(Literal::Integer(6))),
+                },
+                Statement::Expression(Spanned::none(Expr::Identifier(Identifier::new(
+                    "foo", None,
+                )))),
+            ],
+        },
+        &Default::default(),
+    );
+}
+
+// ----------------------------------------------------------------------------
+// Variable semantics
+
+#[derive(Debug, Default, Clone)]
+pub struct Locals {
+    vars: BTreeMap<String, Rc<Cell<Value>>>,
+}
+
+impl Locals {
+    fn get(&self, name: &str) -> Value {
+        if let Some(value) = self.vars.get(name) {
+            value.get()
+        } else {
+            panic!("unknown variable {name:?}")
+        }
+    }
+
+    fn set(&self, name: &str, value: Value) {
+        if let Some(cell) = self.vars.get(name) {
+            cell.set(value);
+        } else {
+            panic!("unknown variable {name:?}")
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------
 // Value semantics
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Value {
     None,
     // Primitive values
