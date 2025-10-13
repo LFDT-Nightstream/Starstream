@@ -7,8 +7,6 @@
 
 pub mod ast;
 pub mod error;
-mod symbols;
-mod typechecking;
 
 pub use ast::*;
 pub use error::*;
