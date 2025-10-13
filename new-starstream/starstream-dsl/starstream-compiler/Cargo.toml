@@ -1,10 +1,10 @@
 [package]
 name = "starstream-compiler"
-version = "0.1.0"
-edition = "2021"
-authors = ["Sebastien <sebastien@example.com>"]
 description = "Compiler for the Starstream DSL"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 starstream-types = { path = "../starstream-types" }

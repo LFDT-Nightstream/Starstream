@@ -2,7 +2,6 @@
 //!
 //! This crate contains the core types used across the Starstream DSL ecosystem:
 //! - Abstract Syntax Tree (AST) definitions
-//! - Stack machine opcodes
 //! - Error types
 
 pub mod ast;

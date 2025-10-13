@@ -1,10 +1,10 @@
 [package]
 name = "starstream-types"
-version = "0.1.0"
-edition = "2021"
-authors = ["Sebastien <sebastien@example.com>"]
 description = "Shared types for Starstream DSL"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

@@ -1,5 +1,9 @@
 [workspace]
+package.version = "0.0.0"
 package.license = "MIT/Apache-2.0"
+package.authors = []
+package.edition = "2024"
+
 members = [
     "starstream-compiler",
     "starstream-interpreter",
