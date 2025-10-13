@@ -1,136 +1,93 @@
-//! AST types describing a Starstream source file.
+//! Abstract syntax tree for the pared-down Starstream DSL.
 
-use crate::{symbols::SymbolId, typechecking::ComparableType};
 use chumsky::span::SimpleSpan;
 use serde::Serialize;
 
-/// The root type of a Starstream source file.
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct StarstreamProgram {
-    pub items: Vec<ProgramItem>,
+/// Entire program: a sequence of statements.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Program {
+    pub statements: Vec<Statement>,
 }
 
-/// A coordination script, UTXO, or token definition block.
-#[derive(Clone, Debug, Serialize)]
-pub enum ProgramItem {
-    // TODO: Import
-    Abi(Abi),
-    Script(Script),
-    Utxo(Utxo),
-    Token(Token),
-    TypeDef(TypeDef),
-    Constant { name: Identifier, value: f64 },
+/// Statements allowed by the current grammar.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum Statement {
+    VariableDeclaration {
+        name: Identifier,
+        value: Spanned<Expr>,
+    },
+    Assignment {
+        target: Identifier,
+        value: Spanned<Expr>,
+    },
+    If {
+        condition: Spanned<Expr>,
+        then_branch: Block,
+        else_branch: Option<Block>,
+    },
+    While {
+        condition: Spanned<Expr>,
+        body: Block,
+    },
+    Block(Block),
+    Expression(Spanned<Expr>),
 }
 
-/// `utxo Name { ... }`
-#[derive(Clone, Debug, Serialize)]
-pub struct Utxo {
-    pub name: Identifier,
-    pub items: Vec<UtxoItem>,
+/// `{ statement* }`
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Block {
+    pub statements: Vec<Statement>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub enum UtxoItem {
-    Main(Main),
-    Impl(Impl),
-    Storage(Storage),
-    Yield(TypeArg),
-    Resume(TypeArg),
+/// Expressions with precedence encoded via parser, not the AST shape.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum Expr {
+    Literal(Literal),
+    Identifier(Identifier),
+    Unary {
+        op: UnaryOp,
+        expr: Box<Spanned<Expr>>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<Spanned<Expr>>,
+        right: Box<Spanned<Expr>>,
+    },
+    Grouping(Box<Spanned<Expr>>),
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Main {
-    pub type_sig: Option<TypedBindings>,
-    pub block: Block,
-    pub ident: Identifier,
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum Literal {
+    Integer(i64),
+    Boolean(bool),
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Token {
-    pub name: Identifier,
-    pub items: Vec<TokenItem>,
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub enum UnaryOp {
+    Negate,
+    Not,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub enum TokenItem {
-    Bind(Bind),
-    Unbind(Unbind),
-    Mint(Mint),
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub enum BinaryOp {
+    Multiply,
+    Divide,
+    Remainder,
+    Add,
+    Subtract,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Equal,
+    NotEqual,
+    And,
+    Or,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Bind(pub Block, pub Identifier);
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Unbind(pub Block, pub Identifier);
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Mint(pub Block, pub Identifier);
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Impl {
-    pub name: Identifier,
-    pub definitions: Vec<FnDef>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Script {
-    pub definitions: Vec<FnDef>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Storage {
-    pub bindings: TypedBindings,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Sig {
-    pub name: Identifier,
-    pub input_types: Vec<TypeArg>,
-    pub output_type: Option<TypeArg>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct FnDecl(pub Sig);
-
-#[derive(Clone, Debug, Serialize)]
-pub struct FnArgDeclaration {
-    pub name: Identifier,
-    pub ty: TypeArg,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct FnDef {
-    pub ident: Identifier,
-    pub inputs: Vec<FnArgDeclaration>,
-    pub output: Option<TypeArg>,
-    pub body: Block,
-    pub effects: Vec<Identifier>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum EffectDecl {
-    EffectSig(Sig),
-    EventSig(Sig),
-    ErrorSig(Sig),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum AbiElem {
-    FnDecl(FnDecl),
-    EffectDecl(EffectDecl),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Abi {
-    pub name: Identifier,
-    pub values: Vec<AbiElem>,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
 pub struct Identifier {
-    pub raw: String,
-    pub uid: Option<SymbolId>,
+    pub name: String,
     #[serde(skip)]
     pub span: Option<SimpleSpan>,
 }
@@ -138,290 +95,22 @@ pub struct Identifier {
 impl Identifier {
     pub fn new(name: impl Into<String>, span: Option<SimpleSpan>) -> Self {
         Self {
-            raw: name.into(),
-            uid: None,
+            name: name.into(),
             span,
         }
     }
 }
 
-impl AsMut<Identifier> for Identifier {
-    fn as_mut(&mut self) -> &mut Identifier {
-        self
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct TypeDef {
-    pub name: Identifier,
-    pub ty: TypeDefRhs,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum TypeDefRhs {
-    TypeArg(TypeArg),
-    Object(TypedBindings),
-    Variant(Variant),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Object(pub TypedBindings);
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Variant(pub Vec<(Identifier, TypedBindings)>);
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct TypeRef(pub Identifier);
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct FnType {
-    pub inputs: TypedBindings,
-    pub output: Option<Box<TypeArg>>,
-}
-
-#[derive(Clone, Debug, Eq, Serialize)]
-pub enum TypeArg {
-    Unit,
-    Bool,
-    F32,
-    F64,
-    U32,
-    I32,
-    U64,
-    I64,
-    String,
-    Intermediate {
-        abi: Box<TypeArg>,
-        storage: Box<TypeArg>,
-    },
-    TypeRef(TypeRef),
-    TypeApplication(TypeRef, Vec<TypeArg>),
-    FnType(FnType),
-    Ref(Box<TypeArg>),
-}
-
-impl PartialEq for TypeArg {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                Self::Intermediate {
-                    abi: l_abi,
-                    storage: l_storage,
-                },
-                Self::Intermediate {
-                    abi: r_abi,
-                    storage: r_storage,
-                },
-            ) => l_abi == r_abi && l_storage == r_storage,
-            (Self::TypeRef(l0), Self::TypeRef(r0)) if l0.0.uid.is_some() && r0.0.uid.is_some() => {
-                l0.0.uid.unwrap() == r0.0.uid.unwrap()
-            }
-            (Self::TypeApplication(l0, l1), Self::TypeApplication(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::FnType(l0), Self::FnType(r0)) => l0 == r0,
-            (Self::Ref(l0), Self::Ref(r0)) => l0 == r0,
-            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum Statement {
-    /// `let [mut] a = b;`
-    BindVar {
-        var: Identifier,
-        mutable: bool,
-        ty: Option<TypeArg>,
-        value: Spanned<Expr>,
-    },
-    /// `return a;`
-    Return(Option<Spanned<Expr>>),
-    /// `resume a;`
-    Resume(Option<Spanned<Expr>>),
-    /// `a = b;`
-    Assign {
-        var: FieldAccessExpression,
-        expr: Spanned<Expr>,
-    },
-    /// `with { a... } catch (b) { c... } ...`
-    With(Block, Vec<(EffectHandler, Block)>),
-    /// `while (a) { b... }`
-    While(Spanned<Expr>, LoopBody),
-    /// `loop { a... }`
-    Loop(LoopBody),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum LoopBody {
-    Statement(Box<Statement>),
-    Block(Block),
-    Expr(Spanned<Expr>),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum Expr {
-    PrimaryExpr(FieldAccessExpression),
-    BlockExpr(BlockExpr),
-    // Comparison operators
-    /// `a == b`
-    Equals(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a != b`
-    NotEquals(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a < b`
-    LessThan(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a > b`
-    GreaterThan(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a <= b`
-    LessEq(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a >= b`
-    GreaterEq(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    // Arithmetic operators
-    /// `a + b`
-    Add(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a - b`
-    Sub(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a * b`
-    Mul(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a / b`
-    Div(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a % b`
-    Mod(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `-a`
-    Neg(Box<Spanned<Expr>>),
-    // Bitwise operators
-    /// `~a`
-    BitNot(Box<Spanned<Expr>>),
-    /// `a & b`
-    BitAnd(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a | b`
-    BitOr(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a ^ b`
-    BitXor(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a << b`
-    LShift(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a >> b`
-    RShift(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    // Boolean operators
-    /// `!a`
-    Not(Box<Spanned<Expr>>),
-    /// `a && b`
-    And(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-    /// `a || b`
-    Or(Box<Spanned<Expr>>, Box<Spanned<Expr>>),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum BlockExpr {
-    /// `if (a) { b } else { c }`
-    IfThenElse(Box<Spanned<Expr>>, Box<Block>, Option<Box<Block>>),
-    /// `{ a... }`
-    Block(Block),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum FieldAccessExpression {
-    PrimaryExpr(PrimaryExpr),
-    FieldAccess {
-        base: Box<FieldAccessExpression>,
-        field: IdentifierExpr,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct IdentifierExpr {
-    pub name: Identifier,
-    pub args: Option<Arguments>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum PrimaryExpr {
-    Number {
-        literal: u32,
-        #[serde(skip)]
-        ty: Option<ComparableType>,
-    },
-    /// `true` or `false` literal
-    Bool(bool),
-    /// `a`
-    Ident(IdentifierExpr),
-    /// `a::b::c`
-    Namespace {
-        namespaces: Vec<Identifier>,
-        ident: IdentifierExpr,
-    },
-    /// `(a)`
-    ParExpr(Box<Spanned<Expr>>),
-    /// `yield a`
-    Yield(Option<Box<Spanned<Expr>>>),
-    /// `raise a`
-    Raise {
-        ident: IdentifierExpr,
-    },
-    /// `raise a::b(..)`
-    RaiseNamespaced {
-        namespaces: Vec<Identifier>,
-        ident: IdentifierExpr,
-    },
-    /// `a { b: c, ... }`
-    Object(TypeArg, Vec<(Identifier, Spanned<Expr>)>),
-    StringLiteral(String),
-
-    Tuple(Vec<Spanned<Expr>>),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum ExprOrStatement {
-    Expr(Spanned<Expr>),
-    Statement(Statement),
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub enum Block {
-    Chain {
-        head: Box<ExprOrStatement>,
-        tail: Box<Block>,
-    },
-    Close {
-        semicolon: bool,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Arguments {
-    pub xs: Vec<Spanned<Expr>>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct OptionallyTypedBindings {
-    pub values: Vec<(Identifier, Option<TypeArg>)>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-pub struct TypedBindings {
-    pub values: Vec<(Identifier, TypeArg)>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct EffectArgDeclaration {
-    pub name: Identifier,
-    pub ty: Option<TypeArg>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct EffectHandler {
-    pub interface: Identifier,
-    pub ident: Identifier,
-    pub args: Vec<EffectArgDeclaration>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct Effect {
-    pub ident: Identifier,
-    pub type_sig: TypedBindings,
-}
-
-#[derive(Clone, Debug, Serialize)]
+/// Helper for attaching source spans to AST nodes.
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Spanned<T> {
     pub node: T,
     #[serde(skip)]
     pub span: SimpleSpan,
+}
+
+impl<T> Spanned<T> {
+    pub fn new(node: T, span: SimpleSpan) -> Self {
+        Self { node, span }
+    }
 }
