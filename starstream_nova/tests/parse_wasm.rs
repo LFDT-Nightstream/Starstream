@@ -60,7 +60,7 @@ impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
         actual: i128,
         expected: i128,
     ) {
-        eprintln!("failed_enforce {locations} {lhs} {rhs} {actual} {expected}");
+        eprintln!("failed_enforce {locations}: {lhs} * {rhs} = {actual} != {expected}");
         *self.0 = true;
     }
     fn lookup(
@@ -70,18 +70,25 @@ impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
         address: i128,
         val: i128,
     ) {
-        match namespace {
-            circuits::LookupTables::Code => {
-                if self.1[address as usize] as i128 != val {
+        if address != 0 || val != 0 {
+            match namespace {
+                circuits::LookupTables::Code if self.1.len() <= address as usize => {
+                    if val != 0 {
+                        eprintln!("code invalid {locations} {address} {val} 0",);
+                        *self.0 = true;
+                    }
+                }
+                circuits::LookupTables::Code if self.1[address as usize] as i128 != val => {
                     eprintln!(
                         "code invalid {locations} {address} {val} {}",
                         self.1[address as usize] as i128
                     );
                     *self.0 = true;
                 }
-            }
-            circuits::LookupTables::HostInteractions => {
-                eprintln!("hosts {locations} {address} {val}",);
+                circuits::LookupTables::HostInteractions => {
+                    eprintln!("host {locations} {address} {val}");
+                }
+                _ => {}
             }
         }
     }
@@ -99,7 +106,9 @@ impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
             circuits::Memories::HelperStack => "helper stack",
             circuits::Memories::Memory => "memory",
         };
-        eprintln!("invalid_memory {locations} {name} {address} {expected} {actual} {new}");
+        eprintln!(
+            "invalid_memory {name} {locations} {address}: wanted {expected}, found {actual}, new {new}"
+        );
         *self.0 = true;
     }
     fn mismatching_witness(
@@ -194,7 +203,6 @@ fn parse(name: &str, wat: &str) -> Vec<i32> {
 }
 
 #[test]
-#[ignore = "FIXME"]
 fn run() {
     let code = parse("example_coord", EXAMPLE_MODULE);
     // we start with an empty stack and an empty memory
@@ -249,9 +257,9 @@ fn run() {
         let helper_sp = state.helper_stack.len() as i128;
         let reg = state.reg as i128;
         let cc = state.cc as i128;
-        eprintln!("sp: {sp}, pc: {pc}");
+        eprintln!("stack: {:?}", state.stack);
         let opcode = code[pc as usize];
-        let param = code[pc as usize + 1];
+        let param = *code.get(pc as usize + 1).unwrap_or(&0);
         let exec::Witnesses { v, offset } = exec::step(code.as_slice(), &mut state, host);
         let input = |idx: WASM_IO| match idx {
             WASM_IO::sp => (sp, 1),
@@ -265,7 +273,6 @@ fn run() {
         let new_helper_sp = state.helper_stack.len() as i128;
         let new_reg = state.reg as i128;
         let new_cc = state.cc as i128;
-        eprintln!("new_sp: {new_sp}, new_pc: {new_pc}");
         let output = |idx: WASM_IO| match idx {
             WASM_IO::sp => (new_sp, 1),
             WASM_IO::pc => (new_pc, 1),

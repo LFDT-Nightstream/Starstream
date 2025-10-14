@@ -394,24 +394,20 @@ enum Import {
 }
 
 fn import_fun_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
-    name_p()
-        .skip(name_p())
-        .skip(byte(0))
-        .with(u32_p())
-        .map(Import::Fn)
+    byte(0).with(u32_p()).map(Import::Fn)
 }
 
 fn import_i32_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
-    name_p()
-        .skip(name_p())
-        .skip(byte(3))
-        .skip(byte(0x7E))
+    byte(3)
+        .skip(byte(0x7F))
         .skip(byte(0))
         .map(|_| Import::Global)
 }
 
 fn import_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
-    choice((import_fun_p(), import_i32_p()))
+    name_p()
+        .skip(name_p())
+        .with(choice((import_fun_p(), import_i32_p())))
 }
 
 fn importsec_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<Import>> {
@@ -479,7 +475,7 @@ struct FunctionInfo {
 
 enum Datum {
     Raw(i32),
-    CurrentAddr,
+    CurrentAddr(i32),
     FnAddr(u32),
 }
 
@@ -625,7 +621,7 @@ fn handle_instruction(
             let fn_idx = fn_idx - imports.len() as u32;
             [
                 Datum::Raw(circuits::Instr::Const as i32),
-                Datum::CurrentAddr,
+                Datum::CurrentAddr(4),
                 Datum::Raw(circuits::Instr::Const as i32),
                 Datum::FnAddr(fn_idx),
                 Datum::Raw(circuits::Instr::Jump as i32),
@@ -733,8 +729,12 @@ where
             .fold(0, Add::add) as i32;
         function_info.push(FunctionInfo { pc: v.len() });
         let mut stack_size: i32 = n_locals;
+        if n_locals != 0 {
+            v.push(circuits::Instr::Alloc as i32);
+        }
         let mut iter = non_rec_instr_p().iter(&mut input);
-        for instr in &mut iter {
+        // add implicit return instruction at the end of the function
+        for instr in (&mut iter).chain(Some(Instr::Return)) {
             let R { stack_diff } = handle_instruction(
                 instr,
                 stack_size,
@@ -745,7 +745,7 @@ where
                 globals,
                 |d| match d {
                     Datum::Raw(n) => v.push(n),
-                    Datum::CurrentAddr => v.push(v.len() as i32),
+                    Datum::CurrentAddr(offset) => v.push(v.len() as i32 + offset),
                     Datum::FnAddr(fn_idx) => {
                         function_calls_to_patch.push((v.len(), fn_idx));
                         v.push(0); // placeholder

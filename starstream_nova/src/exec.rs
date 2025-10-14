@@ -57,10 +57,10 @@ pub fn step(
     mut host: impl FnMut(i32, Vec<i32>) -> Vec<i32>,
 ) -> Witnesses {
     let opcode = code[state.pc as usize];
-    eprintln!("opcode is {}", opcode);
     match opcode {
         o if o == Instr::Unreachable as i32 => panic!("code jumped to unreachable area"),
         o if o == Instr::Nop as i32 => {
+            eprintln!("executing Nop");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_nop"))
             }
@@ -72,6 +72,7 @@ pub fn step(
             }
         }
         o if o == Instr::Drop as i32 => {
+            eprintln!("executing Drop");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_drop"))
             }
@@ -89,6 +90,7 @@ pub fn step(
             }
         }
         o if o == Instr::Const as i32 => {
+            eprintln!("executing Const");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_const"))
             }
@@ -99,7 +101,6 @@ pub fn step(
             let v = vec![
                 (t("switch"), 1, 1),
                 (t("real_addr"), sp as i32, 1),
-                (t("real_old"), 0, 1),
                 (t("real_new"), pushed, 1),
             ];
             Witnesses {
@@ -108,6 +109,7 @@ pub fn step(
             }
         }
         o if o == Instr::Add as i32 => {
+            eprintln!("executing Add");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_add"))
             }
@@ -137,7 +139,6 @@ pub fn step(
                     ),
                     (t("real_addr"), sp - 1, 1),
                     (t("real_old"), first, 1),
-                    (t("real_new"), 0, 1),
                     (t("real_addr"), sp - 2, 1),
                     (t("real_old"), second, 1),
                     (t("real_new"), first + second, 1),
@@ -151,6 +152,7 @@ pub fn step(
             }
         }
         o if o == Instr::Get as i32 => {
+            eprintln!("executing Get");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_get"))
             }
@@ -174,6 +176,7 @@ pub fn step(
             }
         }
         o if o == Instr::Set as i32 => {
+            eprintln!("executing Set");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_set"))
             }
@@ -199,6 +202,7 @@ pub fn step(
             }
         }
         o if o == Instr::Swap as i32 => {
+            eprintln!("executing Swap");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_swap"))
             }
@@ -226,6 +230,7 @@ pub fn step(
             }
         }
         o if o == Instr::CondJump as i32 => {
+            eprintln!("executing CondJump");
             let sp = state.stack.len() as i32;
             let new_pc = state.stack.pop().expect("empty stack");
             let c = state.stack.pop().expect("empty stack");
@@ -266,6 +271,7 @@ pub fn step(
             }
         }
         o if o == Instr::Jump as i32 => {
+            eprintln!("executing Jump");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_jump"))
             }
@@ -283,6 +289,7 @@ pub fn step(
             }
         }
         o if o == Instr::Read as i32 => {
+            eprintln!("executing Read");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_read"))
             }
@@ -308,6 +315,7 @@ pub fn step(
             }
         }
         o if o == Instr::Write as i32 => {
+            eprintln!("executing Write");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_write"))
             }
@@ -339,6 +347,7 @@ pub fn step(
             }
         }
         o if o == Instr::Alloc as i32 => {
+            eprintln!("executing Alloc");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_alloc"))
             }
@@ -352,6 +361,7 @@ pub fn step(
             }
         }
         o if o == Instr::Select as i32 => {
+            eprintln!("executing Select");
             let sp = state.stack.len() as i32;
             let c = state.stack.pop().expect("empty stack");
             let y = state.stack.pop().expect("empty stack");
@@ -400,6 +410,7 @@ pub fn step(
             }
         }
         o if o == Instr::SetReg as i32 => {
+            eprintln!("executing SetReg");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_set_reg"))
             }
@@ -419,6 +430,7 @@ pub fn step(
             }
         }
         o if o == Instr::GetReg as i32 => {
+            eprintln!("executing GetReg");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_get_reg"))
             }
@@ -437,6 +449,7 @@ pub fn step(
             }
         }
         o if o == Instr::ToHelper as i32 => {
+            eprintln!("executing ToHelper");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_to_helper"))
             }
@@ -459,6 +472,7 @@ pub fn step(
             }
         }
         o if o == Instr::FromHelper as i32 => {
+            eprintln!("executing FromHelper");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_from_helper"))
             }
@@ -481,6 +495,7 @@ pub fn step(
             }
         }
         o if o == Instr::InitHostCall as i32 => {
+            eprintln!("executing InitHostCall");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_init_host_call"))
             }
@@ -501,6 +516,7 @@ pub fn step(
             }
         }
         o if o == Instr::ToHost as i32 => {
+            eprintln!("executing ToHost");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_to_host"))
             }
@@ -523,6 +539,7 @@ pub fn step(
             }
         }
         o if o == Instr::FromHost as i32 => {
+            eprintln!("executing FromHost");
             const fn t(l: &str) -> u64 {
                 cons_tag(l, tag("visit_from_host"))
             }
@@ -541,7 +558,7 @@ pub fn step(
                 (t("switch"), 1, 1),
                 (t("val"), val, 1),
                 (t("real_addr"), sp, 1),
-                (t("real_old"), val, 1),
+                (t("real_new"), val, 1),
                 (t("real_addr"), state.cc, 1),
                 (t("real_val"), val, 1),
             ];

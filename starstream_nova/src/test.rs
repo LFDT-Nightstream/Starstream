@@ -295,9 +295,13 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
         }
         fn memory(&mut self, namespace: M, Var(address): Var, Var(old): Var, Var(new): Var) {
             let (namespace, idx) = (self.memory_mapping)(namespace);
-            self.memories.resize_with(idx + 1, Vec::default);
+            if self.memories.len() <= idx {
+                self.memories.resize_with(idx + 1, Vec::default);
+            }
             let m = &mut self.memories[idx];
-            m.resize_with(address as usize + 1, u64::default);
+            if m.len() <= address as usize {
+                m.resize_with(address as usize + 1, u64::default);
+            }
             let old_ = m[address as usize];
             if old_ != old {
                 self.handler.invalid_memory(

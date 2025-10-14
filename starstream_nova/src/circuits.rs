@@ -206,51 +206,51 @@ pub enum Instr {
     /// not provable, hence it has no corresponding code
     Unreachable = 0,
     /// {} -> {}
-    Nop,
+    Nop = 1,
     /// x -> {}
-    Drop,
+    Drop = 2,
     /// {} -> code[pc+1]
-    Const,
+    Const = 3,
     /// x y -> x+y
-    Add,
+    Add = 4,
     /// {} -> stack[sp - code[pc+1]]
     /// NB: code[pc+1] must be greater than 0
-    Get,
+    Get = 5,
     /// x -> {}; stack[sp - code[pc+1]] := x
     /// NB: code[pc+1] must be greater than 1
-    Set,
+    Set = 6,
     /// x -> stack[sp - code[pc+1]]; stack[sp - code[pc+1]] := x
     /// NB: code[pc+1] must be greater than 0
-    Swap,
+    Swap = 7,
     /// c new_pc -> {}; pc := new_pc if c == 0, else if c != 0 then pc := pc + 1
-    CondJump,
+    CondJump = 8,
     /// new_pc -> {}; pc := new_pc
-    Jump,
+    Jump = 9,
     /// ptr -> memory[ptr]
-    Read,
+    Read = 10,
     /// ptr data -> {}; memory[ptr] = data
-    Write,
+    Write = 11,
     /// {} -> code[pc+1] zeroes
-    Alloc,
+    Alloc = 12,
     /// x y c -> y if c == 0
     /// x y c -> x if c != 0
-    Select,
+    Select = 13,
     /// x -> {}; reg := x
-    SetReg,
+    SetReg = 14,
     /// {} -> reg
-    GetReg,
+    GetReg = 15,
     /// x -> {}; push_helper x
-    ToHelper,
+    ToHelper = 16,
     /// {} -> y; y = pop_helper
-    FromHelper,
+    FromHelper = 17,
     /// <TODO>
-    InitHostCall,
+    InitHostCall = 18,
     /// <TODO>
-    ToHost,
+    ToHost = 19,
     /// <TODO>
-    FromHost,
+    FromHost = 20,
     // not an instruction, signifies end of enum
-    _End,
+    _End = 21,
 }
 
 pub const N_GLOBAL_WITNESSES: usize = 2;
@@ -1154,21 +1154,20 @@ fn visit_from_helper<Var: CircuitBuilderVar, B: Builder<Var>>(
     let instr = cb.lit(Instr::FromHelper as i128);
     cond_assert(cb.nest(l!()), switch.clone(), opcode, instr);
     let val = cb.alloc(l!("val"));
-    let zero = cb.zero();
     let one = cb.one();
     cond_memory_to_zero(
         cb.nest(l!()),
         switch.clone(),
         Memories::HelperStack,
         helper_sp.clone() - one.clone(),
-        zero.clone(),
+        val.clone(),
     );
     cond_memory_zero_to(
         cb.nest(l!()),
         switch.clone(),
         Memories::Stack,
         sp.clone(),
-        val.clone(),
+        val,
     );
     cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp + one.clone());
     cond_assert(
@@ -1213,9 +1212,10 @@ fn visit_init_host_call<Var: CircuitBuilderVar, B: Builder<Var>>(
         host_call,
     );
     let one = cb.one();
+    let two = cb.lit(2);
     cond_assert(cb.nest(l!()), switch.clone(), new_sp, sp);
     cond_assert(cb.nest(l!()), switch.clone(), new_helper_sp, helper_sp);
-    cond_assert(cb.nest(l!()), switch.clone(), new_pc, pc + one.clone());
+    cond_assert(cb.nest(l!()), switch.clone(), new_pc, pc + two);
     cond_assert(cb.nest(l!()), switch.clone(), reg, new_reg);
     cond_assert(cb.nest(l!()), switch.clone(), new_cc, cc + one);
 }
