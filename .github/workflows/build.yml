@@ -36,7 +36,7 @@ jobs:
   website-deploy:
     name: GitHub Pages
     needs: website
-    if: github.event_name == 'push' && github.ref_name == 'master'
+    if: github.event_name == 'push' && github.ref_name == 'main'
     permissions:
       pages: write
       id-token: write
