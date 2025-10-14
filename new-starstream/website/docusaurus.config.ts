@@ -158,6 +158,17 @@ const config: Config = {
       darkTheme: prismThemes.dracula,
     },
   } satisfies Preset.ThemeConfig,
+
+  plugins: [
+    /*
+      Note: This plugin makes some assumptions about the structure of your docs:
+      - The docs directory contains your documentation
+      - Each category has a _category_.yml file that contains the category metadata
+      - Each page has frontmatter metadata
+      - For top-level Markdown pages, there is a sidebar_position field in the metadata
+    */
+    "docusaurus-plugin-generate-llms-txt",
+  ],
 };
 
 export default config;
