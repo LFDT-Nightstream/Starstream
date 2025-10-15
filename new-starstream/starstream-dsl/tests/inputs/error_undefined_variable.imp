@@ -1,5 +1,0 @@
-script {
-    fn main() {
-        let x = y + 1;
-    }
-}

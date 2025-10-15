@@ -1,0 +1,68 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nwhile (count < 10) { count = count + 1; }\n"
+---
+While {
+    condition: Spanned {
+        node: Binary {
+            op: Less,
+            left: Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "count",
+                        span: Some(
+                            7..12,
+                        ),
+                    },
+                ),
+                span: 7..13,
+            },
+            right: Spanned {
+                node: Literal(
+                    Integer(
+                        10,
+                    ),
+                ),
+                span: 15..17,
+            },
+        },
+        span: 7..17,
+    },
+    body: Block {
+        statements: [
+            Assignment {
+                target: Identifier {
+                    name: "count",
+                    span: Some(
+                        21..26,
+                    ),
+                },
+                value: Spanned {
+                    node: Binary {
+                        op: Add,
+                        left: Spanned {
+                            node: Identifier(
+                                Identifier {
+                                    name: "count",
+                                    span: Some(
+                                        29..34,
+                                    ),
+                                },
+                            ),
+                            span: 29..35,
+                        },
+                        right: Spanned {
+                            node: Literal(
+                                Integer(
+                                    1,
+                                ),
+                            ),
+                            span: 37..38,
+                        },
+                    },
+                    span: 29..38,
+                },
+            },
+        ],
+    },
+}

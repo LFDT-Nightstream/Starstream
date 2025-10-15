@@ -1,0 +1,20 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nlet answer = 42;"
+---
+VariableDeclaration {
+    name: Identifier {
+        name: "answer",
+        span: Some(
+            4..10,
+        ),
+    },
+    value: Spanned {
+        node: Literal(
+            Integer(
+                42,
+            ),
+        ),
+        span: 13..15,
+    },
+}
