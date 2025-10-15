@@ -156,17 +156,17 @@ impl Transaction<Vec<Instruction>> {
         let (chain, step_ios) = session.finalize();
 
         // TODO: this fails right now, but the circuit should be sat
-        // let ok = ::neo::verify_chain_with_descriptor(
-        //     &descriptor,
-        //     &chain,
-        //     &y0,
-        //     &params,
-        //     &step_ios,
-        //     ::neo::AppInputBinding::WitnessBound,
-        // )
-        // .unwrap();
+        let ok = ::neo::verify_chain_with_descriptor(
+            &descriptor,
+            &chain,
+            &y0,
+            &params,
+            &step_ios,
+            ::neo::AppInputBinding::WitnessBound,
+        )
+        .unwrap();
 
-        // assert!(ok, "neo chain verification failed");
+        assert!(ok, "neo chain verification failed");
 
         let (final_proof, _final_ccs, _final_public_input) = finalize_ivc_chain_with_options(
             &descriptor,

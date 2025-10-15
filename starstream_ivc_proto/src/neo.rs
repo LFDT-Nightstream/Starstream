@@ -72,10 +72,6 @@ where
             .make_step_circuit(step_idx, &mut self.mem, cs.clone(), self.irw.clone())
             .unwrap();
 
-        // this hides the proof system errors
-        // keep it for now so that the tests pass correctly
-        assert!(cs.is_satisfied().unwrap(), "circuit is not satisfiable");
-
         let spec = self.step_spec();
 
         let step = arkworks_to_neo(cs.clone());
