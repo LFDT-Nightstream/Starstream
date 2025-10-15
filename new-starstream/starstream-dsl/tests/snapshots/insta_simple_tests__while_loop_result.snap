@@ -1,7 +1,0 @@
----
-source: tests/insta_simple_tests.rs
-expression: final_state
----
-{
-  "x": 1
-}

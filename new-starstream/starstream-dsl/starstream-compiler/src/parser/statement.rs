@@ -80,3 +80,68 @@ pub(super) fn parser_with_block<'a>(
     ))
     .boxed()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+
+    macro_rules! assert_statement_snapshot {
+        ($code:expr) => {{
+            let stmt = parser()
+                .parse(indoc! { $code })
+                .into_result()
+                .expect("statement should parse");
+
+            insta::with_settings!({
+                description => format!("Code:\n\n{}", indoc! { $code }),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(stmt);
+            });
+        }};
+    }
+
+    #[test]
+    fn let_binding() {
+        assert_statement_snapshot!("let answer = 42;");
+    }
+
+    #[test]
+    fn assignment() {
+        assert_statement_snapshot!("value = value + 1;");
+    }
+
+    #[test]
+    fn if_else() {
+        assert_statement_snapshot!(
+            r#"
+            if (flag) { let a = 1; } else { value = value + 1; }
+            "#
+        );
+    }
+
+    #[test]
+    fn while_loop() {
+        assert_statement_snapshot!(
+            r#"
+            while (count < 10) { count = count + 1; }
+            "#
+        );
+    }
+
+    #[test]
+    fn block() {
+        assert_statement_snapshot!(
+            r#"
+            { let a = 1; a = a + 1; }
+            "#
+        );
+    }
+
+    #[test]
+    fn expression_statement() {
+        assert_statement_snapshot!("value + 1;");
+    }
+}

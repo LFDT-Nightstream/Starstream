@@ -10,3 +10,7 @@ license.workspace = true
 starstream-types = { path = "../starstream-types" }
 chumsky = { version = "0.11", features = ["pratt"] }
 ariadne = "0.5.1"
+
+[dev-dependencies]
+indoc = "2.0"
+insta = "1.39"
