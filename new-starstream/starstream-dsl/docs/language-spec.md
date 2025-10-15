@@ -90,21 +90,57 @@ identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 | 4           | `<`, `<=`, `>`, `>=` | Left          | Relational      |
 | 5           | `==`, `!=`           | Left          | Equality        |
 | 6           | `&&`                 | Left          | Logical AND     |
-| 7 (lowest)  | `                    |               | `               |
+| 7 (lowest)  | `\|\|`               | Left          | Logical OR      |
 
----
-
-> everything below is not yet implemented
-
-## Semantics
-
-### Common concepts
-
-Scopes:
+## Scopes
 
 - Every expression exists within a stack of scopes, in the traditional static scoping sense.
-- Each scope has a table of variables, identified by name and having a current integer value.
+- Each scope has a table of variables, identified by name and having a current value.
 - Syntactic blocks (curly braces) introduce new scopes.
+
+## Value semantics
+
+- Integer literals work in the obvious way.
+- Boolean literals work in the obvious way.
+- Variable names refer to a `let` declaration earlier in the current scope or
+  one of its parents, but not child scopes.
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
+  way.
+  - We assume wrapping signed 64-bit two's complement integers.
+  - `%` is the Euclid remainder (least non-negative).
+- Unary `-` applies to integers. Unary `!` applies to booleans.
+- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) or (boolean, boolean) and
+  produce booleans.
+- The boolean operators `!`, `&&`, `||` accept booleans and produce
+  booleans.
+  - `&&` and `||` are short-circuiting.
+
+## Statement semantics
+
+- `if` statements evaluate their condition, require it to be a boolean, and branch in the obvious way.
+- `while` expressions loop in the obvious way.
+- Blocks introduce a new child scope for `let` statements.
+- `let` statements add a new variable binding to the current scope and give it
+  an initial value based on its expression.
+  - Variables are integers.
+- Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
+
+# Not Yet Implemented
+
+## Type system
+
+- Structural.
+- Product `struct` and sum `enum` types.
+  - Tuples = anonymous structs.
+  - Unions = anonymous enums.
+- Should compile to WIT.
+- Has support for linear types.
+- Pseudo-generics for built-in constructs like `Utxo<AnotherContractName>`.
+  - Because we eventually need functions that can accept "any UTXO satisfying X condition".
+- Effects and resumable errors are typed as part of the signature of a function.
+- Fatal errors (fail the transaction) are not typed.
+
+## Semantics
 
 ### Environment
 
@@ -122,42 +158,34 @@ The Env of the semantics is defined by the following contexts:
 - The resource context: which references exist to externally-managed resources (tokens)
   - UTXO external resources and token intermediates are passed around explicitly, not part of the context
 
+### Type system
+
+Type conveniences:
+
+- Pattern matching.
+  - In `match`:
+    - Enums should have exhaustiveness checking.
+    - Motive: match on enum messages between contracts.
+  - In `let`:
+    - When one pattern can cover the whole value space (namely structs).
+  - Spread operator `..` to ignore remainder of fields.
+
 ### Type identities
 
+Structure type definitions can be hashed for comparison. Names do not matter (structural typing).
+
 - Algebraic Data Types (ADTs) are supported
+
   - Struct identities are based on their field types, in order
     - So `(i32, i32)` == `struct Foo { a: i32, b: i32 }` == `struct Bar { b: i32, c: i32 }`
+    - No such thing as anonymous `{ a: i32, b: i32 }`.
   - Enum identities are based on their variant discriminators (ordinals), and the field types in order of each variant
     - So `i32 | (i32, i32)` == `enum Foo { A { b: i32, }, C { d: i32, e: i32 } }`
 
 - Function identities are based on their name and their type.
   - Function types are based on their parameter types in order, return type, and possible effect set
 
-### Evaluation
+# Potential Future Ideas
 
-Expressions:
-
-- Integer literals work in the obvious way.
-- Boolean literals work in the obvious way.
-- Variable names refer to a `let` declaration earlier in the current scope or
-  one of its parents, but not child scopes.
-- Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
-  way.
-  - We assume wrapping signed 64-bit two's complement integers.
-  - `%` is the Euclid remainder (least non-negative).
-- Unary `-` applies to integers. Unary `!` applies to booleans.
-- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) or (boolean, boolean) and
-  produce booleans.
-- The boolean operators `!`, `&&`, `||` accept booleans and produce
-  booleans.
-  - `&&` and `||` are short-circuiting.
-
-Statements:
-
-- `if` statements evaluate their condition, require it to be a boolean, and branch in the obvious way.
-- `while` expressions loop in the obvious way.
-- Blocks introduce a new child scope for `let` statements.
-- `let` statements add a new variable binding to the current scope and give it
-  an initial value based on its expression.
-  - Variables are integers.
-- Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
+- Struct updates: `Foo { a: 1, ..old_foo }`
+- In-script unit and property tests.
