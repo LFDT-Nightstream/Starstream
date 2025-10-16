@@ -390,6 +390,7 @@ dependencies = [
 name = "starstream-to-wasm"
 version = "0.0.0"
 dependencies = [
+ "insta",
  "starstream-types",
  "wasm-encoder",
  "wasmprinter",

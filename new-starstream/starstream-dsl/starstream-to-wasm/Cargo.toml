@@ -11,3 +11,4 @@ wasm-encoder = "0.240.0"
 
 [dev-dependencies]
 wasmprinter = "0.240.0"
+insta = "1.39"
