@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use starstream_types::*;
 use wasm_encoder::*;
 
@@ -62,25 +64,101 @@ impl Compiler {
 
     fn visit_program(&mut self, program: &Program) {
         let mut main = Function::default();
-        self.visit_block(&mut main, &program.statements);
+        self.visit_block(&mut main, &(), &program.statements);
     }
 
-    fn visit_block(&mut self, func: &mut Function, block: &[Statement]) {
+    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[Statement]) {
+        let mut locals = BTreeMap::new();
         for statement in block {
-            self.visit_statement(func, statement);
+            match statement {
+                Statement::Expression(expr) => {
+                    let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
+                    self.discard(func, im);
+                }
+                Statement::VariableDeclaration { name, value } => {
+                    let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
+                    match value {
+                        Intermediate::Error => {}
+                        Intermediate::StackI64 => {
+                            let local = func.add_local(ValType::I64);
+                            func.instructions().local_set(local);
+                            locals.insert(name.name.clone(), local);
+                        }
+                        value => self.todo(format!("VariableDeclaration({value:?})")),
+                    }
+                }
+                Statement::Assignment { target, value } => {
+                    let local = (parent, &locals).get(&target.name);
+                    let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
+                    match value {
+                        Intermediate::Error => {}
+                        Intermediate::StackI64 => {
+                            func.instructions().local_set(local);
+                        }
+                        value => self.todo(format!("VariableDeclaration({value:?})")),
+                    }
+                }
+                // Recursive
+                Statement::Block(block) => {
+                    self.visit_block(func, &(parent, &locals), &block.statements);
+                }
+                Statement::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
+                    let im = self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
+                    assert!(matches!(im, Intermediate::StackBool));
+                    func.instructions().if_(BlockType::Empty);
+                    self.visit_block(func, &(parent, &locals), &then_branch.statements);
+                    if let Some(else_branch) = else_branch {
+                        func.instructions().else_();
+                        self.visit_block(func, &(parent, &locals), &else_branch.statements);
+                    }
+                    func.instructions().end();
+                }
+                Statement::While { condition, body } => {
+                    func.instructions().block(BlockType::Empty); // br(1) is break
+                    func.instructions().loop_(BlockType::Empty); // br(0) is continue
+
+                    let im = self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
+                    assert!(matches!(im, Intermediate::StackBool));
+                    // if condition == 0, break
+                    func.instructions().i32_eqz();
+                    func.instructions().br_if(1);
+                    // contents
+                    self.visit_block(func, &(parent, &locals), &body.statements);
+                    // continue
+                    func.instructions().br(0).end().end();
+                }
+            }
         }
     }
 
-    fn visit_statement(&mut self, func: &mut Function, statement: &Statement) {
-        todo!()
+    fn discard(&mut self, func: &mut Function, im: Intermediate) {
+        match im {
+            // 0 stack slots
+            Intermediate::Error | Intermediate::Void => {}
+            // 1 stack slot
+            Intermediate::StackBool | Intermediate::StackI64 => {
+                func.instructions().drop();
+            }
+        }
     }
 
-    fn visit_expr(&mut self, func: &mut Function, _: Span, expr: &Expr) -> Intermediate {
+    fn visit_expr(
+        &mut self,
+        func: &mut Function,
+        locals: &dyn Locals,
+        _: Span,
+        expr: &Expr,
+    ) -> Intermediate {
         match expr {
             // Identifiers
             Expr::Identifier(Identifier { name, .. }) => {
-                self.todo(format!("Identifier({name:?})"));
-                Intermediate::Error
+                let local = locals.get(name);
+                func.instructions().local_get(local);
+                Intermediate::StackI64
             }
             // Literals
             Expr::Literal(Literal::Integer(i)) => {
@@ -97,8 +175,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -116,8 +194,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -135,8 +213,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -154,8 +232,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -173,8 +251,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -193,7 +271,7 @@ impl Compiler {
             } => {
                 // `-x` compiles to `0 - x`.
                 func.instructions().i64_const(0);
-                match self.visit_expr(func, expr.span, &expr.node) {
+                match self.visit_expr(func, locals, expr.span, &expr.node) {
                     Intermediate::Error => Intermediate::Error,
                     Intermediate::StackI64 => {
                         func.instructions().i64_sub();
@@ -208,7 +286,7 @@ impl Compiler {
             Expr::Unary {
                 op: UnaryOp::Not,
                 expr,
-            } => match self.visit_expr(func, expr.span, &expr.node) {
+            } => match self.visit_expr(func, locals, expr.span, &expr.node) {
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions().i32_eqz();
@@ -225,8 +303,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -248,8 +326,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -271,8 +349,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -294,8 +372,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -317,8 +395,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -340,8 +418,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr(func, left.span, &left.node);
-                let rhs = self.visit_expr(func, right.span, &right.node);
+                let lhs = self.visit_expr(func, locals, left.span, &left.node);
+                let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
                     (Intermediate::StackI64, Intermediate::StackI64) => {
@@ -363,11 +441,11 @@ impl Compiler {
                 op: BinaryOp::And,
                 left,
                 right,
-            } => match self.visit_expr(func, left.span, &left.node) {
+            } => match self.visit_expr(func, locals, left.span, &left.node) {
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
-                    match self.visit_expr(func, right.span, &right.node) {
+                    match self.visit_expr(func, locals, right.span, &right.node) {
                         Intermediate::Error => Intermediate::Error,
                         Intermediate::StackBool => {
                             func.instructions().else_().i32_const(0).end();
@@ -388,14 +466,14 @@ impl Compiler {
                 op: BinaryOp::Or,
                 left,
                 right,
-            } => match self.visit_expr(func, left.span, &left.node) {
+            } => match self.visit_expr(func, locals, left.span, &left.node) {
                 Intermediate::Error => Intermediate::Error,
                 Intermediate::StackBool => {
                     func.instructions()
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
-                    match self.visit_expr(func, right.span, &right.node) {
+                    match self.visit_expr(func, locals, right.span, &right.node) {
                         Intermediate::Error => Intermediate::Error,
                         Intermediate::StackBool => {
                             func.instructions().end();
@@ -413,8 +491,7 @@ impl Compiler {
                 }
             },
             // Nesting
-            Expr::Grouping(expr) => self.visit_expr(func, expr.span, &expr.node),
-            _ => todo!(),
+            Expr::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
         }
     }
 
@@ -424,16 +501,36 @@ impl Compiler {
     }
 }
 
+// Probably inefficient, but fun. Fix later?
+trait Locals {
+    fn get(&self, name: &str) -> u32;
+}
+
+impl Locals for () {
+    fn get(&self, name: &str) -> u32 {
+        panic!("unknown local: {name:?}")
+    }
+}
+
+impl Locals for (&dyn Locals, &BTreeMap<String, u32>) {
+    fn get(&self, name: &str) -> u32 {
+        match self.1.get(name) {
+            Some(v) => *v,
+            None => self.0.get(name),
+        }
+    }
+}
+
 /// Typed intermediate value.
 ///
 /// A product of static type, stack slot size, and constness.
 #[derive(Debug, Clone)]
 #[must_use]
 enum Intermediate {
-    /// Nothing! Absolutely nothing!
-    Void,
     /// An error intermediate. Suppress further typechecking errors.
     Error,
+    /// Nothing! Absolutely nothing!
+    Void,
     /// `(i32)` 0 is false, 1 is true, other values are disallowed.
     StackBool,
     /// `(i64)`
