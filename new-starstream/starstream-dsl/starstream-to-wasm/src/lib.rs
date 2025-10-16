@@ -75,9 +75,369 @@ impl Compiler {
         todo!()
     }
 
-    fn visit_expr(&mut self, func: &mut Function, expr: &Expr) {
-        todo!()
+    fn visit_expr(&mut self, func: &mut Function, _: Span, expr: &Expr) -> Intermediate {
+        match expr {
+            // Identifiers
+            Expr::Identifier(Identifier { name, .. }) => {
+                self.todo(format!("Identifier({name:?})"));
+                Intermediate::Error
+            }
+            // Literals
+            Expr::Literal(Literal::Integer(i)) => {
+                func.instructions().i64_const(*i);
+                Intermediate::StackI64
+            }
+            Expr::Literal(Literal::Boolean(b)) => {
+                func.instructions().i32_const(*b as i32);
+                Intermediate::StackBool
+            }
+            // Arithmetic operators
+            Expr::Binary {
+                op: BinaryOp::Add,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_add();
+                        Intermediate::StackI64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Add({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Subtract,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_sub();
+                        Intermediate::StackI64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Subtract({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Multiply,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_mul();
+                        Intermediate::StackI64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Multiply({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Divide,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_div_s();
+                        Intermediate::StackI64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Divide({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Remainder,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_rem_s();
+                        Intermediate::StackI64
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Remainder({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Unary {
+                op: UnaryOp::Negate,
+                expr,
+            } => {
+                // `-x` compiles to `0 - x`.
+                func.instructions().i64_const(0);
+                match self.visit_expr(func, expr.span, &expr.node) {
+                    Intermediate::Error => Intermediate::Error,
+                    Intermediate::StackI64 => {
+                        func.instructions().i64_sub();
+                        Intermediate::StackI64
+                    }
+                    lhs => {
+                        self.todo(format!("Negate({lhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr,
+            } => match self.visit_expr(func, expr.span, &expr.node) {
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::StackBool => {
+                    func.instructions().i32_eqz();
+                    Intermediate::StackBool
+                }
+                lhs => {
+                    self.todo(format!("Not({lhs:?})"));
+                    Intermediate::Error
+                }
+            },
+            // Comparison operators
+            Expr::Binary {
+                op: BinaryOp::Equal,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_eq();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                        func.instructions().i32_eq();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Equal({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::NotEqual,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_ne();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                        func.instructions().i32_ne();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("NotEqual({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Less,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_lt_s();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                        func.instructions().i32_lt_u();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Less({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::Greater,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_gt_s();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                        func.instructions().i32_gt_u();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Greater({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::LessEqual,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_le_s();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                        func.instructions().i32_le_u();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("LessEqual({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            Expr::Binary {
+                op: BinaryOp::GreaterEqual,
+                left,
+                right,
+            } => {
+                let lhs = self.visit_expr(func, left.span, &left.node);
+                let rhs = self.visit_expr(func, right.span, &right.node);
+                match (lhs, rhs) {
+                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
+                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                        func.instructions().i64_ge_s();
+                        Intermediate::StackBool
+                    }
+                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                        func.instructions().i32_ge_u();
+                        Intermediate::StackBool
+                    }
+                    (lhs, rhs) => {
+                        self.todo(format!("Greater({lhs:?}, {rhs:?})"));
+                        Intermediate::Error
+                    }
+                }
+            }
+            // Short-circuiting operators
+            Expr::Binary {
+                op: BinaryOp::And,
+                left,
+                right,
+            } => match self.visit_expr(func, left.span, &left.node) {
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::StackBool => {
+                    func.instructions().if_(BlockType::Result(ValType::I32));
+                    match self.visit_expr(func, right.span, &right.node) {
+                        Intermediate::Error => Intermediate::Error,
+                        Intermediate::StackBool => {
+                            func.instructions().else_().i32_const(0).end();
+                            Intermediate::StackBool
+                        }
+                        right => {
+                            self.todo(format!("And({left:?}, {right:?})"));
+                            Intermediate::Error
+                        }
+                    }
+                }
+                left => {
+                    self.todo(format!("And({left:?}, {right:?})"));
+                    Intermediate::Error
+                }
+            },
+            Expr::Binary {
+                op: BinaryOp::Or,
+                left,
+                right,
+            } => match self.visit_expr(func, left.span, &left.node) {
+                Intermediate::Error => Intermediate::Error,
+                Intermediate::StackBool => {
+                    func.instructions()
+                        .if_(BlockType::Result(ValType::I32))
+                        .i32_const(1)
+                        .else_();
+                    match self.visit_expr(func, right.span, &right.node) {
+                        Intermediate::Error => Intermediate::Error,
+                        Intermediate::StackBool => {
+                            func.instructions().end();
+                            Intermediate::StackBool
+                        }
+                        right => {
+                            self.todo(format!("Or({left:?}, {right:?})"));
+                            Intermediate::Error
+                        }
+                    }
+                }
+                left => {
+                    self.todo(format!("Or({left:?}, {right:?})"));
+                    Intermediate::Error
+                }
+            },
+            // Nesting
+            Expr::Grouping(expr) => self.visit_expr(func, expr.span, &expr.node),
+            _ => todo!(),
+        }
     }
+
+    fn todo(&mut self, why: String) {
+        // TODO: better diagnostics
+        panic!("{}", why);
+    }
+}
+
+/// Typed intermediate value.
+///
+/// A product of static type, stack slot size, and constness.
+#[derive(Debug, Clone)]
+#[must_use]
+enum Intermediate {
+    /// Nothing! Absolutely nothing!
+    Void,
+    /// An error intermediate. Suppress further typechecking errors.
+    Error,
+    /// `(i32)` 0 is false, 1 is true, other values are disallowed.
+    StackBool,
+    /// `(i64)`
+    StackI64,
 }
 
 /// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
