@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use starstream_types::*;
 use wasm_encoder::*;
@@ -21,10 +21,13 @@ struct Compiler {
     exports: ExportSection,
     code: CodeSection,
     data: DataSection,
+
+    // Function building.
+    raw_func_type_cache: HashMap<FuncType, u32>,
 }
 
 impl Compiler {
-    fn finish(mut self) -> Vec<u8> {
+    fn finish(self) -> Vec<u8> {
         self.to_module().finish()
     }
 
@@ -62,13 +65,45 @@ impl Compiler {
         module
     }
 
+    // ------------------------------------------------------------------------
+    // Table management
+
+    fn add_raw_func_type(&mut self, ty: FuncType) -> u32 {
+        match self.raw_func_type_cache.get(&ty) {
+            Some(&index) => index,
+            None => {
+                let index = self.types.len();
+                self.types.ty().func_type(&ty);
+                self.raw_func_type_cache.insert(ty, index);
+                index
+            }
+        }
+    }
+
+    fn add_function(&mut self, ty: FuncType, code: Function) -> u32 {
+        let type_index = self.add_raw_func_type(ty);
+        let func_index = u32::try_from(self.functions.len()).unwrap();
+        self.functions.function(type_index);
+
+        let mut vec = Vec::new();
+        code.encode(&mut vec);
+        self.code.raw(&vec);
+
+        func_index
+    }
+
+    // ------------------------------------------------------------------------
+    // Visitors
+
     fn visit_program(&mut self, program: &Program) {
         let mut main = Function::default();
         self.visit_block(&mut main, &(), &program.statements);
+        let idx = self.add_function(FuncType::new([], []), main);
+        self.exports.export("main", ExportKind::Func, idx);
     }
 
     fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[Statement]) {
-        let mut locals = BTreeMap::new();
+        let mut locals = HashMap::new();
         for statement in block {
             match statement {
                 Statement::Expression(expr) => {
@@ -512,7 +547,7 @@ impl Locals for () {
     }
 }
 
-impl Locals for (&dyn Locals, &BTreeMap<String, u32>) {
+impl Locals for (&dyn Locals, &HashMap<String, u32>) {
     fn get(&self, name: &str) -> u32 {
         match self.1.get(name) {
             Some(v) => *v,
