@@ -8,3 +8,6 @@ license.workspace = true
 [dependencies]
 starstream-types = { path = "../starstream-types" }
 wasm-encoder = "0.240.0"
+
+[dev-dependencies]
+wasmprinter = "0.240.0"

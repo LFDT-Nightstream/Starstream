@@ -96,9 +96,11 @@ impl Compiler {
     // Visitors
 
     fn visit_program(&mut self, program: &Program) {
-        let mut main = Function::default();
-        self.visit_block(&mut main, &(), &program.statements);
-        let idx = self.add_function(FuncType::new([], []), main);
+        let mut func = Function::default();
+        self.visit_block(&mut func, &(), &program.statements);
+        func.instructions().end();
+
+        let idx = self.add_function(FuncType::new([], []), func);
         self.exports.export("main", ExportKind::Func, idx);
     }
 
