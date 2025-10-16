@@ -1,0 +1,59 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\n(1 < 2) && false || true"
+---
+Spanned {
+    node: Binary {
+        op: Or,
+        left: Spanned {
+            node: Binary {
+                op: And,
+                left: Spanned {
+                    node: Grouping(
+                        Spanned {
+                            node: Binary {
+                                op: Less,
+                                left: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            1,
+                                        ),
+                                    ),
+                                    span: 1..2,
+                                },
+                                right: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            2,
+                                        ),
+                                    ),
+                                    span: 5..6,
+                                },
+                            },
+                            span: 1..6,
+                        },
+                    ),
+                    span: 0..8,
+                },
+                right: Spanned {
+                    node: Literal(
+                        Boolean(
+                            false,
+                        ),
+                    ),
+                    span: 11..17,
+                },
+            },
+            span: 0..17,
+        },
+        right: Spanned {
+            node: Literal(
+                Boolean(
+                    true,
+                ),
+            ),
+            span: 20..24,
+        },
+    },
+    span: 0..24,
+}

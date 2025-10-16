@@ -1,0 +1,67 @@
+---
+source: starstream-compiler/src/parser/program.rs
+description: "Code:\n\nlet count = 0;\ncount = count + 1;\nfalse;\n"
+---
+Program {
+    statements: [
+        VariableDeclaration {
+            name: Identifier {
+                name: "count",
+                span: Some(
+                    4..9,
+                ),
+            },
+            value: Spanned {
+                node: Literal(
+                    Integer(
+                        0,
+                    ),
+                ),
+                span: 12..13,
+            },
+        },
+        Assignment {
+            target: Identifier {
+                name: "count",
+                span: Some(
+                    15..20,
+                ),
+            },
+            value: Spanned {
+                node: Binary {
+                    op: Add,
+                    left: Spanned {
+                        node: Identifier(
+                            Identifier {
+                                name: "count",
+                                span: Some(
+                                    23..28,
+                                ),
+                            },
+                        ),
+                        span: 23..29,
+                    },
+                    right: Spanned {
+                        node: Literal(
+                            Integer(
+                                1,
+                            ),
+                        ),
+                        span: 31..32,
+                    },
+                },
+                span: 23..32,
+            },
+        },
+        Expression(
+            Spanned {
+                node: Literal(
+                    Boolean(
+                        false,
+                    ),
+                ),
+                span: 34..39,
+            },
+        ),
+    ],
+}

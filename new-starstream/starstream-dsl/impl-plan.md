@@ -36,14 +36,26 @@ A way to run a suite of different example programs for the language, and ensure 
 ## TODOs
 
 - [x] define grammar
-- [ ] strip down parser and ast - @rvcas
-- [ ] revamp snapshot test organization - @rvcas
-- [ ] ditch op codes and make a tree-walking interpreter (ast nodes) - @SpaceManiac
+- [x] strip down parser and ast - @rvcas
+- [x] revamp snapshot test organization - @rvcas
+- [x] ditch op codes and make a tree-walking interpreter (ast nodes) - @SpaceManiac
+- [ ] compile stripped down lang to wasm - @SpaceManiac
+- [ ] formatter, including snapshot tests - @rvcas
+- [ ] type system setup - @rvcas
+- [ ] tree sitter grammar - @SpaceManiac
+  - for editor-agnostic syntax highlighting
+- [ ] single-binary CLI - @SpaceManiac maybe pair
+  - one frontend for compiler, formatter, LSP
+- [ ] LSP server
+- [ ] web sandbox
+- [ ] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
+- [ ] zed extension - @rvcas dogfooding
+
+Further in the future:
+
 - [ ] enhanced parser with better error recovery
-- [ ] compile stripped down lang to wasm
 - [ ] specify (roughly) the "abi" that the compiler must target (maybe use WIT?)
   - this is what [`lookups`](../lookups) takes as input.
   - WASM + the rough shape of external calls
     - how resource types (utxos, tokens) are named
     - how freestanding functions are named
-- [ ] add new examples

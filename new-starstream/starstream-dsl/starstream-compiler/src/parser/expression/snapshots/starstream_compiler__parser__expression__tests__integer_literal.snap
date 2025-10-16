@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\n42"
+---
+Spanned {
+    node: Literal(
+        Integer(
+            42,
+        ),
+    ),
+    span: 0..2,
+}

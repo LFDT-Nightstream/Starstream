@@ -1,0 +1,31 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nvalue + 1;"
+---
+Expression(
+    Spanned {
+        node: Binary {
+            op: Add,
+            left: Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "value",
+                        span: Some(
+                            0..5,
+                        ),
+                    },
+                ),
+                span: 0..6,
+            },
+            right: Spanned {
+                node: Literal(
+                    Integer(
+                        1,
+                    ),
+                ),
+                span: 8..9,
+            },
+        },
+        span: 0..9,
+    },
+)

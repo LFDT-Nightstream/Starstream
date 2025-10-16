@@ -54,3 +54,41 @@ fn span_union(a: SimpleSpan, b: SimpleSpan) -> SimpleSpan {
     let end = a.end.max(b.end);
     SimpleSpan::new((), start..end)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+
+    macro_rules! assert_expression_snapshot {
+        ($code:expr) => {{
+            let parsed = parser()
+                .parse(indoc! { $code })
+                .into_result()
+                .expect("expression should parse");
+
+            insta::with_settings!({
+                description => format!("Code:\n\n{}", indoc! { $code }),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(parsed);
+            });
+        }};
+    }
+
+    #[test]
+    fn integer_literal() {
+        assert_expression_snapshot!("42");
+    }
+
+    #[test]
+    fn arithmetic_precedence() {
+        assert_expression_snapshot!("1 + 2 * 3 - 4");
+    }
+
+    #[test]
+    fn logical_chaining() {
+        assert_expression_snapshot!("(1 < 2) && false || true");
+    }
+}

@@ -1,0 +1,54 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\n1 + 2 * 3 - 4"
+---
+Spanned {
+    node: Binary {
+        op: Subtract,
+        left: Spanned {
+            node: Binary {
+                op: Add,
+                left: Spanned {
+                    node: Literal(
+                        Integer(
+                            1,
+                        ),
+                    ),
+                    span: 0..1,
+                },
+                right: Spanned {
+                    node: Binary {
+                        op: Multiply,
+                        left: Spanned {
+                            node: Literal(
+                                Integer(
+                                    2,
+                                ),
+                            ),
+                            span: 4..5,
+                        },
+                        right: Spanned {
+                            node: Literal(
+                                Integer(
+                                    3,
+                                ),
+                            ),
+                            span: 8..9,
+                        },
+                    },
+                    span: 4..9,
+                },
+            },
+            span: 0..9,
+        },
+        right: Spanned {
+            node: Literal(
+                Integer(
+                    4,
+                ),
+            ),
+            span: 12..13,
+        },
+    },
+    span: 0..13,
+}

@@ -1,0 +1,59 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\n{ let a = 1; a = a + 1; }\n"
+---
+Block(
+    Block {
+        statements: [
+            VariableDeclaration {
+                name: Identifier {
+                    name: "a",
+                    span: Some(
+                        6..7,
+                    ),
+                },
+                value: Spanned {
+                    node: Literal(
+                        Integer(
+                            1,
+                        ),
+                    ),
+                    span: 10..11,
+                },
+            },
+            Assignment {
+                target: Identifier {
+                    name: "a",
+                    span: Some(
+                        13..14,
+                    ),
+                },
+                value: Spanned {
+                    node: Binary {
+                        op: Add,
+                        left: Spanned {
+                            node: Identifier(
+                                Identifier {
+                                    name: "a",
+                                    span: Some(
+                                        17..18,
+                                    ),
+                                },
+                            ),
+                            span: 17..19,
+                        },
+                        right: Spanned {
+                            node: Literal(
+                                Integer(
+                                    1,
+                                ),
+                            ),
+                            span: 21..22,
+                        },
+                    },
+                    span: 17..22,
+                },
+            },
+        ],
+    },
+)

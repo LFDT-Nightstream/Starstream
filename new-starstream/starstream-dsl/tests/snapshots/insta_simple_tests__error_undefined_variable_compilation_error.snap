@@ -1,7 +1,0 @@
----
-source: tests/insta_simple_tests.rs
-expression: "serde_json::to_string_pretty(&result.unwrap_err()).unwrap()"
----
-{
-  "UndefinedVariable": "y"
-}
