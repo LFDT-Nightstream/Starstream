@@ -144,7 +144,8 @@ impl Compiler {
                     then_branch,
                     else_branch,
                 } => {
-                    let im = self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
+                    let im =
+                        self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
                     assert!(matches!(im, Intermediate::StackBool));
                     func.instructions().if_(BlockType::Empty);
                     self.visit_block(func, &(parent, &locals), &then_branch.statements);
@@ -158,7 +159,8 @@ impl Compiler {
                     func.instructions().block(BlockType::Empty); // br(1) is break
                     func.instructions().loop_(BlockType::Empty); // br(0) is continue
 
-                    let im = self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
+                    let im =
+                        self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
                     assert!(matches!(im, Intermediate::StackBool));
                     // if condition == 0, break
                     func.instructions().i32_eqz();
@@ -567,6 +569,7 @@ enum Intermediate {
     /// An error intermediate. Suppress further typechecking errors.
     Error,
     /// Nothing! Absolutely nothing!
+    #[allow(dead_code)]
     Void,
     /// `(i32)` 0 is false, 1 is true, other values are disallowed.
     StackBool,
@@ -576,13 +579,14 @@ enum Intermediate {
 
 /// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
 #[derive(Default)]
-pub struct Function {
+struct Function {
     num_locals: u32,
     locals: Vec<(u32, ValType)>,
     bytes: Vec<u8>,
 }
 
 impl Function {
+    #[allow(dead_code)]
     fn new(params: &[ValType]) -> Function {
         let mut this = Function::default();
         for param in params {
