@@ -3,13 +3,35 @@ use std::collections::HashMap;
 use starstream_types::*;
 use wasm_encoder::*;
 
+/*
+    The entry point [compile] is responsible for the overall AST-to-WASM-module
+    compilation that is exposed to the outside world. Most of the rest of this
+    crate should stay private.
+
+    One Starstream program is always converted to one Wasm module.
+
+    The compiler walks the AST and generates section entries for types,
+    imports, functions, and so on. Each function (for example `main`) is
+    compiled to Wasm bytecode and added to the code section.
+
+    Optimizations like constant-evaluation are left on the table for now.
+    The easiest way to get them is probably to import [wasm-opt].
+
+    [wasm-opt]: https://docs.rs/wasm-opt/latest/wasm_opt/
+*/
+
 /// Compile a Starstream program to a Wasm module.
 pub fn compile(program: &Program) -> Vec<u8> {
+    // TODO: accept input filename/context and return something like
+    // `(Option<Vec<u8>>, Vec<Report>)` to be able to report warnings and
+    // other non-fatal errors.
     let mut compiler = Compiler::default();
     compiler.visit_program(program);
     compiler.finish()
 }
 
+/// Holds the in-progress Wasm sections and other module-wide information
+/// needed to build them.
 #[derive(Default)]
 struct Compiler {
     // Wasm binary output.
@@ -27,11 +49,13 @@ struct Compiler {
 }
 
 impl Compiler {
+    /// After [Compiler::visit_program], this function collates all the
+    /// in-progress sections into an actual Wasm binary module.
     fn finish(self) -> Vec<u8> {
-        self.to_module().finish()
-    }
+        // TODO: any other final activity on the sections here, such as
+        // committing constants to the memory/data section.
 
-    fn to_module(&self) -> Module {
+        // Verify
         assert_eq!(self.functions.len(), self.code.len());
 
         // Write sections to module.
@@ -62,12 +86,14 @@ impl Compiler {
         if !self.data.is_empty() {
             module.section(&self.data);
         }
-        module
+        module.finish()
     }
 
     // ------------------------------------------------------------------------
     // Table management
 
+    /// Add a function signature to the `types` section if needed, and return
+    /// the index of the new or existing entry.
     fn add_raw_func_type(&mut self, ty: FuncType) -> u32 {
         match self.raw_func_type_cache.get(&ty) {
             Some(&index) => index,
@@ -80,7 +106,13 @@ impl Compiler {
         }
     }
 
+    /// Add a new function to both the `functions` and `code` section, and
+    /// return its index.
     fn add_function(&mut self, ty: FuncType, code: Function) -> u32 {
+        // TODO: enforce that all *imported* function IDs are known before this
+        // is called, as Wasm requires all imports to precede all of the
+        // module's own functions.
+
         let type_index = self.add_raw_func_type(ty);
         let func_index = u32::try_from(self.functions.len()).unwrap();
         self.functions.function(type_index);
@@ -95,6 +127,8 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Visitors
 
+    /// Root visitor called by [compile] to start walking the AST for a program,
+    /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &Program) {
         let mut func = Function::default();
         self.visit_block(&mut func, &(), &program.statements);
@@ -104,6 +138,9 @@ impl Compiler {
         self.exports.export("main", ExportKind::Func, idx);
     }
 
+    /// Start a new identifier scope and generate bytecode for the statements
+    /// of the block in sequence. Only creates a Wasm `block` when specifically
+    /// needed for control flow reasons.
     fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[Statement]) {
         let mut locals = HashMap::new();
         for statement in block {
@@ -174,6 +211,8 @@ impl Compiler {
         }
     }
 
+    /// Insert bytecode to discard the given [Intermediate], such as during
+    /// statement expressions.
     fn discard(&mut self, func: &mut Function, im: Intermediate) {
         match im {
             // 0 stack slots
@@ -185,6 +224,8 @@ impl Compiler {
         }
     }
 
+    /// Compile a single [Expr] into the current function, returning an
+    /// [Intermediate] representing that expression's output on the stack.
     fn visit_expr(
         &mut self,
         func: &mut Function,
@@ -562,7 +603,9 @@ impl Locals for (&dyn Locals, &HashMap<String, u32>) {
 
 /// Typed intermediate value.
 ///
-/// A product of static type, stack slot size, and constness.
+/// Represents the static type and stack slots that evaluating an expression
+/// produced, so that that expression's consumers can correctly consume or
+/// discard those stack slots.
 #[derive(Debug, Clone)]
 #[must_use]
 enum Intermediate {
@@ -578,6 +621,8 @@ enum Intermediate {
 }
 
 /// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
+///
+/// Bytecode can be encoded to the return value of [Function::instructions].
 #[derive(Default)]
 struct Function {
     num_locals: u32,
