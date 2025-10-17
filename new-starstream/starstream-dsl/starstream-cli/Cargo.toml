@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "starstream"
+path = "src/main.rs"
+
 [dependencies]
 starstream-compiler = { path = "../starstream-compiler" }
 starstream-to-wasm = { path = "../starstream-to-wasm" }

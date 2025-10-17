@@ -11,6 +11,16 @@ This folder contains the consolidated Starstream DSL project with all components
 cargo test
 ```
 
+### Use CLI to compile a file
+
+```bash
+./starstream wasm -c $your_source.star -o $your_module.wasm
+
+# Can view disassembly, for example by:
+wasm-dis $your_module.wasm  # from binaryen/emscripten
+wasm2wat $your_module.wasm  # from wabt
+```
+
 ### Build for WASM
 
 ```bash
