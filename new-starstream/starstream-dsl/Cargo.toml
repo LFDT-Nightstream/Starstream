@@ -7,6 +7,7 @@ package.edition = "2024"
 members = [
     "starstream-compiler",
     "starstream-interpreter",
+    "starstream-to-wasm",
     "starstream-types",
 ]
 resolver = "2"

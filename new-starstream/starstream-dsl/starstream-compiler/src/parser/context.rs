@@ -15,4 +15,5 @@ impl State {
 }
 
 pub type Extra<'a> = extra::Full<Rich<'a, char>, SimpleState<State>, ()>;
+#[allow(dead_code)]
 pub type MapExtra<'a, 'b> = input::MapExtra<'a, 'b, &'a str, Extra<'a>>;

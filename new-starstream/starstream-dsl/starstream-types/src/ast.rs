@@ -3,6 +3,8 @@
 use chumsky::span::SimpleSpan;
 use serde::Serialize;
 
+pub type Span = SimpleSpan;
+
 /// Entire program: a sequence of statements.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Program {
@@ -89,11 +91,11 @@ pub enum BinaryOp {
 pub struct Identifier {
     pub name: String,
     #[serde(skip)]
-    pub span: Option<SimpleSpan>,
+    pub span: Option<Span>,
 }
 
 impl Identifier {
-    pub fn new(name: impl Into<String>, span: Option<SimpleSpan>) -> Self {
+    pub fn new(name: impl Into<String>, span: Option<Span>) -> Self {
         Self {
             name: name.into(),
             span,
@@ -106,18 +108,18 @@ impl Identifier {
 pub struct Spanned<T> {
     pub node: T,
     #[serde(skip)]
-    pub span: SimpleSpan,
+    pub span: Span,
 }
 
 impl<T> Spanned<T> {
-    pub fn new(node: T, span: SimpleSpan) -> Self {
+    pub fn new(node: T, span: Span) -> Self {
         Self { node, span }
     }
 
     pub fn none(node: T) -> Spanned<T> {
         Spanned {
             node,
-            span: SimpleSpan {
+            span: Span {
                 start: 0,
                 end: 0,
                 context: (),
