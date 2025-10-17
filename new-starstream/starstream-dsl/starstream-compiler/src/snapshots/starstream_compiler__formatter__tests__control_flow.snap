@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n    let flag = true;\nif (    flag) {\n    let answer = 42;\n    while (answer < 100) {\n        answer = answer + 1;\n    }\n} else {\n    answer = 0;\n}\n"
+---
+let flag = true;
+if (flag) {
+    let answer = 42;
+    while (answer < 100) {
+        answer = answer + 1;
+    }
+} else {
+    answer = 0;
+}
