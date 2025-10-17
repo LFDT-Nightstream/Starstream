@@ -3,6 +3,7 @@
 //! This crate provides:
 //! - A parser that translates source code to AST
 
+pub mod formatter;
 pub mod parser;
 
 pub use parser::*;
