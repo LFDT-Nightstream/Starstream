@@ -5,6 +5,7 @@ package.authors = []
 package.edition = "2024"
 
 members = [
+    "starstream-cli",
     "starstream-compiler",
     "starstream-interpreter",
     "starstream-to-wasm",

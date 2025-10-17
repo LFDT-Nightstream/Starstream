@@ -1,0 +1,12 @@
+[package]
+name = "starstream-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+starstream-compiler = { path = "../starstream-compiler" }
+starstream-to-wasm = { path = "../starstream-to-wasm" }
+clap = { version = "4.5.32", features = ["derive"] }
+ariadne = "0.5.1"
