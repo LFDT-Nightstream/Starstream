@@ -11,7 +11,62 @@ module.exports = grammar({
   name: "starstream",
 
   rules: {
-    // TODO: add the actual grammar rules
-    source_file: $ => "hello"
-  }
+    source_file: ($) => repeat($._statement),
+
+    _statement: ($) =>
+      choice(
+        $.variable_delcaration,
+        $.assignment,
+        $.if_statement,
+        $.while_statement,
+        $.block,
+        $._expression_statement
+      ),
+
+    variable_delcaration: ($) => seq("let", $.identifier, "=", $.expression, ";"),
+
+    assignment: ($) => seq($.identifier, "=", $.expression, ";"),
+
+    if_statement: $ => seq("if", "(", $.expression, ")", $.block, optional(seq("else", $.block))),
+
+    while_statement: $ => seq("while", "(", $.expression, ")", $.block),
+
+    block: $ => seq("{", repeat($._statement), "}"),
+
+    _expression_statement: ($) => seq($.expression, ";"),
+
+    expression: ($) =>
+      choice(
+        $.integer_literal,
+        $.boolean_literal,
+        $.identifier,
+        seq("(", $.expression, ")"),
+
+        prec.left(7, seq("!", $.expression)),
+        prec.left(7, seq("-", $.expression)),
+
+        prec.left(6, seq($.expression, "*", $.expression)),
+        prec.left(6, seq($.expression, "/", $.expression)),
+        prec.left(6, seq($.expression, "%", $.expression)),
+
+        prec.left(5, seq($.expression, "+", $.expression)),
+        prec.left(5, seq($.expression, "-", $.expression)),
+
+        prec.left(4, seq($.expression, "<", $.expression)),
+        prec.left(4, seq($.expression, "<=", $.expression)),
+        prec.left(4, seq($.expression, ">", $.expression)),
+        prec.left(4, seq($.expression, ">=", $.expression)),
+
+        prec.left(3, seq($.expression, "==", $.expression)),
+        prec.left(3, seq($.expression, "!=", $.expression)),
+
+        prec.left(2, seq($.expression, "&&", $.expression)),
+
+        prec.left(1, seq($.expression, "||", $.expression))
+      ),
+
+    integer_literal: ($) => /[0-9]+/,
+    boolean_literal: ($) => /true|false/,
+    identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
+  },
 });
