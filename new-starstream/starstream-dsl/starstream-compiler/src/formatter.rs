@@ -5,25 +5,33 @@ use starstream_types::{
 use std::fmt;
 
 pub fn program(program: &Program) -> Result<String, fmt::Error> {
-    let mut w = String::new();
+    let mut out = String::new();
 
-    program_to_doc(program).render_fmt(80, &mut w)?;
+    program_to_doc(program).render_fmt(80, &mut out)?;
 
-    Ok(w)
+    Ok(out)
+}
+
+pub fn statement(statement: &Statement) -> Result<String, fmt::Error> {
+    let mut out = String::new();
+
+    statement_to_doc(statement).render_fmt(80, &mut out)?;
+
+    Ok(out)
+}
+
+pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
+    let mut out = String::new();
+
+    expr_to_doc(expr).render_fmt(80, &mut out)?;
+
+    Ok(out)
 }
 
 fn program_to_doc(program: &Program) -> RcDoc<()> {
     let statements = program.statements.iter().map(statement_to_doc);
 
     RcDoc::intersperse(statements, RcDoc::hardline())
-}
-
-pub fn statement(statement: &Statement) -> Result<String, fmt::Error> {
-    let mut w = String::new();
-
-    statement_to_doc(statement).render_fmt(80, &mut w)?;
-
-    Ok(w)
 }
 
 fn statement_to_doc(statement: &Statement) -> RcDoc<()> {
