@@ -39,17 +39,24 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] strip down parser and ast - @rvcas
 - [x] revamp snapshot test organization - @rvcas
 - [x] ditch op codes and make a tree-walking interpreter (ast nodes) - @SpaceManiac
-- [ ] compile stripped down lang to wasm - @SpaceManiac
-- [ ] formatter, including snapshot tests - @rvcas
-- [ ] type system setup - @rvcas
+- [x] compile stripped down lang to wasm - @SpaceManiac
+- [x] single-binary CLI - @SpaceManiac
+- [x] formatter, including snapshot tests - @rvcas
+  - [ ] add to CLI
 - [ ] tree sitter grammar - @SpaceManiac
   - for editor-agnostic syntax highlighting
-- [ ] single-binary CLI - @SpaceManiac maybe pair
-  - one frontend for compiler, formatter, LSP
-- [ ] LSP server
-- [ ] web sandbox
+- [ ] type system setup - @SpaceManiac
+  - the basics: `i64` and `bool`
+- [ ] LSP server - @rvcas
+  - Consider tower-lsp-community/tower-lsp-server w/ runtime-agnostic feature
+  - Want abstracted filesystem for WASM support
+  - add to CLI
 - [ ] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
+  - no WASM lsp yet, just run from dev, but probably for publishing
+- [ ] web sandbox
+  - need WASM lsp
 - [ ] zed extension - @rvcas dogfooding
+- [ ] repo structure documentation
 
 Further in the future:
 
