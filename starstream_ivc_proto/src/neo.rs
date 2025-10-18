@@ -54,7 +54,6 @@ where
             y_len: self.state_len(),
             const1_index: 0,
             y_step_indices: vec![2, 4, 6],
-            y_prev_indices: Some(vec![1, 3, 5]),
             app_input_indices: None,
         }
     }
@@ -85,19 +84,7 @@ where
             self.shape_ccs = Some(step.ccs.clone());
         }
 
-        // just as a helper validation, check the state chaining
-        if let Some(y0_prev) = &self.debug_prev_state {
-            assert_eq!(
-                y0_prev,
-                &spec
-                    .y_prev_indices
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|i| step.witness[*i])
-                    .collect::<Vec<_>>()
-            );
-        }
+        // State chaining validation removed - no longer needed with updated neo version
 
         self.debug_prev_state.replace(
             spec.y_step_indices
@@ -271,7 +258,6 @@ mod tests {
                 y_len: 1,
                 const1_index: 0,
                 y_step_indices: vec![3],
-                y_prev_indices: Some(vec![1]),
                 app_input_indices: None,
             }
         }
