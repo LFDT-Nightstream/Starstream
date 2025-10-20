@@ -15,14 +15,14 @@ const config: Config = {
   },
 
   // Set the production url of your site here
-  url: "https://paimastudios.github.io/",
+  url: "https://lfdt-nightstream.github.io/",
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: "/Starstream/",
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: "PaimaStudios", // Usually your GitHub org/user name.
+  organizationName: "LFDT-Nightstream", // Usually your GitHub org/user name.
   projectName: "Starstream", // Usually your repo name.
 
   onBrokenLinks: "throw",
@@ -45,7 +45,7 @@ const config: Config = {
           sidebarPath: "./sidebars.ts",
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
-          //editUrl: "https://github.com/PaimaStudios/Starstream/tree/main/website/",
+          //editUrl: "https://github.com/LFDT-Nightstream/Starstream/tree/main/website/",
         },
         /*
         blog: {
@@ -57,7 +57,7 @@ const config: Config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            "https://github.com/PaimaStudios/Starstream/tree/main/website/",
+            "https://github.com/LFDT-Nightstream/Starstream/tree/main/website/",
           // Useful options to enforce blogging best practices
           onInlineTags: "warn",
           onInlineAuthors: "warn",
@@ -85,7 +85,7 @@ const config: Config = {
       },*/
       items: [
         {
-          href: "https://github.com/PaimaStudios/Starstream",
+          href: "https://github.com/LFDT-Nightstream/Starstream",
           label: "GitHub",
         },
         {

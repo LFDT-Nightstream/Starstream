@@ -5,7 +5,7 @@
   "version": "0.0.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/PaimaStudios/Starstream",
+    "url": "https://github.com/LFDT-Nightstream/Starstream",
     "directory": "starstream_vscode"
   },
   "main": "./dist/extension",

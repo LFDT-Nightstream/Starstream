@@ -1,6 +1,6 @@
 # Starstream
 
-![GitHub License](https://img.shields.io/github/license/PaimaStudios/Starstream)
+![GitHub License](https://img.shields.io/github/license/LFDT-Nightstream/Starstream)
 [![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/:project-id/badge)](https://bestpractices.coreinfrastructure.org/projects/:project-id)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/:user/:repo/badge)](https://scorecard.dev/viewer/?uri=github.com/:user/:repo)
 
