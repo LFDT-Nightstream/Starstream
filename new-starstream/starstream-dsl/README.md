@@ -1,15 +1,8 @@
-# Starstream DSL - Consolidated Project
+# Starstream DSL
 
-This folder contains the consolidated Starstream DSL project with all components merged from the split architecture.
+This folder contains the Starstream DSL project.
 
 ## 🚀 Quick Start
-
-### Run Tests
-
-```bash
-# Run all tests
-cargo test
-```
 
 ### Use CLI to compile a file
 
@@ -21,13 +14,63 @@ wasm-dis $your_module.wasm  # from binaryen/emscripten
 wasm2wat $your_module.wasm  # from wabt
 ```
 
-### Build for WASM
+## 📚 References
+
+- [Language Spec](docs/language-spec.md)
+- [Design Document](docs/design.md) - Architecture and motivation
+- [Implementation Plan](impl-plan.md) - Todo list and completed/finished feature info
+
+[language spec]: ./docs/language-spec.md
+
+## 🔧 Architecture and components
+
+Concerns are separated into several crates. The 'compiler' turns source code
+into a validated AST, which is then interpreted directly or compiled further
+to a target such as WebAssembly.
+
+Compiler:
+
+* `starstream-types/` - Common AST types.
+  * Used as the interface between parsing and code generation.
+* `starstream-compiler/` - Starstream language implementation.
+  * `parser/` - Parser from Starstream source code to AST.
+  * `formatter.rs` - Opinionated auto-formatter.
+  * TODO: type checker.
+* `starstream-interpreter/` - AST-walking reference interpreter.
+  * Implements the [language spec] in an easy-to-audit way.
+  * Not optimized, but used as a comparison point for other targets.
+* `starstream-to-wasm/` - Compiler from Starstream source to WebAssembly modules.
+
+Tooling:
+
+* `tree-sitter-starstream/` - [Tree-sitter] definitions including [grammar].
+* TODO: `starstream-language-server/` - [LSP] server implementation.
+
+Interfaces:
+
+* `starstream-cli` - Unified Starstream compiler and tooling CLI.
+  * Frontend to Wasm compiler, formatter, language server, and so on.
+  * Run `./starstream --help` for usage instructions.
+* TODO: `vscode-starstream/` - Extension for [Visual Studio Code].
+  * Syntax highlighting and language server integration.
+  * TODO: Link to published extension on marketplace & OpenVSIX.
+* TODO: Extension for [Zed].
+* TODO: Web sandbox.
+
+[LSP]: https://microsoft.github.io/language-server-protocol/
+[Tree-sitter]: https://tree-sitter.github.io/tree-sitter/
+[grammar]: ./tree-sitter-starstream/grammar.js
+[Visual Studio Code]: https://code.visualstudio.com/
+[Zed]: https://zed.dev/
+
+## 🧪 Tests
 
 ```bash
-cargo build --target wasm32-unknown-unknown --release
+# Run all tests
+cargo test
 ```
 
-## 🧪 Snapshot Testing
+### Snapshot tests
 
 We co-locate snapshot tests with the parsers they exercise. Each module (`expression`, `statement`, `program`, …) exposes a tiny helper macro that:
 
@@ -53,56 +96,3 @@ cargo insta test --unreferenced delete --accept
 ```
 
 Because the helpers sit in the modules themselves, adding a new grammar rule is as simple as writing another `#[test]` in that module and feeding the helper macro a snippet.
-
-## 📦 Components
-
-### Core Types (`starstream-types/`)
-
-- **AST**: Abstract Syntax Tree for IMP-like language
-- **Errors**: Comprehensive error handling
-
-### Compiler (`starstream-compiler/`)
-
-- **Parser**: Simple but functional parser for basic expressions
-  - Handles variable declarations, assignments, arithmetic
-  - Parses binary expressions with proper precedence
-- **Compiler**: Compiles AST to WASM
-  - Handles variable declarations and assignments
-  - Symbol table management
-
-### Interpreter (`starstream-interpreter/`)
-
-- Tree-walking interpreter for IMP-like language
-- Execution context with stack and variables
-- Step-by-step execution capability
-
-## 🔧 Architecture
-
-The project follows a clean separation of concerns:
-
-1. **Parser**: Source code → AST
-2. **Compiler**: AST → WASM
-3. **Interpreter**: AST → Execution
-
-## 📋 Development Status
-
-### ✅ Completed
-
-- Basic parser for expressions and variable declarations
-- Complete example demonstrating the pipeline
-- Test suite with integration tests
-- WASM support for browser deployment
-
-### 📋 Future Features
-
-- Coroutine support (yield/resume)
-- Algebraic effects system
-- Linear type system
-- Memory consistency checks
-- Full Starstream language features
-
-## 📚 References
-
-- [Design Document](docs/design.md) - Architecture and motivation
-- [Language Spec](docs/language-spec.md) - Language Spec
-- [Implementation Plan](impl-plan.md) - Development roadmap

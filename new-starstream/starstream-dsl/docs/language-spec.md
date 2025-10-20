@@ -80,6 +80,8 @@ boolean_literal ::= "true" | "false"
 identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 ```
 
+> When updating this grammar, also update the [Tree-sitter grammar](../tree-sitter-starstream/grammar.js).
+
 ## Precedence and Associativity
 
 | Precedence  | Operator             | Associativity | Description     |

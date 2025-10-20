@@ -43,7 +43,7 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] single-binary CLI - @SpaceManiac
 - [x] formatter, including snapshot tests - @rvcas
   - [ ] add to CLI
-- [ ] tree sitter grammar - @SpaceManiac
+- [x] tree sitter grammar - @SpaceManiac
   - for editor-agnostic syntax highlighting
 - [ ] type system setup - @SpaceManiac
   - the basics: `i64` and `bool`
@@ -55,14 +55,24 @@ A way to run a suite of different example programs for the language, and ensure 
   - no WASM lsp yet, just run from dev, but probably for publishing
 - [ ] web sandbox
   - need WASM lsp
+- [ ] holistics diagnostics and error handling (miette?)
 - [ ] zed extension - @rvcas dogfooding
 - [ ] repo structure documentation
 
-Further in the future:
+Farther in the future:
 
 - [ ] enhanced parser with better error recovery
+- [ ] try out [Verus](https://github.com/verus-lang/verus) on the reference interpreter
 - [ ] specify (roughly) the "abi" that the compiler must target (maybe use WIT?)
   - this is what [`lookups`](../lookups) takes as input.
   - WASM + the rough shape of external calls
     - how resource types (utxos, tokens) are named
     - how freestanding functions are named
+
+Even farther in the future:
+
+- Coroutine support (yield/resume)
+- Algebraic effects system
+- Linear type system
+- Memory consistency checks
+- Full Starstream language features
