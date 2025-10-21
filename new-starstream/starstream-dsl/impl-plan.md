@@ -42,7 +42,7 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] compile stripped down lang to wasm - @SpaceManiac
 - [x] single-binary CLI - @SpaceManiac
 - [x] formatter, including snapshot tests - @rvcas
-  - [ ] add to CLI
+  - [x] add to CLI
 - [x] tree sitter grammar - @SpaceManiac
   - for editor-agnostic syntax highlighting
 - [ ] type system setup - @SpaceManiac
