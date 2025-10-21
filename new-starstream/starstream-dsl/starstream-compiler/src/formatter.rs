@@ -31,7 +31,7 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
 fn program_to_doc(program: &Program) -> RcDoc<()> {
     let statements = program.statements.iter().map(statement_to_doc);
 
-    RcDoc::intersperse(statements, RcDoc::hardline())
+    RcDoc::intersperse(statements, RcDoc::hardline()).append(RcDoc::hardline())
 }
 
 fn statement_to_doc(statement: &Statement) -> RcDoc<()> {
