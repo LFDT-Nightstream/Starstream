@@ -11,7 +11,8 @@
         "star"
       ],
       "injection-regex": "^starstream$",
-      "class-name": "TreeSitterStarstream"
+      "class-name": "TreeSitterStarstream",
+      "highlights": "queries/highlights.scm"
     }
   ],
   "metadata": {
