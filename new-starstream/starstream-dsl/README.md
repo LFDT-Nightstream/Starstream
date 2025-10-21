@@ -48,11 +48,12 @@ Tooling:
 
 Interfaces:
 
-* `starstream-cli` - Unified Starstream compiler and tooling CLI.
+* `starstream-cli/` - Unified Starstream compiler and tooling CLI.
   * Frontend to Wasm compiler, formatter, language server, and so on.
   * Run `./starstream --help` for usage instructions.
-* TODO: `vscode-starstream/` - Extension for [Visual Studio Code].
-  * Syntax highlighting and language server integration.
+* [`vscode-starstream/`](./vscode-starstream/README.md) - Extension for [Visual Studio Code].
+  * Syntax highlighting.
+  * TODO: Language server integration.
   * TODO: Link to published extension on marketplace & OpenVSIX.
 * TODO: Extension for [Zed].
 * TODO: Web sandbox.

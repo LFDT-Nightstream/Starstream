@@ -36,7 +36,9 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "rm -rf dist && webpack --mode production",
+    "package": "vsce package",
+    "vscode:prepublish": "rm -rf dist && npm run build-tree-sitter && webpack --mode production",
+    "build-tree-sitter": "cd ../tree-sitter-starstream && tree-sitter generate && tree-sitter build --wasm",
     "build": "webpack --mode none",
     "watch": "webpack --mode none --watch"
   },
@@ -45,6 +47,7 @@
     "@types/vscode": "^1.98.0",
     "@vscode/vsce": "^3.6.0",
     "file-loader": "^6.2.0",
+    "tree-sitter-cli": "^0.25.10",
     "ts-loader": "^9.5.4",
     "typescript": "^5.9.2",
     "webpack": "^5.101.3",
