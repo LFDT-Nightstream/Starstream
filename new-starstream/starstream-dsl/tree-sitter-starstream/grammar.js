@@ -15,7 +15,7 @@ module.exports = grammar({
 
     _statement: ($) =>
       choice(
-        $.variable_delcaration,
+        $.variable_declaration,
         $.assignment,
         $.if_statement,
         $.while_statement,
@@ -23,7 +23,7 @@ module.exports = grammar({
         $._expression_statement
       ),
 
-    variable_delcaration: ($) => seq("let", $.identifier, "=", $.expression, ";"),
+    variable_declaration: ($) => seq("let", $.identifier, "=", $.expression, ";"),
 
     assignment: ($) => seq($.identifier, "=", $.expression, ";"),
 
