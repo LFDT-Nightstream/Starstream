@@ -1,21 +1,40 @@
 //! Starstream CLI parser and executor as a library.
 use clap::Parser;
 
+mod ctx;
+mod format;
 mod wasm;
 
+pub use format::Format;
 pub use wasm::Wasm;
 
+use crate::ctx::Ctx;
+
 /// The Starstream language and toolchain CLI.
-#[derive(Parser, Debug)]
-#[command(arg_required_else_help(true))]
-pub enum Cli {
+#[derive(Debug, clap::Subcommand)]
+pub enum Command {
     Wasm(Wasm),
+    #[clap(visible_alias("fmt"))]
+    Format(Format),
+}
+
+#[derive(Parser, Debug)]
+#[clap(version)]
+#[clap(propagate_version = true)]
+#[command(arg_required_else_help(true))]
+pub struct Cli {
+    #[command(subcommand)]
+    pub cmd: Command,
+
+    #[arg(skip)]
+    pub ctx: Ctx,
 }
 
 impl Cli {
-    pub fn exec(&self) {
-        match self {
-            Self::Wasm(w) => w.exec(),
+    pub fn exec(self) -> miette::Result<()> {
+        match self.cmd {
+            Command::Wasm(w) => w.exec(),
+            Command::Format(f) => f.exec(self.ctx),
         }
     }
 }

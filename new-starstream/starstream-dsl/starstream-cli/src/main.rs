@@ -4,6 +4,8 @@
 use clap::Parser;
 use starstream_cli::Cli;
 
-fn main() {
-    Cli::parse().exec();
+fn main() -> miette::Result<()> {
+    miette::set_panic_hook();
+
+    Cli::parse().exec()
 }

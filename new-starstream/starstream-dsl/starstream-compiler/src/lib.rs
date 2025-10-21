@@ -7,3 +7,5 @@ pub mod formatter;
 pub mod parser;
 
 pub use parser::*;
+
+pub const FILE_EXTENSION: &str = "star";
