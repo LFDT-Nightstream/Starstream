@@ -1,14 +1,12 @@
 //! Starstream CLI parser and executor as a library.
 use clap::Parser;
 
-mod ctx;
+mod style;
 mod format;
 mod wasm;
 
 pub use format::Format;
 pub use wasm::Wasm;
-
-use crate::ctx::Ctx;
 
 /// The Starstream language and toolchain CLI.
 #[derive(Debug, clap::Subcommand)]
@@ -25,16 +23,13 @@ pub enum Command {
 pub struct Cli {
     #[command(subcommand)]
     pub cmd: Command,
-
-    #[arg(skip)]
-    pub ctx: Ctx,
 }
 
 impl Cli {
     pub fn exec(self) -> miette::Result<()> {
         match self.cmd {
             Command::Wasm(w) => w.exec(),
-            Command::Format(f) => f.exec(self.ctx),
+            Command::Format(f) => f.exec(),
         }
     }
 }

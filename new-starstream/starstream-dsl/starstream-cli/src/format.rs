@@ -11,7 +11,7 @@ use miette::IntoDiagnostic;
 use similar::{ChangeTag, TextDiff};
 use starstream_compiler::formatter;
 
-use crate::ctx::Ctx;
+use crate::style;
 
 /// Format Starstream source
 #[derive(Args, Debug)]
@@ -26,11 +26,11 @@ pub struct Format {
 }
 
 impl Format {
-    pub fn exec(self, ctx: Ctx) -> miette::Result<()> {
+    pub fn exec(self) -> miette::Result<()> {
         let mut cache = FileCache::default();
 
         if self.check {
-            check_files(self.files, &mut cache, ctx)
+            check_files(self.files, &mut cache)
         } else {
             format_files(self.files, &mut cache)
         }
@@ -45,7 +45,7 @@ pub struct Unformatted {
     pub output: String,
 }
 
-fn check_files(files: Vec<String>, cache: &mut FileCache, ctx: Ctx) -> miette::Result<()> {
+fn check_files(files: Vec<String>, cache: &mut FileCache) -> miette::Result<()> {
     let problem_files = unformatted_files(files, cache)?;
 
     if problem_files.is_empty() {
@@ -54,7 +54,7 @@ fn check_files(files: Vec<String>, cache: &mut FileCache, ctx: Ctx) -> miette::R
         for file in problem_files {
             let diff = diff_file(&file.input, &file.output);
 
-            eprintln!("{}:", ctx.style.info.apply_to(file.source.display()));
+            eprintln!("{}:", style::INFO.apply_to(file.source.display()));
             eprintln!("{diff}");
         }
 
