@@ -80,7 +80,11 @@ boolean_literal ::= "true" | "false"
 identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 ```
 
-> When updating this grammar, also update the [Tree-sitter grammar](../tree-sitter-starstream/grammar.js).
+> [!NOTE]
+> When updating this grammar, also update:
+> - the [canonical parser](../starstream-compiler/src/parser/).
+> - the [Tree-sitter grammar](../tree-sitter-starstream/grammar.js).
+> - if changing comments or bracket/quote pairs, the [VSC language configuration](../vscode-starstream/language-configuration.json).
 
 ## Precedence and Associativity
 
