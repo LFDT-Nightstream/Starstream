@@ -1,10 +1,10 @@
+// Based on https://github.com/AlecGhost/tree-sitter-vscode/blob/master/src/extension.ts
+// SPDX-License-Identifier: Apache-2.0
+// See tree-sitter-vscode.LICENSE.txt
 import * as fs from 'fs';
-import path from 'path';
 import * as vscode from 'vscode';
 import * as ts from 'web-tree-sitter';
 import { Parser } from 'web-tree-sitter';
-
-const OUTPUT_CHANNEL = vscode.window.createOutputChannel("tree-sitter-vscode");
 
 // VSCode default token types and modifiers from:
 // https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide#standard-token-types-and-modifiers
@@ -20,7 +20,7 @@ const TOKEN_MODIFIERS = [
 const LEGEND = new vscode.SemanticTokensLegend(TOKEN_TYPES, TOKEN_MODIFIERS);
 
 type SemanticTokenTypeMapping = { targetTokenType: string, targetTokenModifiers?: string[] };
-type Config = {
+export type Config = {
 	lang: string,
 	parser: string,
 	highlights: string,
@@ -45,113 +45,20 @@ type Injection = {
 };
 
 function log(messageOrCallback: string | (() => string), data?: any) {
-	// Only log in debug mode
-	const config = vscode.workspace.getConfiguration("tree-sitter-vscode");
-	const isDebugMode = config.get("debug", false);
-
-	if (isDebugMode) {
-		const timestamp = new Date().toISOString();
-		const message = typeof messageOrCallback === "function" ? messageOrCallback() : messageOrCallback;
-		OUTPUT_CHANNEL.appendLine(`[${timestamp}] ${message}`);
-		if (data) {
-			OUTPUT_CHANNEL.appendLine(JSON.stringify(data, null, 2));
-		}
-	}
+	const message = typeof messageOrCallback === "function" ? messageOrCallback() : messageOrCallback;
+	console.log(message, data);
 }
 
-/**
- * Called once on extension initialization and again if the reload command is triggered.
- * It reads the configuration and registers the semantic tokens provider.
- */
-export function activate(context: vscode.ExtensionContext) {
-	log("Extension activated");
-	// setup the semantic tokens provider
-	const rawConfigs = vscode.workspace.getConfiguration("tree-sitter-vscode").get("languageConfigs");
-	const configs = parseConfigs(rawConfigs);
-	log(() => { return `Configured languages: ${configs.map((c) => c.lang).join(", ")}`; });
+export function registerProvider(configs: Config[]) {
 	const languageMap = configs
 		.filter(config => !config.injectionOnly)
 		.map(config => { return { language: config.lang }; });
-	const provider = vscode.languages.registerDocumentSemanticTokensProvider(
+	return vscode.languages.registerDocumentSemanticTokensProvider(
 		languageMap,
 		new SemanticTokensProvider(configs),
 		LEGEND,
 	);
-	context.subscriptions.push(provider);
-
-	// setup the reload command
-	const reload = vscode.commands.registerCommand("tree-sitter-vscode.reload",
-		() => {
-			// dispose of the old providers and clear the list of subscriptions
-			reload.dispose();
-			provider.dispose();
-			context.subscriptions.length = 0;
-			// reinitialize the extension
-			activate(context);
-		});
-	context.subscriptions.push(reload);
 }
-
-/**
- * Called when the extension is deactivated.
- */
-export function deactivate() { }
-
-function parseConfigs(configs: any): Config[] {
-	if (!Array.isArray(configs)) {
-		throw new TypeError("Expected a list.");
-	}
-	return configs.map(config => {
-		const lang = config["lang"];
-		const parser = config["parser"];
-		const highlights = config["highlights"];
-		const injections = config["injections"];
-		let injectionOnly = config["injectionOnly"];
-		const semanticTokenTypeMappings = config["semanticTokenTypeMappings"];
-		if (typeof lang !== "string") {
-			throw new TypeError("Expected `lang` to be a string.");
-		}
-		if (typeof parser !== "string") {
-			throw new TypeError("Expected `parser` to be a string.");
-		}
-		if (typeof highlights !== "string") {
-			throw new TypeError("Expected `highlights` to be a string.");
-		}
-		if (injections !== undefined && typeof injections !== "string") {
-			throw new TypeError("Expected `injections` to be a string.");
-		}
-		if (injectionOnly !== undefined && typeof injectionOnly !== "boolean") {
-			throw new TypeError("Expected `injectionOnly` to be a boolean.");
-		}
-		if (semanticTokenTypeMappings !== undefined && (typeof semanticTokenTypeMappings !== "object" || semanticTokenTypeMappings === null)) {
-			throw new TypeError("Expected `semanticTokenTypeMappings` to be an object.");
-		}
-		if (injectionOnly === undefined) {
-			injectionOnly = false;
-		}
-		return { lang, parser, highlights, injections, injectionOnly, semanticTokenTypeMappings };
-	}).map(config => {
-		const parser = toAbsolutePath(config.parser);
-		const highlights = toAbsolutePath(config.highlights);
-		const injections = config.injections !== undefined ? toAbsolutePath(config.injections) : undefined;
-		return { ...config, parser, highlights, injections };
-	});
-}
-
-function toAbsolutePath(file: string): string {
-	if (path.isAbsolute(file)) {
-		return file;
-	}
-
-	const workspaceFolders = vscode.workspace.workspaceFolders;
-	if (!workspaceFolders || workspaceFolders.length === 0) {
-		throw new Error("Trying to resolve a relative path, but no workspace folder is open.");
-	}
-
-	const workspaceRoot = workspaceFolders[0].uri.fsPath;
-	return path.resolve(workspaceRoot, file);
-}
-
 
 async function initLanguage(config: Config): Promise<Language> {
 	log(() => { return `Initializing language: ${config.lang}`; });
@@ -255,7 +162,7 @@ class SemanticTokensProvider implements vscode.DocumentSemanticTokensProvider {
 	 */
 	async provideDocumentSemanticTokens(
 		document: vscode.TextDocument,
-		token: vscode.CancellationToken
+		_token: vscode.CancellationToken
 	) {
 		const lang = document.languageId;
 		if (!(lang in this.tsLangs)) {
