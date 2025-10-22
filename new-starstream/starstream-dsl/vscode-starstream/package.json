@@ -1,0 +1,60 @@
+{
+  "name": "starstream",
+  "displayName": "Starstream support",
+  "description": "Starstream language support for VSC",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LFDT-Nightstream/Starstream",
+    "directory": "new-starstream/starstream-dsl/vscode-starstream"
+  },
+  "main": "./dist/extension",
+  "files": [
+    "package.json",
+    "language-configuration.json",
+    "dist/*"
+  ],
+  "engines": {
+    "vscode": "^1.98.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "starstream",
+        "aliases": [
+          "Starstream",
+          "starstream"
+        ],
+        "extensions": [
+          ".star"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+  "scripts": {
+    "package": "vsce package",
+    "vscode:prepublish": "rm -rf dist && npm run build-tree-sitter && webpack --mode production",
+    "build-tree-sitter": "cd ../tree-sitter-starstream && tree-sitter generate && tree-sitter build --wasm",
+    "build": "webpack --mode none",
+    "watch": "webpack --mode none --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/vscode": "^1.98.0",
+    "@vscode/vsce": "^3.6.0",
+    "file-loader": "^6.2.0",
+    "tree-sitter-cli": "^0.25.10",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.2",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1",
+    "web-tree-sitter": "^0.25.10"
+  }
+}

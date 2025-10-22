@@ -49,7 +49,7 @@ enum ts_symbol_identifiers {
   sym_identifier = 27,
   sym_source_file = 28,
   sym__statement = 29,
-  sym_variable_delcaration = 30,
+  sym_variable_declaration = 30,
   sym_assignment = 31,
   sym_if_statement = 32,
   sym_while_statement = 33,
@@ -90,7 +90,7 @@ static const char * const ts_symbol_names[] = {
   [sym_identifier] = "identifier",
   [sym_source_file] = "source_file",
   [sym__statement] = "_statement",
-  [sym_variable_delcaration] = "variable_delcaration",
+  [sym_variable_declaration] = "variable_declaration",
   [sym_assignment] = "assignment",
   [sym_if_statement] = "if_statement",
   [sym_while_statement] = "while_statement",
@@ -131,7 +131,7 @@ static const TSSymbol ts_symbol_map[] = {
   [sym_identifier] = sym_identifier,
   [sym_source_file] = sym_source_file,
   [sym__statement] = sym__statement,
-  [sym_variable_delcaration] = sym_variable_delcaration,
+  [sym_variable_declaration] = sym_variable_declaration,
   [sym_assignment] = sym_assignment,
   [sym_if_statement] = sym_if_statement,
   [sym_while_statement] = sym_while_statement,
@@ -262,7 +262,7 @@ static const TSSymbolMetadata ts_symbol_metadata[] = {
     .visible = false,
     .named = true,
   },
-  [sym_variable_delcaration] = {
+  [sym_variable_declaration] = {
     .visible = true,
     .named = true,
   },
@@ -889,7 +889,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   [STATE(1)] = {
     [sym_source_file] = STATE(80),
     [sym__statement] = STATE(4),
-    [sym_variable_delcaration] = STATE(4),
+    [sym_variable_declaration] = STATE(4),
     [sym_assignment] = STATE(4),
     [sym_if_statement] = STATE(4),
     [sym_while_statement] = STATE(4),
@@ -911,7 +911,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(2)] = {
     [sym__statement] = STATE(7),
-    [sym_variable_delcaration] = STATE(7),
+    [sym_variable_declaration] = STATE(7),
     [sym_assignment] = STATE(7),
     [sym_if_statement] = STATE(7),
     [sym_while_statement] = STATE(7),
@@ -933,7 +933,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(3)] = {
     [sym__statement] = STATE(7),
-    [sym_variable_delcaration] = STATE(7),
+    [sym_variable_declaration] = STATE(7),
     [sym_assignment] = STATE(7),
     [sym_if_statement] = STATE(7),
     [sym_while_statement] = STATE(7),
@@ -955,7 +955,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(4)] = {
     [sym__statement] = STATE(6),
-    [sym_variable_delcaration] = STATE(6),
+    [sym_variable_declaration] = STATE(6),
     [sym_assignment] = STATE(6),
     [sym_if_statement] = STATE(6),
     [sym_while_statement] = STATE(6),
@@ -977,7 +977,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(5)] = {
     [sym__statement] = STATE(7),
-    [sym_variable_delcaration] = STATE(7),
+    [sym_variable_declaration] = STATE(7),
     [sym_assignment] = STATE(7),
     [sym_if_statement] = STATE(7),
     [sym_while_statement] = STATE(7),
@@ -999,7 +999,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(6)] = {
     [sym__statement] = STATE(6),
-    [sym_variable_delcaration] = STATE(6),
+    [sym_variable_declaration] = STATE(6),
     [sym_assignment] = STATE(6),
     [sym_if_statement] = STATE(6),
     [sym_while_statement] = STATE(6),
@@ -1021,7 +1021,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(7)] = {
     [sym__statement] = STATE(7),
-    [sym_variable_delcaration] = STATE(7),
+    [sym_variable_declaration] = STATE(7),
     [sym_assignment] = STATE(7),
     [sym_if_statement] = STATE(7),
     [sym_while_statement] = STATE(7),
@@ -1043,7 +1043,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(8)] = {
     [sym__statement] = STATE(9),
-    [sym_variable_delcaration] = STATE(9),
+    [sym_variable_declaration] = STATE(9),
     [sym_assignment] = STATE(9),
     [sym_if_statement] = STATE(9),
     [sym_while_statement] = STATE(9),
@@ -1065,7 +1065,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(9)] = {
     [sym__statement] = STATE(7),
-    [sym_variable_delcaration] = STATE(7),
+    [sym_variable_declaration] = STATE(7),
     [sym_assignment] = STATE(7),
     [sym_if_statement] = STATE(7),
     [sym_while_statement] = STATE(7),
@@ -1087,7 +1087,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(10)] = {
     [sym__statement] = STATE(2),
-    [sym_variable_delcaration] = STATE(2),
+    [sym_variable_declaration] = STATE(2),
     [sym_assignment] = STATE(2),
     [sym_if_statement] = STATE(2),
     [sym_while_statement] = STATE(2),
@@ -1109,7 +1109,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(11)] = {
     [sym__statement] = STATE(3),
-    [sym_variable_delcaration] = STATE(3),
+    [sym_variable_declaration] = STATE(3),
     [sym_assignment] = STATE(3),
     [sym_if_statement] = STATE(3),
     [sym_while_statement] = STATE(3),
@@ -1131,7 +1131,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
   [STATE(12)] = {
     [sym__statement] = STATE(5),
-    [sym_variable_delcaration] = STATE(5),
+    [sym_variable_declaration] = STATE(5),
     [sym_assignment] = STATE(5),
     [sym_if_statement] = STATE(5),
     [sym_while_statement] = STATE(5),
@@ -2335,8 +2335,8 @@ static const TSParseActionEntry ts_parse_actions[] = {
   [169] = {.entry = {.count = 1, .reusable = false}}, REDUCE(sym__expression_statement, 2, 0, 0),
   [171] = {.entry = {.count = 1, .reusable = true}}, REDUCE(sym_assignment, 4, 0, 0),
   [173] = {.entry = {.count = 1, .reusable = false}}, REDUCE(sym_assignment, 4, 0, 0),
-  [175] = {.entry = {.count = 1, .reusable = true}}, REDUCE(sym_variable_delcaration, 5, 0, 0),
-  [177] = {.entry = {.count = 1, .reusable = false}}, REDUCE(sym_variable_delcaration, 5, 0, 0),
+  [175] = {.entry = {.count = 1, .reusable = true}}, REDUCE(sym_variable_declaration, 5, 0, 0),
+  [177] = {.entry = {.count = 1, .reusable = false}}, REDUCE(sym_variable_declaration, 5, 0, 0),
   [179] = {.entry = {.count = 1, .reusable = true}}, REDUCE(sym_if_statement, 7, 0, 0),
   [181] = {.entry = {.count = 1, .reusable = false}}, REDUCE(sym_if_statement, 7, 0, 0),
   [183] = {.entry = {.count = 1, .reusable = true}}, SHIFT(10),

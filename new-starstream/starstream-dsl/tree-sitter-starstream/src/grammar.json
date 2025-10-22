@@ -14,7 +14,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "variable_delcaration"
+          "name": "variable_declaration"
         },
         {
           "type": "SYMBOL",
@@ -38,7 +38,7 @@
         }
       ]
     },
-    "variable_delcaration": {
+    "variable_declaration": {
       "type": "SEQ",
       "members": [
         {

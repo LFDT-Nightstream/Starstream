@@ -43,7 +43,7 @@
           "named": true
         },
         {
-          "type": "variable_delcaration",
+          "type": "variable_declaration",
           "named": true
         },
         {
@@ -125,7 +125,7 @@
           "named": true
         },
         {
-          "type": "variable_delcaration",
+          "type": "variable_declaration",
           "named": true
         },
         {
@@ -136,7 +136,7 @@
     }
   },
   {
-    "type": "variable_delcaration",
+    "type": "variable_declaration",
     "named": true,
     "fields": {},
     "children": {

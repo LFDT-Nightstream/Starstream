@@ -51,8 +51,9 @@ A way to run a suite of different example programs for the language, and ensure 
   - Consider tower-lsp-community/tower-lsp-server w/ runtime-agnostic feature
   - Want abstracted filesystem for WASM support
   - add to CLI
-- [ ] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
-  - no WASM lsp yet, just run from dev, but probably for publishing
+- [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
+  - [ ] run LSP with `cargo run`
+  - [ ] compile & use wasm LSP
 - [ ] web sandbox
   - need WASM lsp
 - [ ] holistics diagnostics and error handling (miette?)
