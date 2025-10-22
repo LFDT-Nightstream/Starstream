@@ -45,8 +45,9 @@ A way to run a suite of different example programs for the language, and ensure 
   - [x] add to CLI
 - [x] tree sitter grammar - @SpaceManiac
   - for editor-agnostic syntax highlighting
-- [ ] type system setup - @SpaceManiac
-  - the basics: `i64` and `bool`
+- [ ] type system setup
+  - [x] basics specs - @SpaceManiac
+  - [ ] [Algorithm W](https://sdiehl.github.io/typechecker-zoo/algorithm-w/lambda-calculus.html) and typed AST - @rvcas
 - [ ] LSP server - @rvcas
   - Consider tower-lsp-community/tower-lsp-server w/ runtime-agnostic feature
   - Want abstracted filesystem for WASM support
@@ -54,14 +55,29 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
   - [ ] run LSP with `cargo run`
   - [ ] compile & use wasm LSP
-- [ ] web sandbox
+- [ ] web sandbox - @SpaceManiac
   - need WASM lsp
 - [ ] holistics diagnostics and error handling (miette?)
 - [ ] zed extension - @rvcas dogfooding
-- [ ] repo structure documentation
+- [ ] `else if`
+- [ ] functions
+
+Root pivot:
+
+- [ ] make decisions about folder structure
+  - [ ] decide if DSL crates should stay in a `dsl/` subfolder or be flattened out
+    - [ ] if in a folder, decide whether `/` or `dsl/` is the Cargo workspace root
+    - (keep in mind CLI may include mock ledger or other components, not just DSL)
+  - [ ] decide which of IVC, lookups, MCC, mock-ledger stubs should stay in-repo
+- [ ] pivot root to `old/`, `new-starstream/` to root
+  - [ ] keep metadata files like LICENSE, MAINTAINERS, SECURITY, .gitattributes, .gitignore
+  - [ ] update `.github/workflows/build.yml`
+- [ ] someday, remove `old/`
 
 Farther in the future:
 
+- [ ] UTXO and token stuff
+- [ ] patterns and pattern matching
 - [ ] enhanced parser with better error recovery
 - [ ] try out [Verus](https://github.com/verus-lang/verus) on the reference interpreter
 - [ ] specify (roughly) the "abi" that the compiler must target (maybe use WIT?)
