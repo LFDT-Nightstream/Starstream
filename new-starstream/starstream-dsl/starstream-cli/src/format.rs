@@ -51,14 +51,23 @@ fn check_files(files: Vec<String>, cache: &mut FileCache) -> miette::Result<()> 
     if problem_files.is_empty() {
         Ok(())
     } else {
+        let total = problem_files.len();
+
         for file in problem_files {
             let diff = diff_file(&file.input, &file.output);
 
-            eprintln!("{}:", style::INFO.apply_to(file.source.display()));
+            eprintln!(
+                "{}:",
+                style::INFO.underlined().apply_to(file.source.display())
+            );
             eprintln!("{diff}");
         }
 
-        miette::bail!("failed to format files")
+        miette::bail!(
+            "failed to format {} file{}",
+            style::INFO.bold().apply_to(total),
+            style::r_if_then(total > 1, "s")
+        )
     }
 }
 

@@ -1,8 +1,8 @@
 //! Starstream CLI parser and executor as a library.
 use clap::Parser;
 
-mod style;
 mod format;
+mod style;
 mod wasm;
 
 pub use format::Format;
