@@ -101,10 +101,10 @@ identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 ## Scopes
 
 - Every expression exists within a stack of scopes, in the traditional static scoping sense.
-- Each scope has a table of variables, identified by name and having a current value.
+- Each scope has a table of variables, identified by name and having a static type and a current value.
 - Syntactic blocks (curly braces) introduce new scopes.
 
-## Value semantics
+## Expression semantics
 
 - Integer literals work in the obvious way.
 - Boolean literals work in the obvious way.
@@ -113,13 +113,72 @@ identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
   way.
   - We assume wrapping signed 64-bit two's complement integers.
-  - `%` is the Euclid remainder (least non-negative).
+  - `/` and `%` are floored. `%` has the same sign as the divisor.
 - Unary `-` applies to integers. Unary `!` applies to booleans.
 - Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) or (boolean, boolean) and
   produce booleans.
 - The boolean operators `!`, `&&`, `||` accept booleans and produce
   booleans.
   - `&&` and `||` are short-circuiting.
+
+| Syntax rule                | Type rule                                                                 | Value rule                |
+| -------------------------- | ------------------------------------------------------------------------- | ------------------------- |
+| integer_literal            | $\dfrac{}{Γ ⊢ integer\ literal : i64}$                                    | Integer literal           |
+| boolean_literal            | $\dfrac{}{Γ ⊢ boolean\ literal : bool}$                                   | Boolean literal           |
+| identifier                 | $\dfrac{ident : T ∈ Γ}{Γ ⊢ ident : T}$                                    | Refers to `let` in scope  |
+| (expression)               | $\dfrac{Γ ⊢ e : T}{Γ ⊢ (e) : T}$                                          | Identity                  |
+| !expression                | $\dfrac{Γ ⊢ e : bool}{Γ ⊢\ !e : bool}$                                    | Boolean inverse           |
+| -expression                | $\dfrac{Γ ⊢ e : i64}{Γ ⊢ -e : i64}$                                       | Integer negation          |
+| expression \* expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs * rhs : i64}$              | Integer multiplication    |
+| expression / expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs / rhs : i64}$              | Integer floored division  |
+| expression % expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs\ \%\ rhs : i64}$           | Integer floored remainder |
+| expression + expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs + rhs : i64}$              | Integer addition          |
+| expression - expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs - rhs : i64}$              | Integer subtraction       |
+| expression < expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs < rhs : bool}$             | Integer less-than         |
+|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs < rhs : bool}$           | See [truth tables]        |
+| expression <= expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs <= rhs : bool}$            | Integer less-or-equal     |
+|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs <= rhs : bool}$          | See [truth tables]        |
+| expression > expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs > rhs : bool}$             | Integer greater-than      |
+|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs > rhs : bool}$           | See [truth tables]        |
+| expression >= expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs >= rhs : bool}$            | Integer greater-or-equal  |
+|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs >= rhs : bool}$          | See [truth tables]        |
+| expression == expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs == rhs : bool}$            | Integer equality          |
+|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$          | See [truth tables]        |
+| expression != expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
+|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
+| expression && expression   | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
+| expression \|\| expression | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
+
+### Overflow and underflow
+
+Integer overflow and underflow wraps.
+
+### Floored division and remainder
+
+The remainder always has the sign of the right-hand side.
+
+| a   | b   | a / b | a % b |
+| --- | --- | ----- | ----- |
+| 3   | 16  | 0     | 3     |
+| -3  | 16  | -1    | 13    |
+| 3   | -16 | -1    | -13   |
+| -3  | -16 | 0     | -3    |
+
+### Truth tables
+
+[truth tables]: #truth-tables
+
+| a         | !a    |
+| --------- | ----- |
+| **false** | TRUE  |
+| **TRUE**  | false |
+
+| a         | b         | a && b | a \|\| b | a == b | a != b | a < b | a <= b | a > b | a >= b |
+| --------- | --------- | ------ | -------- | ------ | ------ | ----- | ------ | ----- | ------ |
+| **false** | **false** | false  | false    | TRUE   | false  | false | TRUE   | false | TRUE   |
+| **false** | **TRUE**  | false  | TRUE     | false  | TRUE   | TRUE  | TRUE   | false | false  |
+| **TRUE**  | **false** | false  | TRUE     | false  | TRUE   | false | false  | TRUE  | TRUE   |
+| **TRUE**  | **TRUE**  | TRUE   | TRUE     | TRUE   | false  | false | TRUE   | false | TRUE   |
 
 ## Statement semantics
 
