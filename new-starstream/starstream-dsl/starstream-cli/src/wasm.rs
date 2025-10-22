@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use ariadne::{Cache, FileCache};
 use clap::Args;
+use miette::IntoDiagnostic;
 
 /// Compile Starstream source to Wasm.
 #[derive(Args, Debug)]
@@ -15,7 +16,7 @@ pub struct Wasm {
 }
 
 impl Wasm {
-    pub fn exec(&self) {
+    pub fn exec(self) -> miette::Result<()> {
         // Load
         let mut cache = FileCache::default();
         let source = cache
@@ -28,7 +29,7 @@ impl Wasm {
             // TODO: have error reports include the filename, perhaps by  passing `cache` instead of just `source`
             starstream_compiler::error_to_report(error.clone())
                 .eprint(source)
-                .unwrap();
+                .into_diagnostic()?;
         }
         let Some(program) = parse_result.into_output() else {
             std::process::exit(1);
@@ -39,7 +40,9 @@ impl Wasm {
         // TODO: error handling
 
         if let Some(output_file) = &self.output_file {
-            std::fs::write(&output_file, &wasm).expect("Error writing Wasm output");
+            std::fs::write(output_file, &wasm).expect("Error writing Wasm output");
         }
+
+        Ok(())
     }
 }

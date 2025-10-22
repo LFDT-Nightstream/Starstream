@@ -7,10 +7,10 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-starstream-types = { path = "../starstream-types" }
-chumsky = { version = "0.11", features = ["pratt"] }
 ariadne = "0.5.1"
+chumsky = { version = "0.11", features = ["pratt"] }
 pretty = "0.12.5"
+starstream-types = { path = "../starstream-types" }
 
 [dev-dependencies]
 indoc = "2.0"
