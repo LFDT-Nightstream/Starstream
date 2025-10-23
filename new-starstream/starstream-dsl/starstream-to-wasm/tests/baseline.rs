@@ -36,7 +36,9 @@ fn simple_while_loop() {
             Statement::While {
                 condition: Spanned::none(Expr::Binary {
                     op: BinaryOp::Less,
-                    left: Box::new(Spanned::none(Expr::Identifier(Identifier::new("foo", None)))),
+                    left: Box::new(Spanned::none(Expr::Identifier(Identifier::new(
+                        "foo", None
+                    )))),
                     right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(10)))),
                 }),
                 body: Block {
@@ -44,7 +46,9 @@ fn simple_while_loop() {
                         target: Identifier::new("foo", None),
                         value: Spanned::none(Expr::Binary {
                             op: BinaryOp::Add,
-                            left: Box::new(Spanned::none(Expr::Identifier(Identifier::new("foo", None)))),
+                            left: Box::new(Spanned::none(Expr::Identifier(Identifier::new(
+                                "foo", None
+                            )))),
                             right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(1)))),
                         }),
                     }],

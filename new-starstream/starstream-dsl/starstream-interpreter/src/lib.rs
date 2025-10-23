@@ -13,7 +13,7 @@ pub fn exec_program(program: &Program) {
     eval_block(&program.statements, &Default::default());
 }
 
-fn eval_block<'l>(block: &[Statement], locals: &Locals) -> Locals {
+fn eval_block(block: &[Statement], locals: &Locals) -> Locals {
     let mut locals = locals.clone();
     for statement in block {
         match statement {
@@ -58,7 +58,7 @@ fn eval_block<'l>(block: &[Statement], locals: &Locals) -> Locals {
 pub fn eval(expr: &Expr, locals: &Locals) -> Value {
     match expr {
         // Identifiers
-        Expr::Identifier(Identifier { name, .. }) => locals.get(name).clone(),
+        Expr::Identifier(Identifier { name, .. }) => locals.get(name),
         // Literals
         Expr::Literal(Literal::Integer(i)) => Value::Number(*i),
         Expr::Literal(Literal::Boolean(b)) => Value::Boolean(*b),

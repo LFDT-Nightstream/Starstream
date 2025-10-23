@@ -114,7 +114,7 @@ impl Compiler {
         // module's own functions.
 
         let type_index = self.add_raw_func_type(ty);
-        let func_index = u32::try_from(self.functions.len()).unwrap();
+        let func_index = self.functions.len();
         self.functions.function(type_index);
 
         let mut vec = Vec::new();
@@ -643,11 +643,11 @@ impl Function {
     fn add_local(&mut self, ty: ValType) -> u32 {
         let id = self.num_locals;
         self.num_locals += 1;
-        if let Some((last_count, last_type)) = self.locals.last_mut() {
-            if ty == *last_type {
-                *last_count += 1;
-                return id;
-            }
+        if let Some((last_count, last_type)) = self.locals.last_mut()
+            && ty == *last_type
+        {
+            *last_count += 1;
+            return id;
         }
         self.locals.push((1, ty));
         id
