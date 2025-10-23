@@ -10,8 +10,6 @@ pub struct Lsp {}
 
 impl Lsp {
     pub fn exec(self) -> miette::Result<()> {
-        miette::set_panic_hook();
-
         let stdin = async_std::io::stdin();
         let stdout = async_std::io::stdout();
 
