@@ -2,10 +2,12 @@
 use clap::Parser;
 
 mod format;
+mod lsp;
 mod style;
 mod wasm;
 
 pub use format::Format;
+pub use lsp::Lsp;
 pub use wasm::Wasm;
 
 /// The Starstream language and toolchain CLI.
@@ -14,6 +16,8 @@ pub enum Command {
     Wasm(Wasm),
     #[clap(visible_alias("fmt"))]
     Format(Format),
+    #[clap(hide = true)]
+    Lsp(Lsp),
 }
 
 #[derive(Parser, Debug)]
@@ -30,6 +34,7 @@ impl Cli {
         match self.cmd {
             Command::Wasm(w) => w.exec(),
             Command::Format(f) => f.exec(),
+            Command::Lsp(l) => l.exec(),
         }
     }
 }
