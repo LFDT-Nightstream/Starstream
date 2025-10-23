@@ -15,6 +15,9 @@ use tower_lsp_server::{
     lsp_types::*,
 };
 
+// At the moment LSP version == CLI version, but for completeness's sake:
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[derive(Debug)]
 pub struct Server {
     pub client: Client,
