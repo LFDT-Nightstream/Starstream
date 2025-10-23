@@ -653,7 +653,7 @@ impl Function {
         id
     }
 
-    fn instructions(&mut self) -> InstructionSink {
+    fn instructions(&mut self) -> InstructionSink<'_> {
         InstructionSink::new(&mut self.bytes)
     }
 }

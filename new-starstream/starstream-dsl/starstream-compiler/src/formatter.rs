@@ -28,13 +28,13 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
     Ok(out)
 }
 
-fn program_to_doc(program: &Program) -> RcDoc<()> {
+fn program_to_doc(program: &Program) -> RcDoc<'_, ()> {
     let statements = program.statements.iter().map(statement_to_doc);
 
     RcDoc::intersperse(statements, RcDoc::hardline()).append(RcDoc::hardline())
 }
 
-fn statement_to_doc(statement: &Statement) -> RcDoc<()> {
+fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
     match statement {
         Statement::VariableDeclaration { name, value } => RcDoc::text("let")
             .append(RcDoc::space())
@@ -80,7 +80,7 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<()> {
     }
 }
 
-fn block_to_doc(block: &Block) -> RcDoc<()> {
+fn block_to_doc(block: &Block) -> RcDoc<'_, ()> {
     if block.statements.is_empty() {
         RcDoc::text("{ }")
     } else {
@@ -95,21 +95,21 @@ fn block_to_doc(block: &Block) -> RcDoc<()> {
     }
 }
 
-fn parened_expr(expr: &Spanned<Expr>) -> RcDoc<()> {
+fn parened_expr(expr: &Spanned<Expr>) -> RcDoc<'_, ()> {
     RcDoc::text("(")
         .append(expr_to_doc(&expr.node))
         .append(RcDoc::text(")"))
 }
 
-fn identifier_to_doc(identifier: &Identifier) -> RcDoc<()> {
+fn identifier_to_doc(identifier: &Identifier) -> RcDoc<'_, ()> {
     RcDoc::text(identifier.name.clone())
 }
 
-fn expr_to_doc(expr: &Expr) -> RcDoc<()> {
+fn expr_to_doc(expr: &Expr) -> RcDoc<'_, ()> {
     expr_with_prec(expr, PREC_LOWEST, ChildPosition::Top)
 }
 
-fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDoc<()> {
+fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDoc<'_, ()> {
     match expr {
         Expr::Grouping(inner) => RcDoc::text("(")
             .append(expr_with_prec(&inner.node, PREC_LOWEST, ChildPosition::Top))
@@ -146,7 +146,7 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
     }
 }
 
-fn literal_to_doc(literal: &Literal) -> RcDoc<()> {
+fn literal_to_doc(literal: &Literal) -> RcDoc<'_, ()> {
     match literal {
         Literal::Integer(value) => RcDoc::as_string(*value),
         Literal::Boolean(value) => RcDoc::text(if *value { "true" } else { "false" }),
