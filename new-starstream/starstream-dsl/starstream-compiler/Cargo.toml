@@ -1,17 +1,19 @@
 [package]
 name = "starstream-compiler"
-description = "Compiler for the Starstream DSL"
 version.workspace = true
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Compiler for the Starstream DSL"
+repository.workspace = true
 license.workspace = true
 
 [dependencies]
-ariadne = "0.5.1"
-chumsky = { version = "0.11", features = ["pratt"] }
+ariadne = { workspace = true }
+chumsky = { workspace = true, features = ["pratt"] }
 pretty = "0.12.5"
-starstream-types = { path = "../starstream-types" }
+starstream-types = { workspace = true }
 
 [dev-dependencies]
-indoc = "2.0"
-insta = "1.39"
+indoc = { workspace = true }
+insta = { workspace = true }
