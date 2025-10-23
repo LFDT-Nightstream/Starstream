@@ -1,0 +1,15 @@
+[package]
+name = "starstream-language-server"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+dashmap = "6.1.0"
+ropey = "1.6.1"
+starstream-compiler = { workspace = true }
+tokio = { version = "1.48.0", features = ["sync"] }
+tower-lsp-server = { workspace = true }
