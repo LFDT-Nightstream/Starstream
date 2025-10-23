@@ -1,17 +1,19 @@
 [package]
 name = "starstream-types"
-description = "Shared types for Starstream DSL"
 version.workspace = true
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Shared types for Starstream DSL"
+repository.workspace = true
 license.workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-thiserror = "1.0"
+chumsky = { workspace = true }
 quickcheck = { version = "1.0.3", optional = true }
 quickcheck_macros = { version = "1.1.0", optional = true }
-chumsky = "0.11.1"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
 
 [dev-dependencies]
 quickcheck = "1.0.3"

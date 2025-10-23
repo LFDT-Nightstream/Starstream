@@ -1,14 +1,16 @@
 [package]
 name = "starstream-to-wasm"
 version.workspace = true
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 license.workspace = true
 
 [dependencies]
-starstream-types = { path = "../starstream-types" }
+starstream-types = { workspace = true }
 wasm-encoder = "0.240.0"
 
 [dev-dependencies]
+insta = { workspace = true }
 wasmprinter = "0.240.0"
-insta = "1.39"

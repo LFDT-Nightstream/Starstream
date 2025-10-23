@@ -1,8 +1,10 @@
 [package]
 name = "starstream-cli"
 version.workspace = true
-edition.workspace = true
 authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
 license.workspace = true
 
 [[bin]]
@@ -10,12 +12,16 @@ name = "starstream"
 path = "src/main.rs"
 
 [dependencies]
-starstream-compiler = { path = "../starstream-compiler" }
-starstream-to-wasm = { path = "../starstream-to-wasm" }
-console = "0.16.0"
+ariadne = { workspace = true }
+async-std = "1.13.2"
 clap = { version = "4.5.32", features = ["derive"] }
-ariadne = "0.5.1"
-miette = { version = "7.6.0", features = ["fancy"] }
+console = "0.16.0"
 ignore = "0.4.24"
-walkdir = "2.5.0"
+miette = { version = "7.6.0", features = ["fancy"] }
 similar = "2.7.0"
+starstream-compiler = { workspace = true }
+starstream-language-server = { workspace = true }
+starstream-to-wasm = { workspace = true }
+tokio = { version = "1.47.1", features = ["full"] }
+tower-lsp-server = { workspace = true }
+walkdir = "2.5.0"
