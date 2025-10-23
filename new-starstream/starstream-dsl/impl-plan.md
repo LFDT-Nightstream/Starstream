@@ -41,19 +41,14 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] ditch op codes and make a tree-walking interpreter (ast nodes) - @SpaceManiac
 - [x] compile stripped down lang to wasm - @SpaceManiac
 - [x] single-binary CLI - @SpaceManiac
-- [x] formatter, including snapshot tests - @rvcas
-  - [x] add to CLI
+- [x] formatter, including snapshot tests, included in CLI - @rvcas
 - [x] tree sitter grammar - @SpaceManiac
-  - for editor-agnostic syntax highlighting
 - [ ] type system setup
   - [x] basics specs - @SpaceManiac
   - [ ] [Algorithm W](https://sdiehl.github.io/typechecker-zoo/algorithm-w/lambda-calculus.html) and typed AST - @rvcas
-- [ ] LSP server - @rvcas
-  - Consider tower-lsp-community/tower-lsp-server w/ runtime-agnostic feature
-  - Want abstracted filesystem for WASM support
-  - add to CLI
+- [x] LSP server, included in CLI - @rvcas
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
-  - [ ] run LSP with `cargo run`
+  - [x] run LSP with `cargo run`
   - [ ] compile & use wasm LSP
 - [ ] web sandbox - @SpaceManiac
   - need WASM lsp

@@ -1,5 +1,6 @@
 import { Parser } from "web-tree-sitter";
 import * as vscode from "vscode";
+import { LanguageClient, TransportKind } from "vscode-languageclient/node";
 import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
 import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
 import highlights_scm from "file-loader!../../tree-sitter-starstream/queries/highlights.scm";
@@ -23,8 +24,24 @@ async function resolve(
 // ----------------------------------------------------------------------------
 // LSP client
 
-async function activateLanguageClient(_context: vscode.ExtensionContext) {
-  // TODO
+async function activateLanguageClient(context: vscode.ExtensionContext) {
+  // TODO: compile the LSP to WASM and bundle it in the extension for release.
+  const lc = new LanguageClient(
+    "Starstream Language Server",
+    {
+      command: "/home/paima/logger",
+      args: ["cargo", "run", "--", "lsp"],
+      options: {
+        cwd: context.extensionPath,
+      },
+      transport: TransportKind.stdio,
+    },
+    {
+      documentSelector: [{ scheme: "file", language: "starstream" }],
+    }
+  );
+  context.subscriptions.push(lc);
+  await lc.start();
 }
 
 // ----------------------------------------------------------------------------
