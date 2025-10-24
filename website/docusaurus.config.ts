@@ -78,6 +78,10 @@ const config: Config = {
           position: "left",
           label: "Documentation",
         },
+        {
+          to: "/sandbox/",
+          label: "Sandbox",
+        },
       ],
     },
     footer: {
