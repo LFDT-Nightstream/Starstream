@@ -22,6 +22,7 @@ ariadne = "0.5.1"
 chumsky = "0.11.1"
 indoc = "2.0"
 insta = "1.39"
+serde = "1.0.219"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
