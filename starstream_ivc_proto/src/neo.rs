@@ -157,7 +157,7 @@ fn ark_matrix_to_neo(
     neo_ccs::Mat::from_row_major(n_rows, n_cols, dense)
 }
 
-fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
+pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
     F::from_u64(col_v.into_bigint().0[0])
 }
 
