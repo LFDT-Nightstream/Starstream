@@ -1,37 +1,7 @@
-Starstream consists of two components: a compiler and interpreter
+# Implementation plan
 
-Instead of writing Starstream (the full DSL), we will instead start with something simple and build towards it.
-
-Notably, we don't want to think about the following yet:
-
-- coroutines (yield/resume)
-- MCCs (or how to handle memory)
-- coordination scripts (just handle standalone programs)
-- effect handlers / algebraic effects
-- linear types
-- anything to do with proving or ZK
-- lookups
-
-## Compiler
-
-- Write a clear specification (including grammar BNF and any other
-  document one would expect) for a language based on the "IMP" programming language
-- write it in Rust, and design it to run in the browser (WASM)
-- use the `chumsky` crate to create a parser
-- Instead of opcodes we will compile directly to WASM
-
-## Interpreter
-
-Implement a tree-walking interpreter for the ast nodes
-
-## Snapshot testing
-
-A way to run a suite of different example programs for the language, and ensure that
-
-1. they all compile properly
-2. the parser produces the right AST
-3. the compiler produces the correct WASM code
-4. the interpreter can run them and produce the correct result
+- See [Starstream language specification](docs/language-spec.md) for details on the language currently implemented.
+- See [Hacking on Starstream](./HACKING.md) for details on the components in this repository.
 
 ## TODOs
 
@@ -51,24 +21,13 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
   - [x] run LSP with `cargo run`
   - [ ] compile & use wasm LSP
+  - [ ] add `HACKING.md` specifically for the extension to explain how to properly compile it
 - [ ] web sandbox - @SpaceManiac
   - need WASM lsp
 - [ ] holistics diagnostics and error handling (miette?)
 - [x] zed extension - @rvcas dogfooding
 - [ ] `else if`
 - [ ] functions
-
-Root pivot:
-
-- [ ] make decisions about folder structure
-  - [ ] decide if DSL crates should stay in a `dsl/` subfolder or be flattened out
-    - [ ] if in a folder, decide whether `/` or `dsl/` is the Cargo workspace root
-    - (keep in mind CLI may include mock ledger or other components, not just DSL)
-  - [ ] decide which of IVC, lookups, MCC, mock-ledger stubs should stay in-repo
-- [ ] pivot root to `old/`, `new-starstream/` to root
-  - [ ] keep metadata files like LICENSE, MAINTAINERS, SECURITY, .gitattributes, .gitignore
-  - [ ] update `.github/workflows/build.yml`
-- [ ] someday, remove `old/`
 
 Farther in the future:
 
@@ -85,7 +44,10 @@ Farther in the future:
 Even farther in the future:
 
 - Coroutine support (yield/resume)
-- Algebraic effects system
-- Linear type system
+- Algebraic effects and effect handlers
+- Linear types
 - Memory consistency checks
-- Full Starstream language features
+- MCCs (or how to handle memory)
+- coordination scripts (just handle standalone programs)
+- anything to do with proving or ZK
+- lookups

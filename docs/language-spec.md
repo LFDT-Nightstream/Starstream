@@ -1,4 +1,4 @@
-# Language Specification
+# Starstream language specification
 
 ## Grammar
 
