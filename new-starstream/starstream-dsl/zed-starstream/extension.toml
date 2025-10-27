@@ -1,0 +1,16 @@
+id = "starstream"
+name = "Starsteam"
+version = "0.0.1"
+schema_version = 1
+authors = []
+description = "Starstream extension for zed"
+repository = "https://github.com/LFDT-Nightstream/Starstream"
+
+[grammars.starstream]
+repository = "https://github.com/LFDT-Nightstream/Starstream"
+rev = "main"
+path = "new-starstream/starstream-dsl/tree-sitter-starstream"
+
+[language_servers.starstream]
+language = "Starstream"
+name = "Starstream LSP"

@@ -16,6 +16,14 @@ pub struct Lsp {
     stdio: bool,
 }
 
+/// Error indicating that stdin was unexpectedly a terminal.
+#[derive(Debug, Diagnostic, thiserror::Error)]
+#[error("Input appears to be a terminal.")]
+#[diagnostic(help(
+    "The language server should be piped to/from its client.\nPass `--stdio` to skip this check."
+))]
+struct UnexpectedTerminal;
+
 impl Lsp {
     pub fn exec(self) -> miette::Result<()> {
         // Log version and debug info.
@@ -47,16 +55,3 @@ impl Lsp {
         Ok(())
     }
 }
-
-/// Error indicating that stdin was unexpectedly a terminal.
-#[derive(Debug, Diagnostic)]
-#[diagnostic(help("The language server should be piped to/from its client.\nPass `--stdio` to skip this check."))]
-struct UnexpectedTerminal;
-
-impl std::fmt::Display for UnexpectedTerminal {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Input appears to be a terminal.")
-    }
-}
-
-impl std::error::Error for UnexpectedTerminal {}
