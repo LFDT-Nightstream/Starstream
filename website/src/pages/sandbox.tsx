@@ -1,6 +1,6 @@
 import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 import Layout from "@theme/Layout";
-import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+//import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import {
   Dispatch,
   ReactNode,
@@ -11,66 +11,64 @@ import {
   useState,
 } from "react";
 import { useDocusaurusTheme } from "../hooks";
+import tree_sitter_wasm from "file-loader!../../node_modules/web-tree-sitter/tree-sitter.wasm";
+import tree_sitter_starstream_wasm from "file-loader!../../../starstream-dsl/tree-sitter-starstream/tree-sitter-starstream.wasm";
+import highlights_scm from "file-loader!../../starstream-dsl/tree-sitter-starstream/queries/highlights.scm";
 
-// Monaco setup
-if (ExecutionEnvironment.canUseDOM) {
-  window.MonacoEnvironment = {
-    getWorkerUrl(_moduleId: any, label: string): string {
-      console.log("getWorkerUrl", _moduleId, label);
-      return "";
+import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFactory";
+import type { MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
+import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
+import { LanguageClientConfig } from "monaco-languageclient/lcwrapper";
+import { EditorAppConfig } from "monaco-languageclient/editorApp";
+
+const languageId = "starstream";
+const code = "var foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
+
+function Editor() {
+  const theme =
+    useDocusaurusTheme() === "dark"
+      ? "Default Dark Modern"
+      : "Default Light Modern";
+
+  const vscodeApiConfig: MonacoVscodeApiConfig = {
+    $type: "extended",
+    viewsConfig: {
+      $type: "EditorService",
+    },
+    userConfiguration: {
+      json: JSON.stringify({
+        "workbench.colorTheme": theme,
+        "editor.wordBasedSuggestions": "off",
+      }),
+    },
+    monacoWorkerFactory: configureDefaultWorkerFactory,
+  };
+
+  // const languageClientConfig: LanguageClientConfig = {
+  //   languageId,
+  //   connection: {
+  //     options: {
+  //       $type: "WorkerConfig",
+  //     }
+  //   }
+  // }
+
+  const editorAppConfig: EditorAppConfig = {
+    codeResources: {
+      modified: {
+        text: code,
+        uri: "file:///sandbox.star",
+      },
     },
   };
 
-  (async () => {
-    const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
-    monaco.languages.register({
-      id: "starstream",
-      extensions: [".star"],
-    });
-  })();
-}
-
-function setRef<T>(ref: Ref<T> | undefined, value: T) {
-  if (ref === null || ref === undefined) {
-    // Nothing to do.
-  } else if ("current" in ref) {
-    ref.current = value;
-  } else if (ref instanceof Function) {
-    ref(value);
-  }
-}
-
-function Editor(props: {
-  ref?: Ref<monaco.editor.IStandaloneCodeEditor>;
-  theme?: string;
-}) {
-  const div = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let editor: monaco.editor.IStandaloneCodeEditor | undefined;
-    (async () => {
-      const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
-      editor = monaco.editor.create(div.current!, {
-        automaticLayout: true,
-        theme: props.theme,
-
-        // value: await Object.values(examples)[0](),
-        language: "starstream",
-      });
-      setRef(props.ref, editor);
-    })();
-    return () => editor?.dispose();
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      const monaco = await import("monaco-editor/esm/vs/editor/editor.api.js");
-      if (props.theme) {
-        monaco.editor.setTheme(props.theme);
-      }
-    })();
-  }, [props.theme]);
-
-  return <div className="flex--grow" ref={div} />;
+  return (
+    <MonacoEditorReactComp
+      className="flex--grow"
+      vscodeApiConfig={vscodeApiConfig}
+      editorAppConfig={editorAppConfig}
+    />
+  );
 }
 
 function Tabs(props: {
@@ -128,7 +126,6 @@ function Tabs(props: {
 
 export function Sandbox() {
   const [inputTab, setInputTab] = useState("");
-  const editor = useRef<monaco.editor.IStandaloneCodeEditor>(null);
   const [inputLedgerState, setInputLedgerState] = useState({});
 
   const [outputTab, setOutputTab] = useState("");
@@ -142,8 +139,6 @@ export function Sandbox() {
   const startTime = useRef(0);
   const request_id = useRef(0);
 
-  const theme = useDocusaurusTheme();
-
   return (
     <div className="flex--grow row">
       <div className="col col--6 flex--column">
@@ -153,12 +148,7 @@ export function Sandbox() {
           tabs={[
             {
               key: "Editor",
-              body: (
-                <Editor
-                  ref={editor}
-                  theme={theme === "dark" ? "vs-dark" : "vs"}
-                />
-              ),
+              body: <Editor />,
             },
           ]}
         />
