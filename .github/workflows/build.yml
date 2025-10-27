@@ -14,8 +14,6 @@ jobs:
       - run: rustup component add clippy rustfmt
       # Enforce lockfile correctness.
       - run: cargo check --locked
-      # Build crates and whatever else.
-      - run: make
       # Test all crates, except those that force-target WASM.
       - run: cargo test --workspace
       # Cosmetic checks.
@@ -28,7 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup target add wasm32-unknown-unknown
-      - run: cargo build -p starstream_sandbox --release
       - run: cd website && npm i && npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
