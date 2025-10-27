@@ -1,7 +1,11 @@
 mod circuit;
+#[cfg(test)]
+mod e2e;
 mod goldilocks;
 mod memory;
 mod neo;
+#[cfg(test)]
+mod test_utils;
 
 use crate::neo::StepCircuitNeo;
 use ::neo::{
@@ -17,8 +21,9 @@ use std::collections::BTreeMap;
 
 type F = FpGoldilocks;
 
+#[derive(Debug)]
 pub struct Transaction<P> {
-    pub utxo_deltas: BTreeMap<UtxoId, UtxoChange>,
+    pub utxo_deltas: BTreeMap<ProgramId, UtxoChange>,
     /// An unproven transaction would have here a vector of utxo 'opcodes',
     /// which are encoded in the `Instruction` enum.
     ///
@@ -33,7 +38,7 @@ pub struct Transaction<P> {
     // (coordination script | utxo).
 }
 
-pub type UtxoId = F;
+pub type ProgramId = F;
 
 #[derive(Debug, Clone)]
 pub struct UtxoChange {
@@ -54,7 +59,7 @@ pub struct UtxoChange {
 
 // NOTE: see https://github.com/PaimaStudios/Starstream/issues/49#issuecomment-3294246321
 #[derive(Debug, Clone)]
-pub enum Instruction {
+pub enum LedgerOperation<F> {
     /// A call to starstream_resume from a coordination script.
     ///
     /// This stores the input and outputs in memory, and sets the
@@ -105,11 +110,13 @@ pub struct ProverOutput {
     pub proof: ::neo::Proof,
 }
 
-impl Transaction<Vec<Instruction>> {
-    pub fn new_unproven(changes: BTreeMap<UtxoId, UtxoChange>, mut ops: Vec<Instruction>) -> Self {
-        // TODO: uncomment later when folding works
+impl Transaction<Vec<LedgerOperation<F>>> {
+    pub fn new_unproven(
+        changes: BTreeMap<ProgramId, UtxoChange>,
+        mut ops: Vec<LedgerOperation<F>>,
+    ) -> Self {
         for utxo_id in changes.keys() {
-            ops.push(Instruction::CheckUtxoOutput { utxo_id: *utxo_id });
+            ops.push(LedgerOperation::CheckUtxoOutput { utxo_id: *utxo_id });
         }
 
         Self {
@@ -155,7 +162,6 @@ impl Transaction<Vec<Instruction>> {
         };
         let (chain, step_ios) = session.finalize();
 
-        // TODO: this fails right now, but the circuit should be sat
         let ok = ::neo::verify_chain_with_descriptor(
             &descriptor,
             &chain,
@@ -188,7 +194,7 @@ impl Transaction<Vec<Instruction>> {
 }
 
 impl Transaction<ProverOutput> {
-    pub fn verify(&self, _changes: BTreeMap<UtxoId, UtxoChange>) {
+    pub fn verify(&self, _changes: BTreeMap<ProgramId, UtxoChange>) {
         // TODO: fill
         //
     }
@@ -196,31 +202,18 @@ impl Transaction<ProverOutput> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{F, Instruction, Transaction, UtxoChange, UtxoId};
+    use crate::{
+        F, LedgerOperation, ProgramId, Transaction, UtxoChange, test_utils::init_test_logging,
+    };
     use std::collections::BTreeMap;
-
-    use tracing_subscriber::{EnvFilter, fmt};
-
-    fn init_test_logging() {
-        static INIT: std::sync::Once = std::sync::Once::new();
-
-        INIT.call_once(|| {
-            fmt()
-                .with_env_filter(
-                    EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()),
-                )
-                .with_test_writer()
-                .init();
-        });
-    }
 
     #[test]
     fn test_starstream_tx() {
         init_test_logging();
 
-        let utxo_id1: UtxoId = UtxoId::from(110);
-        let utxo_id2: UtxoId = UtxoId::from(300);
-        let utxo_id3: UtxoId = UtxoId::from(400);
+        let utxo_id1: ProgramId = ProgramId::from(110);
+        let utxo_id2: ProgramId = ProgramId::from(300);
+        let utxo_id3: ProgramId = ProgramId::from(400);
 
         let changes = vec![
             (
@@ -254,23 +247,23 @@ mod tests {
         let tx = Transaction::new_unproven(
             changes.clone(),
             vec![
-                Instruction::Nop {},
-                Instruction::Resume {
+                LedgerOperation::Nop {},
+                LedgerOperation::Resume {
                     utxo_id: utxo_id2,
                     input: F::from(0),
                     output: F::from(0),
                 },
-                Instruction::DropUtxo { utxo_id: utxo_id2 },
-                Instruction::Resume {
+                LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
+                LedgerOperation::Resume {
                     utxo_id: utxo_id3,
                     input: F::from(42),
                     output: F::from(43),
                 },
-                Instruction::YieldResume {
+                LedgerOperation::YieldResume {
                     utxo_id: utxo_id3,
                     output: F::from(42),
                 },
-                Instruction::Yield {
+                LedgerOperation::Yield {
                     utxo_id: utxo_id3,
                     input: F::from(43),
                 },
@@ -285,7 +278,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_fail_starstream_tx_resume_mismatch() {
-        let utxo_id1: UtxoId = UtxoId::from(110);
+        let utxo_id1: ProgramId = ProgramId::from(110);
 
         let changes = vec![(
             utxo_id1,
@@ -301,17 +294,17 @@ mod tests {
         let tx = Transaction::new_unproven(
             changes.clone(),
             vec![
-                Instruction::Nop {},
-                Instruction::Resume {
+                LedgerOperation::Nop {},
+                LedgerOperation::Resume {
                     utxo_id: utxo_id1,
                     input: F::from(42),
                     output: F::from(43),
                 },
-                Instruction::YieldResume {
+                LedgerOperation::YieldResume {
                     utxo_id: utxo_id1,
                     output: F::from(42000),
                 },
-                Instruction::Yield {
+                LedgerOperation::Yield {
                     utxo_id: utxo_id1,
                     input: F::from(43),
                 },
@@ -321,5 +314,76 @@ mod tests {
         let proof = tx.prove().unwrap();
 
         proof.verify(changes);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_starstream_tx_invalid_witness() {
+        init_test_logging();
+
+        let utxo_id1: ProgramId = ProgramId::from(110);
+        let utxo_id2: ProgramId = ProgramId::from(300);
+        let utxo_id3: ProgramId = ProgramId::from(400);
+
+        let changes = vec![
+            (
+                utxo_id1,
+                UtxoChange {
+                    output_before: F::from(5),
+                    output_after: F::from(5),
+                    consumed: false,
+                },
+            ),
+            (
+                utxo_id2,
+                UtxoChange {
+                    output_before: F::from(4),
+                    output_after: F::from(0),
+                    consumed: true,
+                },
+            ),
+            (
+                utxo_id3,
+                UtxoChange {
+                    output_before: F::from(5),
+                    output_after: F::from(43),
+                    consumed: false,
+                },
+            ),
+        ]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+
+        let tx = Transaction::new_unproven(
+            changes.clone(),
+            vec![
+                LedgerOperation::Nop {},
+                LedgerOperation::Resume {
+                    utxo_id: utxo_id2,
+                    input: F::from(0),
+                    output: F::from(0),
+                },
+                LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
+                LedgerOperation::Resume {
+                    utxo_id: utxo_id3,
+                    input: F::from(42),
+                    // Invalid: output should be F::from(43) to match output_after,
+                    // but we're providing a mismatched value
+                    output: F::from(999),
+                },
+                LedgerOperation::YieldResume {
+                    utxo_id: utxo_id3,
+                    output: F::from(42),
+                },
+                LedgerOperation::Yield {
+                    utxo_id: utxo_id3,
+                    // Invalid: input should match Resume output but doesn't
+                    input: F::from(999),
+                },
+            ],
+        );
+
+        // This should fail during proving because the witness is invalid
+        tx.prove().unwrap();
     }
 }

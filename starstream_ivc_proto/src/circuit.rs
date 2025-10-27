@@ -1,9 +1,9 @@
 use crate::memory::{self, Address, IVCMemory};
-use crate::{F, Instruction, UtxoChange, UtxoId, memory::IVCMemoryAllocated};
+use crate::{memory::IVCMemoryAllocated, LedgerOperation, ProgramId, UtxoChange, F};
 use ark_ff::AdditiveGroup as _;
 use ark_r1cs_std::alloc::AllocationMode;
 use ark_r1cs_std::{
-    GR1CSVar as _, alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean,
+    alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean, GR1CSVar as _,
 };
 use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
@@ -28,8 +28,8 @@ pub const UTXO_INDEX_MAPPING_SIZE: u64 = 1u64;
 pub const OUTPUT_CHECK_SIZE: u64 = 2u64;
 
 pub struct StepCircuitBuilder<M> {
-    pub utxos: BTreeMap<UtxoId, UtxoChange>,
-    pub ops: Vec<Instruction>,
+    pub utxos: BTreeMap<ProgramId, UtxoChange>,
+    pub ops: Vec<LedgerOperation<crate::F>>,
     write_ops: Vec<(ProgramState, ProgramState)>,
     utxo_order_mapping: HashMap<F, usize>,
 
@@ -230,14 +230,8 @@ impl Wires {
             .map(|val| Boolean::new_witness(cs.clone(), || Ok(*val)).unwrap())
             .collect();
 
-        let [
-            resume_switch,
-            yield_resume_switch,
-            utxo_yield_switch,
-            check_utxo_output_switch,
-            nop_switch,
-            drop_utxo_switch,
-        ] = allocated_switches.as_slice()
+        let [resume_switch, yield_resume_switch, utxo_yield_switch, check_utxo_output_switch, nop_switch, drop_utxo_switch] =
+            allocated_switches.as_slice()
         else {
             unreachable!()
         };
@@ -401,15 +395,15 @@ impl InterRoundWires {
     }
 }
 
-impl Instruction {
+impl LedgerOperation<crate::F> {
     pub fn write_values(
         &self,
         coord_read: Vec<F>,
         utxo_read: Vec<F>,
     ) -> (ProgramState, ProgramState) {
         match &self {
-            Instruction::Nop {} => (ProgramState::dummy(), ProgramState::dummy()),
-            Instruction::Resume {
+            LedgerOperation::Nop {} => (ProgramState::dummy(), ProgramState::dummy()),
+            LedgerOperation::Resume {
                 utxo_id: _,
                 input,
                 output,
@@ -430,7 +424,7 @@ impl Instruction {
 
                 (coord, utxo)
             }
-            Instruction::YieldResume {
+            LedgerOperation::YieldResume {
                 utxo_id: _,
                 output: _,
             } => {
@@ -445,7 +439,7 @@ impl Instruction {
 
                 (coord, utxo)
             }
-            Instruction::Yield { utxo_id: _, input } => {
+            LedgerOperation::Yield { utxo_id: _, input } => {
                 let coord = ProgramState::dummy();
 
                 let utxo = ProgramState {
@@ -457,7 +451,7 @@ impl Instruction {
 
                 (coord, utxo)
             }
-            Instruction::CheckUtxoOutput { utxo_id: _ } => {
+            LedgerOperation::CheckUtxoOutput { utxo_id: _ } => {
                 let coord = ProgramState::dummy();
 
                 let utxo = ProgramState {
@@ -469,7 +463,7 @@ impl Instruction {
 
                 (coord, utxo)
             }
-            Instruction::DropUtxo { utxo_id: _ } => {
+            LedgerOperation::DropUtxo { utxo_id: _ } => {
                 let coord = ProgramState::dummy();
                 let utxo = ProgramState::dummy();
 
@@ -480,7 +474,7 @@ impl Instruction {
 }
 
 impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
-    pub fn new(utxos: BTreeMap<F, UtxoChange>, ops: Vec<Instruction>) -> Self {
+    pub fn new(utxos: BTreeMap<F, UtxoChange>, ops: Vec<LedgerOperation<crate::F>>) -> Self {
         Self {
             utxos,
             ops,
@@ -636,14 +630,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             // address.
             let (utxo_id, coord_read_cond, utxo_read_cond, coord_write_cond, utxo_write_cond) =
                 match instr {
-                    Instruction::Resume { utxo_id, .. } => (*utxo_id, false, false, true, true),
-                    Instruction::YieldResume { utxo_id, .. }
-                    | Instruction::Yield { utxo_id, .. } => (*utxo_id, true, false, false, true),
-                    Instruction::CheckUtxoOutput { utxo_id } => {
+                    LedgerOperation::Resume { utxo_id, .. } => (*utxo_id, false, false, true, true),
+                    LedgerOperation::YieldResume { utxo_id, .. }
+                    | LedgerOperation::Yield { utxo_id, .. } => {
+                        (*utxo_id, true, false, false, true)
+                    }
+                    LedgerOperation::CheckUtxoOutput { utxo_id } => {
                         (*utxo_id, false, true, false, true)
                     }
-                    Instruction::Nop {} => (F::from(0), false, false, false, false),
-                    Instruction::DropUtxo { utxo_id } => (*utxo_id, false, false, false, false),
+                    LedgerOperation::Nop {} => (F::from(0), false, false, false, false),
+                    LedgerOperation::DropUtxo { utxo_id } => (*utxo_id, false, false, false, false),
                 };
 
             let utxo_addr = *self.utxo_order_mapping.get(&utxo_id).unwrap_or(&2);
@@ -686,7 +682,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             );
 
             mb.conditional_read(
-                !matches!(instr, Instruction::Nop {}),
+                !matches!(instr, LedgerOperation::Nop {}),
                 Address {
                     addr: utxo_addr as u64 + utxos_len,
                     tag: UTXO_INDEX_MAPPING_SEGMENT,
@@ -694,7 +690,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             );
 
             mb.conditional_read(
-                matches!(instr, Instruction::CheckUtxoOutput { .. }),
+                matches!(instr, LedgerOperation::CheckUtxoOutput { .. }),
                 Address {
                     addr: utxo_addr as u64 + utxos_len * 2,
                     tag: OUTPUT_CHECK_SEGMENT,
@@ -715,7 +711,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let (coord_write, utxo_write) = &self.write_ops[i];
 
         match instruction {
-            Instruction::Nop {} => {
+            LedgerOperation::Nop {} => {
                 let irw = PreWires {
                     nop_switch: true,
                     irw: irw.clone(),
@@ -731,7 +727,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
                 Wires::from_irw(&irw, rm, utxo_write, coord_write)
             }
-            Instruction::Resume {
+            LedgerOperation::Resume {
                 utxo_id,
                 input,
                 output,
@@ -754,7 +750,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
                 Wires::from_irw(&irw, rm, utxo_write, coord_write)
             }
-            Instruction::YieldResume { utxo_id, output } => {
+            LedgerOperation::YieldResume { utxo_id, output } => {
                 let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
 
                 let irw = PreWires {
@@ -772,7 +768,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
                 Wires::from_irw(&irw, rm, utxo_write, coord_write)
             }
-            Instruction::Yield { utxo_id, input } => {
+            LedgerOperation::Yield { utxo_id, input } => {
                 let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
 
                 let irw = PreWires {
@@ -787,7 +783,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
                 Wires::from_irw(&irw, rm, utxo_write, coord_write)
             }
-            Instruction::CheckUtxoOutput { utxo_id } => {
+            LedgerOperation::CheckUtxoOutput { utxo_id } => {
                 let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
 
                 let irw = PreWires {
@@ -800,7 +796,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
                 Wires::from_irw(&irw, rm, utxo_write, coord_write)
             }
-            Instruction::DropUtxo { utxo_id } => {
+            LedgerOperation::DropUtxo { utxo_id } => {
                 let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
 
                 let irw = PreWires {
