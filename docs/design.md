@@ -5,7 +5,7 @@
 Established blockchain Virtual Machines (VMs) like have set robust foundations and created vibrant ecosystems. Given their demonstrated success, introducing another VM like Starstream requires a thoughtful rationale.
 
 Starstream aims to address specific, important trade-offs and limitations in existing VMs by implementing a novel architecture ("coroutines") that not only simplifies development, but also makes Starstream able to fully leverage the power of zero-knowledge (ZK) technologies compared to VMs that previously designed. Notably, Starstream has the following key goals:
-1. **Optionality & Upgradability**: Starstream, instead of reinventing the wheel from scratch, instead helps convert any blockchain-agnostic zkVM into a UTXO-based zkVM. This makes it easier to keep the Starstream developer experience while swapping out different proof systems (lattice vs elliptic curve) or even different target architectures (wasm vs risc-v)  
+1. **Optionality & Upgradability**: Starstream, instead of reinventing the wheel from scratch, instead helps convert any blockchain-agnostic zkVM into a UTXO-based zkVM. This makes it easier to keep the Starstream developer experience while swapping out different proof systems (lattice vs elliptic curve) or even different target architectures (wasm vs risc-v)
 1. **Developer experience**: Starstream is not just a VM, but also comes with a Starstream DSL to not only help developers maximally take advantage of its strengths, but also to provide a great developer experience for UTXO smart contracts.
 1. **Client-first**: Starstream proof generation is optimized to run on user devices and in the browser without requiring proof outsourcing to a centralized server. This not only helps ensure decentralization, but also enables a use-cases where proof outsource if often not viable (ex: games)
 1. **Confidential computation**: Starstream allows generating proofs of data without revealing the underlying data. This is important for many use-case such as RWA ("Real World Assets") where, for regulatory purposes, underlying data cannot be shared, or for use-cases like gaming where strategy depends on fog-of-war.
@@ -108,7 +108,7 @@ In Starstream, to avoid an infinite winding down of memory when an object's life
   <summary>Basics: what are linear types?</summary>
 
   Linear types represent objects which are consumed upon use. This allows us to control lifetimes such that data cannot be freely duplicates and cannot be unexpectedly destroyed. This is exactly what we want to avoid duplication of funds (by ensuring moving a token to a new address consumes the equivalent tokens at the previous address), ensure every token is accounted for (tokens that are spent do not simply disappear, but are handled in a way according to valid semantics such as being explicitly burned or sent to another recipient) as well as proper UTXO semantics (a UTXO cannot be "spent" twice from two different contexts)
-  
+
   Notably, UTXOs are linear types as using them "spends" them, and may create new UTXOs to continue computation in the future. Notably, one can model coroutines with linear types by making that running the continuation "consumes" the object, and creates a new coroutine holding the remaining computation (the state) whenever a `yield` point is hit.
 </details>
 

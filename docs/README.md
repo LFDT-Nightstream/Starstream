@@ -1,7 +1,8 @@
 ---
-title: Starstream
-sidebar-position: 1
+sidebar_position: 0
 ---
+
+# Starstream
 
 <!-- Keep this section in sync with `../../README.md`. -->
 

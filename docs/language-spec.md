@@ -25,12 +25,13 @@ and prefer to bundle concepts in codeblocks where it makes sense.
 ```ebnf
 program ::= statement*
 
-statement ::= variable_declaration
-            | assignment
-            | if_statement
-            | while_statement
-            | block
-            | expression_statement
+statement ::=
+  | variable_declaration
+  | assignment
+  | if_statement
+  | while_statement
+  | block
+  | expression_statement
 
 variable_declaration ::= "let" identifier "=" expression ";"
 
@@ -44,14 +45,15 @@ block ::= "{" statement* "}"
 
 expression_statement ::= expression ";"
 
-expression ::= binary_or_expression
-            | binary_and_expression
-            | equality_expression
-            | comparison_expression
-            | additive_expression
-            | multiplicative_expression
-            | unary_expression
-            | primary_expression
+expression ::=
+  | binary_or_expression
+  | binary_and_expression
+  | equality_expression
+  | comparison_expression
+  | additive_expression
+  | multiplicative_expression
+  | unary_expression
+  | primary_expression
 
 binary_or_expression ::= expression "||" expression
 
@@ -65,13 +67,15 @@ additive_expression ::= expression ( "+" | "-" ) expression
 
 multiplicative_expression ::= expression ( "*" | "/" | "%" ) expression
 
-unary_expression ::= "-" expression
-                  | "!" expression
+unary_expression ::=
+  | "-" expression
+  | "!" expression
 
-primary_expression ::= integer_literal
-                    | boolean_literal
-                    | identifier
-                    | "(" expression ")"
+primary_expression ::=
+  | integer_literal
+  | boolean_literal
+  | identifier
+  | "(" expression ")"
 
 integer_literal ::= [0-9]+
 
@@ -80,11 +84,12 @@ boolean_literal ::= "true" | "false"
 identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 ```
 
-> [!NOTE]
-> When updating this grammar, also update:
-> - the [canonical parser](../starstream-compiler/src/parser/).
-> - the [Tree-sitter grammar](../tree-sitter-starstream/grammar.js).
-> - if changing comments or bracket/quote pairs, the [VSC language configuration](../vscode-starstream/language-configuration.json).
+<!--
+  NOTE: When updating this grammar, also update:
+  - the [canonical parser](../starstream-compiler/src/parser/).
+  - the [Tree-sitter grammar](../tree-sitter-starstream/grammar.js).
+  - the [VSC language configuration](../vscode-starstream/language-configuration.json).
+-->
 
 ## Precedence and Associativity
 
@@ -121,33 +126,33 @@ identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
   booleans.
   - `&&` and `||` are short-circuiting.
 
-| Syntax rule                | Type rule                                                                 | Value rule                |
-| -------------------------- | ------------------------------------------------------------------------- | ------------------------- |
-| integer_literal            | $\dfrac{}{Γ ⊢ integer\ literal : i64}$                                    | Integer literal           |
-| boolean_literal            | $\dfrac{}{Γ ⊢ boolean\ literal : bool}$                                   | Boolean literal           |
-| identifier                 | $\dfrac{ident : T ∈ Γ}{Γ ⊢ ident : T}$                                    | Refers to `let` in scope  |
-| (expression)               | $\dfrac{Γ ⊢ e : T}{Γ ⊢ (e) : T}$                                          | Identity                  |
-| !expression                | $\dfrac{Γ ⊢ e : bool}{Γ ⊢\ !e : bool}$                                    | Boolean inverse           |
-| -expression                | $\dfrac{Γ ⊢ e : i64}{Γ ⊢ -e : i64}$                                       | Integer negation          |
-| expression \* expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs * rhs : i64}$              | Integer multiplication    |
-| expression / expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs / rhs : i64}$              | Integer floored division  |
-| expression % expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs\ \%\ rhs : i64}$           | Integer floored remainder |
-| expression + expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs + rhs : i64}$              | Integer addition          |
-| expression - expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs - rhs : i64}$              | Integer subtraction       |
-| expression < expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs < rhs : bool}$             | Integer less-than         |
-|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs < rhs : bool}$           | See [truth tables]        |
-| expression <= expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs <= rhs : bool}$            | Integer less-or-equal     |
-|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs <= rhs : bool}$          | See [truth tables]        |
-| expression > expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs > rhs : bool}$             | Integer greater-than      |
-|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs > rhs : bool}$           | See [truth tables]        |
-| expression >= expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs >= rhs : bool}$            | Integer greater-or-equal  |
-|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs >= rhs : bool}$          | See [truth tables]        |
-| expression == expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs == rhs : bool}$            | Integer equality          |
-|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$          | See [truth tables]        |
-| expression != expression   | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
-|                            | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
-| expression && expression   | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
-| expression \|\| expression | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
+| Syntax rule                 | Type rule                                                                 | Value rule                |
+| --------------------------- | ------------------------------------------------------------------------- | ------------------------- |
+| integer_literal             | $\dfrac{}{Γ ⊢ integer\ literal : i64}$                                    | Integer literal           |
+| boolean_literal             | $\dfrac{}{Γ ⊢ boolean\ literal : bool}$                                   | Boolean literal           |
+| identifier                  | $\dfrac{ident : T ∈ Γ}{Γ ⊢ ident : T}$                                    | Refers to `let` in scope  |
+| (expression)                | $\dfrac{Γ ⊢ e : T}{Γ ⊢ (e) : T}$                                          | Identity                  |
+| !expression                 | $\dfrac{Γ ⊢ e : bool}{Γ ⊢\ !e : bool}$                                    | Boolean inverse           |
+| -expression                 | $\dfrac{Γ ⊢ e : i64}{Γ ⊢ -e : i64}$                                       | Integer negation          |
+| expression \* expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs * rhs : i64}$              | Integer multiplication    |
+| expression / expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs / rhs : i64}$              | Integer floored division  |
+| expression % expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs\ \%\ rhs : i64}$           | Integer floored remainder |
+| expression + expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs + rhs : i64}$              | Integer addition          |
+| expression - expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs - rhs : i64}$              | Integer subtraction       |
+| expression < expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs < rhs : bool}$             | Integer less-than         |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs < rhs : bool}$           | See [truth tables]        |
+| expression &lt;= expression | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs <= rhs : bool}$            | Integer less-or-equal     |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs <= rhs : bool}$          | See [truth tables]        |
+| expression > expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs > rhs : bool}$             | Integer greater-than      |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs > rhs : bool}$           | See [truth tables]        |
+| expression >= expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs >= rhs : bool}$            | Integer greater-or-equal  |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs >= rhs : bool}$          | See [truth tables]        |
+| expression == expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs == rhs : bool}$            | Integer equality          |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$          | See [truth tables]        |
+| expression != expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
+| expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
+| expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
 
 ### Overflow and underflow
 
@@ -173,12 +178,12 @@ The remainder always has the sign of the right-hand side.
 | **false** | TRUE  |
 | **TRUE**  | false |
 
-| a         | b         | a && b | a \|\| b | a == b | a != b | a < b | a <= b | a > b | a >= b |
-| --------- | --------- | ------ | -------- | ------ | ------ | ----- | ------ | ----- | ------ |
-| **false** | **false** | false  | false    | TRUE   | false  | false | TRUE   | false | TRUE   |
-| **false** | **TRUE**  | false  | TRUE     | false  | TRUE   | TRUE  | TRUE   | false | false  |
-| **TRUE**  | **false** | false  | TRUE     | false  | TRUE   | false | false  | TRUE  | TRUE   |
-| **TRUE**  | **TRUE**  | TRUE   | TRUE     | TRUE   | false  | false | TRUE   | false | TRUE   |
+| a         | b         | a && b | a \|\| b | a == b | a != b | a < b | a &lt;= b | a > b | a >= b |
+| --------- | --------- | ------ | -------- | ------ | ------ | ----- | --------- | ----- | ------ |
+| **false** | **false** | false  | false    | TRUE   | false  | false | TRUE      | false | TRUE   |
+| **false** | **TRUE**  | false  | TRUE     | false  | TRUE   | TRUE  | TRUE      | false | false  |
+| **TRUE**  | **false** | false  | TRUE     | false  | TRUE   | false | false     | TRUE  | TRUE   |
+| **TRUE**  | **TRUE**  | TRUE   | TRUE     | TRUE   | false  | false | TRUE      | false | TRUE   |
 
 ## Statement semantics
 
