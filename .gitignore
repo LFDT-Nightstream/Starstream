@@ -4,3 +4,5 @@ node_modules
 target
 *.vsix
 .DS_Store
+papers/
+*.snap.new
