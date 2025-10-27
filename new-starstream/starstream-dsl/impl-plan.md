@@ -45,6 +45,7 @@ A way to run a suite of different example programs for the language, and ensure 
 - [x] tree sitter grammar - @SpaceManiac
 - [ ] type system setup
   - [x] basics specs - @SpaceManiac
+  - [ ] return lsp diagnostics to be displayed in editor - @rvcas
   - [ ] [Algorithm W](https://sdiehl.github.io/typechecker-zoo/algorithm-w/lambda-calculus.html) and typed AST - @rvcas
 - [x] LSP server, included in CLI - @rvcas
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
@@ -53,7 +54,7 @@ A way to run a suite of different example programs for the language, and ensure 
 - [ ] web sandbox - @SpaceManiac
   - need WASM lsp
 - [ ] holistics diagnostics and error handling (miette?)
-- [ ] zed extension - @rvcas dogfooding
+- [x] zed extension - @rvcas dogfooding
 - [ ] `else if`
 - [ ] functions
 

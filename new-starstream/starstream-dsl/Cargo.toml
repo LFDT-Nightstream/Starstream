@@ -27,6 +27,7 @@ starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
 starstream-to-wasm = { path = "starstream-to-wasm" }
 starstream-types = { path = "starstream-types" }
+thiserror = "2.0.17"
 tower-lsp-server = { version = "0.22.1", default-features = false, features = [
   "runtime-agnostic",
 ] }
