@@ -1,74 +1,19 @@
-import ExecutionEnvironment from "@docusaurus/ExecutionEnvironment";
 import Layout from "@theme/Layout";
-//import type * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import {
   Dispatch,
   ReactNode,
-  Ref,
   SetStateAction,
   useEffect,
   useRef,
   useState,
 } from "react";
-import { useDocusaurusTheme } from "../hooks";
-import tree_sitter_wasm from "file-loader!../../node_modules/web-tree-sitter/tree-sitter.wasm";
-import tree_sitter_starstream_wasm from "file-loader!../../../starstream-dsl/tree-sitter-starstream/tree-sitter-starstream.wasm";
-import highlights_scm from "file-loader!../../starstream-dsl/tree-sitter-starstream/queries/highlights.scm";
 
-import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFactory";
-import type { MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
-import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
-import { LanguageClientConfig } from "monaco-languageclient/lcwrapper";
-import { EditorAppConfig } from "monaco-languageclient/editorApp";
-
-const languageId = "starstream";
-const code = "var foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
-
-function Editor() {
-  const theme =
-    useDocusaurusTheme() === "dark"
-      ? "Default Dark Modern"
-      : "Default Light Modern";
-
-  const vscodeApiConfig: MonacoVscodeApiConfig = {
-    $type: "extended",
-    viewsConfig: {
-      $type: "EditorService",
-    },
-    userConfiguration: {
-      json: JSON.stringify({
-        "workbench.colorTheme": theme,
-        "editor.wordBasedSuggestions": "off",
-      }),
-    },
-    monacoWorkerFactory: configureDefaultWorkerFactory,
-  };
-
-  // const languageClientConfig: LanguageClientConfig = {
-  //   languageId,
-  //   connection: {
-  //     options: {
-  //       $type: "WorkerConfig",
-  //     }
-  //   }
-  // }
-
-  const editorAppConfig: EditorAppConfig = {
-    codeResources: {
-      modified: {
-        text: code,
-        uri: "file:///sandbox.star",
-      },
-    },
-  };
-
-  return (
-    <MonacoEditorReactComp
-      className="flex--grow"
-      vscodeApiConfig={vscodeApiConfig}
-      editorAppConfig={editorAppConfig}
-    />
-  );
+function BrowserOnlyEditor() {
+  const [editorModule, setEditorModule] = useState<typeof import('../editor') | null>(null);
+  useEffect(() => {
+    import('../editor').then(setEditorModule);
+  }, []);
+  return editorModule ? <editorModule.Editor /> : null;
 }
 
 function Tabs(props: {
@@ -148,7 +93,7 @@ export function Sandbox() {
           tabs={[
             {
               key: "Editor",
-              body: <Editor />,
+              body: <BrowserOnlyEditor />,
             },
           ]}
         />
