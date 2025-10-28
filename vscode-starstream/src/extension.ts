@@ -3,7 +3,7 @@ import * as vscode from "vscode";
 import { LanguageClient, TransportKind } from "vscode-languageclient/node";
 import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
 import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
-import highlights_scm from "file-loader!../../tree-sitter-starstream/queries/highlights.scm";
+import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
 import { realpath } from "fs/promises";
 import { registerProvider } from "./tree-sitter-vscode";
 
@@ -64,7 +64,7 @@ async function activateTreeSitter(context: vscode.ExtensionContext) {
     {
       lang: "starstream",
       parser: await resolve(context, tree_sitter_starstream_wasm),
-      highlights: await resolve(context, highlights_scm),
+      highlights: highlights_scm,
       injectionOnly: false,
     },
   ]);

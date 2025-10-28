@@ -4,7 +4,7 @@
     "outDir": "out",
     "sourceMap": true,
 
-    "module": "commonjs",
+    "module": "preserve",
     "target": "es2024",
     "lib": ["ES2024"],
 

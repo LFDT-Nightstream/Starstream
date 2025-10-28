@@ -1,7 +1,6 @@
 // Based on https://github.com/AlecGhost/tree-sitter-vscode/blob/master/src/extension.ts
 // SPDX-License-Identifier: Apache-2.0
 // See tree-sitter-vscode.LICENSE.txt
-import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as ts from 'web-tree-sitter';
 import { Parser } from 'web-tree-sitter';
@@ -67,12 +66,10 @@ async function initLanguage(config: Config): Promise<Language> {
 	const lang = await ts.Language.load(config.parser);
 	log(`Tree-Sitter ABI version for ${config.lang} is ${lang.abiVersion}.`);
 	parser.setLanguage(lang);
-	const queryText = fs.readFileSync(config.highlights, "utf-8");
-	const highlightQuery = new ts.Query(lang, queryText);
+	const highlightQuery = new ts.Query(lang, config.highlights);
 	let injectionQuery = undefined;
 	if (config.injections !== undefined) {
-		const injectionText = fs.readFileSync(config.injections, "utf-8");
-		injectionQuery = new ts.Query(lang, injectionText);
+		injectionQuery = new ts.Query(lang, config.injections);
 	}
 	return { parser, highlightQuery, injectionQuery, semanticTokenTypeMappings: config.semanticTokenTypeMappings };
 }
