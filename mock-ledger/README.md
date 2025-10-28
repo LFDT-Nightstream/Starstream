@@ -1,4 +1,4 @@
-This is a mock utxo-based blockchain used to test the implementation of [Starstream](../starstream-dsl/)
+This is a mock utxo-based blockchain used to test the implementation of [Starstream](../)
 
 The blockchain only supports UTXO and tokens following Starstream's semantics. A running instance of this mock ledger keeps track of:
 - The history of transactions (which are IVC'd into a single commitment)
