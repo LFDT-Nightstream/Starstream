@@ -7,6 +7,7 @@ members = [
   "starstream-language-server",
   "starstream-to-wasm",
   "starstream-types",
+  "starstream-web",
 ]
 
 [workspace.package]

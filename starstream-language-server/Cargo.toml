@@ -11,5 +11,4 @@ license.workspace = true
 dashmap = "6.1.0"
 ropey = "1.6.1"
 starstream-compiler = { workspace = true }
-tokio = { version = "1.48.0", features = ["sync"] }
 tower-lsp-server = { workspace = true }

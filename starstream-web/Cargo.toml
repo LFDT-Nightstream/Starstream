@@ -1,0 +1,28 @@
+[package]
+name = "starstream-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+test = false
+crate-type = ["cdylib"]
+
+[dependencies]
+futures-channel = "0.3.31"
+futures-util = "0.3.31"
+serde.workspace = true
+serde-wasm-bindgen = "0.6.5"
+starstream-language-server.workspace = true
+tower-lsp-server.workspace = true
+tower-service = "0.3.3"
+wasm-bindgen = "0.2.105"
+wasm-bindgen-futures = "0.4.55"
+web-sys = { version = "0.3.82", features = [
+    "DedicatedWorkerGlobalScope",
+    "MessageEvent",
+    "console",
+] }

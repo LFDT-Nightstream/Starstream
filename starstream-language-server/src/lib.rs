@@ -4,14 +4,14 @@ use capabilities::capabilities;
 
 #[cfg(debug_assertions)]
 use std::sync::atomic::AtomicBool;
+#[cfg(debug_assertions)]
 use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
 use ropey::Rope;
-use tokio::sync::OnceCell;
 use tower_lsp_server::{
     Client, LanguageServer,
-    jsonrpc::{self, Error, ErrorCode, Result},
+    jsonrpc::{self, Error, Result},
     lsp_types::*,
 };
 
@@ -27,9 +27,8 @@ pub struct Server {
     #[cfg(debug_assertions)]
     pub initialized: AtomicBool,
 
-    /// store the list of the workspace folders
-    pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
-
+    // /// store the list of the workspace folders
+    // pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
     document_map: DashMap<String, Rope>,
 }
 
@@ -46,22 +45,22 @@ impl Server {
             client,
             #[cfg(debug_assertions)]
             initialized: AtomicBool::new(false),
-            workspace_folders: OnceCell::new(),
+            // workspace_folders: OnceCell::new(),
             document_map: DashMap::new(),
         }
     }
 
     pub(crate) fn initialise_workspace_folders(
         &self,
-        workspace_folders: Vec<WorkspaceFolder>,
+        _workspace_folders: Vec<WorkspaceFolder>,
     ) -> jsonrpc::Result<()> {
-        self.workspace_folders
-            .set(workspace_folders)
-            .map_err(|error| jsonrpc::Error {
-                code: ErrorCode::ParseError,
-                message: error.to_string().into(),
-                data: None,
-            })?;
+        // self.workspace_folders
+        //     .set(workspace_folders)
+        //     .map_err(|error| jsonrpc::Error {
+        //         code: ErrorCode::ParseError,
+        //         message: error.to_string().into(),
+        //         data: None,
+        //     })?;
 
         Ok(())
     }
