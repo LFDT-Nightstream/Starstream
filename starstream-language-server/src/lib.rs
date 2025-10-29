@@ -5,7 +5,7 @@ use capabilities::capabilities;
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp_server::{
-    Client, LanguageServer,
+    Client, ClientSocket, LanguageServer, LspService,
     jsonrpc::{self, Error, Result},
     lsp_types::*,
 };
@@ -15,7 +15,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub struct Server {
-    pub client: Client,
+    client: Client,
 
     // /// store the list of the workspace folders
     // pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
@@ -30,7 +30,13 @@ struct TextDocumentItem<'a> {
 }
 
 impl Server {
-    pub fn new(client: Client) -> Self {
+    /// Create a new [LspService] configured for the Starstream language server.
+    pub fn new() -> (LspService<Self>, ClientSocket) {
+        // Any custom methods can be set here.
+        LspService::new(Self::with_client)
+    }
+
+    fn with_client(client: Client) -> Self {
         Self {
             client,
             // workspace_folders: OnceCell::new(),

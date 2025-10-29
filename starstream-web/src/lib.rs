@@ -79,7 +79,7 @@ pub async fn main() {
     // Based on tower-lsp-server 0.22.1 src/transport.rs
     // but without LanguageServerCodec framing.
 
-    let (mut service, loopback) = LspService::new(Server::new);
+    let (mut service, loopback) = Server::new();
     let (client_requests, mut client_responses) = loopback.split();
 
     let (client_requests, client_abort) = stream::abortable(client_requests);
