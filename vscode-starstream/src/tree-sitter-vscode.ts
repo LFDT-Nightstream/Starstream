@@ -21,7 +21,7 @@ const LEGEND = new vscode.SemanticTokensLegend(TOKEN_TYPES, TOKEN_MODIFIERS);
 type SemanticTokenTypeMapping = { targetTokenType: string, targetTokenModifiers?: string[] };
 export type Config = {
 	lang: string,
-	parser: string,
+	parser: string | Uint8Array<ArrayBufferLike>,
 	highlights: string,
 	injections?: string,
 	injectionOnly: boolean,

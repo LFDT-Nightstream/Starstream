@@ -8,7 +8,7 @@
     "url": "https://github.com/LFDT-Nightstream/Starstream",
     "directory": "vscode-starstream"
   },
-  "main": "./dist/extension",
+  "browser": "./dist/extension.js",
   "files": [
     "package.json",
     "language-configuration.json",

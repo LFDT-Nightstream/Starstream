@@ -3,10 +3,11 @@
 "use strict";
 
 import { resolve } from "path";
+import webpack from "webpack";
 
 /**@type {import('webpack').Configuration}*/
 export default {
-  target: "node",
+  target: "webworker",
   // vscode extensions run in webworker context for VS Code web 📖 -> https://webpack.js.org/configuration/target/#target
   // but the webworker version of vscode-languageclient of course doesn't let you spawn processes, so it's more work if we want that to work
 
@@ -14,11 +15,12 @@ export default {
   output: {
     // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/
     path: resolve(import.meta.dirname, "dist"),
+    publicPath: "",
     filename: "extension.js",
     libraryTarget: "commonjs2",
     devtoolModuleFilenameTemplate: "../[resource-path]",
   },
-  devtool: "source-map",
+  devtool: "nosources-source-map",
   externals: {
     vscode: "commonjs vscode", // the vscode-module is created on-the-fly and must be excluded. Add other modules that cannot be webpack'ed, 📖 -> https://webpack.js.org/configuration/externals/
   },
@@ -35,6 +37,12 @@ export default {
       // for the list of Node.js core module polyfills.
     },
   },
+  plugins: [
+    // Ignore stuff that `web-tree-sitter` tries to conditionally import on Node in a way that webpack doesn't get.
+    new webpack.IgnorePlugin({
+      resourceRegExp: /^(path|fs|fs\/promises|module)$/,
+    }),
+  ],
   module: {
     rules: [
       {
