@@ -4,6 +4,7 @@ mod e2e;
 mod goldilocks;
 mod memory;
 mod neo;
+mod poseidon2;
 #[cfg(test)]
 mod test_utils;
 
