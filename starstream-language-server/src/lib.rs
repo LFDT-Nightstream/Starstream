@@ -2,11 +2,6 @@ mod capabilities;
 
 use capabilities::capabilities;
 
-#[cfg(debug_assertions)]
-use std::sync::atomic::AtomicBool;
-#[cfg(debug_assertions)]
-use std::sync::atomic::Ordering;
-
 use dashmap::DashMap;
 use ropey::Rope;
 use tower_lsp_server::{
@@ -21,11 +16,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Debug)]
 pub struct Server {
     pub client: Client,
-
-    /// keep track if the server was initialised already or not
-    ///
-    #[cfg(debug_assertions)]
-    pub initialized: AtomicBool,
 
     // /// store the list of the workspace folders
     // pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
@@ -43,8 +33,6 @@ impl Server {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            #[cfg(debug_assertions)]
-            initialized: AtomicBool::new(false),
             // workspace_folders: OnceCell::new(),
             document_map: DashMap::new(),
         }
@@ -74,20 +62,11 @@ impl Server {
 
 impl LanguageServer for Server {
     async fn initialize(&self, params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            !self.initialized.load(Ordering::Acquire),
-            "The server was already initialised."
-        );
-
         let capabilities = capabilities();
 
         if let Some(workspace_folders) = params.workspace_folders {
             self.initialise_workspace_folders(workspace_folders)?;
         }
-
-        #[cfg(debug_assertions)]
-        self.initialized.store(true, Ordering::Release);
 
         self.client
             .log_message(MessageType::LOG, "Initialise")
