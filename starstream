@@ -1,2 +1,7 @@
 #!/bin/sh
-exec cargo run -p starstream-cli -- "$@"
+exec \
+    cargo run \
+    --manifest-path "$(dirname "$(realpath "$0")")/Cargo.toml" \
+    --package starstream-cli \
+    -- \
+    "$@"
