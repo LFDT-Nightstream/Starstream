@@ -87,9 +87,6 @@ export default [
         resourceRegExp: /^(path|fs|fs\/promises|module)$/,
       }),
     ],
-    // experiments: {
-    //   asyncWebAssembly: true,
-    // },
     module: {
       rules: [typescriptRule, noDefaultAssetModules],
     },

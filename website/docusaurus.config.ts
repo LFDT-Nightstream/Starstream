@@ -3,7 +3,7 @@ import type {
   Config,
   LoadContext,
   Plugin,
-  PluginOptions
+  PluginOptions,
 } from "@docusaurus/types";
 import { ConfigureWebpackResult } from "@docusaurus/types/src/plugin";
 import { themes as prismThemes } from "prism-react-renderer";
@@ -11,6 +11,7 @@ import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import { IgnorePlugin } from "webpack";
 
+const baseUrl = "/Starstream/";
 const config: Config = {
   title: "Starstream",
 
@@ -23,7 +24,7 @@ const config: Config = {
   url: "https://lfdt-nightstream.github.io/",
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: "/Starstream/",
+  baseUrl,
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
@@ -62,7 +63,7 @@ const config: Config = {
 
   staticDirectories: ["static", "node_modules/katex/dist"],
 
-  stylesheets: ["./katex.min.css"],
+  stylesheets: [`${baseUrl}katex.min.css`],
 
   themeConfig: {
     colorMode: {
