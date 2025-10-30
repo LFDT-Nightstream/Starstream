@@ -26,7 +26,7 @@ Components:
   - [ ] add `HACKING.md` specifically for the extension to explain how to properly compile it
 - [ ] web sandbox - @SpaceManiac
   - [x] basic editor
-  - [ ] highlighting and LSP via VSC web ext
+  - [x] highlighting and LSP via VSC web ext
   - [ ] compile to wasm
   - [ ] run with interpreter
 - [ ] holistics diagnostics and error handling (miette?)
