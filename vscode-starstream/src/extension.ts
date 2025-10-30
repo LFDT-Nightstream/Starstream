@@ -18,13 +18,26 @@ export async function activate(context: vscode.ExtensionContext) {
 // LSP client
 
 async function activateLanguageClient(context: vscode.ExtensionContext) {
-  const worker = new Worker(
-    vscode.Uri.joinPath(
-      context.extensionUri,
-      "dist",
-      "language-server.worker.js"
-    ).toString()
+  // Use readFile to get the worker.js contents, because passing the URL straight
+  // to `new Worker` doesn't work properly in the browser where the URL is on
+  // the non-fetchable `extension-file://` scheme.
+  const workerJsBytes = new Uint8Array(
+    await vscode.workspace.fs.readFile(
+      vscode.Uri.joinPath(
+        context.extensionUri,
+        "dist",
+        "language-server.worker.js"
+      )
+    )
   );
+  const worker = new Worker(URL.createObjectURL(new Blob([workerJsBytes])), {
+    name: "Starstream Language Server",
+  });
+  context.subscriptions.push({
+    dispose() {
+      worker.terminate();
+    },
+  });
   const lc = new LanguageClient(
     "starstream",
     "Starstream Language Server",
@@ -33,24 +46,46 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
     },
     worker
   );
+  context.subscriptions.push(lc);
 
   // Set up debugging stuff...
   const output = lc.outputChannel;
   worker.addEventListener("error", (event) => {
     output.appendLine(`worker error: ${event.error}`);
+    console.log(`worker error: ${event.error}`);
   });
   worker.addEventListener("messageerror", (event) => {
     output.appendLine(`worker messageerror: ${event.data}`);
+    console.log(`worker messageerror: ${event.data}`);
   });
   worker.addEventListener("message", (event) => {
-    if (typeof event.data === "object" && "jsonrpc" in event.data) {
+    if (
+      event.data &&
+      typeof event.data === "object" &&
+      "jsonrpc" in event.data
+    ) {
       // Real message, no need to show it. This is for debugging crap.
       return;
     }
     output.appendLine(`worker message: ${JSON.stringify(event.data)}`);
+    console.log(`worker message: ${JSON.stringify(event.data)}`);
   });
   output.appendLine(`worker: ${worker}`);
+  console.log(`worker: ${worker}`);
 
+  // Send the Wasm bytes to the worker, wait for it to reply that it's loaded,
+  // then start the language client.
+  const wasmInitPromise = new Promise<void>((resolve, reject) => {
+    function onInitReply(event: MessageEvent) {
+      if (event.data) {
+        reject(event.data);
+      } else {
+        resolve();
+      }
+      worker.removeEventListener("message", onInitReply);
+    }
+    worker.addEventListener("message", onInitReply);
+  });
   const languageServerWasmBytes = new Uint8Array(
     await vscode.workspace.fs.readFile(
       vscode.Uri.joinPath(
@@ -61,13 +96,7 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
     )
   );
   worker.postMessage(languageServerWasmBytes, [languageServerWasmBytes.buffer]);
-
-  context.subscriptions.push(lc);
-  context.subscriptions.push({
-    dispose() {
-      worker.terminate();
-    },
-  });
+  await wasmInitPromise;
   await lc.start();
 }
 
