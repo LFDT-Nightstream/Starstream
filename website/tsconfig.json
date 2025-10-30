@@ -4,7 +4,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "strictNullChecks": true,
-    "noImplicitAny": true
+    "noImplicitAny": true,
+    "types": ["webpack/module"]
   },
   "exclude": [".docusaurus", "build"]
 }

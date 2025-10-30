@@ -29,8 +29,12 @@ export async function registerVsixExtension(
     const match = /^extension\/(.*)$/.exec(entry.filename);
     if (match && !entry.directory) {
       const data = await entry.arrayBuffer();
-      console.log(match[1], data.byteLength);
-      ext.registerFileUrl(match[1], URL.createObjectURL(new Blob([data])));
+      try {
+        ext.registerFileUrl(match[1], URL.createObjectURL(new Blob([data])));
+      } catch (e) {
+        // Generally caused by reregistering a file that already exists.
+        console.warn(e.toString());
+      }
     }
   }
 
