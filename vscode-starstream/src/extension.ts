@@ -1,4 +1,5 @@
 import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
+import starstream_web_wasm from "file-loader!../build/starstream_web_bg.wasm";
 import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
 import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
 import * as vscode from "vscode";
@@ -24,14 +25,6 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
       "language-server.worker.js"
     ).toString()
   );
-  worker.addEventListener("error", (event) => {
-    vscode.window.showErrorMessage(`${event.error}`);
-    console.error("Starstream worker error:", event.error);
-  });
-  worker.addEventListener("message", (event) => {
-    vscode.window.showInformationMessage(JSON.stringify(event.data));
-  });
-  worker.postMessage({ derp: 17 });
   const lc = new LanguageClient(
     "starstream",
     "Starstream Language Server",
@@ -40,13 +33,37 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
     },
     worker
   );
+
+  // Set up debugging stuff...
+  const output = lc.outputChannel;
+  worker.addEventListener("error", (event) => {
+    output.appendLine(`worker error: ${event.error}`);
+  });
+  worker.addEventListener("messageerror", (event) => {
+    output.appendLine(`worker messageerror: ${event.data}`);
+  });
+  worker.addEventListener("message", (event) => {
+    if (typeof event.data === "object" && "jsonrpc" in event.data) {
+      // Real message, no need to show it. This is for debugging crap.
+      return;
+    }
+    output.appendLine(`worker message: ${JSON.stringify(event.data)}`);
+  });
+  output.appendLine(`worker: ${worker}`);
+
+  const languageServerWasmBytes = new Uint8Array(
+    await vscode.workspace.fs.readFile(
+      vscode.Uri.joinPath(context.extensionUri, "dist", starstream_web_wasm)
+    )
+  );
+  worker.postMessage(languageServerWasmBytes, [languageServerWasmBytes.buffer]);
+
   context.subscriptions.push(lc);
   context.subscriptions.push({
     dispose() {
       worker.terminate();
     },
   });
-  vscode.window.showInformationMessage(`worker ok: ${worker}`);
   await lc.start();
 }
 

@@ -5,16 +5,25 @@
 import { resolve } from "path";
 import webpack from "webpack";
 
+const typescriptRule = {
+  test: /\.ts$/,
+  exclude: /node_modules/,
+  use: [
+    {
+      loader: "ts-loader",
+    },
+  ],
+};
+
 /**@type {import('webpack').Configuration[]}*/
 export default [
   // Language server worker export.
   {
     target: "webworker",
-    entry: "./build/starstream_web.js",
+    entry: "./src/language-server.worker.ts",
     output: {
       path: resolve(import.meta.dirname, "dist"),
       filename: "language-server.worker.js",
-      //publicPath: "./dist/",
       devtoolModuleFilenameTemplate: "../[resource-path]",
     },
     devtool: "nosources-source-map",
@@ -24,6 +33,9 @@ export default [
     },
     experiments: {
       asyncWebAssembly: true,
+    },
+    module: {
+      rules: [typescriptRule],
     },
   },
   // Main extension export.
@@ -68,17 +80,7 @@ export default [
     //   asyncWebAssembly: true,
     // },
     module: {
-      rules: [
-        {
-          test: /\.ts$/,
-          exclude: /node_modules/,
-          use: [
-            {
-              loader: "ts-loader",
-            },
-          ],
-        },
-      ],
+      rules: [typescriptRule],
     },
   },
 ];
