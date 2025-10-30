@@ -29,7 +29,6 @@ jobs:
       - run: sudo apt update && sudo apt install emscripten
       - name: Install wasm-bindgen
         run: |
-          set -e
           curl -o wasm-bindgen.tar.gz --no-progress-meter -L https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.105/wasm-bindgen-0.2.105-x86_64-unknown-linux-musl.tar.gz
           echo "b391448c4926ac4b11425a6752484d85164e72489d97804461d5e868c643b88a  wasm-bindgen.tar.gz" | sha256sum -c
           tar -xf wasm-bindgen.tar.gz -C /usr/local/bin --strip-components=1
