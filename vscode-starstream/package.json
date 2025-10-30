@@ -12,6 +12,8 @@
   "browser": "./dist/extension.js",
   "files": [
     "package.json",
+    "README.md",
+    "LICENSE",
     "language-configuration.json",
     "dist/*"
   ],
@@ -37,7 +39,6 @@
     ]
   },
   "scripts": {
-    "package": "vsce package",
     "vscode:prepublish": "rm -rf dist && npm run build-tree-sitter && npm run build-wasm && webpack --mode production",
     "build-tree-sitter": "cd ../tree-sitter-starstream && tree-sitter generate && tree-sitter build --wasm",
     "build-wasm": "cargo build -p starstream-language-server-web --target wasm32-unknown-unknown --release && wasm-bindgen --out-dir build --target web ../target/wasm32-unknown-unknown/release/starstream_language_server_web.wasm && wasm-opt -O3 build/starstream_language_server_web_bg.wasm -o build/starstream_language_server_web_bg.wasm",
