@@ -26,6 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup target add wasm32-unknown-unknown
+      - run: sudo apt update && sudo DEBIAN_FRONTEND=noninteractive apt install emscripten
+      - run: cargo install wasm-bindgen-cli
       - run: cd vscode-starstream && npm i && npx vsce package -o starstream.vsix
       - run: cd website && npm i && npm run build
       - uses: actions/upload-pages-artifact@v3
