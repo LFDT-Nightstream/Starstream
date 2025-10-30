@@ -5,6 +5,8 @@
 
 ## TODOs
 
+Components:
+
 - [x] define grammar
 - [x] strip down parser and ast - @rvcas
 - [x] revamp snapshot test organization - @rvcas
@@ -20,14 +22,20 @@
 - [x] LSP server, included in CLI - @rvcas
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
   - [x] run LSP with `cargo run`
-  - [ ] compile & use wasm LSP
+  - [x] compile & use wasm LSP
   - [ ] add `HACKING.md` specifically for the extension to explain how to properly compile it
 - [ ] web sandbox - @SpaceManiac
-  - need WASM lsp
+  - [x] basic editor
+  - [ ] highlighting and LSP via VSC web ext
+  - [ ] compile to wasm
+  - [ ] run with interpreter
 - [ ] holistics diagnostics and error handling (miette?)
 - [x] zed extension - @rvcas dogfooding
-- [ ] `else if`
+
+Language:
+
 - [ ] functions
+- [ ] `else if`
 
 Farther in the future:
 
@@ -51,3 +59,4 @@ Even farther in the future:
 - coordination scripts (just handle standalone programs)
 - anything to do with proving or ZK
 - lookups
+- JavaScript bindings (WIT?) so dApps can call into compiled Starstream contracts

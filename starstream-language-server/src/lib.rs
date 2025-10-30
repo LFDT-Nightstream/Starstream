@@ -2,16 +2,11 @@ mod capabilities;
 
 use capabilities::capabilities;
 
-#[cfg(debug_assertions)]
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-
 use dashmap::DashMap;
 use ropey::Rope;
-use tokio::sync::OnceCell;
 use tower_lsp_server::{
-    Client, LanguageServer,
-    jsonrpc::{self, Error, ErrorCode, Result},
+    Client, ClientSocket, LanguageServer, LspService,
+    jsonrpc::{self, Error, Result},
     lsp_types::*,
 };
 
@@ -20,16 +15,10 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug)]
 pub struct Server {
-    pub client: Client,
+    client: Client,
 
-    /// keep track if the server was initialised already or not
-    ///
-    #[cfg(debug_assertions)]
-    pub initialized: AtomicBool,
-
-    /// store the list of the workspace folders
-    pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
-
+    // /// store the list of the workspace folders
+    // pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
     document_map: DashMap<String, Rope>,
 }
 
@@ -41,27 +30,31 @@ struct TextDocumentItem<'a> {
 }
 
 impl Server {
-    pub fn new(client: Client) -> Self {
+    /// Create a new [LspService] configured for the Starstream language server.
+    pub fn new() -> (LspService<Self>, ClientSocket) {
+        // Any custom methods can be set here.
+        LspService::new(Self::with_client)
+    }
+
+    fn with_client(client: Client) -> Self {
         Self {
             client,
-            #[cfg(debug_assertions)]
-            initialized: AtomicBool::new(false),
-            workspace_folders: OnceCell::new(),
+            // workspace_folders: OnceCell::new(),
             document_map: DashMap::new(),
         }
     }
 
     pub(crate) fn initialise_workspace_folders(
         &self,
-        workspace_folders: Vec<WorkspaceFolder>,
+        _workspace_folders: Vec<WorkspaceFolder>,
     ) -> jsonrpc::Result<()> {
-        self.workspace_folders
-            .set(workspace_folders)
-            .map_err(|error| jsonrpc::Error {
-                code: ErrorCode::ParseError,
-                message: error.to_string().into(),
-                data: None,
-            })?;
+        // self.workspace_folders
+        //     .set(workspace_folders)
+        //     .map_err(|error| jsonrpc::Error {
+        //         code: ErrorCode::ParseError,
+        //         message: error.to_string().into(),
+        //         data: None,
+        //     })?;
 
         Ok(())
     }
@@ -75,20 +68,11 @@ impl Server {
 
 impl LanguageServer for Server {
     async fn initialize(&self, params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            !self.initialized.load(Ordering::Acquire),
-            "The server was already initialised."
-        );
-
         let capabilities = capabilities();
 
         if let Some(workspace_folders) = params.workspace_folders {
             self.initialise_workspace_folders(workspace_folders)?;
         }
-
-        #[cfg(debug_assertions)]
-        self.initialized.store(true, Ordering::Release);
 
         self.client
             .log_message(MessageType::LOG, "Initialise")

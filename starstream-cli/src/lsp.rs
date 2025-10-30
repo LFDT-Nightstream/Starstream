@@ -4,7 +4,7 @@ use clap::Args;
 use miette::{Diagnostic, IntoDiagnostic};
 use starstream_language_server::Server as StarstreamServer;
 use tokio::runtime::Builder;
-use tower_lsp_server::{LspService, Server};
+use tower_lsp_server::Server;
 
 /// Start the Starstream language server
 #[derive(Args, Debug)]
@@ -46,7 +46,7 @@ impl Lsp {
         let stdin = async_std::io::stdin();
         let stdout = async_std::io::stdout();
 
-        let (service, messages) = LspService::new(StarstreamServer::new);
+        let (service, messages) = StarstreamServer::new();
 
         let runtime = Builder::new_multi_thread().build().into_diagnostic()?;
 

@@ -80,6 +80,9 @@ Tooling:
 
 - `tree-sitter-starstream/` - [Tree-sitter] definitions including [grammar] for syntax highlighting and analysis.
 - `starstream-language-server/` - [LSP] server implementation.
+  - `starstream-language-server-web/` - Compiles the language server to WebAssembly (web worker, uses [wasm-bindgen]).
+
+[wasm-bindgen]: https://wasm-bindgen.github.io/wasm-bindgen/reference/deployment.html
 
 Executor and VM:
 

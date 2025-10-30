@@ -1,10 +1,10 @@
-import { Parser } from "web-tree-sitter";
-import * as vscode from "vscode";
-import { LanguageClient, TransportKind } from "vscode-languageclient/node";
-import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
 import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
-import highlights_scm from "file-loader!../../tree-sitter-starstream/queries/highlights.scm";
-import { realpath } from "fs/promises";
+import starstream_language_server_web_wasm from "file-loader!../build/starstream_language_server_web_bg.wasm";
+import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
+import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
+import * as vscode from "vscode";
+import { LanguageClient } from "vscode-languageclient/browser";
+import { Parser } from "web-tree-sitter";
 import { registerProvider } from "./tree-sitter-vscode";
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -14,33 +14,60 @@ export async function activate(context: vscode.ExtensionContext) {
   ]);
 }
 
-async function resolve(
-  context: vscode.ExtensionContext,
-  fname: string
-): Promise<string> {
-  return `${await realpath(context.extensionPath)}/dist/${fname}`;
-}
-
 // ----------------------------------------------------------------------------
 // LSP client
 
 async function activateLanguageClient(context: vscode.ExtensionContext) {
-  // TODO: compile the LSP to WASM and bundle it in the extension for release.
+  const worker = new Worker(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "language-server.worker.js"
+    ).toString()
+  );
   const lc = new LanguageClient(
+    "starstream",
     "Starstream Language Server",
     {
-      command: "/home/paima/logger",
-      args: ["cargo", "run", "--", "lsp"],
-      options: {
-        cwd: context.extensionPath,
-      },
-      transport: TransportKind.stdio,
+      documentSelector: [{ language: "starstream" }],
     },
-    {
-      documentSelector: [{ scheme: "file", language: "starstream" }],
-    }
+    worker
   );
+
+  // Set up debugging stuff...
+  const output = lc.outputChannel;
+  worker.addEventListener("error", (event) => {
+    output.appendLine(`worker error: ${event.error}`);
+  });
+  worker.addEventListener("messageerror", (event) => {
+    output.appendLine(`worker messageerror: ${event.data}`);
+  });
+  worker.addEventListener("message", (event) => {
+    if (typeof event.data === "object" && "jsonrpc" in event.data) {
+      // Real message, no need to show it. This is for debugging crap.
+      return;
+    }
+    output.appendLine(`worker message: ${JSON.stringify(event.data)}`);
+  });
+  output.appendLine(`worker: ${worker}`);
+
+  const languageServerWasmBytes = new Uint8Array(
+    await vscode.workspace.fs.readFile(
+      vscode.Uri.joinPath(
+        context.extensionUri,
+        "dist",
+        starstream_language_server_web_wasm
+      )
+    )
+  );
+  worker.postMessage(languageServerWasmBytes, [languageServerWasmBytes.buffer]);
+
   context.subscriptions.push(lc);
+  context.subscriptions.push({
+    dispose() {
+      worker.terminate();
+    },
+  });
   await lc.start();
 }
 
@@ -48,13 +75,38 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
 // Tree-sitter highlighter
 
 async function activateTreeSitter(context: vscode.ExtensionContext) {
-  const fullTsWasm = await resolve(context, tree_sitter_wasm);
+  // NOTE: readFile returns some kind of evil Uint8Array that's missing methods, so we wrap it.
+  const treeSitterWasmBytes = new Uint8Array(
+    await vscode.workspace.fs.readFile(
+      vscode.Uri.joinPath(context.extensionUri, "dist", tree_sitter_wasm)
+    )
+  );
+  const treeSitterStarstreamWasmBytes = new Uint8Array(
+    await vscode.workspace.fs.readFile(
+      vscode.Uri.joinPath(
+        context.extensionUri,
+        "dist",
+        tree_sitter_starstream_wasm
+      )
+    )
+  );
+
   await Parser.init({
-    locateFile(name: string, _dir: string): string | null {
-      if (name === "tree-sitter.wasm") {
-        return fullTsWasm;
+    async instantiateWasm(
+      imports: WebAssembly.Imports,
+      // NOTE: One spot in Emscripten's output has this in `(mod, inst)` order, which is a lie.
+      cb: (inst: WebAssembly.Instance, mod: WebAssembly.Module) => void
+    ) {
+      try {
+        const { module, instance } = await WebAssembly.instantiate(
+          treeSitterWasmBytes,
+          imports
+        );
+        cb(instance, module);
+      } catch (e) {
+        // Must manually catch since any error here gets swallowed otherwise.
+        vscode.window.showErrorMessage(`${e}`);
       }
-      return null;
     },
   });
 
@@ -63,8 +115,8 @@ async function activateTreeSitter(context: vscode.ExtensionContext) {
   const provider = registerProvider([
     {
       lang: "starstream",
-      parser: await resolve(context, tree_sitter_starstream_wasm),
-      highlights: await resolve(context, highlights_scm),
+      parser: treeSitterStarstreamWasmBytes,
+      highlights: highlights_scm,
       injectionOnly: false,
     },
   ]);

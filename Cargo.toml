@@ -5,6 +5,7 @@ members = [
   "starstream-compiler",
   "starstream-interpreter",
   "starstream-language-server",
+  "starstream-language-server-web",
   "starstream-to-wasm",
   "starstream-types",
 ]
