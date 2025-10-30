@@ -1,6 +1,6 @@
 use tower_lsp_server::lsp_types::*;
 
-pub fn capabilities() -> ServerCapabilities {
+pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
     ServerCapabilities {
         // The position encoding the server picked from the encodings offered
         // by the client via the client capability `general.positionEncodings`.

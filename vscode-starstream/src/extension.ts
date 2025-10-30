@@ -48,30 +48,16 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(lc);
 
-  // Set up debugging stuff...
+  // Set some extra error logging just in case...
   const output = lc.outputChannel;
   worker.addEventListener("error", (event) => {
     output.appendLine(`worker error: ${event.error}`);
-    console.log(`worker error: ${event.error}`);
+    console.error("worker error:", event.error);
   });
   worker.addEventListener("messageerror", (event) => {
     output.appendLine(`worker messageerror: ${event.data}`);
-    console.log(`worker messageerror: ${event.data}`);
+    console.error("worker messageerror:", event.data);
   });
-  worker.addEventListener("message", (event) => {
-    if (
-      event.data &&
-      typeof event.data === "object" &&
-      "jsonrpc" in event.data
-    ) {
-      // Real message, no need to show it. This is for debugging crap.
-      return;
-    }
-    output.appendLine(`worker message: ${JSON.stringify(event.data)}`);
-    console.log(`worker message: ${JSON.stringify(event.data)}`);
-  });
-  output.appendLine(`worker: ${worker}`);
-  console.log(`worker: ${worker}`);
 
   // Send the Wasm bytes to the worker, wait for it to reply that it's loaded,
   // then start the language client.
