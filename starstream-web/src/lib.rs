@@ -1,12 +1,10 @@
 use futures_channel::mpsc;
 use futures_util::{StreamExt, TryFutureExt, join, sink::SinkExt, stream, stream_select};
 use serde::{Deserialize, Serialize};
+use serde_wasm_bindgen::Serializer;
 use starstream_language_server::Server;
 use std::future;
-use tower_lsp_server::{
-    LspService,
-    jsonrpc::{Error, Id, Request, Response},
-};
+use tower_lsp_server::jsonrpc::{Error, Id, Request, Response};
 use tower_service::Service;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -16,11 +14,19 @@ use web_sys::{
 };
 
 // ----------------------------------------------------------------------------
+// Console logging
+
+macro_rules! error {
+    ($($rest:tt)*) => {
+        web_sys::console::error_1(&JsValue::from_str(&format!($($rest)*)))
+    };
+}
+
+// ----------------------------------------------------------------------------
 // postMessage and onMessage communication
 
 /// An incoming or outgoing JSON-RPC message.
-#[derive(Deserialize, Serialize)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Deserialize, Serialize, Debug)]
 #[serde(untagged)]
 enum Message {
     /// A response message.
@@ -34,7 +40,7 @@ fn output(message: Message) {
     js_sys::global()
         .dyn_into::<DedicatedWorkerGlobalScope>()
         .unwrap()
-        .post_message(&serde_wasm_bindgen::to_value(&message).unwrap())
+        .post_message(&message.serialize(&Serializer::json_compatible()).unwrap())
         .unwrap();
 }
 
@@ -60,12 +66,6 @@ fn set_up_input() -> mpsc::Receiver<Result<Message, serde_wasm_bindgen::Error>> 
     rx
 }
 
-macro_rules! error {
-    ($($rest:tt)*) => {
-        web_sys::console::error_1(&JsValue::from_str(&format!($($rest)*)))
-    };
-}
-
 // ----------------------------------------------------------------------------
 // Language server main
 
@@ -73,7 +73,7 @@ const MAX_CONCURRENCY: usize = 4;
 const MESSAGE_QUEUE_SIZE: usize = 100;
 
 #[wasm_bindgen(start)]
-pub async fn main() {
+async fn main() {
     let mut input_rx = set_up_input();
 
     // Based on tower-lsp-server 0.22.1 src/transport.rs

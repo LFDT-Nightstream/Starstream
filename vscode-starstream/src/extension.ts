@@ -2,7 +2,7 @@ import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstrea
 import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
 import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
 import * as vscode from "vscode";
-import { LanguageClient, TransportKind } from "vscode-languageclient/node";
+import { LanguageClient } from "vscode-languageclient/browser";
 import { Parser } from "web-tree-sitter";
 import { registerProvider } from "./tree-sitter-vscode";
 
@@ -17,25 +17,37 @@ export async function activate(context: vscode.ExtensionContext) {
 // LSP client
 
 async function activateLanguageClient(context: vscode.ExtensionContext) {
-  if (TransportKind !== undefined) {
-    // TODO: compile the LSP to WASM and bundle it in the extension for release.
-    const lc = new LanguageClient(
-      "Starstream Language Server",
-      {
-        command: "/home/paima/logger",
-        args: ["cargo", "run", "--", "lsp"],
-        options: {
-          cwd: context.extensionPath,
-        },
-        transport: TransportKind.stdio,
-      },
-      {
-        documentSelector: [{ scheme: "file", language: "starstream" }],
-      }
-    );
-    context.subscriptions.push(lc);
-    await lc.start();
-  }
+  const worker = new Worker(
+    vscode.Uri.joinPath(
+      context.extensionUri,
+      "dist",
+      "language-server.worker.js"
+    ).toString()
+  );
+  worker.addEventListener("error", (event) => {
+    vscode.window.showErrorMessage(`${event.error}`);
+    console.error("Starstream worker error:", event.error);
+  });
+  worker.addEventListener("message", (event) => {
+    vscode.window.showInformationMessage(JSON.stringify(event.data));
+  });
+  worker.postMessage({ derp: 17 });
+  const lc = new LanguageClient(
+    "starstream",
+    "Starstream Language Server",
+    {
+      documentSelector: [{ language: "starstream" }],
+    },
+    worker
+  );
+  context.subscriptions.push(lc);
+  context.subscriptions.push({
+    dispose() {
+      worker.terminate();
+    },
+  });
+  vscode.window.showInformationMessage(`worker ok: ${worker}`);
+  await lc.start();
 }
 
 // ----------------------------------------------------------------------------
