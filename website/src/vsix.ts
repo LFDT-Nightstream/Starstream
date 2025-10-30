@@ -24,7 +24,7 @@ export async function registerVsixExtension(
     new TextDecoder().decode(await manifestEntry.arrayBuffer())
   );
 
-  const ext = registerExtension(manifest, ExtensionHostKind.LocalWebWorker, {});
+  const ext = registerExtension(manifest, ExtensionHostKind.LocalProcess, {});
   for (const entry of entries) {
     const match = /^extension\/(.*)$/.exec(entry.filename);
     if (match && !entry.directory) {

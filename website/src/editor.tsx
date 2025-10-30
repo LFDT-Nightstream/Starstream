@@ -6,8 +6,7 @@ import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFacto
 import { useDocusaurusTheme } from "./hooks";
 import "./starstream.vsix";
 
-const languageId = "starstream";
-const code = "var foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
+const code = "let foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
 
 export function Editor() {
   // const theme =
@@ -30,20 +29,6 @@ export function Editor() {
     monacoWorkerFactory: configureDefaultWorkerFactory,
   };
 
-  const languageClientConfig: LanguageClientConfig = {
-    languageId,
-    connection: {
-      options: {
-        $type: "WorkerDirect",
-        // NOTE: `new Worker(new URL(...))` is important to make Webpack do the right thing.
-        worker: new Worker(new URL("./language-server.ts", import.meta.url), {
-          type: "module",
-        }),
-      },
-    },
-    clientOptions: {},
-  };
-
   const editorAppConfig: EditorAppConfig = {
     codeResources: {
       modified: {
@@ -58,7 +43,6 @@ export function Editor() {
       className="flex--grow"
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
-      languageClientConfig={languageClientConfig}
     />
   );
 }

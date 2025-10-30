@@ -31,6 +31,9 @@
     "vscode": "npm:@codingame/monaco-vscode-extension-api@^22.1.3",
     "web-tree-sitter": "^0.16.4"
   },
+  "overrides": {
+    "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@^22.1.3"
+  },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "^3.9.2",
     "@docusaurus/tsconfig": "^3.9.2",
