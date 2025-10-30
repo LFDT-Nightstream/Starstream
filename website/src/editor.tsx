@@ -24,6 +24,7 @@ export function Editor() {
       json: JSON.stringify({
         "workbench.colorTheme": theme,
         "editor.wordBasedSuggestions": "off",
+        "editor.formatOnSave": true,
       }),
     },
     monacoWorkerFactory: configureDefaultWorkerFactory,
