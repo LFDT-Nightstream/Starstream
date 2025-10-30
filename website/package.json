@@ -19,6 +19,7 @@
     "@docusaurus/preset-classic": "^3.9.2",
     "@mdx-js/react": "^3.0.0",
     "@typefox/monaco-editor-react": "^7.2.0",
+    "@zip.js/zip.js": "^2.8.8",
     "clsx": "^2.0.0",
     "docusaurus-plugin-generate-llms-txt": "^0.0.1",
     "monaco-languageclient": "^10.2.0",

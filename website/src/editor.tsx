@@ -1,12 +1,17 @@
 import { MonacoEditorReactComp } from "@typefox/monaco-editor-react";
-import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
-import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
-import highlights_scm from "file-loader!../../tree-sitter-starstream/queries/highlights.scm";
+import starstream_vsix from "file-loader!../../vscode-starstream/starstream.vsix";
 import { EditorAppConfig } from "monaco-languageclient/editorApp";
 import { LanguageClientConfig } from "monaco-languageclient/lcwrapper";
 import type { MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
 import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFactory";
 import { useDocusaurusTheme } from "./hooks";
+import { registerVsixExtension } from "./vsix";
+
+registerVsixExtension(starstream_vsix).then((ok) => {
+  console.log("extension", ok);
+  ok.whenReady().then(() => console.log("whenReady 2"));
+  ok.isEnabled().then((x) => console.log("isEnabled? ", x));
+});
 
 const languageId = "starstream";
 const code = "var foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
