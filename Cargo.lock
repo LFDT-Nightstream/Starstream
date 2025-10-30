@@ -1301,6 +1301,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream-language-server-web"
+version = "0.0.0"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "serde",
+ "serde-wasm-bindgen",
+ "starstream-language-server",
+ "tower-lsp-server",
+ "tower-service",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "starstream-to-wasm"
 version = "0.0.0"
 dependencies = [
@@ -1317,22 +1333,6 @@ dependencies = [
  "chumsky",
  "serde",
  "thiserror 2.0.17",
-]
-
-[[package]]
-name = "starstream-web"
-version = "0.0.0"
-dependencies = [
- "futures-channel",
- "futures-util",
- "serde",
- "serde-wasm-bindgen",
- "starstream-language-server",
- "tower-lsp-server",
- "tower-service",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]

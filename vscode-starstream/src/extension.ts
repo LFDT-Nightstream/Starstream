@@ -1,5 +1,5 @@
 import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
-import starstream_web_wasm from "file-loader!../build/starstream_web_bg.wasm";
+import starstream_language_server_web_wasm from "file-loader!../build/starstream_language_server_web_bg.wasm";
 import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
 import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
 import * as vscode from "vscode";
@@ -53,7 +53,11 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
 
   const languageServerWasmBytes = new Uint8Array(
     await vscode.workspace.fs.readFile(
-      vscode.Uri.joinPath(context.extensionUri, "dist", starstream_web_wasm)
+      vscode.Uri.joinPath(
+        context.extensionUri,
+        "dist",
+        starstream_language_server_web_wasm
+      )
     )
   );
   worker.postMessage(languageServerWasmBytes, [languageServerWasmBytes.buffer]);

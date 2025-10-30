@@ -1,4 +1,4 @@
-import init from "../build/starstream_web";
+import init from "../build/starstream_language_server_web";
 
 async function getBuffer(event: MessageEvent) {
   try {

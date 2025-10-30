@@ -1,5 +1,5 @@
 [package]
-name = "starstream-web"
+name = "starstream-language-server-web"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
