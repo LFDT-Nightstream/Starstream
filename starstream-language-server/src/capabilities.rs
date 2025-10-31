@@ -35,7 +35,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         selection_range_provider: None,
 
         // The server provides hover support.
-        hover_provider: None,
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
 
         // The server provides completion support.
         completion_provider: None,

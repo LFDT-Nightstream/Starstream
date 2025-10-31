@@ -192,6 +192,32 @@ impl LanguageServer for Server {
         }
     }
 
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let HoverParams {
+            text_document_position_params,
+            ..
+        } = params;
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = text_document_position_params;
+        let uri = text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Hover request: {}", uri.as_str()),
+            )
+            .await;
+
+        let hover = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.hover(position));
+
+        Ok(hover)
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let text_document = params.text_document;
 
