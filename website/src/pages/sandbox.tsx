@@ -1,5 +1,6 @@
 import Layout from "@theme/Layout";
 import {
+  ComponentProps,
   Dispatch,
   ReactNode,
   SetStateAction,
@@ -8,12 +9,14 @@ import {
   useState,
 } from "react";
 
-function BrowserOnlyEditor() {
-  const [editorModule, setEditorModule] = useState<typeof import('../editor') | null>(null);
+// Wrapper to load `../editor.tsx` only in the browser.
+function Editor(props: ComponentProps<typeof import("../editor").Editor>) {
+  const [editorModule, setEditorModule] =
+    useState<typeof import("../editor")>();
   useEffect(() => {
-    import('../editor').then(setEditorModule);
+    import("../editor").then(setEditorModule);
   }, []);
-  return editorModule ? <editorModule.Editor /> : null;
+  return editorModule ? <editorModule.Editor {...props} /> : null;
 }
 
 function Tabs(props: {
@@ -93,7 +96,7 @@ export function Sandbox() {
           tabs={[
             {
               key: "Editor",
-              body: <BrowserOnlyEditor />,
+              body: <Editor onTextChanged={console.log} />,
             },
           ]}
         />
@@ -108,6 +111,10 @@ export function Sandbox() {
               body: (
                 <div className="margin--sm">
                   <h1>Starstream Sandbox</h1>
+                  <p>Keyboard shortcuts:</p>
+                  <ul>
+                    <li>Ctrl+S to format</li>
+                  </ul>
                 </div>
               ),
             },

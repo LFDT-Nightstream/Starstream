@@ -1,4 +1,14 @@
-import { useSyncExternalStore } from "react";
+import { Ref, useSyncExternalStore } from "react";
+
+export function setRef<T>(ref: Ref<T> | undefined, value: T) {
+  if (ref === null || ref === undefined) {
+    // Nothing to do.
+  } else if ("current" in ref) {
+    ref.current = value;
+  } else if (ref instanceof Function) {
+    ref(value);
+  }
+}
 
 export function useDocusaurusTheme(): string {
   return useSyncExternalStore<string>(
