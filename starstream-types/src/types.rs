@@ -1,0 +1,128 @@
+//! Core type representations for the Starstream DSL.
+//!
+//! The current language only needs a handful of primitive types, but the
+//! structures in this module are intentionally flexible so we can layer in
+//! features like generics, traits, linear resources, and effect sets without
+//! discarding the API surface introduced here.
+
+use std::fmt;
+
+/// Identifier for a type variable.
+///
+/// During inference we generate fresh type variables to represent unknown
+/// types. They are later unified with concrete types or quantified into
+/// [`Scheme`]s. Using a small newtype keeps the representation compact while
+/// still allowing us to attach formatting logic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TypeVarId(pub u32);
+
+impl TypeVarId {
+    /// Render the identifier using the conventional `t0`, `t1`, … scheme.
+    pub fn as_str(&self) -> String {
+        format!("t{}", self.0)
+    }
+}
+
+/// Starstream type.
+///
+/// This is deliberately conservative for now: the current grammar only
+/// exposes integers and booleans, but the enum leaves room for function types
+/// and other structured forms we plan to add shortly (structs, enums, linear
+/// resources, etc.).
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Type {
+    /// An unknown type represented by a type variable.
+    Var(TypeVarId),
+    /// 64-bit signed integer.
+    Int,
+    /// Boolean.
+    Bool,
+    /// Unit `()` value used for statement expressions and other places that
+    /// conceptually return nothing.
+    Unit,
+    /// Function type `params -> result`.
+    ///
+    /// We don't expose user-defined functions yet but code generation already
+    /// relies on the concept of callable blocks. Keeping this variant gives us
+    /// a convenient hook for when functions land.
+    Function(Vec<Type>, Box<Type>),
+    /// Tuple type `(T0, T1, …)`.
+    Tuple(Vec<Type>),
+}
+
+impl Type {
+    pub fn unit() -> Self {
+        Type::Unit
+    }
+
+    pub fn bool() -> Self {
+        Type::Bool
+    }
+
+    pub fn int() -> Self {
+        Type::Int
+    }
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::Var(id) => write!(f, "{}", id.as_str()),
+            Type::Int => write!(f, "i64"),
+            Type::Bool => write!(f, "bool"),
+            Type::Unit => write!(f, "()"),
+            Type::Function(params, result) => {
+                if params.is_empty() {
+                    write!(f, "fn() -> {result}")
+                } else {
+                    let params = params
+                        .iter()
+                        .map(|ty| ty.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    write!(f, "fn({params}) -> {result}")
+                }
+            }
+            Type::Tuple(types) => {
+                let contents = types
+                    .iter()
+                    .map(|ty| ty.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "({contents})")
+            }
+        }
+    }
+}
+
+/// A polymorphic type scheme `∀vars. ty`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scheme {
+    pub vars: Vec<TypeVarId>,
+    pub ty: Type,
+}
+
+impl Scheme {
+    pub fn monomorphic(ty: Type) -> Self {
+        Scheme {
+            vars: Vec::new(),
+            ty,
+        }
+    }
+}
+
+impl fmt::Display for Scheme {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.vars.is_empty() {
+            write!(f, "{}", self.ty)
+        } else {
+            let vars = self
+                .vars
+                .iter()
+                .map(TypeVarId::as_str)
+                .collect::<Vec<_>>()
+                .join(" ");
+            write!(f, "forall {vars}. {}", self.ty)
+        }
+    }
+}

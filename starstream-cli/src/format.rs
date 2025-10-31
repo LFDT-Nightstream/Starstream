@@ -4,14 +4,13 @@ use std::{
     str::FromStr,
 };
 
-use ariadne::{Cache, FileCache};
 use clap::Args;
 use console::{Color, style};
-use miette::IntoDiagnostic;
+use miette::{IntoDiagnostic, NamedSource};
 use similar::{ChangeTag, TextDiff};
 use starstream_compiler::formatter;
 
-use crate::style;
+use crate::{diagnostics::print_diagnostic, style};
 
 /// Format Starstream source
 #[derive(Args, Debug)]
@@ -27,12 +26,10 @@ pub struct Format {
 
 impl Format {
     pub fn exec(self) -> miette::Result<()> {
-        let mut cache = FileCache::default();
-
         if self.check {
-            check_files(self.files, &mut cache)
+            check_files(self.files)
         } else {
-            format_files(self.files, &mut cache)
+            format_files(self.files)
         }
     }
 }
@@ -45,8 +42,8 @@ pub struct Unformatted {
     pub output: String,
 }
 
-fn check_files(files: Vec<String>, cache: &mut FileCache) -> miette::Result<()> {
-    let problem_files = unformatted_files(files, cache)?;
+fn check_files(files: Vec<String>) -> miette::Result<()> {
+    let problem_files = unformatted_files(files)?;
 
     if problem_files.is_empty() {
         Ok(())
@@ -71,18 +68,15 @@ fn check_files(files: Vec<String>, cache: &mut FileCache) -> miette::Result<()> 
     }
 }
 
-fn format_files(files: Vec<String>, cache: &mut FileCache) -> miette::Result<()> {
-    for file in unformatted_files(files, cache)? {
+fn format_files(files: Vec<String>) -> miette::Result<()> {
+    for file in unformatted_files(files)? {
         fs::write(file.destination, file.output).into_diagnostic()?;
     }
 
     Ok(())
 }
 
-fn unformatted_files(
-    files: Vec<String>,
-    cache: &mut FileCache,
-) -> miette::Result<Vec<Unformatted>> {
+fn unformatted_files(files: Vec<String>) -> miette::Result<Vec<Unformatted>> {
     let mut problem_files = Vec::with_capacity(files.len());
 
     for file_path in files {
@@ -90,42 +84,40 @@ fn unformatted_files(
 
         if path.is_dir() {
             for path in starstream_files_excluding_gitignore(&path) {
-                format_file(&mut problem_files, path, cache)?
+                format_file(&mut problem_files, path)?
             }
         } else {
-            format_file(&mut problem_files, path, cache)?
+            format_file(&mut problem_files, path)?
         }
     }
 
     Ok(problem_files)
 }
 
-fn format_file(
-    problem_files: &mut Vec<Unformatted>,
-    path: PathBuf,
-    cache: &mut FileCache,
-) -> miette::Result<()> {
-    let source = cache.fetch(&path).expect("Error reading Starstream input");
+/// Format a single file, collecting an entry if the formatted output differs.
+fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::Result<()> {
+    let input = fs::read_to_string(&path).into_diagnostic()?;
+    let parse_output = starstream_compiler::parse_program(&input);
 
-    let parse_result = starstream_compiler::parse_program(source.text());
+    if !parse_output.errors().is_empty() {
+        let named = NamedSource::new(path.display().to_string(), input.clone());
 
-    for error in parse_result.errors() {
-        starstream_compiler::error_to_report(error.clone())
-            .eprint(source)
-            .into_diagnostic()?;
+        for error in parse_output.errors().iter().cloned() {
+            print_diagnostic(named.clone(), error)?;
+        }
     }
 
-    let Some(program) = parse_result.into_output() else {
+    let Some(program) = parse_output.into_program() else {
         std::process::exit(1)
     };
 
     let output = formatter::program(&program).into_diagnostic()?;
 
-    if source.text() != output {
+    if input != output {
         problem_files.push(Unformatted {
             source: path.clone(),
             destination: path,
-            input: source.text().to_string(),
+            input,
             output,
         });
     }
@@ -133,6 +125,7 @@ fn format_file(
     Ok(())
 }
 
+/// Yield all `.star` files under `dir`, respecting gitignore-style filtering.
 pub fn starstream_files_excluding_gitignore(dir: &Path) -> impl Iterator<Item = PathBuf> + '_ {
     ignore::WalkBuilder::new(dir)
         .follow_links(true)

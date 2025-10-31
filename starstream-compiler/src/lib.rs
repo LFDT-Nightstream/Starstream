@@ -5,6 +5,7 @@
 
 pub mod formatter;
 pub mod parser;
+pub mod typecheck;
 
 pub use parser::*;
 

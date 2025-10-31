@@ -177,9 +177,9 @@ impl LanguageServer for Server {
         };
 
         let document_string = document.to_string();
-        let parse_result = starstream_compiler::parse_program(&document_string);
+        let parse_output = starstream_compiler::parse_program(&document_string);
 
-        for _error in parse_result.errors() {
+        for _error in parse_output.errors() {
             // todo: report parse errors, the thing is,
             //       we will likely keep a map of
             //       text_document.uri => Program
@@ -190,7 +190,7 @@ impl LanguageServer for Server {
             //       at a different location in this code.
         }
 
-        let Some(program) = parse_result.into_output() else {
+        let Some(program) = parse_output.into_program() else {
             std::process::exit(1)
         };
 
