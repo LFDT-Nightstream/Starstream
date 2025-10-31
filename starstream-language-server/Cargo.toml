@@ -12,3 +12,5 @@ dashmap = "6.1.0"
 ropey = "1.6.1"
 starstream-compiler = { workspace = true }
 tower-lsp-server = { workspace = true }
+miette = { workspace = true }
+starstream-types = { workspace = true }

@@ -10,7 +10,7 @@ license.workspace = true
 
 [dependencies]
 chumsky = { workspace = true, features = ["pratt"] }
-miette = { version = "7.6.0", default-features = false, features = ["fancy"] }
+miette = { workspace = true }
 pretty = "0.12.5"
 starstream-types = { workspace = true }
 thiserror = { workspace = true }

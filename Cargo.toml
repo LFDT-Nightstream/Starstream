@@ -9,6 +9,7 @@ members = [
   "starstream-to-wasm",
   "starstream-types",
 ]
+exclude = ["old", "polarity", "typechecker-zoo"]
 
 [workspace.package]
 version = "0.0.0"
@@ -23,6 +24,7 @@ ariadne = "0.5.1"
 chumsky = "0.11.1"
 indoc = "2.0"
 insta = "1.39"
+miette = { version = "7.6.0" }
 serde = "1.0.219"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
