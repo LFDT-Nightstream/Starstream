@@ -111,42 +111,6 @@ const config: Config = {
       - For top-level Markdown pages, there is a sidebar_position field in the metadata
     */
     "docusaurus-plugin-generate-llms-txt",
-
-    async function starstreamMisc(
-      context: LoadContext,
-      options: PluginOptions
-    ): Promise<Plugin> {
-      return {
-        name: "starstream-misc",
-        configureWebpack(
-          config,
-          isServer,
-          configureWebpackUtils,
-          content
-        ): ConfigureWebpackResult {
-          return {
-            // Must ignore these imports that tree-sitter-web attempts, because
-            // it seems webpack is not able to const-eval that process.node is
-            // false during the client build.
-            plugins: [
-              new IgnorePlugin({
-                resourceRegExp: /^(path|fs|fs\/promises|module)$/,
-              }),
-            ],
-
-            module: {
-              rules: [
-                {
-                  test: /\.wasm$/,
-                  loader: "file-loader",
-                  type: "javascript/auto", // Disable Webpack's built-in WASM loader
-                },
-              ],
-            },
-          };
-        },
-      };
-    },
   ],
 };
 
