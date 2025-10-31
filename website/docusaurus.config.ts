@@ -1,15 +1,8 @@
 import type * as Preset from "@docusaurus/preset-classic";
-import type {
-  Config,
-  LoadContext,
-  Plugin,
-  PluginOptions,
-} from "@docusaurus/types";
-import { ConfigureWebpackResult } from "@docusaurus/types/src/plugin";
+import type { Config } from "@docusaurus/types";
 import { themes as prismThemes } from "prism-react-renderer";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
-import { IgnorePlugin } from "webpack";
 
 const baseUrl = "/Starstream/";
 const config: Config = {
