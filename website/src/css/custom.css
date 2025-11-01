@@ -15,6 +15,14 @@
   --ifm-color-primary-lightest: #3cad6e;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+
+  --ifm-footer-padding-vertical: 1rem;
+
+  --ansi-bright-yellow: var(--ifm-color-warning-darker);
+  --ansi-bright-green: var(--ifm-color-success-lighter);
+  --ansi-red: var(--ifm-color-danger);
+
+  --mermaid-lines: #333;
 }
 
 /* For readability concerns, you should choose a lighter palette in dark mode. */
@@ -27,4 +35,92 @@
   --ifm-color-primary-lighter: #32d8b4;
   --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+  --mermaid-lines: #ddd;
+}
+
+.sandbox-mermaid {
+  width: 100%;
+}
+.sandbox-mermaid > svg #arrowhead path {
+  fill: var(--mermaid-lines) !important;
+  stroke: var(--mermaid-lines) !important;
+}
+.sandbox-mermaid > svg > .messageText {
+  fill: var(--mermaid-lines) !important;
+}
+.sandbox-mermaid > svg > .messageLine0 {
+  stroke: var(--mermaid-lines) !important;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex--column {
+  display: flex;
+  flex-direction: column;
+}
+
+.flex--grow {
+  flex-grow: 1;
+}
+
+.sandbox-tabs__list {
+  display: flex;
+  line-height: 0;
+}
+
+.sandbox-tabs__list > * {
+  border-bottom: 1px solid lightgray;
+}
+
+.sandbox-tabs__button {
+  border: 1px solid lightgray;
+  font-weight: bold;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.sandbox-tabs__list > .sandbox-tabs__button--current {
+  border-bottom: none;
+  background-color: transparent;
+}
+
+.sandbox-tabs__area:not([hidden]) {
+  flex-grow: 1;
+  flex-basis: 0;
+  border: 1px solid lightgray;
+  border-top: none;
+  display: flex;
+  overflow-y: auto;
+}
+
+.log-table {
+  font-family: var(--ifm-font-family-monospace);
+  --ifm-table-cell-padding: 0.5rem;
+}
+
+.log-table td {
+  padding: 0 var(--ifm-table-cell-padding);
+  vertical-align: top;
+}
+
+.log-table__level--1 {
+  color: var(--ifm-color-danger);
+}
+.log-table__level--2 {
+  color: var(--ifm-color-warning);
+}
+.log-table__level--3 {
+  color: var(--ifm-color-success);
+}
+.log-table__level--4 {
+  color: var(--ifm-color-info-darker);
+}
+.log-table__level--5 {
+  color: var(--ifm-color-info-lighter);
+}
+
+.log-table__body {
+  white-space: pre-wrap;
 }

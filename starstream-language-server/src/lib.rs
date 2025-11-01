@@ -68,15 +68,15 @@ impl Server {
 
 impl LanguageServer for Server {
     async fn initialize(&self, params: InitializeParams) -> jsonrpc::Result<InitializeResult> {
-        let capabilities = capabilities();
+        self.client
+            .log_message(MessageType::INFO, "Server initializing...")
+            .await;
+
+        let capabilities = capabilities(params.capabilities);
 
         if let Some(workspace_folders) = params.workspace_folders {
             self.initialise_workspace_folders(workspace_folders)?;
         }
-
-        self.client
-            .log_message(MessageType::LOG, "Initialise")
-            .await;
 
         Ok(InitializeResult {
             capabilities,
@@ -86,13 +86,13 @@ impl LanguageServer for Server {
 
     async fn initialized(&self, _: InitializedParams) {
         self.client
-            .log_message(MessageType::INFO, "server initialized!")
+            .log_message(MessageType::INFO, "Client acknowledged initialization")
             .await;
     }
 
     async fn shutdown(&self) -> jsonrpc::Result<()> {
         self.client
-            .log_message(MessageType::INFO, "server shutdown!")
+            .log_message(MessageType::INFO, "Server shutting down...")
             .await;
 
         Ok(())

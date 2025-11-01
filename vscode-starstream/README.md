@@ -10,6 +10,7 @@ Features:
 ## Building
 
 1. Install [Node and NPM](https://nodejs.org/en/)
-2. Download dependencies: `npm install`
-3. Package extension: `npm run package`
-4. Install produced `.vsix` into Visual Studio Code
+2. Download NPM dependencies: `npm install`
+3. Install `cargo`, `wasm-bindgen`, and `wasm-opt`
+4. Package extension: `npx vsce package`
+5. Install produced `.vsix` into Visual Studio Code

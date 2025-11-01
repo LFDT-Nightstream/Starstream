@@ -4,9 +4,9 @@ async function getBuffer(event: MessageEvent) {
   try {
     removeEventListener("message", getBuffer);
     await init(event.data);
-    postMessage(`init OK`);
+    postMessage(null);
   } catch (e) {
-    postMessage(`init error ${e}`);
+    postMessage(e);
   }
 }
 

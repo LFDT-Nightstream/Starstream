@@ -2,7 +2,10 @@
   // This file is not used in compilation. It is here just for a nice editor experience.
   "extends": "@docusaurus/tsconfig",
   "compilerOptions": {
-    "baseUrl": "."
+    "baseUrl": ".",
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "types": ["webpack/module"]
   },
   "exclude": [".docusaurus", "build"]
 }
