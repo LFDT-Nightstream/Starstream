@@ -19,6 +19,7 @@ use goldilocks::FpGoldilocks;
 use memory::DummyMemory;
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 type F = FpGoldilocks;
 
@@ -154,7 +155,10 @@ impl Transaction<Vec<LedgerOperation<F>>> {
         );
 
         for _i in 0..num_iters {
+            let start = Instant::now();
             session.prove_step(&mut f_circuit, &()).unwrap();
+            let elapsed = start.elapsed();
+            println!("Step {} took {:?}", _i, elapsed);
         }
 
         let descriptor = StepDescriptor {
@@ -175,6 +179,8 @@ impl Transaction<Vec<LedgerOperation<F>>> {
 
         assert!(ok, "neo chain verification failed");
 
+        let start = Instant::now();
+
         let (final_proof, _final_ccs, _final_public_input) = finalize_ivc_chain_with_options(
             &descriptor,
             &params,
@@ -184,6 +190,8 @@ impl Transaction<Vec<LedgerOperation<F>>> {
         )
         .map_err(|_| SynthesisError::Unsatisfiable)?
         .ok_or(SynthesisError::Unsatisfiable)?;
+
+        println!("Spartan proof took {} ms", start.elapsed().as_millis());
 
         let prover_output = ProverOutput { proof: final_proof };
 
@@ -209,7 +217,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
-    fn test_starstream_tx() {
+    fn test_starstream_tx_success() {
         init_test_logging();
 
         let utxo_id1: ProgramId = ProgramId::from(110);

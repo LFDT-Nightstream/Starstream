@@ -1,14 +1,16 @@
 use crate::memory::{self, Address, IVCMemory};
-use crate::{memory::IVCMemoryAllocated, LedgerOperation, ProgramId, UtxoChange, F};
+use crate::poseidon2::{compress, compress_trace};
+use crate::{F, LedgerOperation, ProgramId, UtxoChange, memory::IVCMemoryAllocated};
 use ark_ff::AdditiveGroup as _;
 use ark_r1cs_std::alloc::AllocationMode;
 use ark_r1cs_std::{
-    alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean, GR1CSVar as _,
+    GR1CSVar as _, alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean,
 };
 use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
     ns,
 };
+use std::array;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::marker::PhantomData;
 use tracing::debug_span;
@@ -23,7 +25,11 @@ pub const UTXO_INDEX_MAPPING_SEGMENT: u64 = 10u64;
 /// expects.
 pub const OUTPUT_CHECK_SEGMENT: u64 = 11u64;
 
-pub const PROGRAM_STATE_SIZE: u64 = 4u64;
+pub const PROGRAM_STATE_SIZE: u64 =
+    4u64 // state
+    + 4u64 // commitment
+;
+
 pub const UTXO_INDEX_MAPPING_SIZE: u64 = 1u64;
 pub const OUTPUT_CHECK_SIZE: u64 = 2u64;
 
@@ -83,6 +89,7 @@ pub struct ProgramStateWires {
     finalized: FpVar<F>,
     input: FpVar<F>,
     output: FpVar<F>,
+    commitment: [FpVar<F>; 4],
 }
 
 // helper so that we always allocate witnesses in the same order
@@ -112,6 +119,7 @@ pub struct ProgramState {
     finalized: bool,
     input: F,
     output: F,
+    commitment: [F; 4],
 }
 
 /// IVC wires (state between steps)
@@ -131,12 +139,16 @@ impl ProgramStateWires {
     const OUTPUT: &str = "output";
 
     fn to_var_vec(&self) -> Vec<FpVar<F>> {
-        vec![
-            self.consumed.clone(),
-            self.finalized.clone(),
-            self.input.clone(),
-            self.output.clone(),
+        [
+            vec![
+                self.consumed.clone(),
+                self.finalized.clone(),
+                self.input.clone(),
+                self.output.clone(),
+            ],
+            self.commitment.to_vec(),
         ]
+        .concat()
     }
 
     fn conditionally_enforce_equal(
@@ -179,6 +191,7 @@ impl ProgramStateWires {
             finalized: utxo_read_wires[1].clone(),
             input: utxo_read_wires[2].clone(),
             output: utxo_read_wires[3].clone(),
+            commitment: array::from_fn(|i| utxo_read_wires[i + 4].clone()),
         }
     }
 
@@ -186,6 +199,12 @@ impl ProgramStateWires {
         cs: ConstraintSystemRef<F>,
         utxo_write_values: &ProgramState,
     ) -> Result<ProgramStateWires, SynthesisError> {
+        let commitment = utxo_write_values
+            .commitment
+            .iter()
+            .map(|comm_limb| FpVar::new_witness(cs.clone(), || Ok(comm_limb)))
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(ProgramStateWires {
             consumed: FpVar::from(Boolean::new_witness(cs.clone(), || {
                 Ok(utxo_write_values.consumed)
@@ -195,6 +214,7 @@ impl ProgramStateWires {
             })?),
             input: FpVar::new_witness(cs.clone(), || Ok(utxo_write_values.input))?,
             output: FpVar::new_witness(cs.clone(), || Ok(utxo_write_values.output))?,
+            commitment: commitment.try_into().unwrap(),
         })
     }
 }
@@ -230,8 +250,14 @@ impl Wires {
             .map(|val| Boolean::new_witness(cs.clone(), || Ok(*val)).unwrap())
             .collect();
 
-        let [resume_switch, yield_resume_switch, utxo_yield_switch, check_utxo_output_switch, nop_switch, drop_utxo_switch] =
-            allocated_switches.as_slice()
+        let [
+            resume_switch,
+            yield_resume_switch,
+            utxo_yield_switch,
+            check_utxo_output_switch,
+            nop_switch,
+            drop_utxo_switch,
+        ] = allocated_switches.as_slice()
         else {
             unreachable!()
         };
@@ -279,6 +305,7 @@ impl Wires {
         let utxo_read_wires = ProgramStateWires::from_vec(utxo_read_wires);
 
         let utxo_write_wires = ProgramStateWires::from_write_values(cs.clone(), utxo_write_values)?;
+
         let coord_write_wires =
             ProgramStateWires::from_write_values(cs.clone(), coord_write_values)?;
 
@@ -303,6 +330,12 @@ impl Wires {
                 tag: RAM_SEGMENT,
             },
             &utxo_write_wires.to_var_vec(),
+        )?;
+
+        constraint_incremental_commitment(
+            &utxo_read_wires,
+            &utxo_write_wires,
+            &(utxo_conditional_write_switch & !check_utxo_output_switch),
         )?;
 
         let coordination_script = FpVar::<F>::new_constant(cs.clone(), F::from(1))?;
@@ -355,6 +388,30 @@ impl Wires {
             constant_one: FpVar::new_constant(cs.clone(), F::from(1))?,
         })
     }
+}
+
+fn constraint_incremental_commitment(
+    utxo_read_wires: &ProgramStateWires,
+    utxo_write_wires: &ProgramStateWires,
+    cond: &Boolean<F>,
+) -> Result<(), SynthesisError> {
+    let result = compress(&array::from_fn(|i| {
+        if i == 0 {
+            utxo_write_wires.input.clone()
+        } else if i == 1 {
+            utxo_write_wires.output.clone()
+        } else if i >= 4 {
+            (utxo_read_wires.commitment[i - 4]).clone()
+        } else {
+            FpVar::Constant(F::from(0))
+        }
+    }))?;
+
+    utxo_write_wires
+        .commitment
+        .conditional_enforce_equal(&result, cond)?;
+
+    Ok(())
 }
 
 impl InterRoundWires {
@@ -413,6 +470,18 @@ impl LedgerOperation<crate::F> {
                     finalized: coord_read[1] == F::from(1),
                     input: *input,
                     output: *output,
+                    commitment: compress_trace(&array::from_fn(|i| {
+                        if i == 0 {
+                            *input
+                        } else if i == 1 {
+                            *output
+                        } else if i >= 4 {
+                            coord_read[i]
+                        } else {
+                            F::from(0)
+                        }
+                    }))
+                    .unwrap(),
                 };
 
                 let utxo = ProgramState {
@@ -420,6 +489,18 @@ impl LedgerOperation<crate::F> {
                     finalized: utxo_read[1] == F::from(1),
                     input: utxo_read[2],
                     output: utxo_read[3],
+                    commitment: compress_trace(&array::from_fn(|i| {
+                        if i == 0 {
+                            utxo_read[2]
+                        } else if i == 1 {
+                            utxo_read[3]
+                        } else if i >= 4 {
+                            utxo_read[i]
+                        } else {
+                            F::from(0)
+                        }
+                    }))
+                    .unwrap(),
                 };
 
                 (coord, utxo)
@@ -435,6 +516,18 @@ impl LedgerOperation<crate::F> {
                     finalized: utxo_read[1] == F::from(1),
                     input: utxo_read[2],
                     output: utxo_read[3],
+                    commitment: compress_trace(&array::from_fn(|i| {
+                        if i == 0 {
+                            utxo_read[2]
+                        } else if i == 1 {
+                            utxo_read[3]
+                        } else if i >= 4 {
+                            utxo_read[i]
+                        } else {
+                            F::from(0)
+                        }
+                    }))
+                    .unwrap(),
                 };
 
                 (coord, utxo)
@@ -447,6 +540,18 @@ impl LedgerOperation<crate::F> {
                     finalized: utxo_read[1] == F::from(1),
                     input: F::from(0),
                     output: *input,
+                    commitment: compress_trace(&array::from_fn(|i| {
+                        if i == 0 {
+                            F::from(0)
+                        } else if i == 1 {
+                            *input
+                        } else if i >= 4 {
+                            utxo_read[i]
+                        } else {
+                            F::from(0)
+                        }
+                    }))
+                    .unwrap(),
                 };
 
                 (coord, utxo)
@@ -459,6 +564,7 @@ impl LedgerOperation<crate::F> {
                     finalized: true,
                     input: utxo_read[2],
                     output: utxo_read[3],
+                    commitment: array::from_fn(|i| utxo_read[i]),
                 };
 
                 (coord, utxo)
@@ -524,6 +630,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         irw.update(next_wires);
 
+        tracing::debug!("constraints: {}", cs.num_constraints());
+
         Ok(irw)
     }
 
@@ -575,6 +683,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         finalized: false,
                         input: F::from(0),
                         output: *output_before,
+                        commitment: array::from_fn(|_i| F::from(0)),
                     }
                     .to_field_vec(),
                 );
@@ -1064,24 +1173,29 @@ impl ProgramState {
             finalized: false,
             input: F::ZERO,
             output: F::ZERO,
+            commitment: array::from_fn(|_i| F::from(0)),
         }
     }
 
     fn to_field_vec(&self) -> Vec<F> {
-        vec![
-            if self.consumed {
-                F::from(1)
-            } else {
-                F::from(0)
-            },
-            if self.finalized {
-                F::from(1)
-            } else {
-                F::from(0)
-            },
-            self.input,
-            self.output,
+        [
+            vec![
+                if self.consumed {
+                    F::from(1)
+                } else {
+                    F::from(0)
+                },
+                if self.finalized {
+                    F::from(1)
+                } else {
+                    F::from(0)
+                },
+                self.input,
+                self.output,
+            ],
+            self.commitment.to_vec(),
         ]
+        .concat()
     }
 
     pub fn debug_print(&self) {
@@ -1089,5 +1203,6 @@ impl ProgramState {
         tracing::debug!("finalized={}", self.finalized);
         tracing::debug!("input={}", self.input);
         tracing::debug!("output={}", self.output);
+        tracing::debug!("commitment={:?}", self.commitment);
     }
 }
