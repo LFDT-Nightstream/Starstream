@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use miette::Report;
 use starstream_types::*;
 use wasm_encoder::*;
 
@@ -21,12 +22,13 @@ use wasm_encoder::*;
 */
 
 /// Compile a Starstream program to a Wasm module.
-pub fn compile(program: &Program) -> Vec<u8> {
-    // TODO: accept input filename/context and return something like
-    // `(Option<Vec<u8>>, Vec<Report>)` to be able to report warnings and
-    // other non-fatal errors.
+pub fn compile(program: &Program) -> (Option<Vec<u8>>, Vec<Report>) {
+    // TODO: accept input filename/context to put in reports.
     let mut compiler = Compiler::default();
-    compiler.visit_program(program);
+    if let Err(e) = compiler.visit_program(program) {
+        compiler.reports.push(e);
+        return (None, compiler.reports);
+    }
     compiler.finish()
 }
 
@@ -44,6 +46,10 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
+    // Diagnostics.
+    fatal: bool,
+    reports: Vec<Report>,
+
     // Function building.
     raw_func_type_cache: HashMap<FuncType, u32>,
 }
@@ -51,12 +57,17 @@ struct Compiler {
 impl Compiler {
     /// After [Compiler::visit_program], this function collates all the
     /// in-progress sections into an actual Wasm binary module.
-    fn finish(self) -> Vec<u8> {
+    fn finish(self) -> (Option<Vec<u8>>, Vec<Report>) {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
 
         // Verify
         assert_eq!(self.functions.len(), self.code.len());
+
+        // No reports generated beyond this point, so bail if fatal is set.
+        if self.fatal {
+            return (None, self.reports);
+        }
 
         // Write sections to module.
         // Mandatory WASM order per https://webassembly.github.io/spec/core/binary/modules.html#binary-module:
@@ -86,7 +97,7 @@ impl Compiler {
         if !self.data.is_empty() {
             module.section(&self.data);
         }
-        module.finish()
+        (Some(module.finish()), self.reports)
     }
 
     // ------------------------------------------------------------------------
@@ -129,13 +140,14 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &Program) {
+    fn visit_program(&mut self, program: &Program) -> miette::Result<()> {
         let mut func = Function::default();
         self.visit_block(&mut func, &(), &program.statements);
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new([], []), func);
         self.exports.export("main", ExportKind::Func, idx);
+        Ok(())
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -576,8 +588,7 @@ impl Compiler {
     }
 
     fn todo(&mut self, why: String) {
-        // TODO: better diagnostics
-        panic!("{}", why);
+        self.reports.push(Report::msg(format!("TODO: {why}")));
     }
 }
 

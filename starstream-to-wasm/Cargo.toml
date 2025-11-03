@@ -8,9 +8,10 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-starstream-types = { workspace = true }
-wasm-encoder = "0.240.0"
+miette.workspace = true
+starstream-types.workspace = true
+wasm-encoder.workspace = true
 
 [dev-dependencies]
-insta = { workspace = true }
-wasmprinter = "0.240.0"
+insta.workspace = true
+wasmprinter.workspace = true

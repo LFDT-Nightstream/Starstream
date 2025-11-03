@@ -23,6 +23,7 @@ ariadne = "0.5.1"
 chumsky = "0.11.1"
 indoc = "2.0"
 insta = "1.39"
+miette = { version = "7.6.0", features = ["fancy"] }
 serde = "1.0.219"
 starstream-compiler = { path = "starstream-compiler" }
 starstream-language-server = { path = "starstream-language-server" }
@@ -32,6 +33,8 @@ thiserror = "2.0.17"
 tower-lsp-server = { version = "0.22.1", default-features = false, features = [
   "runtime-agnostic",
 ] }
+wasm-encoder = "0.240.0"
+wasmprinter = "0.240.0"
 
 [profile.dev.package]
 insta.opt-level = 3
