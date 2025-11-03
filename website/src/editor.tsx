@@ -7,35 +7,33 @@ import "./starstream.vsix";
 
 const code = "let foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
 
+// Doesn't seem to need to be global, but changes don't take effect, so it might as well be.
+const vscodeApiConfig: MonacoVscodeApiConfig = {
+  $type: "extended",
+  viewsConfig: {
+    $type: "EditorService",
+  },
+  userConfiguration: {
+    json: JSON.stringify({
+      "workbench.colorTheme": theme(),
+      "editor.wordBasedSuggestions": "off",
+      "editor.formatOnSave": true,
+    }),
+  },
+  monacoWorkerFactory: configureDefaultWorkerFactory,
+};
+
+// MUST be global to avoid MonacoEditorReactComp double-initializing.
+const editorAppConfig: EditorAppConfig = {
+  codeResources: {
+    modified: {
+      text: code,
+      uri: "/workspace/sandbox.star",
+    },
+  },
+};
+
 export function Editor(props: { onTextChanged?: (text: string) => void }) {
-  // NOTE: no hooks allowed here or MonacoEditorReactComp will double-init
-  // and bad stuff will happen. Seems like a flaw in the MonacoEditorReactComp
-  // implementation, but it's the best we've got.
-
-  const vscodeApiConfig: MonacoVscodeApiConfig = {
-    $type: "extended",
-    viewsConfig: {
-      $type: "EditorService",
-    },
-    userConfiguration: {
-      json: JSON.stringify({
-        "workbench.colorTheme": theme(),
-        "editor.wordBasedSuggestions": "off",
-        "editor.formatOnSave": true,
-      }),
-    },
-    monacoWorkerFactory: configureDefaultWorkerFactory,
-  };
-
-  const editorAppConfig: EditorAppConfig = {
-    codeResources: {
-      modified: {
-        text: code,
-        uri: "/workspace/sandbox.star",
-      },
-    },
-  };
-
   return (
     <MonacoEditorReactComp
       className="flex--grow"
