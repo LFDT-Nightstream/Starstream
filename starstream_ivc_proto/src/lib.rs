@@ -8,6 +8,8 @@ mod poseidon2;
 #[cfg(test)]
 mod test_utils;
 
+pub use memory::nebula;
+
 use crate::neo::StepCircuitNeo;
 use ::neo::{
     FoldingSession, NeoParams, NeoStep as _, StepDescriptor,

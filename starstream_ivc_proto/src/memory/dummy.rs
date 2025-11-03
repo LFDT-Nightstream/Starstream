@@ -1,59 +1,24 @@
+use super::Address;
+use super::IVCMemory;
+use super::IVCMemoryAllocated;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{GR1CSVar, alloc::AllocVar, fields::fp::FpVar, prelude::Boolean};
-use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
-use std::{
-    collections::{BTreeMap, VecDeque},
-    marker::PhantomData,
-};
-
-#[derive(PartialOrd, Ord, PartialEq, Eq, Debug, Clone)]
-pub struct Address<F> {
-    pub addr: F,
-    pub tag: u64,
-}
-
-pub trait IVCMemory<F: PrimeField> {
-    type Allocator: IVCMemoryAllocated<F>;
-    type Params;
-
-    fn new(info: Self::Params) -> Self;
-
-    fn register_mem(&mut self, tag: u64, size: u64, debug_name: &'static str);
-
-    fn init(&mut self, address: Address<u64>, values: Vec<F>);
-
-    fn conditional_read(&mut self, cond: bool, address: Address<u64>) -> Vec<F>;
-    fn conditional_write(&mut self, cond: bool, address: Address<u64>, value: Vec<F>);
-
-    fn constraints(self) -> Self::Allocator;
-}
-
-pub trait IVCMemoryAllocated<F: PrimeField> {
-    fn get_cs(&self) -> ConstraintSystemRef<F>;
-    fn start_step(&mut self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError>;
-    fn finish_step(&mut self, is_last_step: bool) -> Result<(), SynthesisError>;
-
-    fn conditional_read(
-        &mut self,
-        cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
-    ) -> Result<Vec<FpVar<F>>, SynthesisError>;
-
-    fn conditional_write(
-        &mut self,
-        cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
-        vals: &[FpVar<F>],
-    ) -> Result<(), SynthesisError>;
-}
+use ark_r1cs_std::GR1CSVar as _;
+use ark_r1cs_std::alloc::AllocVar as _;
+use ark_r1cs_std::fields::fp::FpVar;
+use ark_r1cs_std::prelude::Boolean;
+use ark_relations::gr1cs::ConstraintSystemRef;
+use ark_relations::gr1cs::SynthesisError;
+use std::collections::BTreeMap;
+use std::collections::VecDeque;
+use std::marker::PhantomData;
 
 pub struct DummyMemory<F> {
-    phantom: PhantomData<F>,
-    reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
-    writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
-    init: BTreeMap<Address<u64>, Vec<F>>,
+    pub(crate) phantom: PhantomData<F>,
+    pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
+    pub(crate) writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
+    pub(crate) init: BTreeMap<Address<u64>, Vec<F>>,
 
-    mems: BTreeMap<u64, (u64, &'static str)>,
+    pub(crate) mems: BTreeMap<u64, (u64, &'static str)>,
 }
 
 impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
@@ -121,11 +86,11 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
 }
 
 pub struct DummyMemoryConstraints<F: PrimeField> {
-    cs: Option<ConstraintSystemRef<F>>,
-    reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
-    writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
+    pub(crate) cs: Option<ConstraintSystemRef<F>>,
+    pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
+    pub(crate) writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
 
-    mems: BTreeMap<u64, (u64, &'static str)>,
+    pub(crate) mems: BTreeMap<u64, (u64, &'static str)>,
 }
 
 impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
