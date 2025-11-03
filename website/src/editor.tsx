@@ -36,7 +36,7 @@ const editorAppConfig: EditorAppConfig = {
 export function Editor(props: { onTextChanged?: (text: string) => void }) {
   return (
     <MonacoEditorReactComp
-      className="flex--grow"
+      style={{ width: "100%", height: "100%" }}
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
       onTextChanged={(contents) =>

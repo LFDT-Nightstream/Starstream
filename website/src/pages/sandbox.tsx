@@ -1,13 +1,48 @@
 import Layout from "@theme/Layout";
+import { AnsiHtml } from "fancy-ansi/react";
 import {
   ComponentProps,
   Dispatch,
   ReactNode,
   SetStateAction,
+  useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
+import type {
+  SandboxWorkerRequest,
+  SandboxWorkerResponse,
+} from "../sandbox.worker";
+
+function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
+  request(r: SandboxWorkerRequest): void;
+  restart(): void;
+} {
+  const worker = useRef<Worker>(null);
+  useEffect(() => {
+    worker.current = new Worker(new URL("../sandbox.worker", import.meta.url));
+    return () => worker.current!.terminate();
+  }, []);
+  useEffect(() => {
+    function onMessage({ data }: { data: SandboxWorkerResponse }) {
+      onResponse(data);
+    }
+    worker.current!.addEventListener("message", onMessage);
+    return () => worker.current!.removeEventListener("message", onMessage);
+  }, [onResponse]);
+  return {
+    request(r) {
+      worker.current!.postMessage(r);
+    },
+    restart() {
+      worker.current!.terminate();
+      worker.current = new Worker(
+        new URL("../sandbox.worker", import.meta.url)
+      );
+    },
+  };
+}
 
 // Wrapper to load `../editor.tsx` only in the browser.
 function Editor(props: ComponentProps<typeof import("../editor").Editor>) {
@@ -74,18 +109,33 @@ function Tabs(props: {
 
 export function Sandbox() {
   const [inputTab, setInputTab] = useState("");
-  const [inputLedgerState, setInputLedgerState] = useState({});
 
   const [outputTab, setOutputTab] = useState("");
   const [busy, setBusy] = useState(false);
-  const [compilerLog, setCompilerLog] = useState({
-    log: "",
-    warnings: 0,
-    errors: 0,
+  const [wat, setWat] = useState("");
+
+  const request_id = useRef(0);
+  const worker = useSandboxWorker((response) => {
+    if (response.request_id !== request_id.current) {
+      console.log("discarding response for old request", response);
+      return;
+    }
+
+    if (response.type == "idle") {
+      setBusy(false);
+    } else if (response.type == "log") {
+      // TODO: Show in UI
+      console.log(response.level, response.target, response.body);
+    } else if (response.type == "wat") {
+      setWat(response.wat);
+    } else {
+      response satisfies never;
+    }
   });
 
-  const startTime = useRef(0);
-  const request_id = useRef(0);
+  const onTextChanged = useCallback((code: string) => {
+    worker.request({ request_id: ++request_id.current, code });
+  }, []);
 
   return (
     <div className="flex--grow row">
@@ -96,7 +146,7 @@ export function Sandbox() {
           tabs={[
             {
               key: "Editor",
-              body: <Editor onTextChanged={console.log} />,
+              body: <Editor onTextChanged={onTextChanged} />,
             },
           ]}
         />
@@ -111,10 +161,27 @@ export function Sandbox() {
               body: (
                 <div className="margin--sm">
                   <h1>Starstream Sandbox</h1>
+                  <p>Tabs:</p>
+                  <ul>
+                    <li>
+                      Wasm: The output of the Starstream compiler targeting
+                      WebAssembly. Updates live.
+                    </li>
+                  </ul>
                   <p>Keyboard shortcuts:</p>
                   <ul>
                     <li>Ctrl+S to format</li>
                   </ul>
+                </div>
+              ),
+            },
+            {
+              key: "Wasm",
+              body: (
+                <div className="margin--sm">
+                  <pre>
+                    <AnsiHtml text={wat} />
+                  </pre>
                 </div>
               ),
             },
