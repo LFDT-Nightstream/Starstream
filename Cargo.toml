@@ -6,6 +6,7 @@ members = [
   "starstream-interpreter",
   "starstream-language-server",
   "starstream-language-server-web",
+  "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
 ]

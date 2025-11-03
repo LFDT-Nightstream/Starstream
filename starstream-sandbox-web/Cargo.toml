@@ -1,0 +1,22 @@
+[package]
+name = "starstream-sandbox-web"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+test = false
+crate-type = ["cdylib"]
+
+[dependencies]
+log = "0.4.28"
+miette.workspace = true
+serde.workspace = true
+serde_cbor = "0.11.2"
+starstream-compiler.workspace = true
+starstream-to-wasm.workspace = true
+termcolor = "1.4.1"
+wasmprinter.workspace = true
