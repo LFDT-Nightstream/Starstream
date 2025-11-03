@@ -93,11 +93,18 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
 
             last
         } else {
-            vec![F::from(0), F::from(0), F::from(0), F::from(0)]
+            let mem_value_size = self.mems.get(&address.tag).unwrap().0;
+            std::iter::repeat_n(F::from(0), mem_value_size as usize).collect()
         }
     }
 
     fn conditional_write(&mut self, cond: bool, address: Address<u64>, values: Vec<F>) {
+        assert_eq!(
+            self.mems.get(&address.tag).unwrap().0 as usize,
+            values.len(),
+            "write doesn't match mem value size"
+        );
+
         if cond {
             self.writes.entry(address).or_default().push_back(values);
         }
@@ -204,6 +211,13 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
             }
 
             let mem = self.mems.get(&address.tag).copied().unwrap();
+
+            assert_eq!(
+                mem.0 as usize,
+                vals.len(),
+                "write doesn't match mem value size"
+            );
+
             tracing::debug!(
                 "write values {:?} at address {} in segment {}",
                 vals.iter()

@@ -13,8 +13,8 @@ use crate::{
         linear_layers::{GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8},
     },
 };
-use ark_r1cs_std::fields::fp::FpVar;
-use ark_relations::gr1cs::SynthesisError;
+use ark_r1cs_std::{GR1CSVar as _, alloc::AllocVar as _, fields::fp::FpVar};
+use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
 pub use constants::RoundConstants;
 
 #[allow(unused)]
@@ -24,6 +24,32 @@ pub fn compress(inputs: &[FpVar<F>; 8]) -> Result<[FpVar<F>; 4], SynthesisError>
     poseidon2_compress_8_to_4::<F, GoldilocksExternalLinearLayer<8>, GoldilocksInternalLinearLayer8>(
         inputs, &constants,
     )
+}
+
+#[allow(unused)]
+pub fn compress_trace(inputs: &[F; 8]) -> Result<[F; 4], SynthesisError> {
+    // TODO: obviously this is not a good way of implementing this, but the
+    // implementation is currently not general enough to be used over both FpVar and
+    // just plain field elements
+    //
+    // for now, we just create a throw-away constraint system and get the values
+    // from that computation
+    let cs = ConstraintSystem::<F>::new_ref();
+
+    let inputs = inputs
+        .iter()
+        .map(|input| FpVar::new_witness(cs.clone(), || Ok(input)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let constants = RoundConstants::new_goldilocks_8_constants();
+
+    let compressed = poseidon2_compress_8_to_4::<
+        F,
+        GoldilocksExternalLinearLayer<8>,
+        GoldilocksInternalLinearLayer8,
+    >(inputs[..].try_into().unwrap(), &constants)?;
+
+    Ok(std::array::from_fn(|i| compressed[i].value().unwrap()))
 }
 
 #[cfg(test)]
