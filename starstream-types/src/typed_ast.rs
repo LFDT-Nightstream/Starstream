@@ -6,7 +6,7 @@
 //! without re-running inference.
 
 use crate::{
-    Span, Spanned,
+    Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -86,16 +86,5 @@ impl TypedBlock {
 impl TypedProgram {
     pub fn new(statements: Vec<TypedStatement>) -> Self {
         Self { statements }
-    }
-}
-
-/// Helper trait to retrieve the span directly from typed nodes.
-pub trait HasSpan {
-    fn span(&self) -> Span;
-}
-
-impl HasSpan for Spanned<TypedExpr> {
-    fn span(&self) -> Span {
-        self.span
     }
 }
