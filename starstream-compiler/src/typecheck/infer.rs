@@ -137,7 +137,7 @@ impl Inferencer {
                         TypeErrorKind::UnknownVariable {
                             name: target.name.clone(),
                         },
-                        value.span,
+                        target.span.unwrap_or(value.span),
                     )
                 })?;
 
