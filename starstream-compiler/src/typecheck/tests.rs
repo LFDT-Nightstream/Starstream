@@ -67,17 +67,49 @@ macro_rules! assert_typecheck_snapshot {
 }
 
 #[test]
-fn arithmetic_program() {
+fn let_binding_traces() {
     assert_typecheck_snapshot!(
-        arithmetic_program,
+        let_binding_traces,
         r#"
-        let x = 1;
-        let y = 2;
-        let z = x + y;
-        if (z > 2) {
-          z = z + 1;
+        let answer = 42;
+        "#
+    );
+}
+
+#[test]
+fn binary_add_traces() {
+    assert_typecheck_snapshot!(
+        binary_add_traces,
+        r#"
+        let left = 1;
+        let right = 2;
+        let total = left + right;
+        "#
+    );
+}
+
+#[test]
+fn if_branch_traces() {
+    assert_typecheck_snapshot!(
+        if_branch_traces,
+        r#"
+        let score = 10;
+        if (score > 5) {
+          score = score + 1;
         }
-        z;
+        "#
+    );
+}
+
+#[test]
+fn while_loop_traces() {
+    assert_typecheck_snapshot!(
+        while_loop_traces,
+        r#"
+        let counter = 0;
+        while (counter < 3) {
+          counter = counter + 1;
+        }
         "#
     );
 }

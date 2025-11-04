@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+assertion_line: 81
+description: "Source:\n\nlet left = 1;\nlet right = 2;\nlet total = left + right;\n"
+---
+T-Let: {} ⊢ let left = 1; ⇒ i64
+  T-Int: {} ⊢ 1 ⇒ i64
+
+T-Let: {left: i64} ⊢ let right = 2; ⇒ i64
+  T-Int: {left: i64} ⊢ 2 ⇒ i64
+
+T-Let: {left: i64, right: i64} ⊢ let total = left + right; ⇒ i64
+  T-Bin-Add: {left: i64, right: i64} ⊢ left + right ⇒ i64
+    T-Var: {left: i64, right: i64} ⊢ left ⇒ i64
+    T-Var: {left: i64, right: i64} ⊢ right ⇒ i64
+    Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
