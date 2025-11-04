@@ -38,16 +38,14 @@ impl ParseOutput {
 
 pub fn parse_program(source: &str) -> ParseOutput {
     let mut state = context::State::new();
-    let result = program().parse_with_state(source, &mut state);
+    let (program, errors) = program()
+        .parse_with_state(source, &mut state)
+        .into_output_errors();
 
-    let errors = result
-        .errors()
-        .cloned()
+    let errors = errors
+        .into_iter()
         .map(error::ParseError::from_rich)
         .collect();
 
-    ParseOutput {
-        program: result.into_output(),
-        errors,
-    }
+    ParseOutput { program, errors }
 }
