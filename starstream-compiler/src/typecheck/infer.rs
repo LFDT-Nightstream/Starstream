@@ -34,7 +34,7 @@ pub fn typecheck_program(
     program: &Program,
     options: TypecheckOptions,
 ) -> Result<TypecheckSuccess, Vec<TypeError>> {
-    let mut inferencer = Inferencer::new();
+    let mut inferencer = Inferencer::new(options.capture_traces);
     let mut env = TypeEnv::new();
     let mut typed_statements = Vec::with_capacity(program.statements.len());
     let mut statement_traces = Vec::with_capacity(program.statements.len());
@@ -75,14 +75,16 @@ pub fn typecheck_program(
 /// Internal stateful helper that owns the substitution map and generates fresh
 /// type variables while walking the AST.
 struct Inferencer {
+    capture_traces: bool,
     next_type_var: u32,
     subst: HashMap<TypeVarId, Type>,
 }
 
 impl Inferencer {
     /// Construct a fresh inferencer with an empty substitution environment.
-    fn new() -> Self {
+    fn new(capture_traces: bool) -> Self {
         Self {
+            capture_traces,
             next_type_var: 0,
             subst: HashMap::new(),
         }
@@ -94,8 +96,8 @@ impl Inferencer {
         env: &mut TypeEnv,
         statement: &Statement,
     ) -> Result<(TypedStatement, InferenceTree), TypeError> {
-        let env_str = self.format_env(env);
-        let stmt_repr = self.format_statement_src(statement);
+        let env_context = self.maybe_string(|| self.format_env(env));
+        let stmt_repr = self.maybe_string(|| self.format_statement_src(statement));
         match statement {
             Statement::VariableDeclaration { name, value } => {
                 if env.contains_in_current_scope(&name.name) {
@@ -112,10 +114,14 @@ impl Inferencer {
                 let scheme = self.generalize(env, &value_type);
                 env.insert(name.name.clone(), scheme);
 
-                let children = vec![value_trace];
-                let tree =
-                    InferenceTree::new("T-Let", env_str, stmt_repr, self.format_type(&value_type))
-                        .with_children(children);
+                let value_type_repr = self.maybe_string(|| self.format_type(&value_type));
+                let tree = self.make_trace(
+                    "T-Let",
+                    env_context.clone(),
+                    stmt_repr.clone(),
+                    value_type_repr,
+                    || vec![value_trace],
+                );
 
                 Ok((
                     TypedStatement::VariableDeclaration {
@@ -153,14 +159,14 @@ impl Inferencer {
                     },
                 )?;
 
-                let children = vec![value_trace, unify_trace];
-                let tree = InferenceTree::new(
+                let expected_repr = self.maybe_string(|| self.format_type(&expected_type));
+                let tree = self.make_trace(
                     "T-Assign",
-                    env_str,
-                    stmt_repr,
-                    self.format_type(&expected_type),
-                )
-                .with_children(children);
+                    env_context.clone(),
+                    stmt_repr.clone(),
+                    expected_repr,
+                    || vec![value_trace, unify_trace],
+                );
 
                 Ok((
                     TypedStatement::Assignment {
@@ -203,13 +209,22 @@ impl Inferencer {
 
                 let typed_then_block = typed_then;
 
+                let unit_result = self.maybe_string(|| "()".to_string());
+                let tree = self.make_trace(
+                    "T-If",
+                    env_context.clone(),
+                    stmt_repr.clone(),
+                    unit_result,
+                    || children,
+                );
+
                 Ok((
                     TypedStatement::If {
                         condition: typed_condition,
                         then_branch: typed_then_block,
                         else_branch: typed_else_block,
                     },
-                    InferenceTree::new("T-If", env_str, stmt_repr, "()").with_children(children),
+                    tree,
                 ))
             }
             Statement::While { condition, body } => {
@@ -225,29 +240,42 @@ impl Inferencer {
                 let mut children = vec![cond_trace, bool_check];
                 children.extend(body_traces);
 
+                let unit_result = self.maybe_string(|| "()".to_string());
+                let tree = self.make_trace(
+                    "T-While",
+                    env_context.clone(),
+                    stmt_repr.clone(),
+                    unit_result,
+                    || children,
+                );
+
                 Ok((
                     TypedStatement::While {
                         condition: typed_condition,
                         body: typed_body,
                     },
-                    InferenceTree::new("T-While", env_str, stmt_repr, "()").with_children(children),
+                    tree,
                 ))
             }
             Statement::Block(block) => {
                 let (typed_block, block_traces) = self.infer_block(env, block)?;
-                Ok((
-                    TypedStatement::Block(typed_block),
-                    InferenceTree::new("T-Block", env_str, stmt_repr, "()")
-                        .with_children(block_traces),
-                ))
+                let unit_result = self.maybe_string(|| "()".to_string());
+                let tree = self.make_trace(
+                    "T-Block",
+                    env_context.clone(),
+                    stmt_repr.clone(),
+                    unit_result,
+                    || block_traces,
+                );
+                Ok((TypedStatement::Block(typed_block), tree))
             }
             Statement::Expression(expr) => {
                 let (typed_expr, expr_trace) = self.infer_expr(env, expr)?;
-                Ok((
-                    TypedStatement::Expression(typed_expr),
-                    InferenceTree::new("T-Expr", env_str, stmt_repr, "()")
-                        .with_children(vec![expr_trace]),
-                ))
+                let unit_result = self.maybe_string(|| "()".to_string());
+                let tree = self.make_trace("T-Expr", env_context, stmt_repr, unit_result, || {
+                    vec![expr_trace]
+                });
+                Ok((TypedStatement::Expression(typed_expr), tree))
             }
         }
     }
@@ -276,8 +304,8 @@ impl Inferencer {
         env: &mut TypeEnv,
         expr: &Spanned<Expr>,
     ) -> Result<(Spanned<TypedExpr>, InferenceTree), TypeError> {
-        let env_str = self.format_env(env);
-        let subject = self.format_expr_src(expr);
+        let env_context = self.maybe_string(|| self.format_env(env));
+        let subject_repr = self.maybe_string(|| self.format_expr_src(expr));
         match &expr.node {
             Expr::Literal(lit) => {
                 let (ty, kind, rule) = match lit {
@@ -293,7 +321,14 @@ impl Inferencer {
                     ),
                 };
                 let typed = Spanned::new(TypedExpr::new(ty.clone(), kind), expr.span);
-                let tree = InferenceTree::new(rule, env_str, subject, self.format_type(&ty));
+                let result_repr = self.maybe_string(|| self.format_type(&ty));
+                let tree = self.make_trace(
+                    rule,
+                    env_context.clone(),
+                    subject_repr.clone(),
+                    result_repr,
+                    Vec::new,
+                );
                 Ok((typed, tree))
             }
             Expr::Identifier(Identifier { name, span }) => {
@@ -312,7 +347,14 @@ impl Inferencer {
                     ),
                     expr.span,
                 );
-                let tree = InferenceTree::new("T-Var", env_str, subject, self.format_type(&ty));
+                let result_repr = self.maybe_string(|| self.format_type(&ty));
+                let tree = self.make_trace(
+                    "T-Var",
+                    env_context.clone(),
+                    subject_repr.clone(),
+                    result_repr,
+                    Vec::new,
+                );
                 Ok((typed, tree))
             }
             Expr::Unary { op, expr: inner } => {
@@ -358,9 +400,14 @@ impl Inferencer {
                     UnaryOp::Not => "T-Unary-Not",
                 };
 
-                let tree =
-                    InferenceTree::new(rule, env_str, subject, self.format_type(&typed.node.ty))
-                        .with_children(vec![inner_trace, check]);
+                let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
+                let tree = self.make_trace(
+                    rule,
+                    env_context.clone(),
+                    subject_repr.clone(),
+                    result_repr,
+                    || vec![inner_trace, check],
+                );
 
                 Ok((typed, tree))
             }
@@ -517,9 +564,14 @@ impl Inferencer {
                     BinaryOp::Or => "T-Bin-Or",
                 };
 
-                let tree =
-                    InferenceTree::new(rule, env_str, subject, self.format_type(&typed.node.ty))
-                        .with_children(children);
+                let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
+                let tree = self.make_trace(
+                    rule,
+                    env_context.clone(),
+                    subject_repr.clone(),
+                    result_repr,
+                    || children,
+                );
 
                 Ok((typed, tree))
             }
@@ -532,13 +584,11 @@ impl Inferencer {
                     ),
                     expr.span,
                 );
-                let tree = InferenceTree::new(
-                    "T-Group",
-                    env_str,
-                    subject,
-                    self.format_type(&typed.node.ty),
-                )
-                .with_children(vec![inner_trace]);
+                let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
+                let tree =
+                    self.make_trace("T-Group", env_context, subject_repr, result_repr, || {
+                        vec![inner_trace]
+                    });
                 Ok((typed, tree))
             }
         }
@@ -589,27 +639,25 @@ impl Inferencer {
         let right_ty = self.apply(&right.node.ty);
 
         if matches!(&left_ty, Type::Int) && matches!(&right_ty, Type::Int) {
-            Ok(InferenceTree::new(
-                "Check-Compare",
-                String::new(),
+            let subject = self.maybe_string(|| {
                 format!(
                     "{} vs {}",
                     self.format_type(&left_ty),
                     self.format_type(&right_ty)
-                ),
-                "ok (int)".to_string(),
-            ))
+                )
+            });
+            let result = self.maybe_string(|| "ok (int)".to_string());
+            Ok(self.make_trace("Check-Compare", None, subject, result, Vec::new))
         } else if matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool) {
-            Ok(InferenceTree::new(
-                "Check-Compare",
-                String::new(),
+            let subject = self.maybe_string(|| {
                 format!(
                     "{} vs {}",
                     self.format_type(&left_ty),
                     self.format_type(&right_ty)
-                ),
-                "ok (bool)".to_string(),
-            ))
+                )
+            });
+            let result = self.maybe_string(|| "ok (bool)".to_string());
+            Ok(self.make_trace("Check-Compare", None, subject, result, Vec::new))
         } else {
             Err(TypeError::new(
                 TypeErrorKind::BinaryOperandMismatch {
@@ -639,16 +687,15 @@ impl Inferencer {
         if (matches!(&left_ty, Type::Int) && matches!(&right_ty, Type::Int))
             || (matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool))
         {
-            Ok(InferenceTree::new(
-                "Check-Eq",
-                String::new(),
+            let subject = self.maybe_string(|| {
                 format!(
                     "{} vs {}",
                     self.format_type(&left_ty),
                     self.format_type(&right_ty)
-                ),
-                "ok".to_string(),
-            ))
+                )
+            });
+            let result = self.maybe_string(|| "ok".to_string());
+            Ok(self.make_trace("Check-Eq", None, subject, result, Vec::new))
         } else {
             Err(TypeError::new(
                 TypeErrorKind::BinaryOperandMismatch {
@@ -785,6 +832,39 @@ impl Inferencer {
             .unwrap_or_else(|_| format!("{:?}", expr.node))
     }
 
+    fn maybe_string<F>(&self, f: F) -> Option<String>
+    where
+        F: FnOnce() -> String,
+    {
+        if self.capture_traces { Some(f()) } else { None }
+    }
+
+    fn make_trace<C>(
+        &self,
+        rule: &str,
+        context: Option<String>,
+        subject: Option<String>,
+        result: Option<String>,
+        children: C,
+    ) -> InferenceTree
+    where
+        C: FnOnce() -> Vec<InferenceTree>,
+    {
+        if !self.capture_traces {
+            return InferenceTree::default();
+        }
+
+        let context = context.unwrap_or_default();
+        let subject = subject.unwrap_or_default();
+        let result = result.unwrap_or_default();
+        let mut tree = InferenceTree::new(rule, context, subject, result);
+        let kids = children();
+        if !kids.is_empty() {
+            tree = tree.with_children(kids);
+        }
+        tree
+    }
+
     /// Produce a span sized to the formatted expression, avoiding trailing whitespace.
     fn label_span_for_expr(&self, expr: &Spanned<Expr>) -> Span {
         let formatted = self.format_expr_src(expr);
@@ -825,8 +905,13 @@ impl Inferencer {
     ) -> Result<(Type, InferenceTree), TypeError> {
         let left = self.apply(&left);
         let right = self.apply(&right);
-        let subject = format!("{} ~ {}", self.format_type(&left), self.format_type(&right));
-        let before = self.subst.clone();
+        let subject = self
+            .maybe_string(|| format!("{} ~ {}", self.format_type(&left), self.format_type(&right)));
+        let before = if self.capture_traces {
+            Some(self.subst.clone())
+        } else {
+            None
+        };
 
         let (result_ty, children, rule) = match (left.clone(), right.clone()) {
             (Type::Int, Type::Int) => (Type::Int, Vec::new(), "Unify-Const"),
@@ -906,9 +991,12 @@ impl Inferencer {
             }
         };
 
-        let subst_str = self.format_subst_diff(&before);
-        let tree =
-            InferenceTree::new(rule, String::new(), subject, subst_str).with_children(children);
+        let result_repr = if let Some(before) = before.as_ref() {
+            self.maybe_string(|| self.format_subst_diff(before))
+        } else {
+            None
+        };
+        let tree = self.make_trace(rule, None, subject, result_repr, || children);
         Ok((result_ty, tree))
     }
 
