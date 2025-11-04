@@ -23,8 +23,7 @@ pub enum Statement {
         value: Spanned<Expr>,
     },
     If {
-        condition: Spanned<Expr>,
-        then_branch: Block,
+        branches: Vec<(Spanned<Expr>, Block)>,
         else_branch: Option<Block>,
     },
     While {

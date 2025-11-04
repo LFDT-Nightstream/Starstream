@@ -21,37 +21,41 @@ Program {
             },
         },
         If {
-            condition: Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "flag",
-                        span: Some(
-                            21..25,
+            branches: [
+                (
+                    Spanned {
+                        node: Identifier(
+                            Identifier {
+                                name: "flag",
+                                span: Some(
+                                    21..25,
+                                ),
+                            },
                         ),
+                        span: 21..25,
+                    },
+                    Block {
+                        statements: [
+                            VariableDeclaration {
+                                name: Identifier {
+                                    name: "answer",
+                                    span: Some(
+                                        33..39,
+                                    ),
+                                },
+                                value: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            42,
+                                        ),
+                                    ),
+                                    span: 42..44,
+                                },
+                            },
+                        ],
                     },
                 ),
-                span: 21..25,
-            },
-            then_branch: Block {
-                statements: [
-                    VariableDeclaration {
-                        name: Identifier {
-                            name: "answer",
-                            span: Some(
-                                33..39,
-                            ),
-                        },
-                        value: Spanned {
-                            node: Literal(
-                                Integer(
-                                    42,
-                                ),
-                            ),
-                            span: 42..44,
-                        },
-                    },
-                ],
-            },
+            ],
             else_branch: Some(
                 Block {
                     statements: [

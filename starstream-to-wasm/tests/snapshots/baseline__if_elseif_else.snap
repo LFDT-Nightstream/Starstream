@@ -1,0 +1,27 @@
+---
+source: starstream-to-wasm/tests/baseline.rs
+description: "Program { statements: [If { branches: [(Spanned { node: Literal(Boolean(false)), span: 0..0 }, Block { statements: [Expression(Spanned { node: Literal(Integer(1)), span: 0..0 })] }), (Spanned { node: Literal(Boolean(true)), span: 0..0 }, Block { statements: [Expression(Spanned { node: Literal(Integer(2)), span: 0..0 })] })], else_branch: Some(Block { statements: [Expression(Spanned { node: Literal(Integer(3)), span: 0..0 })] }) }] }"
+---
+(module
+  (type (;0;) (func))
+  (export "main" (func 0))
+  (func (;0;) (type 0)
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.eqz
+            (i32.const 0)))
+        (drop
+          (i64.const 1))
+        (br 1 (;@1;)))
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.eqz
+            (i32.const 1)))
+        (drop
+          (i64.const 2))
+        (br 1 (;@1;)))
+      (drop
+        (i64.const 3)))
+  )
+)

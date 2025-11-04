@@ -34,13 +34,18 @@ fn eval_block(block: &[Statement], locals: &Locals) -> Locals {
                 eval_block(&block.statements, &locals);
             }
             Statement::If {
-                condition,
-                then_branch,
+                branches,
                 else_branch,
             } => {
-                if eval(&condition.node, &locals).to_bool() {
-                    eval_block(&then_branch.statements, &locals);
-                } else if let Some(else_branch) = else_branch {
+                let mut else_ = true;
+                for (condition, block) in branches {
+                    if eval(&condition.node, &locals).to_bool() {
+                        eval_block(&block.statements, &locals);
+                        else_ = false;
+                        break;
+                    }
+                }
+                if else_ && let Some(else_branch) = else_branch {
                     eval_block(&else_branch.statements, &locals);
                 }
             }

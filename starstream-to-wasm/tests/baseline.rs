@@ -57,3 +57,34 @@ fn simple_while_loop() {
         ],
     });
 }
+
+#[test]
+fn if_elseif_else() {
+    assert_wat_snapshot!(&Program {
+        statements: vec![Statement::If {
+            branches: vec![
+                (
+                    Spanned::none(Expr::Literal(Literal::Boolean(false))),
+                    Block {
+                        statements: vec![Statement::Expression(Spanned::none(Expr::Literal(
+                            Literal::Integer(1)
+                        )))]
+                    },
+                ),
+                (
+                    Spanned::none(Expr::Literal(Literal::Boolean(true))),
+                    Block {
+                        statements: vec![Statement::Expression(Spanned::none(Expr::Literal(
+                            Literal::Integer(2)
+                        )))]
+                    },
+                ),
+            ],
+            else_branch: Some(Block {
+                statements: vec![Statement::Expression(Spanned::none(Expr::Literal(
+                    Literal::Integer(3)
+                )))]
+            })
+        }]
+    })
+}
