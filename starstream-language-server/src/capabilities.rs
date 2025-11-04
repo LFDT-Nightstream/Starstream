@@ -44,7 +44,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         signature_help_provider: None,
 
         // The server provides goto definition support.
-        definition_provider: None,
+        definition_provider: Some(OneOf::Left(true)),
 
         // The server provides goto type definition support.
         type_definition_provider: None,

@@ -1,9 +1,9 @@
 //! State tracking for an open text document.
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use ropey::Rope;
 use tower_lsp_server::lsp_types::{
-    Hover, HoverContents, MarkupContent, MarkupKind, Position, Range, Uri,
+    Hover, HoverContents, Location, MarkupContent, MarkupKind, Position, Range, Uri,
 };
 
 use starstream_compiler::{
@@ -30,6 +30,7 @@ pub struct DocumentState {
     typed: Option<TypecheckSuccess>,
     diagnostics: Vec<tower_lsp_server::lsp_types::Diagnostic>,
     hover_entries: Vec<HoverEntry>,
+    definition_entries: Vec<DefinitionEntry>,
 }
 
 impl DocumentState {
@@ -42,6 +43,7 @@ impl DocumentState {
             typed: None,
             diagnostics: Vec::new(),
             hover_entries: Vec::new(),
+            definition_entries: Vec::new(),
         };
 
         state.reanalyse(uri, text);
@@ -87,6 +89,7 @@ impl DocumentState {
         self.program = None;
         self.typed = None;
         self.hover_entries.clear();
+        self.definition_entries.clear();
 
         let parse_output = parse_program(text);
 
@@ -100,7 +103,7 @@ impl DocumentState {
         if let Some(program) = self.program.as_ref() {
             match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                 Ok(typed) => {
-                    self.build_hover_entries(&typed.program);
+                    self.build_indexes(&typed.program);
                     self.typed = Some(typed);
                 }
                 Err(type_errors) => {
@@ -153,23 +156,57 @@ impl DocumentState {
         })
     }
 
-    fn build_hover_entries(&mut self, program: &TypedProgram) {
+    /// Resolve go-to-definition for the given position.
+    pub fn goto_definition(&self, uri: &Uri, position: Position) -> Option<Location> {
+        let offset = self.position_to_offset(position)?;
+        let entry = self
+            .definition_entries
+            .iter()
+            .filter(|entry| entry.contains(offset))
+            .min_by_key(|entry| (entry.len(), entry.usage.start))?;
+
+        let range = self.span_to_range(entry.target);
+
+        Some(Location {
+            uri: uri.clone(),
+            range,
+        })
+    }
+
+    fn build_indexes(&mut self, program: &TypedProgram) {
         self.hover_entries.clear();
+        self.definition_entries.clear();
+
+        let mut scopes: Vec<HashMap<String, Span>> = vec![HashMap::new()];
         for statement in &program.statements {
-            self.collect_statement(statement);
+            self.collect_statement(statement, &mut scopes);
         }
     }
 
-    fn collect_statement(&mut self, statement: &TypedStatement) {
+    fn collect_statement(
+        &mut self,
+        statement: &TypedStatement,
+        scopes: &mut Vec<HashMap<String, Span>>,
+    ) {
         match statement {
             TypedStatement::VariableDeclaration { name, value } => {
-                self.collect_expr(value);
+                self.collect_expr(value, scopes);
+                if let Some(span) = name.span {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: span,
+                        target: span,
+                    });
+                    if let Some(scope) = scopes.last_mut() {
+                        scope.insert(name.name.clone(), span);
+                    }
+                }
                 if let Some(span) = name.span {
                     self.add_hover_span(span, &value.node.ty);
                 }
             }
             TypedStatement::Assignment { target, value } => {
-                self.collect_expr(value);
+                self.collect_expr(value, scopes);
+                self.add_usage(target.span, &target.name, scopes);
                 if let Some(span) = target.span {
                     self.add_hover_span(span, &value.node.ty);
                 }
@@ -179,38 +216,44 @@ impl DocumentState {
                 then_branch,
                 else_branch,
             } => {
-                self.collect_expr(condition);
-                self.collect_block(then_branch);
+                self.collect_expr(condition, scopes);
+                self.collect_block(then_branch, scopes);
                 if let Some(block) = else_branch {
-                    self.collect_block(block);
+                    self.collect_block(block, scopes);
                 }
             }
             TypedStatement::While { condition, body } => {
-                self.collect_expr(condition);
-                self.collect_block(body);
+                self.collect_expr(condition, scopes);
+                self.collect_block(body, scopes);
             }
-            TypedStatement::Block(block) => self.collect_block(block),
-            TypedStatement::Expression(expr) => self.collect_expr(expr),
+            TypedStatement::Block(block) => self.collect_block(block, scopes),
+            TypedStatement::Expression(expr) => self.collect_expr(expr, scopes),
         }
     }
 
-    fn collect_block(&mut self, block: &TypedBlock) {
+    fn collect_block(&mut self, block: &TypedBlock, scopes: &mut Vec<HashMap<String, Span>>) {
+        scopes.push(HashMap::new());
         for statement in &block.statements {
-            self.collect_statement(statement);
+            self.collect_statement(statement, scopes);
         }
+        scopes.pop();
     }
 
-    fn collect_expr(&mut self, expr: &Spanned<TypedExpr>) {
+    fn collect_expr(&mut self, expr: &Spanned<TypedExpr>, scopes: &mut Vec<HashMap<String, Span>>) {
         self.add_hover_span(expr.span, &expr.node.ty);
 
         match &expr.node.kind {
-            TypedExprKind::Unary { expr: inner, .. } => self.collect_expr(inner),
-            TypedExprKind::Binary { left, right, .. } => {
-                self.collect_expr(left);
-                self.collect_expr(right);
+            TypedExprKind::Identifier(identifier) => {
+                let usage_span = identifier.span.unwrap_or(expr.span);
+                self.add_usage(Some(usage_span), &identifier.name, scopes);
             }
-            TypedExprKind::Grouping(inner) => self.collect_expr(inner),
-            TypedExprKind::Literal(_) | TypedExprKind::Identifier(_) => {}
+            TypedExprKind::Unary { expr: inner, .. } => self.collect_expr(inner, scopes),
+            TypedExprKind::Binary { left, right, .. } => {
+                self.collect_expr(left, scopes);
+                self.collect_expr(right, scopes);
+            }
+            TypedExprKind::Grouping(inner) => self.collect_expr(inner, scopes),
+            TypedExprKind::Literal(_) => {}
         }
     }
 
@@ -223,6 +266,25 @@ impl DocumentState {
             span,
             label: ty.to_string(),
         });
+    }
+
+    fn add_usage(&mut self, span: Option<Span>, name: &str, scopes: &[HashMap<String, Span>]) {
+        let Some(usage_span) = span else { return };
+        if let Some(target_span) = self.lookup_definition(name, scopes) {
+            self.definition_entries.push(DefinitionEntry {
+                usage: usage_span,
+                target: target_span,
+            });
+        }
+    }
+
+    fn lookup_definition(&self, name: &str, scopes: &[HashMap<String, Span>]) -> Option<Span> {
+        for scope in scopes.iter().rev() {
+            if let Some(span) = scope.get(name) {
+                return Some(*span);
+            }
+        }
+        None
     }
 
     fn span_to_range(&self, span: Span) -> Range {
@@ -276,5 +338,21 @@ impl HoverEntry {
 
     fn len(&self) -> usize {
         self.span.end.saturating_sub(self.span.start)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DefinitionEntry {
+    usage: Span,
+    target: Span,
+}
+
+impl DefinitionEntry {
+    fn contains(&self, offset: usize) -> bool {
+        self.usage.start <= offset && offset < self.usage.end
+    }
+
+    fn len(&self) -> usize {
+        self.usage.end.saturating_sub(self.usage.start)
     }
 }

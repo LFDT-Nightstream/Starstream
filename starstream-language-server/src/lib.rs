@@ -192,6 +192,35 @@ impl LanguageServer for Server {
         }
     }
 
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let GotoDefinitionParams {
+            text_document_position_params,
+            ..
+        } = params;
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = text_document_position_params;
+        let uri = text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("GotoDefinition request: {}", uri.as_str()),
+            )
+            .await;
+
+        let location = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.goto_definition(&uri, position));
+
+        Ok(location.map(GotoDefinitionResponse::Scalar))
+    }
+
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let HoverParams {
             text_document_position_params,
