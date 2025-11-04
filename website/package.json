@@ -7,7 +7,7 @@
     "start": "docusaurus start",
     "build": "npm run build-vsix && npm run build-sandbox && docusaurus build",
     "build-vsix": "cd ../vscode-starstream && npm i && npx vsce package -o starstream.vsix",
-    "build-sandbox": "cargo build -p starstream-sandbox-web --target wasm32-unknown-unknown --release",
+    "build-sandbox": "cargo build -p starstream-sandbox-web --target wasm32-unknown-unknown --release && wasm-opt -O3 ../target/wasm32-unknown-unknown/release/starstream_sandbox_web.wasm -o starstream_sandbox_web.wasm",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",

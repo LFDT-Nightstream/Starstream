@@ -1,4 +1,4 @@
-import starstreamSandboxWasm from "file-loader!../../target/wasm32-unknown-unknown/release/starstream_sandbox_web.wasm";
+import starstreamSandboxWasm from "file-loader!../starstream_sandbox_web.wasm";
 import { encode } from "cbor2";
 
 export interface SandboxWorkerRequest {
