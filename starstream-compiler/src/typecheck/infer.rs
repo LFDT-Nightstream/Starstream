@@ -710,6 +710,7 @@ impl Inferencer {
         }
     }
 
+    /// Fully normalize a type by applying the current substitution set.
     fn apply(&self, ty: &Type) -> Type {
         match ty {
             Type::Var(id) => match self.subst.get(id) {
@@ -727,12 +728,14 @@ impl Inferencer {
         }
     }
 
+    /// Rewrite every statement in the program with normalized types.
     fn apply_substitutions_program(&self, program: &mut TypedProgram) {
         for statement in &mut program.statements {
             self.apply_statement(statement);
         }
     }
 
+    /// Visit a single statement and normalize any embedded type annotations.
     fn apply_statement(&self, statement: &mut TypedStatement) {
         match statement {
             TypedStatement::VariableDeclaration { value, .. } => {
@@ -761,12 +764,14 @@ impl Inferencer {
         }
     }
 
+    /// Visit each statement inside a block and normalize its annotations.
     fn apply_block(&self, block: &mut TypedBlock) {
         for statement in &mut block.statements {
             self.apply_statement(statement);
         }
     }
 
+    /// Normalize the type attached to an expression and recursively visit its children.
     fn apply_expr(&self, expr: &mut Spanned<TypedExpr>) {
         expr.node.ty = self.apply(&expr.node.ty);
         match &mut expr.node.kind {
@@ -780,6 +785,7 @@ impl Inferencer {
         }
     }
 
+    /// Quantify over all type variables that are free in `ty` but not in the environment.
     fn generalize(&self, env: &TypeEnv, ty: &Type) -> Scheme {
         let applied = self.apply(ty);
         let mut ty_free = free_type_vars_type(&applied);
@@ -790,6 +796,7 @@ impl Inferencer {
         Scheme { vars, ty: applied }
     }
 
+    /// Replace every quantified variable in `scheme` with a fresh type variable.
     fn instantiate(&mut self, scheme: &Scheme) -> Type {
         let mut mapping = HashMap::new();
         for var in &scheme.vars {
@@ -798,6 +805,7 @@ impl Inferencer {
         substitute_type(&scheme.ty, &mapping)
     }
 
+    /// Allocate a new inference variable unique to this inferencer.
     fn fresh_var(&mut self) -> Type {
         let id = TypeVarId(self.next_type_var);
         self.next_type_var += 1;
@@ -832,6 +840,7 @@ impl Inferencer {
             .unwrap_or_else(|_| format!("{:?}", expr.node))
     }
 
+    /// Compute a string lazily, only when capture_traces is enabled.
     fn maybe_string<F>(&self, f: F) -> Option<String>
     where
         F: FnOnce() -> String,
@@ -839,6 +848,7 @@ impl Inferencer {
         if self.capture_traces { Some(f()) } else { None }
     }
 
+    /// Assemble an inference tree node when tracing is active; otherwise return the default node.
     fn make_trace<C>(
         &self,
         rule: &str,
@@ -1022,6 +1032,7 @@ impl Inferencer {
     }
 }
 
+/// Recursively replace any variables mentioned in `mapping` within `ty`.
 fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or(Type::Var(*id)),
@@ -1044,6 +1055,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     }
 }
 
+/// Return `true` if `var` appears anywhere inside `ty`, expanding substitutions as needed.
 fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> bool {
     match ty {
         Type::Var(id) => {
@@ -1064,12 +1076,14 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
     }
 }
 
+/// Collect all free type variables present in `ty`.
 pub(crate) fn free_type_vars_type(ty: &Type) -> HashSet<TypeVarId> {
     let mut set = HashSet::new();
     collect_free_type_vars(ty, &mut set);
     set
 }
 
+/// Helper for `free_type_vars_type` that walks the type tree.
 fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
     match ty {
         Type::Var(id) => {
