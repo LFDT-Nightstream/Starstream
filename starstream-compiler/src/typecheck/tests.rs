@@ -1,6 +1,6 @@
 use super::{TypecheckOptions, typecheck_program};
 use indoc::indoc;
-use miette::{GraphicalReportHandler, NamedSource, Report};
+use miette::{GraphicalReportHandler, GraphicalTheme, NamedSource, Report};
 
 /// Parse the provided snippet, run type-checking, and snapshot the rendered
 /// diagnostics or inference trees for regression testing.
@@ -85,7 +85,7 @@ fn arithmetic_program() {
 /// Render a `miette` report into a trimmed string for inclusion in snapshots.
 fn render_report(report: &Report) -> miette::Result<String> {
     let mut rendered = String::new();
-    GraphicalReportHandler::new()
+    GraphicalReportHandler::new_themed(GraphicalTheme::none())
         .render_report(&mut rendered, report.as_ref())
         .map_err(|err| miette::miette!("failed to render diagnostic: {err}"))?;
     Ok(rendered.trim_end_matches('\n').to_string())
