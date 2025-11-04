@@ -1,7 +1,7 @@
 use std::fmt;
 
 /// Rich inference trace node capturing the rule name, typing environment (when
-/// relevant), the term being analysed, the result, and any nested steps.
+/// relevant), the term being analyzed, the result, and any nested steps.
 #[derive(Clone, Debug, Default)]
 pub struct InferenceTree {
     pub rule: String,

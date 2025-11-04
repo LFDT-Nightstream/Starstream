@@ -15,7 +15,7 @@ We introduced a Hindley–Milner-style inference engine that:
 
 ```mermaid
 graph TD
-    A[Parse Source<br/>(parser::parse_program)] --> B(Typechecking::infer_program)
+    A[Parse Source<br/>(parser::parse_program)] --> B(typecheck::typecheck_program)
     B -->|TypedProgram| C[Typed AST Consumers<br/>(Wasm, Interpreter, LSP)]
     B -->|InferenceTree| D[Snapshots & Debug Output]
     B -->|TypeError (miette)| E[CLI Diagnostics]
@@ -85,4 +85,3 @@ graph LR
 
 6. **Documentation & Guides**  
    Expand this README with detailed examples or walkthroughs for contributors.
-

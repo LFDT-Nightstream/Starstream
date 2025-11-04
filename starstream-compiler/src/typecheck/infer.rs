@@ -15,7 +15,7 @@ use super::{
 };
 use crate::formatter;
 
-/// Optional settings that control type-checker behaviour.
+/// Optional settings that control type-checker behavior.
 #[derive(Clone, Debug, Default)]
 pub struct TypecheckOptions {
     pub capture_traces: bool,
