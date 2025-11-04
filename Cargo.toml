@@ -9,7 +9,7 @@ members = [
   "starstream-to-wasm",
   "starstream-types",
 ]
-exclude = ["old", "polarity", "typechecker-zoo"]
+exclude = ["old"]
 
 [workspace.package]
 version = "0.0.0"
