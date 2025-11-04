@@ -23,10 +23,10 @@ Components:
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
   - [x] run LSP with `cargo run`
   - [x] compile & use wasm LSP
-- [ ] web sandbox - @SpaceManiac
+- [x] web sandbox - @SpaceManiac
   - [x] basic editor
   - [x] highlighting and LSP via VSC web ext
-  - [ ] compile to Wasm and show disassembly
+  - [x] compile to Wasm and show disassembly
   - [ ] when language has some form of print(), run reference interpreter
   - [ ] when Wasm ABI is known enough, run Wasm module
 - [x] zed extension - @rvcas dogfooding
