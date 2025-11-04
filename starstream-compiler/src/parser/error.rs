@@ -14,11 +14,10 @@ pub struct ParseError {
 
 impl ParseError {
     pub fn from_rich(error: Rich<'_, char>) -> Self {
-        let owned = error.into_owned();
-        let message = owned.to_string();
-        let span = *owned.span();
+        let message = error.to_string();
+        let span = *error.span();
 
-        let label = match owned.reason() {
+        let label = match error.reason() {
             RichReason::Custom(msg) => Some(msg.to_string()),
             RichReason::ExpectedFound { found, .. } => Some(match found {
                 Some(found) => format!("found `{found:?}`"),
@@ -27,7 +26,7 @@ impl ParseError {
         };
 
         let mut expected_items = Vec::new();
-        for expected in owned.expected() {
+        for expected in error.expected() {
             let text = expected.to_string();
             if !text.is_empty() {
                 expected_items.push(text);
