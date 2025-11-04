@@ -17,33 +17,20 @@ impl ParseError {
         let message = error.to_string();
         let span = *error.span();
 
-        let label = match error.reason() {
-            RichReason::Custom(msg) => Some(msg.to_string()),
-            RichReason::ExpectedFound { found, .. } => Some(match found {
-                Some(found) => format!("found `{found:?}`"),
+        let label = match error.into_reason() {
+            RichReason::Custom(msg) => msg,
+            RichReason::ExpectedFound { found, .. } => match found {
+                Some(found) => format!("found {found:?}"),
                 None => "found end of input".to_string(),
-            }),
-        };
-
-        let mut expected_items = Vec::new();
-        for expected in error.expected() {
-            let text = expected.to_string();
-            if !text.is_empty() {
-                expected_items.push(text);
-            }
-        }
-
-        let help = if expected_items.is_empty() {
-            None
-        } else {
-            Some(format!("expected {}", expected_items.join(", ")))
+            },
         };
 
         Self {
             message,
-            label,
+            label: Some(label),
             span,
-            help,
+            // Could put "expected ..." into `help` but it's redundant with the message from to_string().
+            help: None,
         }
     }
 
