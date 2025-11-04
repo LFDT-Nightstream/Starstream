@@ -1,9 +1,15 @@
 //! Tree-walking interpreter for the Starstream DSL.
-#![allow(dead_code, unused)]
 
-use std::{cell::Cell, collections::BTreeMap, ops::*, rc::Rc};
+use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
+use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
-use starstream_types::ast::*;
+use starstream_types::{
+    BinaryOp, Identifier, Literal, TypedExpr, TypedExprKind as Expr, TypedProgram as Program,
+    TypedStatement as Statement, UnaryOp,
+};
+
+#[cfg(test)]
+use starstream_types::{Spanned, Type};
 
 // ----------------------------------------------------------------------------
 // Tree walker
@@ -55,8 +61,8 @@ fn eval_block(block: &[Statement], locals: &Locals) -> Locals {
 }
 
 /// Evaluate an expression.
-pub fn eval(expr: &Expr, locals: &Locals) -> Value {
-    match expr {
+pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
+    match &expr.kind {
         // Identifiers
         Expr::Identifier(Identifier { name, .. }) => locals.get(name),
         // Literals
@@ -167,11 +173,20 @@ pub fn eval(expr: &Expr, locals: &Locals) -> Value {
 fn eval_math() {
     assert_eq!(
         eval(
-            &Expr::Binary {
-                op: BinaryOp::Add,
-                left: Box::new(Spanned::none(Expr::Literal(Literal::Integer(17)))),
-                right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(33)))),
-            },
+            &TypedExpr::new(
+                Type::Int,
+                Expr::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Spanned::none(TypedExpr::new(
+                        Type::Int,
+                        Expr::Literal(Literal::Integer(17))
+                    ))),
+                    right: Box::new(Spanned::none(TypedExpr::new(
+                        Type::Int,
+                        Expr::Literal(Literal::Integer(33))
+                    ))),
+                },
+            ),
             &Default::default()
         ),
         Value::Number(50)
@@ -184,17 +199,27 @@ fn eval_locals() {
         &[
             Statement::VariableDeclaration {
                 name: Identifier::new("foo", None),
-                value: Spanned::none(Expr::Literal(Literal::Integer(6))),
+                value: Spanned::none(TypedExpr::new(
+                    Type::Int,
+                    Expr::Literal(Literal::Integer(6)),
+                )),
             },
             Statement::Assignment {
                 target: Identifier::new("foo", None),
-                value: Spanned::none(Expr::Binary {
-                    op: BinaryOp::Multiply,
-                    left: Box::new(Spanned::none(Expr::Identifier(Identifier::new(
-                        "foo", None,
-                    )))),
-                    right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(3)))),
-                }),
+                value: Spanned::none(TypedExpr::new(
+                    Type::Int,
+                    Expr::Binary {
+                        op: BinaryOp::Multiply,
+                        left: Box::new(Spanned::none(TypedExpr::new(
+                            Type::Int,
+                            Expr::Identifier(Identifier::new("foo", None)),
+                        ))),
+                        right: Box::new(Spanned::none(TypedExpr::new(
+                            Type::Int,
+                            Expr::Literal(Literal::Integer(3)),
+                        ))),
+                    },
+                )),
             },
         ],
         &Default::default(),
@@ -319,7 +344,7 @@ impl Neg for Value {
     type Output = Value;
 
     fn neg(self) -> Self::Output {
-        match (self) {
+        match self {
             Value::Number(lhs) => Value::Number(-lhs),
             lhs => panic!("bad: -{lhs:?}"),
         }
@@ -330,7 +355,7 @@ impl Not for Value {
     type Output = Value;
 
     fn not(self) -> Self::Output {
-        match (self) {
+        match self {
             Value::Boolean(lhs) => Value::Boolean(!lhs),
             lhs => panic!("bad: !{lhs:?}"),
         }
