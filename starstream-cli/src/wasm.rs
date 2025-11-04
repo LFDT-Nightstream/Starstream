@@ -22,28 +22,26 @@ impl Wasm {
         let named = NamedSource::new(self.compile_file.display().to_string(), source_text.clone());
 
         let parse_output = starstream_compiler::parse_program(&source_text);
-        if !parse_output.errors().is_empty() {
-            for error in parse_output.errors().iter().cloned() {
-                print_diagnostic(named.clone(), error)?;
-            }
+        for error in parse_output.errors().iter().cloned() {
+            print_diagnostic(named.clone(), error)?;
         }
 
         let Some(program) = parse_output.into_program() else {
             std::process::exit(1);
         };
 
-        if let Err(errors) = starstream_compiler::typecheck::typecheck_program(
-            &program,
-            starstream_compiler::typecheck::TypecheckOptions::default(),
-        ) {
-            for error in errors {
-                print_diagnostic(named.clone(), error)?;
+        let typed = match starstream_compiler::typecheck_program(&program, Default::default()) {
+            Ok(program) => program,
+            Err(errors) => {
+                for error in errors {
+                    print_diagnostic(named.clone(), error)?;
+                }
+                std::process::exit(1);
             }
-            std::process::exit(1);
-        }
+        };
 
         // Wasm
-        let (wasm, errors) = starstream_to_wasm::compile(&program);
+        let (wasm, errors) = starstream_to_wasm::compile(&typed.program);
         for error in errors {
             eprintln!("{}", error);
         }
