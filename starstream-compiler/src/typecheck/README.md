@@ -68,20 +68,37 @@ graph LR
 
 ## Next Steps
 
-1. **Trace Coverage**  
+1. **Trace Coverage**
    Extend tracing to unification cases inside tuples/functions with context-specific labels.
 
-2. **Performance & Memory**  
+2. **Performance & Memory**
    Optionally box large `TypeError` payloads to appease clippy without global allows.
 
-3. **LSP Integration**  
+3. **LSP Integration**
    Surface type diagnostics and inference hints via the language server.
 
-4. **Linear Types & Resources**  
+4. **Linear Types & Resources**
    Use the trace infrastructure to experiment with resource tracking (UTXO/linear usage) on top of HM.
 
-5. **User-Facing Commands**  
+5. **Constraint Categories**
+   Migrate from immediate unification to a two-phase pipeline (constraint collection + solving) so we can retain multiple diagnostics per pass and attach “categories” for future features (numeric constraints, traits, linear usage, etc.). Recommended references:
+   - Elm compiler’s constraint builder and solver: `elm-compiler/compiler/src/Type/Constrain/Module.hs`
+   - “Typing Haskell in Haskell” (Mark Jones), especially the constraint-based presentation of Algorithm W.
+   - “Practical type inference for arbitrary-rank types” (Peyton Jones & Shields) for ideas on obligation tracking.
+     Suggested approach:
+   - Augment the existing expression walker so it emits constraint records (value, environment snapshot, category hint, span, and diagnostic builder).
+   - Introduce a constraint store keyed by expression IDs; the solver runs separately, updating a substitution map but never mutating the AST, allowing us to continue after failures.
+   - Classification hooks: start with `Standard`, `Numeric`, `Boolean`, `Linear`, `Trait` buckets to let future solvers handle each domain independently.
+   - Gate the new pipeline behind `TypecheckOptions`, keeping today’s fail-fast mode available until the constraint solver is battle-tested.
+
+6. **Canonicalization**
+   Reintroduce a canonicalization pass (Elm’s `Canonicalize.Module`) before type inference once we have modules/imports. The canonicalizer resolves identifiers, qualifiers, and pattern-bound names into unique, globally-traceable IDs, making later passes deterministic and friendlier to IDE tooling.
+   - Elm reference: `elm-compiler/compiler/src/Canonicalize/Module.hs`
+   - Useful reading: “Compiling with continuations, continued” (Flanagan et al.) for environment normalization patterns.
+   - Suggested roadmap: build a `canonicalize` crate that walks `ast::Program`, normalizes bindings, annotates nodes with fully-qualified names (module + symbol), and records alias information. Type inference would then operate over canonical names, while the original AST stays available for formatting/pretty printing.
+
+7. **User-Facing Commands**
    Consider adding a `--trace` flag to CLI (`starstream check`) to print the inference tree interactively.
 
-6. **Documentation & Guides**  
+8. **Documentation & Guides**
    Expand this README with detailed examples or walkthroughs for contributors.
