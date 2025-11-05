@@ -34,6 +34,10 @@ impl ParseOutput {
     pub fn has_errors(&self) -> bool {
         !self.errors.is_empty()
     }
+
+    pub fn into_output_errors(self) -> (Option<Program>, Vec<ParseError>) {
+        (self.program, self.errors)
+    }
 }
 
 pub fn parse_program(source: &str) -> ParseOutput {
