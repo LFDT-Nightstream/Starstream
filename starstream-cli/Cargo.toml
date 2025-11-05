@@ -12,12 +12,11 @@ name = "starstream"
 path = "src/main.rs"
 
 [dependencies]
-ariadne = { workspace = true }
 async-std = "1.13.2"
 clap = { version = "4.5.32", features = ["derive"] }
 console = "0.16.0"
 ignore = "0.4.24"
-miette.workspace = true
+miette = { workspace = true, features = ["fancy"] }
 similar = "2.7.0"
 starstream-compiler = { workspace = true }
 starstream-language-server = { workspace = true }

@@ -64,13 +64,13 @@ pub enum Literal {
     Boolean(bool),
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
 pub enum UnaryOp {
     Negate,
     Not,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
 pub enum BinaryOp {
     Multiply,
     Divide,
@@ -114,6 +114,14 @@ pub struct Spanned<T> {
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
         Self { node, span }
+    }
+
+    /// Map the contained value while keeping the original span.
+    pub fn map<U>(self, map: impl FnOnce(T) -> U) -> Spanned<U> {
+        Spanned {
+            node: map(self.node),
+            span: self.span,
+        }
     }
 
     pub fn none(node: T) -> Spanned<T> {

@@ -241,9 +241,13 @@ mod tests {
     use indoc::indoc;
 
     fn formatted(code: &str) -> String {
-        let ast = parser::parse_program(code)
-            .into_result()
-            .expect("program should parse");
+        let parse_output = parser::parse_program(code);
+        assert!(
+            parse_output.errors().is_empty(),
+            "program should parse without errors"
+        );
+
+        let ast = parse_output.into_program().expect("program should parse");
 
         super::program(&ast).expect("formatting succeeds")
     }

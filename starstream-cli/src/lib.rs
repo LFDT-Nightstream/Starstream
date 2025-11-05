@@ -1,11 +1,14 @@
 //! Starstream CLI parser and executor as a library.
 use clap::Parser;
 
+mod check;
+mod diagnostics;
 mod format;
 mod lsp;
 mod style;
 mod wasm;
 
+pub use check::Check;
 pub use format::Format;
 pub use lsp::Lsp;
 pub use wasm::Wasm;
@@ -16,6 +19,7 @@ pub enum Command {
     Wasm(Wasm),
     #[clap(visible_alias("fmt"))]
     Format(Format),
+    Check(Check),
     #[clap(hide = true)]
     Lsp(Lsp),
 }
@@ -34,6 +38,7 @@ impl Cli {
         match self.cmd {
             Command::Wasm(w) => w.exec(),
             Command::Format(f) => f.exec(),
+            Command::Check(c) => c.exec(),
             Command::Lsp(l) => l.exec(),
         }
     }

@@ -1,0 +1,7 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+assertion_line: 71
+description: "Source:\n\nlet answer = 42;\n"
+---
+T-Let: {} ⊢ let answer = 42; ⇒ i64
+  T-Int: {} ⊢ 42 ⇒ i64

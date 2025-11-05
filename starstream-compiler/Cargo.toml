@@ -9,10 +9,11 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-ariadne = { workspace = true }
 chumsky = { workspace = true, features = ["pratt"] }
+miette = { workspace = true, features = ["fancy"] }
 pretty = "0.12.5"
 starstream-types = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 indoc = { workspace = true }

@@ -1,9 +1,11 @@
 mod capabilities;
+mod diagnostics;
+mod document;
 
 use capabilities::capabilities;
+use document::DocumentState;
 
-use dashmap::DashMap;
-use ropey::Rope;
+use dashmap::{DashMap, mapref::entry::Entry};
 use tower_lsp_server::{
     Client, ClientSocket, LanguageServer, LspService,
     jsonrpc::{self, Error, Result},
@@ -19,7 +21,7 @@ pub struct Server {
 
     // /// store the list of the workspace folders
     // pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
-    document_map: DashMap<String, Rope>,
+    document_map: DashMap<Uri, DocumentState>,
 }
 
 struct TextDocumentItem<'a> {
@@ -60,9 +62,26 @@ impl Server {
     }
 
     async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
-        let rope = ropey::Rope::from_str(params.text);
+        let uri = params.uri.clone();
+        let (diagnostics, version) = match self.document_map.entry(uri.clone()) {
+            Entry::Occupied(mut occupied) => {
+                occupied.get_mut().update(&uri, params.text, params.version);
+                let diagnostics = occupied.get().diagnostics().to_vec();
+                let version = occupied.get().version();
+                (diagnostics, version)
+            }
+            Entry::Vacant(vacant) => {
+                let state = DocumentState::from_text(&uri, params.text, params.version);
+                let diagnostics = state.diagnostics().to_vec();
+                let version = state.version();
+                vacant.insert(state);
+                (diagnostics, version)
+            }
+        };
 
-        self.document_map.insert(params.uri.to_string(), rope);
+        self.client
+            .publish_diagnostics(uri, diagnostics, version)
+            .await;
     }
 }
 
@@ -99,33 +118,41 @@ impl LanguageServer for Server {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let DidOpenTextDocumentParams { text_document } = params;
+        let uri = text_document.uri;
+        let version = text_document.version;
+        let text = text_document.text;
+
         self.client
-            .log_message(
-                MessageType::INFO,
-                format!("Opened file: {}", params.text_document.uri.as_str()),
-            )
+            .log_message(MessageType::INFO, format!("Opened file: {}", uri.as_str()))
             .await;
 
         self.on_change(TextDocumentItem {
-            uri: params.text_document.uri,
-            text: &params.text_document.text,
-            version: Some(params.text_document.version),
+            uri,
+            text: text.as_str(),
+            version: Some(version),
         })
         .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let DidChangeTextDocumentParams {
+            text_document,
+            content_changes,
+        } = params;
+        let uri = text_document.uri;
+        let version = text_document.version;
+        let mut changes = content_changes.into_iter();
+        let text = changes.next().map(|change| change.text).unwrap_or_default();
+
         self.client
-            .log_message(
-                MessageType::INFO,
-                format!("Changed file: {}", params.text_document.uri.as_str()),
-            )
+            .log_message(MessageType::INFO, format!("Changed file: {}", uri.as_str()))
             .await;
 
         self.on_change(TextDocumentItem {
-            text: &params.content_changes[0].text,
-            uri: params.text_document.uri,
-            version: Some(params.text_document.version),
+            uri,
+            text: text.as_str(),
+            version: Some(version),
         })
         .await
     }
@@ -139,9 +166,10 @@ impl LanguageServer for Server {
             .await;
 
         if let Some(text) = params.text {
+            let uri = params.text_document.uri;
             let item = TextDocumentItem {
-                uri: params.text_document.uri,
-                text: &text,
+                uri,
+                text: text.as_str(),
                 version: None,
             };
 
@@ -159,7 +187,64 @@ impl LanguageServer for Server {
             )
             .await;
 
-        _ = self.document_map.remove(params.text_document.uri.as_str())
+        if let Some((uri, _)) = self.document_map.remove(&params.text_document.uri) {
+            self.client.publish_diagnostics(uri, Vec::new(), None).await;
+        }
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let GotoDefinitionParams {
+            text_document_position_params,
+            ..
+        } = params;
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = text_document_position_params;
+        let uri = text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("GotoDefinition request: {}", uri.as_str()),
+            )
+            .await;
+
+        let location = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.goto_definition(&uri, position));
+
+        Ok(location.map(GotoDefinitionResponse::Scalar))
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let HoverParams {
+            text_document_position_params,
+            ..
+        } = params;
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = text_document_position_params;
+        let uri = text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Hover request: {}", uri.as_str()),
+            )
+            .await;
+
+        let hover = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.hover(position));
+
+        Ok(hover)
     }
 
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
@@ -172,38 +257,24 @@ impl LanguageServer for Server {
             )
             .await;
 
-        let Some(document) = self.document_map.get(text_document.uri.as_str()) else {
+        let Some(document) = self.document_map.get(&text_document.uri) else {
             return Ok(None);
         };
+        let formatted = document.format();
+        drop(document);
 
-        let document_string = document.to_string();
-        let parse_result = starstream_compiler::parse_program(&document_string);
+        let Ok(Some(new_text)) = formatted else {
+            if formatted.is_err() {
+                self.client
+                    .log_message(MessageType::ERROR, "failed to format file")
+                    .await;
 
-        for _error in parse_result.errors() {
-            // todo: report parse errors, the thing is,
-            //       we will likely keep a map of
-            //       text_document.uri => Program
-            //
-            //       this means in here, instead of looking up the string
-            //       we will lookup the raw ast instead of parsing in here
-            //       so really we will want to surface parse errors to the editor
-            //       at a different location in this code.
-        }
+                let mut error = Error::internal_error();
+                error.message = "failed to format file".into();
+                return Err(error);
+            }
 
-        let Some(program) = parse_result.into_output() else {
-            std::process::exit(1)
-        };
-
-        let Ok(new_text) = starstream_compiler::formatter::program(&program) else {
-            self.client
-                .log_message(MessageType::ERROR, "failed to format file")
-                .await;
-
-            let mut error = Error::internal_error();
-
-            error.message = "failed to format file".into();
-
-            return Err(error);
+            return Ok(None);
         };
 
         let range = Range {

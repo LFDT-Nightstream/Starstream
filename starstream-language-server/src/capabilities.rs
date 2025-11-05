@@ -35,7 +35,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         selection_range_provider: None,
 
         // The server provides hover support.
-        hover_provider: None,
+        hover_provider: Some(HoverProviderCapability::Simple(true)),
 
         // The server provides completion support.
         completion_provider: None,
@@ -44,7 +44,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         signature_help_provider: None,
 
         // The server provides goto definition support.
-        definition_provider: None,
+        definition_provider: Some(OneOf::Left(true)),
 
         // The server provides goto type definition support.
         type_definition_provider: None,
