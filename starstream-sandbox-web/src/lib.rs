@@ -49,8 +49,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     // Parse to AST.
     let (program, errors) = starstream_compiler::parse_program(code).into_output_errors();
-    for _error in errors {
-        // TODO
+    for error in errors {
+        write_report(&error.into());
     }
     let Some(program) = program else {
         return;
@@ -83,8 +83,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
 // ----------------------------------------------------------------------------
 
-fn write_report(_report: &miette::Report) {
-    // TODO
+fn write_report(report: &miette::Report) {
+    error!("{}", report);
 }
 
 // ----------------------------------------------------------------------------
