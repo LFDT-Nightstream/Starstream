@@ -89,16 +89,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
-name = "ariadne"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36f5e3dca4e09a6f340a61a0e9c7b61e030c69fc27bf29d73218f7e5e3b7638f"
-dependencies = [
- "unicode-width 0.1.14",
- "yansi",
-]
-
-[[package]]
 name = "arrayvec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1255,7 +1245,6 @@ dependencies = [
 name = "starstream-cli"
 version = "0.0.0"
 dependencies = [
- "ariadne",
  "async-std",
  "clap",
  "console 0.16.1",
@@ -1275,12 +1264,13 @@ dependencies = [
 name = "starstream-compiler"
 version = "0.0.0"
 dependencies = [
- "ariadne",
  "chumsky",
  "indoc",
  "insta",
+ "miette",
  "pretty",
  "starstream-types",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1295,8 +1285,10 @@ name = "starstream-language-server"
 version = "0.0.0"
 dependencies = [
  "dashmap",
+ "miette",
  "ropey",
  "starstream-compiler",
+ "starstream-types",
  "tower-lsp-server",
 ]
 
@@ -1893,9 +1885,3 @@ name = "windows_x86_64_msvc"
 version = "0.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"

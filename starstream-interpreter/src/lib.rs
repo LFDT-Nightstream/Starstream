@@ -177,7 +177,7 @@ fn eval_math() {
                 left: Box::new(Spanned::none(Expr::Literal(Literal::Integer(17)))),
                 right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(33)))),
             },
-            &mut Default::default()
+            &Default::default()
         ),
         Value::Number(50)
     );
