@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
-use ariadne::{Cache, FileCache};
+use crate::diagnostics::print_diagnostic;
 use clap::Args;
-use miette::IntoDiagnostic;
+use miette::{IntoDiagnostic, NamedSource};
 
 /// Compile Starstream source to Wasm.
 #[derive(Args, Debug)]
@@ -16,24 +16,31 @@ pub struct Wasm {
 }
 
 impl Wasm {
+    /// Parse, type-check, and compile the requested source file into a Wasm module.
     pub fn exec(self) -> miette::Result<()> {
-        // Load
-        let mut cache = FileCache::default();
-        let source = cache
-            .fetch(&self.compile_file)
-            .expect("Error reading Starstream input");
+        let source_text = fs::read_to_string(&self.compile_file).into_diagnostic()?;
+        let named = NamedSource::new(self.compile_file.display().to_string(), source_text.clone());
 
-        // Parse
-        let parse_result = starstream_compiler::parse_program(source.text());
-        for error in parse_result.errors() {
-            // TODO: have error reports include the filename, perhaps by  passing `cache` instead of just `source`
-            starstream_compiler::error_to_report(error.clone())
-                .eprint(source)
-                .into_diagnostic()?;
+        let parse_output = starstream_compiler::parse_program(&source_text);
+        if !parse_output.errors().is_empty() {
+            for error in parse_output.errors().iter().cloned() {
+                print_diagnostic(named.clone(), error)?;
+            }
         }
-        let Some(program) = parse_result.into_output() else {
+
+        let Some(program) = parse_output.into_program() else {
             std::process::exit(1);
         };
+
+        if let Err(errors) = starstream_compiler::typecheck::typecheck_program(
+            &program,
+            starstream_compiler::typecheck::TypecheckOptions::default(),
+        ) {
+            for error in errors {
+                print_diagnostic(named.clone(), error)?;
+            }
+            std::process::exit(1);
+        }
 
         // Wasm
         let wasm = starstream_to_wasm::compile(&program);
