@@ -66,6 +66,15 @@ macro_rules! assert_typecheck_snapshot {
     }};
 }
 
+/// Render a `miette` report into a trimmed string for inclusion in snapshots.
+fn render_report(report: &Report) -> miette::Result<String> {
+    let mut rendered = String::new();
+    GraphicalReportHandler::new_themed(GraphicalTheme::none())
+        .render_report(&mut rendered, report.as_ref())
+        .map_err(|err| miette::miette!("failed to render diagnostic: {err}"))?;
+    Ok(rendered.trim_end_matches('\n').to_string())
+}
+
 #[test]
 fn let_binding_traces() {
     assert_typecheck_snapshot!(
@@ -108,15 +117,6 @@ fn while_loop_traces() {
         }
         "#
     );
-}
-
-/// Render a `miette` report into a trimmed string for inclusion in snapshots.
-fn render_report(report: &Report) -> miette::Result<String> {
-    let mut rendered = String::new();
-    GraphicalReportHandler::new_themed(GraphicalTheme::none())
-        .render_report(&mut rendered, report.as_ref())
-        .map_err(|err| miette::miette!("failed to render diagnostic: {err}"))?;
-    Ok(rendered.trim_end_matches('\n').to_string())
 }
 
 #[test]
