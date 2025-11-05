@@ -212,12 +212,13 @@ impl DocumentState {
                 }
             }
             TypedStatement::If {
-                condition,
-                then_branch,
+                branches,
                 else_branch,
             } => {
-                self.collect_expr(condition, scopes);
-                self.collect_block(then_branch, scopes);
+                for (condition, then_branch) in branches {
+                    self.collect_expr(condition, scopes);
+                    self.collect_block(then_branch, scopes);
+                }
                 if let Some(block) = else_branch {
                     self.collect_block(block, scopes);
                 }
