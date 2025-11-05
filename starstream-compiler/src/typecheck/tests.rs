@@ -5,7 +5,7 @@ use miette::{GraphicalReportHandler, GraphicalTheme, NamedSource, Report};
 /// Parse the provided snippet, run type-checking, and snapshot the rendered
 /// diagnostics or inference trees for regression testing.
 macro_rules! assert_typecheck_snapshot {
-    ($name:ident, $code:expr) => {{
+    ($code:expr) => {{
         let source = indoc! { $code };
         let parse_output = crate::parser::parse_program(source);
         let named = NamedSource::new("test.star", source.to_string());
@@ -60,7 +60,7 @@ macro_rules! assert_typecheck_snapshot {
                 prepend_module_to_snapshot => true,
             },
             {
-                insta::assert_snapshot!(stringify!($name), rendered);
+                insta::assert_snapshot!(rendered);
             }
         );
     }};
@@ -69,7 +69,6 @@ macro_rules! assert_typecheck_snapshot {
 #[test]
 fn let_binding_traces() {
     assert_typecheck_snapshot!(
-        let_binding_traces,
         r#"
         let answer = 42;
         "#
@@ -79,7 +78,6 @@ fn let_binding_traces() {
 #[test]
 fn binary_add_traces() {
     assert_typecheck_snapshot!(
-        binary_add_traces,
         r#"
         let left = 1;
         let right = 2;
@@ -91,7 +89,6 @@ fn binary_add_traces() {
 #[test]
 fn if_branch_traces() {
     assert_typecheck_snapshot!(
-        if_branch_traces,
         r#"
         let score = 10;
         if (score > 5) {
@@ -104,7 +101,6 @@ fn if_branch_traces() {
 #[test]
 fn while_loop_traces() {
     assert_typecheck_snapshot!(
-        while_loop_traces,
         r#"
         let counter = 0;
         while (counter < 3) {
@@ -126,7 +122,6 @@ fn render_report(report: &Report) -> miette::Result<String> {
 #[test]
 fn reports_type_error() {
     assert_typecheck_snapshot!(
-        reports_type_error,
         r#"
         let flag = true;
         let x = flag + 1;
