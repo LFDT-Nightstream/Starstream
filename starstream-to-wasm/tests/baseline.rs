@@ -4,7 +4,9 @@ use starstream_types::{BinaryOp, Block, Expr, Identifier, Literal, Program, Span
 macro_rules! assert_wat_snapshot {
     ($program:expr) => {{
         let program = $program;
-        let wasm = compile(&program);
+        let (wasm, errors) = compile(&program);
+        assert!(errors.is_empty(), "{:?}", errors);
+        let wasm = wasm.unwrap();
         let mut wat = String::new();
         wasmprinter::Config::new().fold_instructions(true).print(
             &wasm,

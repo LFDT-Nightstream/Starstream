@@ -43,8 +43,13 @@ impl Wasm {
         }
 
         // Wasm
-        let wasm = starstream_to_wasm::compile(&program);
-        // TODO: error handling
+        let (wasm, errors) = starstream_to_wasm::compile(&program);
+        for error in errors {
+            eprintln!("{}", error);
+        }
+        let Some(wasm) = wasm else {
+            std::process::exit(1);
+        };
 
         if let Some(output_file) = &self.output_file {
             std::fs::write(output_file, &wasm).expect("Error writing Wasm output");
