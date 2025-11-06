@@ -69,8 +69,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     // Compile to Wasm.
     let (wasm, errors) = starstream_to_wasm::compile(&typed.program);
-    for error in &errors {
-        write_report(error);
+    for error in errors {
+        write_report(&error.into());
     }
     let Some(wasm) = wasm else {
         return;

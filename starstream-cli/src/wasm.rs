@@ -43,7 +43,7 @@ impl Wasm {
         // Wasm
         let (wasm, errors) = starstream_to_wasm::compile(&typed.program);
         for error in errors {
-            eprintln!("{}", error);
+            print_diagnostic(named.clone(), error)?;
         }
         let Some(wasm) = wasm else {
             std::process::exit(1);

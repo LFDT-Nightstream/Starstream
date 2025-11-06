@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use miette::Report;
+use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
+use thiserror::Error;
 use wasm_encoder::*;
 
 /*
@@ -22,16 +23,29 @@ use wasm_encoder::*;
 */
 
 /// Compile a Starstream program to a Wasm module.
-pub fn compile(program: &TypedProgram) -> (Option<Vec<u8>>, Vec<Report>) {
-    // TODO: accept input filename/context and return something like
-    // `(Option<Vec<u8>>, Vec<Report>)` to be able to report warnings and
-    // other non-fatal errors.
+pub fn compile(program: &TypedProgram) -> (Option<Vec<u8>>, Vec<CompileError>) {
     let mut compiler = Compiler::default();
     if let Err(e) = compiler.visit_program(program) {
-        compiler.reports.push(e);
-        return (None, compiler.reports);
+        compiler.errors.push(e);
+        return (None, compiler.errors);
     }
     compiler.finish()
+}
+
+/// A Wasm compiler error.
+#[derive(Debug, Error)]
+#[error("{message}")]
+pub struct CompileError {
+    message: String,
+    span: Span,
+}
+
+impl Diagnostic for CompileError {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = miette::LabeledSpan> + '_>> {
+        Some(Box::new(std::iter::once(
+            LabeledSpan::new_primary_with_span(Some(self.message.clone()), self.span.into_range()),
+        )))
+    }
 }
 
 /// Holds the in-progress Wasm sections and other module-wide information
@@ -50,7 +64,7 @@ struct Compiler {
 
     // Diagnostics.
     fatal: bool,
-    reports: Vec<Report>,
+    errors: Vec<CompileError>,
 
     // Function building.
     raw_func_type_cache: HashMap<FuncType, u32>,
@@ -59,7 +73,7 @@ struct Compiler {
 impl Compiler {
     /// After [Compiler::visit_program], this function collates all the
     /// in-progress sections into an actual Wasm binary module.
-    fn finish(self) -> (Option<Vec<u8>>, Vec<Report>) {
+    fn finish(self) -> (Option<Vec<u8>>, Vec<CompileError>) {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
 
@@ -68,7 +82,7 @@ impl Compiler {
 
         // No reports generated beyond this point, so bail if fatal is set.
         if self.fatal {
-            return (None, self.reports);
+            return (None, self.errors);
         }
 
         // Write sections to module.
@@ -99,7 +113,7 @@ impl Compiler {
         if !self.data.is_empty() {
             module.section(&self.data);
         }
-        (Some(module.finish()), self.reports)
+        (Some(module.finish()), self.errors)
     }
 
     // ------------------------------------------------------------------------
@@ -142,7 +156,7 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &TypedProgram) -> miette::Result<()> {
+    fn visit_program(&mut self, program: &TypedProgram) -> std::result::Result<(), CompileError> {
         let mut func = Function::default();
         self.visit_block(&mut func, &(), &program.statements);
         func.instructions().end();
@@ -603,7 +617,10 @@ impl Compiler {
     }
 
     fn todo(&mut self, why: String) {
-        self.reports.push(Report::msg(format!("TODO: {why}")));
+        self.errors.push(CompileError {
+            message: format!("TODO: {why}"),
+            span: Span::from(0..0), // TODO: better span
+        });
     }
 }
 

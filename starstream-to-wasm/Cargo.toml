@@ -10,6 +10,7 @@ license.workspace = true
 [dependencies]
 miette.workspace = true
 starstream-types.workspace = true
+thiserror.workspace = true
 wasm-encoder.workspace = true
 
 [dev-dependencies]
