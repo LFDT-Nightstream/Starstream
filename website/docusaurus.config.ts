@@ -7,6 +7,7 @@ import remarkMath from "remark-math";
 const baseUrl = "/Starstream/";
 const config: Config = {
   title: "Starstream",
+  favicon: "starstream.svg",
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -64,6 +65,9 @@ const config: Config = {
     },
     navbar: {
       title: "Starstream",
+      logo: {
+        src: "starstream.svg",
+      },
       items: [
         {
           href: "https://github.com/LFDT-Nightstream/Starstream",
