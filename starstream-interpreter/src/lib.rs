@@ -1,39 +1,44 @@
 //! Tree-walking interpreter for the Starstream DSL.
-#![allow(dead_code, unused)]
 
-use std::{cell::Cell, collections::BTreeMap, ops::*, rc::Rc};
+use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
+use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
-use starstream_types::ast::*;
+use starstream_types::{
+    BinaryOp, Identifier, Literal, TypedExpr, TypedExprKind, TypedProgram, TypedStatement, UnaryOp,
+};
+
+#[cfg(test)]
+use starstream_types::{Spanned, Type};
 
 // ----------------------------------------------------------------------------
 // Tree walker
 
 /// Execute a program.
-pub fn exec_program(program: &Program) {
+pub fn exec_program(program: &TypedProgram) {
     eval_block(&program.statements, &Default::default());
 }
 
-fn eval_block(block: &[Statement], locals: &Locals) -> Locals {
+fn eval_block(block: &[TypedStatement], locals: &Locals) -> Locals {
     let mut locals = locals.clone();
     for statement in block {
         match statement {
-            Statement::VariableDeclaration { name, value } => {
+            TypedStatement::VariableDeclaration { name, value } => {
                 let value = eval(&value.node, &locals);
                 locals
                     .vars
                     .insert(name.name.clone(), Rc::new(Cell::new(value)));
             }
-            Statement::Assignment { target, value } => {
+            TypedStatement::Assignment { target, value } => {
                 let value = eval(&value.node, &locals);
                 locals.set(&target.name, value);
             }
-            Statement::Expression(expr) => {
+            TypedStatement::Expression(expr) => {
                 eval(&expr.node, &locals);
             }
-            Statement::Block(block) => {
+            TypedStatement::Block(block) => {
                 eval_block(&block.statements, &locals);
             }
-            Statement::If {
+            TypedStatement::If {
                 branches,
                 else_branch,
             } => {
@@ -49,7 +54,7 @@ fn eval_block(block: &[Statement], locals: &Locals) -> Locals {
                     eval_block(&else_branch.statements, &locals);
                 }
             }
-            Statement::While { condition, body } => {
+            TypedStatement::While { condition, body } => {
                 while eval(&condition.node, &locals).to_bool() {
                     eval_block(&body.statements, &locals);
                 }
@@ -60,86 +65,86 @@ fn eval_block(block: &[Statement], locals: &Locals) -> Locals {
 }
 
 /// Evaluate an expression.
-pub fn eval(expr: &Expr, locals: &Locals) -> Value {
-    match expr {
+pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
+    match &expr.kind {
         // Identifiers
-        Expr::Identifier(Identifier { name, .. }) => locals.get(name),
+        TypedExprKind::Identifier(Identifier { name, .. }) => locals.get(name),
         // Literals
-        Expr::Literal(Literal::Integer(i)) => Value::Number(*i),
-        Expr::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
+        TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i),
+        TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
         // Arithmetic operators
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Add,
             left,
             right,
         } => eval(&left.node, locals) + eval(&right.node, locals),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Subtract,
             left,
             right,
         } => eval(&left.node, locals) - eval(&right.node, locals),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Multiply,
             left,
             right,
         } => eval(&left.node, locals) * eval(&right.node, locals),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Divide,
             left,
             right,
         } => eval(&left.node, locals) / eval(&right.node, locals),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Remainder,
             left,
             right,
         } => eval(&left.node, locals) % eval(&right.node, locals),
-        Expr::Unary {
+        TypedExprKind::Unary {
             op: UnaryOp::Negate,
             expr,
         } => -eval(&expr.node, locals),
-        Expr::Unary {
+        TypedExprKind::Unary {
             op: UnaryOp::Not,
             expr,
         } => !eval(&expr.node, locals),
-        // Expr::BitNot(lhs) => eval(&lhs.node, locals).bitnot(),
-        // Expr::BitAnd(lhs, rhs) => eval(&lhs.node, locals) & eval(&rhs.node, locals),
-        // Expr::BitOr(lhs, rhs) => eval(&lhs.node, locals) | eval(&rhs.node, locals),
-        // Expr::BitXor(lhs, rhs) => eval(&lhs.node, locals) ^ eval(&rhs.node, locals),
-        // Expr::LShift(lhs, rhs) => eval(&lhs.node, locals) << eval(&rhs.node, locals),
-        // Expr::RShift(lhs, rhs) => eval(&lhs.node, locals) >> eval(&rhs.node, locals),
+        // TypedExprKind::BitNot(lhs) => eval(&lhs.node, locals).bitnot(),
+        // TypedExprKind::BitAnd(lhs, rhs) => eval(&lhs.node, locals) & eval(&rhs.node, locals),
+        // TypedExprKind::BitOr(lhs, rhs) => eval(&lhs.node, locals) | eval(&rhs.node, locals),
+        // TypedExprKind::BitXor(lhs, rhs) => eval(&lhs.node, locals) ^ eval(&rhs.node, locals),
+        // TypedExprKind::LShift(lhs, rhs) => eval(&lhs.node, locals) << eval(&rhs.node, locals),
+        // TypedExprKind::RShift(lhs, rhs) => eval(&lhs.node, locals) >> eval(&rhs.node, locals),
         // Comparison operators
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Equal,
             left,
             right,
         } => Value::from(eval(&left.node, locals) == eval(&right.node, locals)),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::NotEqual,
             left,
             right,
         } => Value::from(eval(&left.node, locals) != eval(&right.node, locals)),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Less,
             left,
             right,
         } => Value::from(eval(&left.node, locals) < eval(&right.node, locals)),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Greater,
             left,
             right,
         } => Value::from(eval(&left.node, locals) > eval(&right.node, locals)),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::LessEqual,
             left,
             right,
         } => Value::from(eval(&left.node, locals) <= eval(&right.node, locals)),
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::GreaterEqual,
             left,
             right,
         } => Value::from(eval(&left.node, locals) >= eval(&right.node, locals)),
         // Short-circuiting operators
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::And,
             left,
             right,
@@ -151,7 +156,7 @@ pub fn eval(expr: &Expr, locals: &Locals) -> Value {
                 left
             }
         }
-        Expr::Binary {
+        TypedExprKind::Binary {
             op: BinaryOp::Or,
             left,
             right,
@@ -164,7 +169,7 @@ pub fn eval(expr: &Expr, locals: &Locals) -> Value {
             }
         }
         // Nesting
-        Expr::Grouping(expr) => eval(&expr.node, locals),
+        TypedExprKind::Grouping(expr) => eval(&expr.node, locals),
     }
 }
 
@@ -172,11 +177,20 @@ pub fn eval(expr: &Expr, locals: &Locals) -> Value {
 fn eval_math() {
     assert_eq!(
         eval(
-            &Expr::Binary {
-                op: BinaryOp::Add,
-                left: Box::new(Spanned::none(Expr::Literal(Literal::Integer(17)))),
-                right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(33)))),
-            },
+            &TypedExpr::new(
+                Type::Int,
+                TypedExprKind::Binary {
+                    op: BinaryOp::Add,
+                    left: Box::new(Spanned::none(TypedExpr::new(
+                        Type::Int,
+                        TypedExprKind::Literal(Literal::Integer(17))
+                    ))),
+                    right: Box::new(Spanned::none(TypedExpr::new(
+                        Type::Int,
+                        TypedExprKind::Literal(Literal::Integer(33))
+                    ))),
+                },
+            ),
             &Default::default()
         ),
         Value::Number(50)
@@ -187,19 +201,29 @@ fn eval_math() {
 fn eval_locals() {
     let locals = eval_block(
         &[
-            Statement::VariableDeclaration {
+            TypedStatement::VariableDeclaration {
                 name: Identifier::new("foo", None),
-                value: Spanned::none(Expr::Literal(Literal::Integer(6))),
+                value: Spanned::none(TypedExpr::new(
+                    Type::Int,
+                    TypedExprKind::Literal(Literal::Integer(6)),
+                )),
             },
-            Statement::Assignment {
+            TypedStatement::Assignment {
                 target: Identifier::new("foo", None),
-                value: Spanned::none(Expr::Binary {
-                    op: BinaryOp::Multiply,
-                    left: Box::new(Spanned::none(Expr::Identifier(Identifier::new(
-                        "foo", None,
-                    )))),
-                    right: Box::new(Spanned::none(Expr::Literal(Literal::Integer(3)))),
-                }),
+                value: Spanned::none(TypedExpr::new(
+                    Type::Int,
+                    TypedExprKind::Binary {
+                        op: BinaryOp::Multiply,
+                        left: Box::new(Spanned::none(TypedExpr::new(
+                            Type::Int,
+                            TypedExprKind::Identifier(Identifier::new("foo", None)),
+                        ))),
+                        right: Box::new(Spanned::none(TypedExpr::new(
+                            Type::Int,
+                            TypedExprKind::Literal(Literal::Integer(3)),
+                        ))),
+                    },
+                )),
             },
         ],
         &Default::default(),
@@ -334,7 +358,7 @@ impl Neg for Value {
     type Output = Value;
 
     fn neg(self) -> Self::Output {
-        match (self) {
+        match self {
             Value::Number(lhs) => Value::Number(-lhs),
             lhs => panic!("bad: -{lhs:?}"),
         }
@@ -345,7 +369,7 @@ impl Not for Value {
     type Output = Value;
 
     fn not(self) -> Self::Output {
-        match (self) {
+        match self {
             Value::Boolean(lhs) => Value::Boolean(!lhs),
             lhs => panic!("bad: !{lhs:?}"),
         }

@@ -22,8 +22,10 @@ use wasm_encoder::*;
 */
 
 /// Compile a Starstream program to a Wasm module.
-pub fn compile(program: &Program) -> (Option<Vec<u8>>, Vec<Report>) {
-    // TODO: accept input filename/context to put in reports.
+pub fn compile(program: &TypedProgram) -> (Option<Vec<u8>>, Vec<Report>) {
+    // TODO: accept input filename/context and return something like
+    // `(Option<Vec<u8>>, Vec<Report>)` to be able to report warnings and
+    // other non-fatal errors.
     let mut compiler = Compiler::default();
     if let Err(e) = compiler.visit_program(program) {
         compiler.reports.push(e);
@@ -140,7 +142,7 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &Program) -> miette::Result<()> {
+    fn visit_program(&mut self, program: &TypedProgram) -> miette::Result<()> {
         let mut func = Function::default();
         self.visit_block(&mut func, &(), &program.statements);
         func.instructions().end();
@@ -153,15 +155,15 @@ impl Compiler {
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[Statement]) {
+    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[TypedStatement]) {
         let mut locals = HashMap::new();
         for statement in block {
             match statement {
-                Statement::Expression(expr) => {
+                TypedStatement::Expression(expr) => {
                     let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
                     self.discard(func, im);
                 }
-                Statement::VariableDeclaration { name, value } => {
+                TypedStatement::VariableDeclaration { name, value } => {
                     let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                     match value {
                         Intermediate::Error => {}
@@ -173,7 +175,7 @@ impl Compiler {
                         value => self.todo(format!("VariableDeclaration({value:?})")),
                     }
                 }
-                Statement::Assignment { target, value } => {
+                TypedStatement::Assignment { target, value } => {
                     let local = (parent, &locals).get(&target.name);
                     let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                     match value {
@@ -185,10 +187,10 @@ impl Compiler {
                     }
                 }
                 // Recursive
-                Statement::Block(block) => {
+                TypedStatement::Block(block) => {
                     self.visit_block(func, &(parent, &locals), &block.statements);
                 }
-                Statement::If {
+                TypedStatement::If {
                     branches,
                     else_branch,
                 } => {
@@ -217,7 +219,7 @@ impl Compiler {
                     // End.
                     func.instructions().end();
                 }
-                Statement::While { condition, body } => {
+                TypedStatement::While { condition, body } => {
                     func.instructions().block(BlockType::Empty); // br(1) is break
                     func.instructions().loop_(BlockType::Empty); // br(0) is continue
 
@@ -256,26 +258,26 @@ impl Compiler {
         func: &mut Function,
         locals: &dyn Locals,
         _: Span,
-        expr: &Expr,
+        expr: &TypedExpr,
     ) -> Intermediate {
-        match expr {
+        match &expr.kind {
             // Identifiers
-            Expr::Identifier(Identifier { name, .. }) => {
+            TypedExprKind::Identifier(Identifier { name, .. }) => {
                 let local = locals.get(name);
                 func.instructions().local_get(local);
                 Intermediate::StackI64
             }
             // Literals
-            Expr::Literal(Literal::Integer(i)) => {
+            TypedExprKind::Literal(Literal::Integer(i)) => {
                 func.instructions().i64_const(*i);
                 Intermediate::StackI64
             }
-            Expr::Literal(Literal::Boolean(b)) => {
+            TypedExprKind::Literal(Literal::Boolean(b)) => {
                 func.instructions().i32_const(*b as i32);
                 Intermediate::StackBool
             }
             // Arithmetic operators
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Add,
                 left,
                 right,
@@ -294,7 +296,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Subtract,
                 left,
                 right,
@@ -313,7 +315,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Multiply,
                 left,
                 right,
@@ -332,7 +334,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Divide,
                 left,
                 right,
@@ -351,7 +353,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Remainder,
                 left,
                 right,
@@ -370,7 +372,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Unary {
+            TypedExprKind::Unary {
                 op: UnaryOp::Negate,
                 expr,
             } => {
@@ -388,7 +390,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Unary {
+            TypedExprKind::Unary {
                 op: UnaryOp::Not,
                 expr,
             } => match self.visit_expr(func, locals, expr.span, &expr.node) {
@@ -403,7 +405,7 @@ impl Compiler {
                 }
             },
             // Comparison operators
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Equal,
                 left,
                 right,
@@ -426,7 +428,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::NotEqual,
                 left,
                 right,
@@ -449,7 +451,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Less,
                 left,
                 right,
@@ -472,7 +474,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Greater,
                 left,
                 right,
@@ -495,7 +497,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::LessEqual,
                 left,
                 right,
@@ -518,7 +520,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::GreaterEqual,
                 left,
                 right,
@@ -542,7 +544,7 @@ impl Compiler {
                 }
             }
             // Short-circuiting operators
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::And,
                 left,
                 right,
@@ -567,7 +569,7 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
-            Expr::Binary {
+            TypedExprKind::Binary {
                 op: BinaryOp::Or,
                 left,
                 right,
@@ -596,7 +598,7 @@ impl Compiler {
                 }
             },
             // Nesting
-            Expr::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
+            TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
         }
     }
 
@@ -627,9 +629,12 @@ impl Locals for (&dyn Locals, &HashMap<String, u32>) {
 
 /// Typed intermediate value.
 ///
-/// Represents the static type and stack slots that evaluating an expression
+/// Represents the stack slots that evaluating an expression
 /// produced, so that that expression's consumers can correctly consume or
 /// discard those stack slots.
+///
+/// The Starstream-spec static type of an expression is determined earlier, by
+/// the type checker, and stored separately.
 #[derive(Debug, Clone)]
 #[must_use]
 enum Intermediate {

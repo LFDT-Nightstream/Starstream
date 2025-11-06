@@ -56,8 +56,19 @@ pub unsafe extern "C" fn run(input_len: usize) {
         return;
     };
 
+    // Typecheck.
+    let typed = match starstream_compiler::typecheck_program(&program, Default::default()) {
+        Ok(program) => program,
+        Err(errors) => {
+            for error in errors {
+                write_report(&error.into());
+            }
+            return;
+        }
+    };
+
     // Compile to Wasm.
-    let (wasm, errors) = starstream_to_wasm::compile(&program);
+    let (wasm, errors) = starstream_to_wasm::compile(&typed.program);
     for error in &errors {
         write_report(error);
     }
