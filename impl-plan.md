@@ -33,7 +33,7 @@ Components:
 
 Language features:
 
-- [ ] `else if`
+- [x] `else if`
 - [ ] functions
 - [ ] type annotations on `let` bindings
 - [ ] make `let` const and add `let mut`

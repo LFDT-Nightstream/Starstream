@@ -29,8 +29,7 @@ pub enum TypedStatement {
         value: Spanned<TypedExpr>,
     },
     If {
-        condition: Spanned<TypedExpr>,
-        then_branch: TypedBlock,
+        branches: Vec<(Spanned<TypedExpr>, TypedBlock)>,
         else_branch: Option<TypedBlock>,
     },
     While {

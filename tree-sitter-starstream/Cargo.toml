@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "tree-sitter-starstream"
 description = "Starstream grammar for tree-sitter"

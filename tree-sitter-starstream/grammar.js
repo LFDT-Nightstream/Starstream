@@ -23,15 +23,28 @@ module.exports = grammar({
         $._expression_statement
       ),
 
-    variable_declaration: ($) => seq("let", $.identifier, "=", $.expression, ";"),
+    variable_declaration: ($) =>
+      seq("let", $.identifier, "=", $.expression, ";"),
 
     assignment: ($) => seq($.identifier, "=", $.expression, ";"),
 
-    if_statement: $ => seq("if", "(", $.expression, ")", $.block, optional(seq("else", $.block))),
+    if_statement: ($) =>
+      seq(
+        // First `if` branch.
+        "if",
+        "(",
+        $.expression,
+        ")",
+        $.block,
+        // Subsequent `else if` branches.
+        repeat(seq("else", "if", "(", $.expression, ")", $.block)),
+        // Final `else` branch.
+        optional(seq("else", $.block))
+      ),
 
-    while_statement: $ => seq("while", "(", $.expression, ")", $.block),
+    while_statement: ($) => seq("while", "(", $.expression, ")", $.block),
 
-    block: $ => seq("{", repeat($._statement), "}"),
+    block: ($) => seq("{", repeat($._statement), "}"),
 
     _expression_statement: ($) => seq($.expression, ";"),
 

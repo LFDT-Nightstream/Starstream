@@ -46,12 +46,27 @@ pub(super) fn parser_with_block<'a>(
         .then(
             just("else")
                 .padded()
+                .then(just("if"))
+                .padded()
+                .ignore_then(
+                    expr.clone()
+                        .delimited_by(just('(').padded(), just(')').padded()),
+                )
+                .then(block_parser.clone())
+                .repeated()
+                .collect::<Vec<_>>(),
+        )
+        .then(
+            just("else")
+                .padded()
                 .ignore_then(block_parser.clone())
                 .or_not(),
         )
-        .map(|((condition, then_branch), else_branch)| Statement::If {
-            condition,
-            then_branch,
+        .map(|((first, mut rest), else_branch)| Statement::If {
+            branches: {
+                rest.insert(0, first);
+                rest
+            },
             else_branch,
         });
 
