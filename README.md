@@ -3,7 +3,7 @@
 <img align="right" src="docs/starstream.svg" width="15%">
 
 ![GitHub License](https://img.shields.io/github/license/LFDT-Nightstream/Starstream)
-[![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/:project-id/badge)](https://bestpractices.coreinfrastructure.org/projects/:project-id)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11406/badge)](https://www.bestpractices.dev/projects/11406)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/:user/:repo/badge)](https://scorecard.dev/viewer/?uri=github.com/:user/:repo)
 
 <!-- Keep this section in sync with `website/docs/index.md`. -->
