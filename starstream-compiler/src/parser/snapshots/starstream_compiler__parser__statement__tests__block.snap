@@ -1,15 +1,16 @@
 ---
 source: starstream-compiler/src/parser/statement.rs
-description: "Code:\n\n{ let a = 1; a = a + 1; }\n"
+description: "Code:\n\n{ let mut a = 1; a = a + 1; }\n"
 ---
 Block(
     Block {
         statements: [
             VariableDeclaration {
+                mutable: true,
                 name: Identifier {
                     name: "a",
                     span: Some(
-                        6..7,
+                        10..11,
                     ),
                 },
                 value: Spanned {
@@ -18,14 +19,14 @@ Block(
                             1,
                         ),
                     ),
-                    span: 10..11,
+                    span: 14..15,
                 },
             },
             Assignment {
                 target: Identifier {
                     name: "a",
                     span: Some(
-                        13..14,
+                        17..18,
                     ),
                 },
                 value: Spanned {
@@ -36,11 +37,11 @@ Block(
                                 Identifier {
                                     name: "a",
                                     span: Some(
-                                        17..18,
+                                        21..22,
                                     ),
                                 },
                             ),
-                            span: 17..19,
+                            span: 21..23,
                         },
                         right: Spanned {
                             node: Literal(
@@ -48,10 +49,10 @@ Block(
                                     1,
                                 ),
                             ),
-                            span: 21..22,
+                            span: 25..26,
                         },
                     },
-                    span: 17..22,
+                    span: 21..26,
                 },
             },
         ],

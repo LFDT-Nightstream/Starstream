@@ -99,7 +99,11 @@ impl Inferencer {
         let env_context = self.maybe_string(|| self.format_env(env));
         let stmt_repr = self.maybe_string(|| self.format_statement_src(statement));
         match statement {
-            Statement::VariableDeclaration { name, value } => {
+            Statement::VariableDeclaration {
+                mutable,
+                name,
+                value,
+            } => {
                 if env.contains_in_current_scope(&name.name) {
                     return Err(TypeError::new(
                         TypeErrorKind::Redeclaration {
@@ -125,6 +129,7 @@ impl Inferencer {
 
                 Ok((
                     TypedStatement::VariableDeclaration {
+                        mutable: *mutable,
                         name: name.clone(),
                         value: typed_value,
                     },

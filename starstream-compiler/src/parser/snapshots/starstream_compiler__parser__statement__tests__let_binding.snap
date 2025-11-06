@@ -3,6 +3,7 @@ source: starstream-compiler/src/parser/statement.rs
 description: "Code:\n\nlet answer = 42;"
 ---
 VariableDeclaration {
+    mutable: false,
     name: Identifier {
         name: "answer",
         span: Some(

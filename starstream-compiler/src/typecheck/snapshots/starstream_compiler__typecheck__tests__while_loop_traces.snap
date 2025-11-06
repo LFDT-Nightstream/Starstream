@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 106
 description: "Source:\n\nlet counter = 0;\nwhile (counter < 3) {\n  counter = counter + 1;\n}\n"
 ---
 T-Let: {} ⊢ let counter = 0; ⇒ i64

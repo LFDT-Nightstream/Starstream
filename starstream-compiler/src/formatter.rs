@@ -36,8 +36,17 @@ fn program_to_doc(program: &Program) -> RcDoc<'_, ()> {
 
 fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
     match statement {
-        Statement::VariableDeclaration { name, value } => RcDoc::text("let")
+        Statement::VariableDeclaration {
+            mutable,
+            name,
+            value,
+        } => RcDoc::text("let")
             .append(RcDoc::space())
+            .append(if *mutable {
+                RcDoc::text("mut").append(RcDoc::space())
+            } else {
+                RcDoc::nil()
+            })
             .append(identifier_to_doc(name))
             .append(RcDoc::space())
             .append(RcDoc::text("="))
@@ -282,7 +291,7 @@ mod tests {
             r#"
                 let flag = true;
             if (    flag) {
-                let answer = 42;
+                let  mut  answer = 42;
                 while (answer < 100) {
                     answer = answer + 1;
                 }
@@ -299,7 +308,7 @@ mod tests {
     fn expressions() {
         assert_format_snapshot!(
             r#"
-            let value      = -(-5);
+            let mut value      = -(-5);
             value = (1 + 2) * (3 - 4) / 5;
             value = value + (10 / (3 + 2));
             result = (1 + 2 == 3) && !(false || true);
@@ -314,7 +323,7 @@ mod tests {
             {
                 let x = 1;
                 {
-                    let y = x + 2;
+                    let mut y = x + 2;
 
                     y = y * (x + y);
                 }

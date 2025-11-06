@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 93
 description: "Source:\n\nlet score = 10;\nif (score > 5) {\n  score = score + 1;\n}\n"
 ---
 T-Let: {} ⊢ let score = 10; ⇒ i64

@@ -189,7 +189,11 @@ impl DocumentState {
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         match statement {
-            TypedStatement::VariableDeclaration { name, value } => {
+            TypedStatement::VariableDeclaration {
+                mutable: _,
+                name,
+                value,
+            } => {
                 self.collect_expr(value, scopes);
                 if let Some(span) = name.span {
                     self.definition_entries.push(DefinitionEntry {

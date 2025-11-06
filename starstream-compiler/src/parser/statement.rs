@@ -24,11 +24,17 @@ pub(super) fn parser_with_block<'a>(
 
     let variable_declaration = just("let")
         .padded()
-        .ignore_then(primitives::identifier())
+        .ignore_then(just("mut").or_not())
+        .padded()
+        .then(primitives::identifier())
         .then_ignore(just('=').padded())
         .then(expr.clone())
         .then_ignore(just(';').padded())
-        .map(|(name, value)| Statement::VariableDeclaration { name, value });
+        .map(|((mutable, name), value)| Statement::VariableDeclaration {
+            mutable: mutable.is_some(),
+            name,
+            value,
+        });
 
     let assignment = primitives::identifier()
         .then_ignore(just('=').padded())
@@ -150,7 +156,7 @@ mod tests {
     fn block() {
         assert_statement_snapshot!(
             r#"
-            { let a = 1; a = a + 1; }
+            { let mut a = 1; a = a + 1; }
             "#
         );
     }

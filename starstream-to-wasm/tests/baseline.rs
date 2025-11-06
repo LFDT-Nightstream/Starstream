@@ -35,6 +35,7 @@ fn simple_while_loop() {
     assert_wat_snapshot!(&TypedProgram {
         statements: vec![
             TypedStatement::VariableDeclaration {
+                mutable: true,
                 name: Identifier::new("foo", None),
                 value: Spanned::none(TypedExpr::new(
                     Type::Int,

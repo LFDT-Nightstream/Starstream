@@ -177,7 +177,11 @@ impl Compiler {
                     let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
                     self.discard(func, im);
                 }
-                TypedStatement::VariableDeclaration { name, value } => {
+                TypedStatement::VariableDeclaration {
+                    mutable: _,
+                    name,
+                    value,
+                } => {
                     let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                     match value {
                         Intermediate::Error => {}

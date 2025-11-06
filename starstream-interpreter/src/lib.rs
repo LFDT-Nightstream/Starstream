@@ -22,7 +22,11 @@ fn eval_block(block: &[TypedStatement], locals: &Locals) -> Locals {
     let mut locals = locals.clone();
     for statement in block {
         match statement {
-            TypedStatement::VariableDeclaration { name, value } => {
+            TypedStatement::VariableDeclaration {
+                mutable: _,
+                name,
+                value,
+            } => {
                 let value = eval(&value.node, &locals);
                 locals
                     .vars
@@ -202,6 +206,7 @@ fn eval_locals() {
     let locals = eval_block(
         &[
             TypedStatement::VariableDeclaration {
+                mutable: true,
                 name: Identifier::new("foo", None),
                 value: Spanned::none(TypedExpr::new(
                     Type::Int,

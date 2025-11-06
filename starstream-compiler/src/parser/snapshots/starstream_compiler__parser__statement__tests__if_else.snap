@@ -19,6 +19,7 @@ If {
             Block {
                 statements: [
                     VariableDeclaration {
+                        mutable: false,
                         name: Identifier {
                             name: "a",
                             span: Some(
