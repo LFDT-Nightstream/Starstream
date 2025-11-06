@@ -1,8 +1,8 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nlet score = 10;\nif (score > 5) {\n  score = score + 1;\n}\n"
+description: "Source:\n\nlet mut score = 10;\nif (score > 5) {\n    score = score + 1;\n}\n"
 ---
-T-Let: {} ⊢ let score = 10; ⇒ i64
+T-Let: {} ⊢ let mut score = 10; ⇒ i64
   T-Int: {} ⊢ 10 ⇒ i64
 
 T-If: {score: i64} ⊢ if (score > 5) {

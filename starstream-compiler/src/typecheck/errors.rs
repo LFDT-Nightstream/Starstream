@@ -60,6 +60,9 @@ impl Diagnostic for TypeError {
             TypeErrorKind::UnknownVariable { .. } => "starstream::type::unknown_variable",
             TypeErrorKind::Redeclaration { .. } => "starstream::type::redeclaration",
             TypeErrorKind::AssignmentMismatch { .. } => "starstream::type::assignment_mismatch",
+            TypeErrorKind::AssignmentToImmutable { .. } => {
+                "starstream::type::assignment_to_immutable"
+            }
             TypeErrorKind::UnaryMismatch { .. } => "starstream::type::unary_mismatch",
             TypeErrorKind::BinaryOperandMismatch { .. } => "starstream::type::binary_operands",
             TypeErrorKind::ConditionNotBool { .. } => "starstream::type::condition_not_bool",
@@ -138,6 +141,9 @@ pub enum TypeErrorKind {
         expected: Type,
         found: Type,
     },
+    AssignmentToImmutable {
+        name: String,
+    },
     UnaryMismatch {
         op: UnaryOp,
         expected: Type,
@@ -188,6 +194,9 @@ impl fmt::Display for TypeErrorKind {
                 f,
                 "cannot assign value of type `{found}` to variable `{name}` of type `{expected}`"
             ),
+            TypeErrorKind::AssignmentToImmutable { name } => {
+                write!(f, "cannot assign to immutable variable `{name}`")
+            }
             TypeErrorKind::UnaryMismatch {
                 op,
                 expected,

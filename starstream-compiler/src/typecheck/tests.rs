@@ -99,9 +99,9 @@ fn binary_add_traces() {
 fn if_branch_traces() {
     assert_typecheck_snapshot!(
         r#"
-        let score = 10;
+        let mut score = 10;
         if (score > 5) {
-          score = score + 1;
+            score = score + 1;
         }
         "#
     );
@@ -111,9 +111,9 @@ fn if_branch_traces() {
 fn while_loop_traces() {
     assert_typecheck_snapshot!(
         r#"
-        let counter = 0;
+        let mut counter = 0;
         while (counter < 3) {
-          counter = counter + 1;
+            counter = counter + 1;
         }
         "#
     );
@@ -125,6 +125,16 @@ fn reports_type_error() {
         r#"
         let flag = true;
         let x = flag + 1;
+        "#
+    );
+}
+
+#[test]
+fn reports_immutable_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        let flag = true;
+        flag = false;
         "#
     );
 }

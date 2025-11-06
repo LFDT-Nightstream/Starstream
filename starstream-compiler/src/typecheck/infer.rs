@@ -9,7 +9,7 @@ use starstream_types::{
 };
 
 use super::{
-    env::TypeEnv,
+    env::{Binding, TypeEnv},
     errors::{ConditionContext, TypeError, TypeErrorKind},
     tree::InferenceTree,
 };
@@ -116,7 +116,14 @@ impl Inferencer {
                 let (typed_value, value_trace) = self.infer_expr(env, value)?;
                 let value_type = self.apply(&typed_value.node.ty);
                 let scheme = self.generalize(env, &value_type);
-                env.insert(name.name.clone(), scheme);
+                env.insert(
+                    name.name.clone(),
+                    Binding {
+                        decl_span: name.span.unwrap_or(value.span),
+                        mutable: *mutable,
+                        scheme,
+                    },
+                );
 
                 let value_type_repr = self.maybe_string(|| self.format_type(&value_type));
                 let tree = self.make_trace(
@@ -137,7 +144,7 @@ impl Inferencer {
                 ))
             }
             Statement::Assignment { target, value } => {
-                let scheme = env.get(&target.name).cloned().ok_or_else(|| {
+                let binding = env.get(&target.name).cloned().ok_or_else(|| {
                     TypeError::new(
                         TypeErrorKind::UnknownVariable {
                             name: target.name.clone(),
@@ -146,7 +153,7 @@ impl Inferencer {
                     )
                 })?;
 
-                let expected_type = self.instantiate(&scheme);
+                let expected_type = self.instantiate(&binding.scheme);
                 let (typed_value, value_trace) = self.infer_expr(env, value)?;
                 let actual_type = typed_value.node.ty.clone();
 
@@ -154,9 +161,7 @@ impl Inferencer {
                     actual_type.clone(),
                     expected_type.clone(),
                     value.span,
-                    target
-                        .span
-                        .unwrap_or_else(|| Span::from(value.span.start..value.span.end)),
+                    target.span.unwrap_or(value.span),
                     TypeErrorKind::AssignmentMismatch {
                         name: target.name.clone(),
                         expected: self.apply(&expected_type),
@@ -172,6 +177,18 @@ impl Inferencer {
                     expected_repr,
                     || vec![value_trace, unify_trace],
                 );
+
+                if !binding.mutable {
+                    return Err(TypeError::new(
+                        TypeErrorKind::AssignmentToImmutable {
+                            name: target.name.clone(),
+                        },
+                        target.span.unwrap_or(value.span),
+                    )
+                    .with_primary_message("assigned here")
+                    .with_secondary(binding.decl_span, "declared without `mut` here")
+                    .with_help("consider changing `let` to `let mut`"));
+                }
 
                 Ok((
                     TypedStatement::Assignment {
@@ -340,11 +357,11 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Identifier(Identifier { name, span }) => {
-                let scheme = env.get(name).cloned().ok_or_else(|| {
+                let binding = env.get(name).cloned().ok_or_else(|| {
                     let span = span.unwrap_or(expr.span);
                     TypeError::new(TypeErrorKind::UnknownVariable { name: name.clone() }, span)
                 })?;
-                let ty = self.instantiate(&scheme);
+                let ty = self.instantiate(&binding.scheme);
                 let typed = Spanned::new(
                     TypedExpr::new(
                         ty.clone(),
