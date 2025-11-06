@@ -51,23 +51,32 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
             .append(expr_to_doc(&value.node))
             .append(RcDoc::text(";")),
         Statement::If {
-            condition,
-            then_branch,
+            branches,
             else_branch,
         } => {
-            let base = RcDoc::text("if")
-                .append(RcDoc::space())
-                .append(parened_expr(condition))
-                .append(RcDoc::space())
-                .append(block_to_doc(then_branch));
+            let mut out = RcDoc::nil();
+            for (i, (condition, block)) in branches.iter().enumerate() {
+                if i > 0 {
+                    out = out
+                        .append(RcDoc::space())
+                        .append("else")
+                        .append(RcDoc::space());
+                }
+                out = out
+                    .append("if")
+                    .append(RcDoc::space())
+                    .append(parened_expr(condition))
+                    .append(RcDoc::space())
+                    .append(block_to_doc(block));
+            }
 
             if let Some(else_branch) = else_branch {
-                base.append(RcDoc::space())
+                out.append(RcDoc::space())
                     .append(RcDoc::text("else"))
                     .append(RcDoc::space())
                     .append(block_to_doc(else_branch))
             } else {
-                base
+                out
             }
         }
         Statement::While { condition, body } => RcDoc::text("while")
@@ -277,6 +286,8 @@ mod tests {
                 while (answer < 100) {
                     answer = answer + 1;
                 }
+            }else if( ! flag && true ){
+                answer = 17;
             } else {
                 answer = 0;
             }

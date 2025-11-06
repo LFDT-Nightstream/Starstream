@@ -177,18 +177,28 @@ impl Inferencer {
                 ))
             }
             Statement::If {
-                condition,
-                then_branch,
+                branches,
                 else_branch,
             } => {
-                let (typed_condition, cond_trace) = self.infer_expr(env, condition)?;
-                let bool_check = self.require_bool(
-                    &typed_condition.node.ty,
-                    condition.span,
-                    ConditionContext::If,
-                )?;
+                let mut children = Vec::new();
 
-                let (typed_then, then_traces) = self.infer_block(env, then_branch)?;
+                let mut typed_branches = Vec::with_capacity(branches.len());
+                for (condition, then_branch) in branches {
+                    let (typed_condition, cond_trace) = self.infer_expr(env, condition)?;
+                    children.push(cond_trace);
+                    let bool_check = self.require_bool(
+                        &typed_condition.node.ty,
+                        condition.span,
+                        ConditionContext::If,
+                    )?;
+                    children.push(bool_check);
+
+                    let (typed_then, then_traces) = self.infer_block(env, then_branch)?;
+                    children.extend(then_traces);
+
+                    typed_branches.push((typed_condition, typed_then));
+                }
+
                 let typed_else = match else_branch {
                     Some(block) => {
                         let (typed_block, else_traces) = self.infer_block(env, block)?;
@@ -196,18 +206,12 @@ impl Inferencer {
                     }
                     None => None,
                 };
-
-                let mut children = vec![cond_trace, bool_check];
-                children.extend(then_traces);
-
                 let typed_else_block = if let Some((block, traces)) = typed_else {
                     children.extend(traces);
                     Some(block)
                 } else {
                     None
                 };
-
-                let typed_then_block = typed_then;
 
                 let unit_result = self.maybe_string(|| "()".to_string());
                 let tree = self.make_trace(
@@ -220,8 +224,7 @@ impl Inferencer {
 
                 Ok((
                     TypedStatement::If {
-                        condition: typed_condition,
-                        then_branch: typed_then_block,
+                        branches: typed_branches,
                         else_branch: typed_else_block,
                     },
                     tree,
@@ -745,12 +748,13 @@ impl Inferencer {
                 self.apply_expr(value);
             }
             TypedStatement::If {
-                condition,
-                then_branch,
+                branches,
                 else_branch,
             } => {
-                self.apply_expr(condition);
-                self.apply_block(then_branch);
+                for (condition, then_branch) in branches {
+                    self.apply_expr(condition);
+                    self.apply_block(then_branch);
+                }
                 if let Some(block) = else_branch {
                     self.apply_block(block);
                 }

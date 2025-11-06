@@ -37,7 +37,7 @@ variable_declaration ::= "let" identifier "=" expression ";"
 
 assignment ::= identifier "=" expression ";"
 
-if_statement ::= "if" "(" expression ")" block [ "else" block ]
+if_statement ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* [ "else" block ]
 
 while_statement ::= "while" "(" expression ")" block
 

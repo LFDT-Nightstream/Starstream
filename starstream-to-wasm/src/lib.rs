@@ -191,19 +191,32 @@ impl Compiler {
                     self.visit_block(func, &(parent, &locals), &block.statements);
                 }
                 TypedStatement::If {
-                    condition,
-                    then_branch,
+                    branches,
                     else_branch,
                 } => {
-                    let im =
-                        self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
-                    assert!(matches!(im, Intermediate::StackBool));
-                    func.instructions().if_(BlockType::Empty);
-                    self.visit_block(func, &(parent, &locals), &then_branch.statements);
+                    // Emit basic double-block and trust the optimizer.
+                    func.instructions().block(BlockType::Empty);
+                    for (condition, block) in branches {
+                        // Inner block for each condition.
+                        func.instructions().block(BlockType::Empty);
+                        let im = self.visit_expr(
+                            func,
+                            &(parent, &locals),
+                            condition.span,
+                            &condition.node,
+                        );
+                        assert!(matches!(im, Intermediate::StackBool));
+                        func.instructions().i32_eqz(); // If condition is false,
+                        func.instructions().br_if(0); // then try the next condition.
+                        self.visit_block(func, &(parent, &locals), &block.statements);
+                        func.instructions().br(1); // Go past end.
+                        func.instructions().end();
+                    }
+                    // Final `else` branch is just inline.
                     if let Some(else_branch) = else_branch {
-                        func.instructions().else_();
                         self.visit_block(func, &(parent, &locals), &else_branch.statements);
                     }
+                    // End.
                     func.instructions().end();
                 }
                 TypedStatement::While { condition, body } => {
