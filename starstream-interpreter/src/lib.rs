@@ -293,12 +293,20 @@ impl Mul for Value {
     }
 }
 
+fn div_floor(lhs: i64, rhs: i64) -> i64 {
+    // Based on core::num::int_macros::div_floor
+    let d = lhs / rhs;
+    let r = lhs % rhs;
+    let correction = (lhs ^ rhs) >> (i64::BITS - 1);
+    if r != 0 { d + correction } else { d }
+}
+
 impl Div for Value {
     type Output = Value;
 
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Value::Number(lhs), Value::Number(rhs)) => Value::Number(lhs / rhs),
+            (Value::Number(lhs), Value::Number(rhs)) => Value::Number(div_floor(lhs, rhs)),
             (lhs, rhs) => panic!("bad: {lhs:?} / {rhs:?}"),
         }
     }
@@ -309,7 +317,9 @@ impl Rem for Value {
 
     fn rem(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
-            (Value::Number(lhs), Value::Number(rhs)) => Value::Number(lhs.rem_euclid(rhs)),
+            (Value::Number(lhs), Value::Number(rhs)) => {
+                Value::Number(lhs - div_floor(lhs, rhs) * rhs)
+            }
             (lhs, rhs) => panic!("bad: {lhs:?} % {rhs:?}"),
         }
     }
@@ -424,4 +434,22 @@ impl PartialOrd for Value {
             _ => None,
         }
     }
+}
+
+#[test]
+fn divmod() {
+    let lhs = Value::Number(3);
+    let rhs = Value::Number(16);
+
+    assert_eq!(lhs / rhs, Value::Number(0));
+    assert_eq!(lhs % rhs, Value::Number(3));
+
+    assert_eq!(-lhs / rhs, Value::Number(-1));
+    assert_eq!(-lhs % rhs, Value::Number(13));
+
+    assert_eq!(lhs / -rhs, Value::Number(-1));
+    assert_eq!(lhs % -rhs, Value::Number(-13));
+
+    assert_eq!(-lhs / -rhs, Value::Number(0));
+    assert_eq!(-lhs % -rhs, Value::Number(-3));
 }
