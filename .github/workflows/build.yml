@@ -26,12 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup target add wasm32-unknown-unknown
-      - run: sudo apt update && sudo apt install emscripten
+      - name: Install binaryen
+        run: |
+          curl -o binaryen.tar.gz --no-progress-meter -L https://github.com/WebAssembly/binaryen/releases/download/version_124/binaryen-version_124-x86_64-linux.tar.gz
+          echo "0290c3779fedf592b8da0ded3032ff55c41a2b7bfa2d6bf7b7bac6f0e6e28963  binaryen.tar.gz" | sha256sum -c
+          sudo tar -xf binaryen.tar.gz -C /usr/local --strip-components=1
       - name: Install wasm-bindgen
         run: |
           curl -o wasm-bindgen.tar.gz --no-progress-meter -L https://github.com/wasm-bindgen/wasm-bindgen/releases/download/0.2.105/wasm-bindgen-0.2.105-x86_64-unknown-linux-musl.tar.gz
           echo "b391448c4926ac4b11425a6752484d85164e72489d97804461d5e868c643b88a  wasm-bindgen.tar.gz" | sha256sum -c
-          tar -xf wasm-bindgen.tar.gz -C /usr/local/bin --strip-components=1
+          sudo tar -xf wasm-bindgen.tar.gz -C /usr/local/bin --strip-components=1
       - run: cd website && npm i && npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
