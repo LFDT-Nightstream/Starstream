@@ -1,0 +1,146 @@
+---
+source: starstream-compiler/src/parser/program.rs
+assertion_line: 51
+description: "Code:\n\nfn main() {\n    let flag = true;\n    if (flag) { return; } else { return; }\n}\n\nfn compute() -> i64 {\n    let base = 41;\n    base + 1\n}\n"
+---
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        3..7,
+                    ),
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [
+                        VariableDeclaration {
+                            name: Identifier {
+                                name: "flag",
+                                span: Some(
+                                    20..24,
+                                ),
+                            },
+                            value: Spanned {
+                                node: Literal(
+                                    Boolean(
+                                        true,
+                                    ),
+                                ),
+                                span: 27..31,
+                            },
+                        },
+                        If {
+                            branches: [
+                                (
+                                    Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "flag",
+                                                span: Some(
+                                                    41..45,
+                                                ),
+                                            },
+                                        ),
+                                        span: 41..45,
+                                    },
+                                    Block {
+                                        statements: [
+                                            Return(
+                                                None,
+                                            ),
+                                        ],
+                                        tail_expression: None,
+                                    },
+                                ),
+                            ],
+                            else_branch: Some(
+                                Block {
+                                    statements: [
+                                        Return(
+                                            None,
+                                        ),
+                                    ],
+                                    tail_expression: None,
+                                },
+                            ),
+                        },
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+        Function(
+            FunctionDef {
+                name: Identifier {
+                    name: "compute",
+                    span: Some(
+                        82..89,
+                    ),
+                },
+                params: [],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                95..98,
+                            ),
+                        },
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [
+                        VariableDeclaration {
+                            name: Identifier {
+                                name: "base",
+                                span: Some(
+                                    109..113,
+                                ),
+                            },
+                            value: Spanned {
+                                node: Literal(
+                                    Integer(
+                                        41,
+                                    ),
+                                ),
+                                span: 116..118,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Binary {
+                                op: Add,
+                                left: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "base",
+                                            span: Some(
+                                                124..128,
+                                            ),
+                                        },
+                                    ),
+                                    span: 124..129,
+                                },
+                                right: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            1,
+                                        ),
+                                    ),
+                                    span: 131..132,
+                                },
+                            },
+                            span: 124..132,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}

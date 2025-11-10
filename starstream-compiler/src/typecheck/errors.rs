@@ -67,6 +67,14 @@ impl Diagnostic for TypeError {
             TypeErrorKind::BinaryOperandMismatch { .. } => "starstream::type::binary_operands",
             TypeErrorKind::ConditionNotBool { .. } => "starstream::type::condition_not_bool",
             TypeErrorKind::GeneralMismatch { .. } => "starstream::type::mismatch",
+            TypeErrorKind::ReturnMismatch { .. } => "starstream::type::return_mismatch",
+            TypeErrorKind::MissingReturn { .. } => "starstream::type::missing_return",
+            TypeErrorKind::UnknownTypeAnnotation { .. } => {
+                "starstream::type::unknown_type_annotation"
+            }
+            TypeErrorKind::UnsupportedTypeFeature { .. } => {
+                "starstream::type::unsupported_type_feature"
+            }
         };
         Some(Box::new(code))
     }
@@ -162,6 +170,19 @@ pub enum TypeErrorKind {
         expected: Type,
         found: Type,
     },
+    ReturnMismatch {
+        expected: Type,
+        found: Type,
+    },
+    MissingReturn {
+        expected: Type,
+    },
+    UnknownTypeAnnotation {
+        name: String,
+    },
+    UnsupportedTypeFeature {
+        description: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -218,6 +239,21 @@ impl fmt::Display for TypeErrorKind {
             }
             TypeErrorKind::GeneralMismatch { expected, found } => {
                 write!(f, "expected type `{expected}`, found `{found}`")
+            }
+            TypeErrorKind::ReturnMismatch { expected, found } => {
+                write!(
+                    f,
+                    "return type `{found}` does not match function signature `{expected}`"
+                )
+            }
+            TypeErrorKind::MissingReturn { expected } => {
+                write!(f, "missing return of type `{expected}`")
+            }
+            TypeErrorKind::UnknownTypeAnnotation { name } => {
+                write!(f, "unknown type annotation `{name}`")
+            }
+            TypeErrorKind::UnsupportedTypeFeature { description } => {
+                write!(f, "unsupported type feature: {description}")
             }
         }
     }

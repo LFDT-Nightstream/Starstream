@@ -4,8 +4,14 @@ use std::collections::{HashMap, HashSet};
 
 use starstream_types::{
     Scheme, Span, Spanned, Type, TypeVarId,
-    ast::{BinaryOp, Block, Expr, Identifier, Literal, Program, Statement, UnaryOp},
-    typed_ast::{TypedBlock, TypedExpr, TypedExprKind, TypedProgram, TypedStatement},
+    ast::{
+        BinaryOp, Block, Definition, Expr, FunctionDef, Identifier, Literal, Program, Statement,
+        TypeAnnotation, UnaryOp,
+    },
+    typed_ast::{
+        TypedBlock, TypedDefinition, TypedExpr, TypedExprKind, TypedFunctionDef,
+        TypedFunctionParam, TypedProgram, TypedStatement,
+    },
 };
 
 use super::{
@@ -35,16 +41,15 @@ pub fn typecheck_program(
     options: TypecheckOptions,
 ) -> Result<TypecheckSuccess, Vec<TypeError>> {
     let mut inferencer = Inferencer::new(options.capture_traces);
-    let mut env = TypeEnv::new();
-    let mut typed_statements = Vec::with_capacity(program.statements.len());
-    let mut statement_traces = Vec::with_capacity(program.statements.len());
+    let mut typed_definitions = Vec::with_capacity(program.definitions.len());
+    let mut definition_traces = Vec::with_capacity(program.definitions.len());
     let mut errors = Vec::new();
 
-    for statement in &program.statements {
-        match inferencer.infer_statement(&mut env, statement) {
-            Ok((typed_statement, trace)) => {
-                typed_statements.push(typed_statement);
-                statement_traces.push(trace);
+    for definition in &program.definitions {
+        match inferencer.infer_definition(definition) {
+            Ok((typed_definition, trace)) => {
+                typed_definitions.push(typed_definition);
+                definition_traces.push(trace);
             }
             Err(error) => {
                 errors.push(error);
@@ -57,11 +62,11 @@ pub fn typecheck_program(
         return Err(errors);
     }
 
-    let mut typed_program = TypedProgram::new(typed_statements);
+    let mut typed_program = TypedProgram::new(typed_definitions);
     inferencer.apply_substitutions_program(&mut typed_program);
 
     let traces = if options.capture_traces {
-        statement_traces
+        definition_traces
     } else {
         Vec::new()
     };
@@ -80,6 +85,12 @@ struct Inferencer {
     subst: HashMap<TypeVarId, Type>,
 }
 
+struct FunctionCtx {
+    expected_return: Type,
+    return_span: Span,
+    saw_return: bool,
+}
+
 impl Inferencer {
     /// Construct a fresh inferencer with an empty substitution environment.
     fn new(capture_traces: bool) -> Self {
@@ -90,11 +101,89 @@ impl Inferencer {
         }
     }
 
+    /// Type-check a top-level definition.
+    fn infer_definition(
+        &mut self,
+        definition: &Definition,
+    ) -> Result<(TypedDefinition, InferenceTree), TypeError> {
+        match definition {
+            Definition::Function(function) => {
+                let (typed_function, trace) = self.infer_function(function)?;
+                Ok((TypedDefinition::Function(typed_function), trace))
+            }
+        }
+    }
+
+    fn infer_function(
+        &mut self,
+        function: &FunctionDef,
+    ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
+        let mut env = TypeEnv::new();
+        let mut typed_params = Vec::with_capacity(function.params.len());
+        for param in &function.params {
+            let ty = self.type_from_annotation(&param.ty)?;
+            env.insert(param.name.name.clone(), Scheme::monomorphic(ty.clone()));
+            typed_params.push(TypedFunctionParam {
+                name: param.name.clone(),
+                ty,
+            });
+        }
+
+        let (expected_return, return_span) = match &function.return_type {
+            Some(annotation) => (
+                self.type_from_annotation(annotation)?,
+                annotation
+                    .name
+                    .span
+                    .or(function.name.span)
+                    .unwrap_or_else(dummy_span),
+            ),
+            None => (Type::unit(), function.name.span.unwrap_or_else(dummy_span)),
+        };
+
+        let mut ctx = FunctionCtx {
+            expected_return: expected_return.clone(),
+            return_span,
+            saw_return: false,
+        };
+
+        let (typed_body, body_traces) =
+            self.infer_block(&mut env, &function.body, &mut ctx, true)?;
+
+        if expected_return != Type::unit()
+            && !ctx.saw_return
+            && typed_body.tail_expression.is_none()
+        {
+            return Err(TypeError::new(
+                TypeErrorKind::MissingReturn {
+                    expected: expected_return,
+                },
+                function.name.span.unwrap_or(return_span),
+            )
+            .with_help("add a `return` or tail expression to satisfy the signature"));
+        }
+
+        let subject = self.maybe_string(|| function.name.name.clone());
+        let result = self.maybe_string(|| self.format_type(&ctx.expected_return));
+        let trace = self.make_trace("T-Fn", None, subject, result, || body_traces);
+
+        Ok((
+            TypedFunctionDef {
+                name: function.name.clone(),
+                params: typed_params,
+                return_type: ctx.expected_return,
+                body: typed_body,
+            },
+            trace,
+        ))
+    }
+
     /// Type-check a single statement, yielding its typed form and an inference trace.
     fn infer_statement(
         &mut self,
         env: &mut TypeEnv,
         statement: &Statement,
+        ctx: &mut FunctionCtx,
     ) -> Result<(TypedStatement, InferenceTree), TypeError> {
         let env_context = self.maybe_string(|| self.format_env(env));
         let stmt_repr = self.maybe_string(|| self.format_statement_src(statement));
@@ -198,6 +287,56 @@ impl Inferencer {
                     tree,
                 ))
             }
+            Statement::Return(value) => {
+                let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
+                match value {
+                    Some(expr) => {
+                        let (typed_expr, expr_trace) = self.infer_expr(env, expr)?;
+                        let actual_type = typed_expr.node.ty.clone();
+                        let (_, unify_trace) = self.unify(
+                            actual_type.clone(),
+                            ctx.expected_return.clone(),
+                            expr.span,
+                            ctx.return_span,
+                            TypeErrorKind::ReturnMismatch {
+                                expected: self.apply(&ctx.expected_return),
+                                found: self.apply(&actual_type),
+                            },
+                        )?;
+                        ctx.saw_return = true;
+                        let tree = self.make_trace(
+                            "T-Return",
+                            env_context,
+                            stmt_repr,
+                            result_repr,
+                            || vec![expr_trace, unify_trace],
+                        );
+                        Ok((TypedStatement::Return(Some(typed_expr)), tree))
+                    }
+                    None => {
+                        let unit = Type::unit();
+                        let (_, unify_trace) = self.unify(
+                            unit.clone(),
+                            ctx.expected_return.clone(),
+                            ctx.return_span,
+                            ctx.return_span,
+                            TypeErrorKind::ReturnMismatch {
+                                expected: self.apply(&ctx.expected_return),
+                                found: self.apply(&unit),
+                            },
+                        )?;
+                        ctx.saw_return = true;
+                        let tree = self.make_trace(
+                            "T-ReturnUnit",
+                            env_context,
+                            stmt_repr,
+                            result_repr,
+                            || vec![unify_trace],
+                        );
+                        Ok((TypedStatement::Return(None), tree))
+                    }
+                }
+            }
             Statement::If {
                 branches,
                 else_branch,
@@ -215,22 +354,17 @@ impl Inferencer {
                     )?;
                     children.push(bool_check);
 
-                    let (typed_then, then_traces) = self.infer_block(env, then_branch)?;
+                    let (typed_then, then_traces) =
+                        self.infer_block(env, then_branch, ctx, false)?;
                     children.extend(then_traces);
 
                     typed_branches.push((typed_condition, typed_then));
                 }
 
-                let typed_else = match else_branch {
-                    Some(block) => {
-                        let (typed_block, else_traces) = self.infer_block(env, block)?;
-                        Some((typed_block, else_traces))
-                    }
-                    None => None,
-                };
-                let typed_else_block = if let Some((block, traces)) = typed_else {
-                    children.extend(traces);
-                    Some(block)
+                let typed_else_block = if let Some(block) = else_branch {
+                    let (typed_block, else_traces) = self.infer_block(env, block, ctx, false)?;
+                    children.extend(else_traces);
+                    Some(typed_block)
                 } else {
                     None
                 };
@@ -260,7 +394,7 @@ impl Inferencer {
                     ConditionContext::While,
                 )?;
 
-                let (typed_body, body_traces) = self.infer_block(env, body)?;
+                let (typed_body, body_traces) = self.infer_block(env, body, ctx, false)?;
 
                 let mut children = vec![cond_trace, bool_check];
                 children.extend(body_traces);
@@ -283,7 +417,7 @@ impl Inferencer {
                 ))
             }
             Statement::Block(block) => {
-                let (typed_block, block_traces) = self.infer_block(env, block)?;
+                let (typed_block, block_traces) = self.infer_block(env, block, ctx, false)?;
                 let unit_result = self.maybe_string(|| "()".to_string());
                 let tree = self.make_trace(
                     "T-Block",
@@ -310,17 +444,52 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         block: &Block,
+        ctx: &mut FunctionCtx,
+        treat_tail_as_return: bool,
     ) -> Result<(TypedBlock, Vec<InferenceTree>), TypeError> {
         env.push_scope();
         let mut typed_statements = Vec::with_capacity(block.statements.len());
-        let mut traces = Vec::with_capacity(block.statements.len());
+        let mut traces = Vec::with_capacity(block.statements.len() + 1);
         for statement in &block.statements {
-            let (typed, trace) = self.infer_statement(env, statement)?;
+            let (typed, trace) = self.infer_statement(env, statement, ctx)?;
             typed_statements.push(typed);
             traces.push(trace);
         }
+
+        let mut tail_expression = None;
+        if let Some(expr) = &block.tail_expression {
+            let (typed_expr, expr_trace) = self.infer_expr(env, expr)?;
+            let mut children = vec![expr_trace];
+            if treat_tail_as_return {
+                ctx.saw_return = true;
+                let actual = typed_expr.node.ty.clone();
+                let (_, unify_trace) = self.unify(
+                    actual.clone(),
+                    ctx.expected_return.clone(),
+                    expr.span,
+                    ctx.return_span,
+                    TypeErrorKind::ReturnMismatch {
+                        expected: self.apply(&ctx.expected_return),
+                        found: self.apply(&actual),
+                    },
+                )?;
+                children.push(unify_trace);
+            }
+
+            let label = if treat_tail_as_return {
+                "T-ReturnTail"
+            } else {
+                "T-Tail"
+            };
+            let subject = self.maybe_string(|| self.format_expr_src(expr));
+            let result = self.maybe_string(|| self.format_type(&typed_expr.node.ty));
+            let tail_trace = self.make_trace(label, None, subject, result, || children);
+            traces.push(tail_trace);
+            tail_expression = Some(typed_expr);
+        }
+
         env.pop_scope();
-        Ok((TypedBlock::new(typed_statements), traces))
+        Ok((TypedBlock::new(typed_statements, tail_expression), traces))
     }
 
     /// Type-check an expression, returning the typed node and corresponding trace tree.
@@ -619,6 +788,30 @@ impl Inferencer {
         }
     }
 
+    fn type_from_annotation(&self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
+        if !annotation.generics.is_empty() {
+            return Err(TypeError::new(
+                TypeErrorKind::UnsupportedTypeFeature {
+                    description: "generic type parameters are not supported yet".to_string(),
+                },
+                annotation.name.span.unwrap_or_else(dummy_span),
+            )
+            .with_help("remove `<...>` until generics are implemented"));
+        }
+
+        match annotation.name.name.as_str() {
+            "i64" => Ok(Type::int()),
+            "bool" => Ok(Type::bool()),
+            "()" => Ok(Type::unit()),
+            other => Err(TypeError::new(
+                TypeErrorKind::UnknownTypeAnnotation {
+                    name: other.to_string(),
+                },
+                annotation.name.span.unwrap_or_else(dummy_span),
+            )),
+        }
+    }
+
     /// Ensure a type is boolean, emitting a trace entry describing the check.
     fn require_bool(
         &mut self,
@@ -753,11 +946,25 @@ impl Inferencer {
         }
     }
 
-    /// Rewrite every statement in the program with normalized types.
+    /// Rewrite every definition in the program with normalized types.
     fn apply_substitutions_program(&self, program: &mut TypedProgram) {
-        for statement in &mut program.statements {
-            self.apply_statement(statement);
+        for definition in &mut program.definitions {
+            self.apply_definition(definition);
         }
+    }
+
+    fn apply_definition(&self, definition: &mut TypedDefinition) {
+        match definition {
+            TypedDefinition::Function(function) => self.apply_function(function),
+        }
+    }
+
+    fn apply_function(&self, function: &mut TypedFunctionDef) {
+        function.return_type = self.apply(&function.return_type);
+        for param in &mut function.params {
+            param.ty = self.apply(&param.ty);
+        }
+        self.apply_block(&mut function.body);
     }
 
     /// Visit a single statement and normalize any embedded type annotations.
@@ -787,6 +994,8 @@ impl Inferencer {
             }
             TypedStatement::Block(block) => self.apply_block(block),
             TypedStatement::Expression(expr) => self.apply_expr(expr),
+            TypedStatement::Return(Some(expr)) => self.apply_expr(expr),
+            TypedStatement::Return(None) => {}
         }
     }
 
@@ -794,6 +1003,9 @@ impl Inferencer {
     fn apply_block(&self, block: &mut TypedBlock) {
         for statement in &mut block.statements {
             self.apply_statement(statement);
+        }
+        if let Some(expr) = &mut block.tail_expression {
+            self.apply_expr(expr);
         }
     }
 
@@ -1055,6 +1267,14 @@ impl Inferencer {
 
         self.subst.insert(var, ty);
         Ok(())
+    }
+}
+
+fn dummy_span() -> Span {
+    Span {
+        start: 0,
+        end: 0,
+        context: (),
     }
 }
 

@@ -156,9 +156,21 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &TypedProgram) -> std::result::Result<(), CompileError> {
+    fn visit_program(&mut self, program: &TypedProgram) -> miette::Result<()> {
+        let function = program
+            .definitions
+            .iter()
+            .find_map(|definition| match definition {
+                TypedDefinition::Function(function) => Some(function),
+            })
+            .ok_or_else(|| miette::miette!("no function definitions to compile"))?;
+
+        self.visit_function(function)
+    }
+
+    fn visit_function(&mut self, function: &TypedFunctionDef) -> miette::Result<()> {
         let mut func = Function::default();
-        self.visit_block(&mut func, &(), &program.statements);
+        self.visit_block(&mut func, &(), &function.body);
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new([], []), func);
@@ -169,9 +181,9 @@ impl Compiler {
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[TypedStatement]) {
+    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &TypedBlock) {
         let mut locals = HashMap::new();
-        for statement in block {
+        for statement in &block.statements {
             match statement {
                 TypedStatement::Expression(expr) => {
                     let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
@@ -206,7 +218,7 @@ impl Compiler {
                 }
                 // Recursive
                 TypedStatement::Block(block) => {
-                    self.visit_block(func, &(parent, &locals), &block.statements);
+                    self.visit_block(func, &(parent, &locals), block);
                 }
                 TypedStatement::If {
                     branches,
@@ -226,13 +238,13 @@ impl Compiler {
                         assert!(matches!(im, Intermediate::StackBool));
                         func.instructions().i32_eqz(); // If condition is false,
                         func.instructions().br_if(0); // then try the next condition.
-                        self.visit_block(func, &(parent, &locals), &block.statements);
+                        self.visit_block(func, &(parent, &locals), block);
                         func.instructions().br(1); // Go past end.
                         func.instructions().end();
                     }
                     // Final `else` branch is just inline.
                     if let Some(else_branch) = else_branch {
-                        self.visit_block(func, &(parent, &locals), &else_branch.statements);
+                        self.visit_block(func, &(parent, &locals), else_branch);
                     }
                     // End.
                     func.instructions().end();
@@ -248,11 +260,24 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
-                    self.visit_block(func, &(parent, &locals), &body.statements);
+                    self.visit_block(func, &(parent, &locals), body);
                     // continue
                     func.instructions().br(0).end().end();
                 }
+                TypedStatement::Return(Some(expr)) => {
+                    let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
+                    self.discard(func, im);
+                    func.instructions().return_();
+                }
+                TypedStatement::Return(None) => {
+                    func.instructions().return_();
+                }
             }
+        }
+
+        if let Some(expr) = &block.tail_expression {
+            let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
+            self.discard(func, im);
         }
     }
 

@@ -1,15 +1,16 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 96
-description: "Source:\n\nlet flag = true;\nlet x = flag + 1;\n"
+assertion_line: 132
+description: "Source:\n\nfn test() {\nlet flag = true;\nlet x = flag + 1;\n}\n"
 ---
 starstream::type::binary_operands
 
   x binary `+` operands must match; found `bool` and `i64`
-   ,-[test.star:2:9]
- 1 | let flag = true;
- 2 | let x = flag + 1;
+   ,-[test.star:3:9]
+ 2 | let flag = true;
+ 3 | let x = flag + 1;
    :         ^^|^   |
    :           |    `-- has type `i64`
    :           `-- has type `bool`
+ 4 | }
    `----

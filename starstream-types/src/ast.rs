@@ -5,10 +5,16 @@ use serde::Serialize;
 
 pub type Span = SimpleSpan;
 
-/// Entire program: a sequence of statements.
+/// Entire program: a sequence of definitions.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Program {
-    pub statements: Vec<Statement>,
+    pub definitions: Vec<Definition>,
+}
+
+/// Top-level items.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum Definition {
+    Function(FunctionDef),
 }
 
 /// Statements allowed by the current grammar.
@@ -33,12 +39,14 @@ pub enum Statement {
     },
     Block(Block),
     Expression(Spanned<Expr>),
+    Return(Option<Spanned<Expr>>),
 }
 
 /// `{ statement* }`
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Block {
     pub statements: Vec<Statement>,
+    pub tail_expression: Option<Spanned<Expr>>,
 }
 
 /// Expressions with precedence encoded via parser, not the AST shape.
@@ -101,6 +109,27 @@ impl Identifier {
             span,
         }
     }
+}
+
+/// Function definition declared at module scope.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct FunctionDef {
+    pub name: Identifier,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Option<TypeAnnotation>,
+    pub body: Block,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct FunctionParam {
+    pub name: Identifier,
+    pub ty: TypeAnnotation,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct TypeAnnotation {
+    pub name: Identifier,
+    pub generics: Vec<TypeAnnotation>,
 }
 
 /// Helper for attaching source spans to AST nodes.

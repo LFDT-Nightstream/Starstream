@@ -15,7 +15,10 @@ use starstream_compiler::{
 use starstream_types::{
     Span, Spanned,
     ast::Program,
-    typed_ast::{TypedBlock, TypedExpr, TypedExprKind, TypedProgram, TypedStatement},
+    typed_ast::{
+        TypedBlock, TypedDefinition, TypedExpr, TypedExprKind, TypedFunctionDef, TypedProgram,
+        TypedStatement,
+    },
     types::Type,
 };
 
@@ -178,9 +181,50 @@ impl DocumentState {
         self.definition_entries.clear();
 
         let mut scopes: Vec<HashMap<String, Span>> = vec![HashMap::new()];
-        for statement in &program.statements {
-            self.collect_statement(statement, &mut scopes);
+        for definition in &program.definitions {
+            self.collect_definition(definition, &mut scopes);
         }
+    }
+
+    fn collect_definition(
+        &mut self,
+        definition: &TypedDefinition,
+        scopes: &mut Vec<HashMap<String, Span>>,
+    ) {
+        match definition {
+            TypedDefinition::Function(function) => self.collect_function(function, scopes),
+        }
+    }
+
+    fn collect_function(
+        &mut self,
+        function: &TypedFunctionDef,
+        scopes: &mut Vec<HashMap<String, Span>>,
+    ) {
+        if let Some(span) = function.name.span {
+            self.definition_entries.push(DefinitionEntry {
+                usage: span,
+                target: span,
+            });
+            self.add_hover_span(span, &function.return_type);
+        }
+
+        scopes.push(HashMap::new());
+        if let Some(scope) = scopes.last_mut() {
+            for param in &function.params {
+                if let Some(span) = param.name.span {
+                    scope.insert(param.name.name.clone(), span);
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: span,
+                        target: span,
+                    });
+                    self.add_hover_span(span, &param.ty);
+                }
+            }
+        }
+
+        self.collect_block(&function.body, scopes);
+        scopes.pop();
     }
 
     fn collect_statement(
@@ -233,6 +277,8 @@ impl DocumentState {
             }
             TypedStatement::Block(block) => self.collect_block(block, scopes),
             TypedStatement::Expression(expr) => self.collect_expr(expr, scopes),
+            TypedStatement::Return(Some(expr)) => self.collect_expr(expr, scopes),
+            TypedStatement::Return(None) => {}
         }
     }
 
@@ -240,6 +286,9 @@ impl DocumentState {
         scopes.push(HashMap::new());
         for statement in &block.statements {
             self.collect_statement(statement, scopes);
+        }
+        if let Some(expr) = &block.tail_expression {
+            self.collect_expr(expr, scopes);
         }
         scopes.pop();
     }

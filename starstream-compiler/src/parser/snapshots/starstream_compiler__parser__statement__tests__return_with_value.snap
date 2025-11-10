@@ -1,0 +1,20 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+assertion_line: 205
+description: "Code:\n\nreturn flag;"
+---
+Return(
+    Some(
+        Spanned {
+            node: Identifier(
+                Identifier {
+                    name: "flag",
+                    span: Some(
+                        7..11,
+                    ),
+                },
+            ),
+            span: 7..11,
+        },
+    ),
+)

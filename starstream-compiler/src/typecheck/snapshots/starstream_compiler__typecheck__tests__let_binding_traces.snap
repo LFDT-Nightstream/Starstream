@@ -1,7 +1,8 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 71
-description: "Source:\n\nlet answer = 42;\n"
+assertion_line: 93
+description: "Source:\n\nfn test() {\n    let answer = 42;\n}\n"
 ---
-T-Let: {} ⊢ let answer = 42; ⇒ i64
-  T-Int: {} ⊢ 42 ⇒ i64
+T-Fn: test => ()
+  T-Let: {} ⊢ let answer = 42; ⇒ i64
+    T-Int: {} ⊢ 42 ⇒ i64

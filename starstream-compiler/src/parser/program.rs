@@ -1,16 +1,16 @@
 use chumsky::prelude::*;
 use starstream_types::ast::Program;
 
-use super::{context::Extra, statement};
+use super::{context::Extra, definition};
 
 /// Get a parser for a Starstream source file.
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Program, Extra<'a>> {
-    statement::parser()
+    definition::parser()
         .padded()
         .repeated()
         .collect::<Vec<_>>()
         .then_ignore(end())
-        .map(|statements| Program { statements })
+        .map(|definitions| Program { definitions })
 }
 
 #[cfg(test)]
@@ -36,22 +36,29 @@ mod tests {
     }
 
     #[test]
-    fn sequential_statements() {
+    fn single_function() {
         assert_program_snapshot!(
             r#"
-            let count = 0;
-            count = count + 1;
-            false;
+            fn add(a: i64, b: i64) -> i64 {
+                a + b
+            }
             "#
         );
     }
 
     #[test]
-    fn conditional_program() {
+    fn multiple_functions() {
         assert_program_snapshot!(
             r#"
-            let flag = true;
-            if (flag) { let answer = 42; } else { answer = 0; }
+            fn main() {
+                let flag = true;
+                if (flag) { return; } else { return; }
+            }
+
+            fn compute() -> i64 {
+                let base = 41;
+                base + 1
+            }
             "#
         );
     }

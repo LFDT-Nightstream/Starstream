@@ -1,6 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Expr, Identifier, Literal, Program, Spanned, Statement, UnaryOp,
+    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionParam, Identifier, Literal, Program,
+    Spanned, Statement, TypeAnnotation, UnaryOp,
 };
 use std::fmt;
 
@@ -29,9 +30,55 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
 }
 
 fn program_to_doc(program: &Program) -> RcDoc<'_, ()> {
-    let statements = program.statements.iter().map(statement_to_doc);
+    if program.definitions.is_empty() {
+        RcDoc::hardline()
+    } else {
+        let defs = program.definitions.iter().map(definition_to_doc);
+        RcDoc::intersperse(defs, RcDoc::hardline().append(RcDoc::hardline()))
+            .append(RcDoc::hardline())
+    }
+}
 
-    RcDoc::intersperse(statements, RcDoc::hardline()).append(RcDoc::hardline())
+fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
+    match definition {
+        Definition::Function(function) => function_to_doc(function),
+    }
+}
+
+fn function_to_doc(function: &FunctionDef) -> RcDoc<'_, ()> {
+    let params = params_to_doc(&function.params);
+    let mut doc = RcDoc::text("fn")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&function.name))
+        .append(RcDoc::text("("))
+        .append(params)
+        .append(RcDoc::text(")"));
+
+    if let Some(return_type) = &function.return_type {
+        doc = doc
+            .append(RcDoc::space())
+            .append(RcDoc::text("->"))
+            .append(RcDoc::space())
+            .append(type_annotation_to_doc(return_type));
+    }
+
+    doc.append(RcDoc::space())
+        .append(block_to_doc(&function.body))
+}
+
+fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {
+    if params.is_empty() {
+        RcDoc::nil()
+    } else {
+        RcDoc::intersperse(
+            params.iter().map(|param| {
+                identifier_to_doc(&param.name)
+                    .append(RcDoc::text(": "))
+                    .append(type_annotation_to_doc(&param.ty))
+            }),
+            RcDoc::text(", "),
+        )
+    }
 }
 
 fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
@@ -95,16 +142,24 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
             .append(block_to_doc(body)),
         Statement::Block(block) => block_to_doc(block),
         Statement::Expression(expr) => expr_to_doc(&expr.node).append(RcDoc::text(";")),
+        Statement::Return(Some(expr)) => RcDoc::text("return")
+            .append(RcDoc::space())
+            .append(expr_to_doc(&expr.node))
+            .append(RcDoc::text(";")),
+        Statement::Return(None) => RcDoc::text("return;"),
     }
 }
 
 fn block_to_doc(block: &Block) -> RcDoc<'_, ()> {
-    if block.statements.is_empty() {
+    if block.statements.is_empty() && block.tail_expression.is_none() {
         RcDoc::text("{ }")
     } else {
-        let statements = block.statements.iter().map(statement_to_doc);
+        let mut items: Vec<RcDoc<'_, ()>> = block.statements.iter().map(statement_to_doc).collect();
+        if let Some(expr) = &block.tail_expression {
+            items.push(expr_to_doc(&expr.node));
+        }
 
-        let body = RcDoc::intersperse(statements, RcDoc::line());
+        let body = RcDoc::intersperse(items, RcDoc::line());
 
         RcDoc::text("{")
             .append(RcDoc::line().append(body).nest(INDENT))
@@ -121,6 +176,21 @@ fn parened_expr(expr: &Spanned<Expr>) -> RcDoc<'_, ()> {
 
 fn identifier_to_doc(identifier: &Identifier) -> RcDoc<'_, ()> {
     RcDoc::text(identifier.name.clone())
+}
+
+fn type_annotation_to_doc(annotation: &TypeAnnotation) -> RcDoc<'_, ()> {
+    let mut doc = identifier_to_doc(&annotation.name);
+    if !annotation.generics.is_empty() {
+        let generics = RcDoc::intersperse(
+            annotation.generics.iter().map(type_annotation_to_doc),
+            RcDoc::text(", "),
+        );
+        doc = doc
+            .append(RcDoc::text("<"))
+            .append(generics)
+            .append(RcDoc::text(">"));
+    }
+    doc
 }
 
 fn expr_to_doc(expr: &Expr) -> RcDoc<'_, ()> {
@@ -289,16 +359,18 @@ mod tests {
     fn control_flow() {
         assert_format_snapshot!(
             r#"
-                let flag = true;
-            if (    flag) {
-                let  mut  answer = 42;
-                while (answer < 100) {
-                    answer = answer + 1;
+            fn main() {
+                    let flag = true;
+                if (    flag) {
+                    let mut answer = 42;
+                    while (answer < 100) {
+                        answer = answer + 1;
+                    }
+                }else if( ! flag && true ){
+                    answer = 17;
+                } else {
+                    answer = 0;
                 }
-            }else if( ! flag && true ){
-                answer = 17;
-            } else {
-                answer = 0;
             }
             "#,
         );
@@ -308,10 +380,12 @@ mod tests {
     fn expressions() {
         assert_format_snapshot!(
             r#"
-            let mut value      = -(-5);
-            value = (1 + 2) * (3 - 4) / 5;
-            value = value + (10 / (3 + 2));
-            result = (1 + 2 == 3) && !(false || true);
+            fn main() {
+                let mut value      = -(-5);
+                value = (1 + 2) * (3 - 4) / 5;
+                value = value + (10 / (3 + 2));
+                result = (1 + 2 == 3) && !(false || true);
+            }
             "#,
         );
     }
@@ -320,12 +394,14 @@ mod tests {
     fn nested_blocks() {
         assert_format_snapshot!(
             r#"
-            {
-                let x = 1;
+            fn main() {
                 {
-                    let mut y = x + 2;
+                    let x = 1;
+                    {
+                        let mut y = x + 2;
 
-                    y = y * (x + y);
+                        y = y * (x + y);
+                    }
                 }
             }
             "#,

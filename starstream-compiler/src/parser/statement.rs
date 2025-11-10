@@ -1,27 +1,24 @@
-use chumsky::{prelude::*, recursive::recursive};
-use starstream_types::ast::{Block, Statement};
+use chumsky::{prelude::*, recursive::Recursive};
+use starstream_types::ast::{Block, Expr, Spanned, Statement};
 
 use super::{context::Extra, expression, primitives};
 
 /// Parser for individual statements.
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
-    recursive(|statement_parser| {
-        let block_parser = statement_parser
-            .repeated()
-            .collect::<Vec<_>>()
-            .delimited_by(just('{').padded(), just('}').padded())
-            .map(|statements| Block { statements })
-            .boxed();
+    let (statement_parser, _) = build_parsers();
+    statement_parser
+}
 
-        parser_with_block(block_parser).boxed()
-    })
+/// Parser for `{ ... }` blocks, including optional tail expressions.
+pub fn block_parser<'a>() -> impl Parser<'a, &'a str, Block, Extra<'a>> {
+    let (_, block_parser) = build_parsers();
+    block_parser
 }
 
 pub(super) fn parser_with_block<'a>(
     block_parser: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
+    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
-    let expr = expression::parser().boxed();
-
     let variable_declaration = just("let")
         .padded()
         .ignore_then(just("mut").or_not())
@@ -87,6 +84,16 @@ pub(super) fn parser_with_block<'a>(
 
     let block_statement = block_parser.clone().map(Statement::Block).padded();
 
+    let return_statement = just("return")
+        .padded()
+        .ignore_then(
+            expr.clone()
+                .then_ignore(just(';').padded())
+                .map(Some)
+                .or(just(';').padded().to(None)),
+        )
+        .map(Statement::Return);
+
     let expression_statement = expr
         .then_ignore(just(';').padded())
         .map(Statement::Expression);
@@ -97,9 +104,37 @@ pub(super) fn parser_with_block<'a>(
         if_statement,
         while_statement,
         block_statement,
+        return_statement,
         expression_statement,
     ))
     .boxed()
+}
+
+fn build_parsers<'a>() -> (
+    impl Parser<'a, &'a str, Statement, Extra<'a>>,
+    impl Parser<'a, &'a str, Block, Extra<'a>>,
+) {
+    let mut statement_parser = Recursive::declare();
+    let mut block_parser = Recursive::declare();
+    let expr = expression::parser().boxed();
+
+    let block = statement_parser
+        .clone()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then(expr.clone().padded().or_not())
+        .delimited_by(just('{').padded(), just('}').padded())
+        .map(|(statements, tail_expression)| Block {
+            statements,
+            tail_expression,
+        })
+        .boxed();
+
+    block_parser.define(block);
+    let stmt = parser_with_block(block_parser.clone(), expr).boxed();
+    statement_parser.define(stmt);
+
+    (statement_parser, block_parser)
 }
 
 #[cfg(test)]
@@ -164,5 +199,15 @@ mod tests {
     #[test]
     fn expression_statement() {
         assert_statement_snapshot!("value + 1;");
+    }
+
+    #[test]
+    fn return_without_value() {
+        assert_statement_snapshot!("return;");
+    }
+
+    #[test]
+    fn return_with_value() {
+        assert_statement_snapshot!("return flag;");
     }
 }

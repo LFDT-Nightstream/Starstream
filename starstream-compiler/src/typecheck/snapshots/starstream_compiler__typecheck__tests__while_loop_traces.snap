@@ -1,22 +1,23 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nlet mut counter = 0;\nwhile (counter < 3) {\n    counter = counter + 1;\n}\n"
+assertion_line: 125
+description: "Source:\n\nfn test() {\n    let counter = 0;\n    while (counter < 3) {\n      counter = counter + 1;\n    }\n}\n"
 ---
-T-Let: {} ⊢ let mut counter = 0; ⇒ i64
-  T-Int: {} ⊢ 0 ⇒ i64
-
-T-While: {counter: i64} ⊢ while (counter < 3) {
+T-Fn: test => ()
+  T-Let: {} ⊢ let counter = 0; ⇒ i64
+    T-Int: {} ⊢ 0 ⇒ i64
+  T-While: {counter: i64} ⊢ while (counter < 3) {
     counter = counter + 1;
 } ⇒ ()
-  T-Bin-Lt: {counter: i64} ⊢ counter < 3 ⇒ bool
-    T-Var: {counter: i64} ⊢ counter ⇒ i64
-    T-Int: {counter: i64} ⊢ 3 ⇒ i64
-    Check-Compare: i64 vs i64 => ok (int)
-  Unify-Const: bool ~ bool => {}
-  T-Assign: {counter: i64} ⊢ counter = counter + 1; ⇒ i64
-    T-Bin-Add: {counter: i64} ⊢ counter + 1 ⇒ i64
+    T-Bin-Lt: {counter: i64} ⊢ counter < 3 ⇒ bool
       T-Var: {counter: i64} ⊢ counter ⇒ i64
-      T-Int: {counter: i64} ⊢ 1 ⇒ i64
+      T-Int: {counter: i64} ⊢ 3 ⇒ i64
+      Check-Compare: i64 vs i64 => ok (int)
+    Unify-Const: bool ~ bool => {}
+    T-Assign: {counter: i64} ⊢ counter = counter + 1; ⇒ i64
+      T-Bin-Add: {counter: i64} ⊢ counter + 1 ⇒ i64
+        T-Var: {counter: i64} ⊢ counter ⇒ i64
+        T-Int: {counter: i64} ⊢ 1 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
-    Unify-Const: i64 ~ i64 => {}

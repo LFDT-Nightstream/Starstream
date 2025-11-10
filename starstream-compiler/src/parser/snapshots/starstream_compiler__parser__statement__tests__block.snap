@@ -1,5 +1,6 @@
 ---
 source: starstream-compiler/src/parser/statement.rs
+assertion_line: 186
 description: "Code:\n\n{ let mut a = 1; a = a + 1; }\n"
 ---
 Block(
@@ -56,5 +57,6 @@ Block(
                 },
             },
         ],
+        tail_expression: None,
     },
 )

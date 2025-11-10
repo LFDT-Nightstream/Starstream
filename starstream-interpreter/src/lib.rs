@@ -4,7 +4,8 @@ use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
 use starstream_types::{
-    BinaryOp, Identifier, Literal, TypedExpr, TypedExprKind, TypedProgram, TypedStatement, UnaryOp,
+    BinaryOp, Identifier, Literal, TypedBlock, TypedDefinition, TypedExpr, TypedExprKind,
+    TypedFunctionDef, TypedProgram, TypedStatement, UnaryOp,
 };
 
 #[cfg(test)]
@@ -15,12 +16,24 @@ use starstream_types::{Spanned, Type};
 
 /// Execute a program.
 pub fn exec_program(program: &TypedProgram) {
-    eval_block(&program.statements, &Default::default());
+    if let Some(function) = program
+        .definitions
+        .iter()
+        .find_map(|definition| match definition {
+            TypedDefinition::Function(function) => Some(function),
+        })
+    {
+        eval_function(function);
+    }
 }
 
-fn eval_block(block: &[TypedStatement], locals: &Locals) -> Locals {
+fn eval_function(function: &TypedFunctionDef) {
+    let _ = eval_block(&function.body, &Default::default());
+}
+
+fn eval_block(block: &TypedBlock, locals: &Locals) -> (Locals, bool) {
     let mut locals = locals.clone();
-    for statement in block {
+    for statement in &block.statements {
         match statement {
             TypedStatement::VariableDeclaration {
                 mutable: _,
@@ -40,7 +53,11 @@ fn eval_block(block: &[TypedStatement], locals: &Locals) -> Locals {
                 eval(&expr.node, &locals);
             }
             TypedStatement::Block(block) => {
-                eval_block(&block.statements, &locals);
+                let (new_locals, returned) = eval_block(block, &locals);
+                locals = new_locals;
+                if returned {
+                    return (locals, true);
+                }
             }
             TypedStatement::If {
                 branches,
@@ -49,23 +66,47 @@ fn eval_block(block: &[TypedStatement], locals: &Locals) -> Locals {
                 let mut else_ = true;
                 for (condition, block) in branches {
                     if eval(&condition.node, &locals).to_bool() {
-                        eval_block(&block.statements, &locals);
+                        let (new_locals, returned) = eval_block(block, &locals);
+                        locals = new_locals;
+                        if returned {
+                            return (locals, true);
+                        }
                         else_ = false;
                         break;
                     }
                 }
                 if else_ && let Some(else_branch) = else_branch {
-                    eval_block(&else_branch.statements, &locals);
+                    let (new_locals, returned) = eval_block(else_branch, &locals);
+                    locals = new_locals;
+                    if returned {
+                        return (locals, true);
+                    }
                 }
             }
             TypedStatement::While { condition, body } => {
                 while eval(&condition.node, &locals).to_bool() {
-                    eval_block(&body.statements, &locals);
+                    let (new_locals, returned) = eval_block(body, &locals);
+                    locals = new_locals;
+                    if returned {
+                        return (locals, true);
+                    }
                 }
+            }
+            TypedStatement::Return(Some(expr)) => {
+                eval(&expr.node, &locals);
+                return (locals, true);
+            }
+            TypedStatement::Return(None) => {
+                return (locals, true);
             }
         }
     }
-    locals
+
+    if let Some(expr) = &block.tail_expression {
+        eval(&expr.node, &locals);
+    }
+
+    (locals, false)
 }
 
 /// Evaluate an expression.
@@ -203,8 +244,8 @@ fn eval_math() {
 
 #[test]
 fn eval_locals() {
-    let locals = eval_block(
-        &[
+    let block = TypedBlock {
+        statements: vec![
             TypedStatement::VariableDeclaration {
                 mutable: true,
                 name: Identifier::new("foo", None),
@@ -231,8 +272,9 @@ fn eval_locals() {
                 )),
             },
         ],
-        &Default::default(),
-    );
+        tail_expression: None,
+    };
+    let (locals, _) = eval_block(&block, &Default::default());
     assert_eq!(locals.get("foo"), Value::Number(18));
 }
 

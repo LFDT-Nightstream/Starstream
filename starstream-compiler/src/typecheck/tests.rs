@@ -79,7 +79,9 @@ fn render_report(report: &Report) -> miette::Result<String> {
 fn let_binding_traces() {
     assert_typecheck_snapshot!(
         r#"
+        fn test() {
         let answer = 42;
+        }
         "#
     );
 }
@@ -88,9 +90,11 @@ fn let_binding_traces() {
 fn binary_add_traces() {
     assert_typecheck_snapshot!(
         r#"
+        fn test() {
         let left = 1;
         let right = 2;
         let total = left + right;
+        }
         "#
     );
 }
@@ -99,9 +103,11 @@ fn binary_add_traces() {
 fn if_branch_traces() {
     assert_typecheck_snapshot!(
         r#"
+        fn test() {
         let mut score = 10;
         if (score > 5) {
             score = score + 1;
+        }
         }
         "#
     );
@@ -111,9 +117,11 @@ fn if_branch_traces() {
 fn while_loop_traces() {
     assert_typecheck_snapshot!(
         r#"
+        fn test() {
         let mut counter = 0;
         while (counter < 3) {
             counter = counter + 1;
+        }
         }
         "#
     );
@@ -123,8 +131,10 @@ fn while_loop_traces() {
 fn reports_type_error() {
     assert_typecheck_snapshot!(
         r#"
+        fn test() {
         let flag = true;
         let x = flag + 1;
+        }
         "#
     );
 }
