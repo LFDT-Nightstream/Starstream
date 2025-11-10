@@ -5,6 +5,7 @@ description: "Code:\n\nlet count = 0;\ncount = count + 1;\nfalse;\n"
 Program {
     statements: [
         VariableDeclaration {
+            mutable: false,
             name: Identifier {
                 name: "count",
                 span: Some(

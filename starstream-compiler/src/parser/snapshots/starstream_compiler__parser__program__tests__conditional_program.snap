@@ -5,6 +5,7 @@ description: "Code:\n\nlet flag = true;\nif (flag) { let answer = 42; } else { a
 Program {
     statements: [
         VariableDeclaration {
+            mutable: false,
             name: Identifier {
                 name: "flag",
                 span: Some(
@@ -37,6 +38,7 @@ Program {
                     Block {
                         statements: [
                             VariableDeclaration {
+                                mutable: false,
                                 name: Identifier {
                                     name: "answer",
                                     span: Some(

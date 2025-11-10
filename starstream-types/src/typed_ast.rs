@@ -21,6 +21,7 @@ pub struct TypedProgram {
 #[derive(Clone, Debug)]
 pub enum TypedStatement {
     VariableDeclaration {
+        mutable: bool,
         name: Identifier,
         value: Spanned<TypedExpr>,
     },

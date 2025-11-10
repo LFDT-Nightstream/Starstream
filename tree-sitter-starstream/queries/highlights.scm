@@ -2,6 +2,7 @@
 
 ; Keywords
 "let" @keyword
+"mut" @keyword
 "if" @keyword
 "else" @keyword
 "while" @keyword

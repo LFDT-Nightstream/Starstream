@@ -33,7 +33,7 @@ statement ::=
   | block
   | expression_statement
 
-variable_declaration ::= "let" identifier "=" expression ";"
+variable_declaration ::= "let" ("mut")? identifier "=" expression ";"
 
 assignment ::= identifier "=" expression ";"
 

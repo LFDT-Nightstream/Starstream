@@ -1,8 +1,8 @@
 ---
 source: starstream-compiler/src/formatter.rs
-description: "Code:\n\nlet value      = -(-5);\nvalue = (1 + 2) * (3 - 4) / 5;\nvalue = value + (10 / (3 + 2));\nresult = (1 + 2 == 3) && !(false || true);\n"
+description: "Code:\n\nlet mut value      = -(-5);\nvalue = (1 + 2) * (3 - 4) / 5;\nvalue = value + (10 / (3 + 2));\nresult = (1 + 2 == 3) && !(false || true);\n"
 ---
-let value = -(-5);
+let mut value = -(-5);
 value = (1 + 2) * (3 - 4) / 5;
 value = value + (10 / (3 + 2));
 result = (1 + 2 == 3) && !(false || true);

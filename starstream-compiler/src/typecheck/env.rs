@@ -1,10 +1,17 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use starstream_types::{Scheme, Type, TypeVarId};
+use starstream_types::{Scheme, Span, Type, TypeVarId};
+
+#[derive(Clone, Debug)]
+pub struct Binding {
+    pub decl_span: Span,
+    pub mutable: bool,
+    pub scheme: Scheme,
+}
 
 #[derive(Debug)]
 pub struct TypeEnv {
-    scopes: Vec<HashMap<String, Scheme>>,
+    scopes: Vec<HashMap<String, Binding>>,
 }
 
 impl TypeEnv {
@@ -22,17 +29,17 @@ impl TypeEnv {
         self.scopes.pop();
     }
 
-    pub fn insert(&mut self, name: String, scheme: Scheme) -> Option<Scheme> {
+    pub fn insert(&mut self, name: String, binding: Binding) -> Option<Binding> {
         self.scopes
             .last_mut()
             .expect("type env scope missing")
-            .insert(name, scheme)
+            .insert(name, binding)
     }
 
-    pub fn get(&self, name: &str) -> Option<&Scheme> {
+    pub fn get(&self, name: &str) -> Option<&Binding> {
         for scope in self.scopes.iter().rev() {
-            if let Some(scheme) = scope.get(name) {
-                return Some(scheme);
+            if let Some(binding) = scope.get(name) {
+                return Some(binding);
             }
         }
         None
@@ -48,8 +55,8 @@ impl TypeEnv {
     pub fn free_type_vars(&self) -> HashSet<TypeVarId> {
         let mut free = HashSet::new();
         for scope in &self.scopes {
-            for scheme in scope.values() {
-                free.extend(free_type_vars_scheme(scheme));
+            for binding in scope.values() {
+                free.extend(free_type_vars_scheme(&binding.scheme));
             }
         }
         free
@@ -60,8 +67,8 @@ impl TypeEnv {
     pub fn snapshot(&self) -> BTreeMap<String, Scheme> {
         let mut map = BTreeMap::new();
         for scope in &self.scopes {
-            for (name, scheme) in scope {
-                map.insert(name.clone(), scheme.clone());
+            for (name, binding) in scope {
+                map.insert(name.clone(), binding.scheme.clone());
             }
         }
         map

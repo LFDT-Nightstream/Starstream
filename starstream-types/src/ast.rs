@@ -15,6 +15,7 @@ pub struct Program {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Statement {
     VariableDeclaration {
+        mutable: bool,
         name: Identifier,
         value: Spanned<Expr>,
     },
