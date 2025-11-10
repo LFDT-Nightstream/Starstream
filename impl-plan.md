@@ -15,10 +15,10 @@ Components:
 - [x] single-binary CLI - @SpaceManiac
 - [x] formatter, including snapshot tests, included in CLI - @rvcas
 - [x] tree sitter grammar - @SpaceManiac
-- [ ] type system setup
+- [x] type system setup
   - [x] basics specs - @SpaceManiac
-  - [ ] return lsp diagnostics to be displayed in editor - @rvcas
-  - [ ] [Algorithm W](https://sdiehl.github.io/typechecker-zoo/algorithm-w/lambda-calculus.html) and typed AST - @rvcas
+  - [x] return lsp diagnostics to be displayed in editor - @rvcas
+  - [x] [Algorithm W](https://sdiehl.github.io/typechecker-zoo/algorithm-w/lambda-calculus.html) and typed AST - @rvcas
 - [x] LSP server, included in CLI - @rvcas
 - [x] vscode extension (incl. highlighting and LSP launcher) - @SpaceManiac dogfooding
   - [x] run LSP with `cargo run`
