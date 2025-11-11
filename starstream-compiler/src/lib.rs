@@ -8,6 +8,6 @@ pub mod parser;
 pub mod typecheck;
 
 pub use parser::parse_program;
-pub use typecheck::typecheck_program;
+pub use typecheck::{TypecheckOptions, typecheck_program};
 
 pub const FILE_EXTENSION: &str = "star";
