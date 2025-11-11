@@ -81,6 +81,8 @@ fn let_binding_traces() {
         r#"
         fn test() {
         let answer = 42;
+        let foo: i64 = 10;
+        let bar: bool = false;
         }
         "#
     );
@@ -146,6 +148,17 @@ fn reports_immutable_error() {
         fn test() {
         let flag = true;
         flag = false;
+        }
+        "#
+    );
+}
+
+#[test]
+fn reports_let_annotation_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+        let wrong: bool = 1;
         }
         "#
     );

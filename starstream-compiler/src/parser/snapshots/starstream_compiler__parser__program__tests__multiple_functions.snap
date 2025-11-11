@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/parser/program.rs
-assertion_line: 51
 description: "Code:\n\nfn main() {\n    let flag = true;\n    if (flag) { return; } else { return; }\n}\n\nfn compute() -> i64 {\n    let base = 41;\n    base + 1\n}\n"
 ---
 Program {
@@ -25,6 +24,7 @@ Program {
                                     20..24,
                                 ),
                             },
+                            ty: None,
                             value: Spanned {
                                 node: Literal(
                                     Boolean(
@@ -104,6 +104,7 @@ Program {
                                     109..113,
                                 ),
                             },
+                            ty: None,
                             value: Spanned {
                                 node: Literal(
                                     Integer(

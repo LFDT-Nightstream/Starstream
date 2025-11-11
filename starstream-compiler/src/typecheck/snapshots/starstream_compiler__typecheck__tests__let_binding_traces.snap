@@ -1,8 +1,13 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 93
-description: "Source:\n\nfn test() {\n    let answer = 42;\n}\n"
+description: "Source:\n\nfn test() {\nlet answer = 42;\nlet foo: i64 = 10;\nlet bar: bool = false;\n}\n"
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let answer = 42; ⇒ i64
     T-Int: {} ⊢ 42 ⇒ i64
+  T-Let: {answer: i64} ⊢ let foo: i64 = 10; ⇒ i64
+    T-Int: {answer: i64} ⊢ 10 ⇒ i64
+    Unify-Const: i64 ~ i64 => {}
+  T-Let: {answer: i64, foo: i64} ⊢ let bar: bool = false; ⇒ bool
+    T-Bool: {answer: i64, foo: i64} ⊢ false ⇒ bool
+    Unify-Const: bool ~ bool => {}
