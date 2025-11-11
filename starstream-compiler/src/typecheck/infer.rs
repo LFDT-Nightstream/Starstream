@@ -820,7 +820,7 @@ impl Inferencer {
         }
     }
 
-    fn type_from_annotation(&self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
+    fn type_from_annotation(&mut self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
         if !annotation.generics.is_empty() {
             return Err(TypeError::new(
                 TypeErrorKind::UnsupportedTypeFeature {
@@ -835,6 +835,7 @@ impl Inferencer {
             "i64" => Ok(Type::int()),
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
+            "_" => Ok(self.fresh_var()),
             other => Err(TypeError::new(
                 TypeErrorKind::UnknownTypeAnnotation {
                     name: other.to_string(),
