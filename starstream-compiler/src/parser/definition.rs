@@ -4,7 +4,7 @@ use starstream_types::ast::{Definition, FunctionDef, FunctionParam};
 use super::{context::Extra, primitives, statement, type_annotation};
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
-    function_definition().map(Definition::Function).boxed()
+    choice((function_definition().map(Definition::Function),))
 }
 
 fn function_definition<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
