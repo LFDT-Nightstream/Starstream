@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nlet mut answer = 42;"
+---
+VariableDeclaration {
+    mutable: true,
+    name: Identifier {
+        name: "answer",
+        span: Some(
+            8..14,
+        ),
+    },
+    value: Spanned {
+        node: Literal(
+            Integer(
+                42,
+            ),
+        ),
+        span: 17..19,
+    },
+}

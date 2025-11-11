@@ -16,5 +16,5 @@ pub fn parser<'a>(
     ))
     .padded();
 
-    chain(lower, operator).boxed()
+    chain(lower, operator)
 }

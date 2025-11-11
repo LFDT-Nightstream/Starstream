@@ -12,7 +12,6 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
                     .padded()
                     .ignore_then(
                         annotation
-                            .clone()
                             .separated_by(just(',').padded())
                             .allow_trailing()
                             .collect::<Vec<_>>(),
@@ -26,10 +25,10 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, TypeAnnotation, Extra<'a>> {
             })
             .padded()
     })
-    .boxed()
 }
 
 fn type_name<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
     let unit = just("()").map_with(|_, extra| Identifier::new("()", Some(extra.span())));
+
     primitives::identifier().or(unit).padded()
 }

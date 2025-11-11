@@ -9,7 +9,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
 
 fn function_definition<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
-    let block_parser = statement::block_parser().boxed();
+    let block_parser = statement::block_parser();
 
     let parameter = primitives::identifier()
         .then_ignore(just(':').padded())
@@ -26,12 +26,7 @@ fn function_definition<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>>
                 .collect::<Vec<_>>()
                 .delimited_by(just('(').padded(), just(')').padded()),
         )
-        .then(
-            just("->")
-                .padded()
-                .ignore_then(type_parser.clone())
-                .or_not(),
-        )
+        .then(just("->").padded().ignore_then(type_parser).or_not())
         .then(block_parser)
         .map(|(((name, params), return_type), body)| FunctionDef {
             name,
@@ -39,5 +34,4 @@ fn function_definition<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>>
             return_type,
             body,
         })
-        .boxed()
 }

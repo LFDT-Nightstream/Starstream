@@ -6,12 +6,14 @@ use super::{context::Extra, expression, primitives};
 /// Parser for individual statements.
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
     let (statement_parser, _) = build_parsers();
+
     statement_parser
 }
 
 /// Parser for `{ ... }` blocks, including optional tail expressions.
 pub fn block_parser<'a>() -> impl Parser<'a, &'a str, Block, Extra<'a>> {
     let (_, block_parser) = build_parsers();
+
     block_parser
 }
 
@@ -106,7 +108,6 @@ pub(super) fn parser_with_block<'a>(
         return_statement,
         expression_statement,
     ))
-    .boxed()
 }
 
 fn build_parsers<'a>() -> (
@@ -161,6 +162,11 @@ mod tests {
     #[test]
     fn let_binding() {
         assert_statement_snapshot!("let answer = 42;");
+    }
+
+    #[test]
+    fn let_mut_binding() {
+        assert_statement_snapshot!("let mut answer = 42;");
     }
 
     #[test]

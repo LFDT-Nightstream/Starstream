@@ -22,7 +22,7 @@ pub fn parser<'a>(
 
         let not = just('!')
             .padded()
-            .ignore_then(unary_parser.clone())
+            .ignore_then(unary_parser)
             .map_with(|expr, extra| {
                 Spanned::new(
                     Expr::Unary {
@@ -33,7 +33,6 @@ pub fn parser<'a>(
                 )
             });
 
-        choice((negate, not, base.clone()))
+        choice((negate, not, base))
     })
-    .boxed()
 }
