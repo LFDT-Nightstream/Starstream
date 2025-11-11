@@ -249,7 +249,7 @@ The remainder always has the sign of the right-hand side.
 
 ```star
 fn some_function(a: i64, b: i64) -> i64 {
-  if a > b {
+  if (a > b) {
     return a;
   }
 
@@ -290,7 +290,6 @@ Type conveniences:
 Structure type definitions can be hashed for comparison. Names do not matter (structural typing).
 
 - Algebraic Data Types (ADTs) are supported
-
   - Struct identities are based on their field types, in order
     - So `(i32, i32)` == `struct Foo { a: i32, b: i32 }` == `struct Bar { b: i32, c: i32 }`
     - No such thing as anonymous `{ a: i32, b: i32 }`.
