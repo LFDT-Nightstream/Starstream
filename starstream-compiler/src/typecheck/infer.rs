@@ -260,7 +260,9 @@ impl Inferencer {
                         },
                         target.span.unwrap_or(value.span),
                     )
-                    .with_secondary(binding.decl_span, "binding declared immutable here"));
+                    .with_primary_message("assigned here")
+                    .with_secondary(binding.decl_span, "declared without `mut` here")
+                    .with_help("consider changing `let` to `let mut`"));
                 }
 
                 let expected_type = self.instantiate(&binding.scheme);

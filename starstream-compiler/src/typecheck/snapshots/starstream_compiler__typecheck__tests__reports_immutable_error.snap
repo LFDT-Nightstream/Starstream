@@ -10,8 +10,10 @@ starstream::type::assignment_to_immutable
  1 | fn test() {
  2 | let flag = true;
    :     ^^|^
-   :       `-- binding declared immutable here
+   :       `-- declared without `mut` here
  3 | flag = false;
-   : ^^^^
+   : ^^|^
+   :   `-- assigned here
  4 | }
    `----
+  help: consider changing `let` to `let mut`
