@@ -1,5 +1,6 @@
-// TODO: somehow represent lookups and memory representations in output
+#![allow(non_camel_case_types)]
 
+// TODO: somehow represent lookups and memory representations in output
 use std::{
     collections::BTreeMap,
     ops::{Add, Mul, Sub},
@@ -60,11 +61,13 @@ fn calculate_dimensions<IO, L, M>(c: &impl Circuit<IO, L, M>) -> (usize, usize) 
     struct Builder<'a> {
         n_witnesses: &'a mut usize,
         n_constraints: &'a mut usize,
-        // FIXME: bad hack, assert_offset should take a label probably
+        last_assert_size: &'a mut usize,
+        offsets_wrong: &'a mut bool,
+        // FIXME: bad hack, assert_size should take a label probably
         label: &'static str,
     }
 
-    impl<'a, L, M> CircuitBuilder<Var, L, M> for Builder<'a> {
+    impl<'a, IO, L, M> CircuitBuilder<Var, IO, L, M> for Builder<'a> {
         fn zero(&mut self) -> Var {
             Var
         }
@@ -86,27 +89,56 @@ fn calculate_dimensions<IO, L, M>(c: &impl Circuit<IO, L, M>) -> (usize, usize) 
         }
         fn lookup(&mut self, _: L, _: Var, _: Var) {}
         fn memory(&mut self, _: M, _: Var, _: Var, _: Var) {}
-        fn nest<'b>(&'b mut self, l: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
+        fn nest<'b>(&'b mut self, l: Location) -> impl CircuitBuilder<Var, IO, L, M> + 'b {
             Builder {
                 n_witnesses: self.n_witnesses,
                 n_constraints: self.n_constraints,
+                last_assert_size: self.last_assert_size,
+                offsets_wrong: self.offsets_wrong,
                 label: l.label,
             }
         }
-        fn assert_offset(&mut self, offset: usize) {
-            eprintln!("asserting for {}", self.label);
-            assert_eq!(*self.n_witnesses, offset);
+        fn assert_size(&mut self, (offset, size): (usize, usize)) {
+            if *self.last_assert_size != offset {
+                eprintln!(
+                    "wrong offset for {}: expected {}, got {}",
+                    self.label, offset, *self.last_assert_size
+                );
+                *self.offsets_wrong = true;
+            }
+            let actual_size = *self.n_witnesses - *self.last_assert_size;
+            if actual_size != size {
+                eprintln!(
+                    "wrong size for {}: expected {}, got {}",
+                    self.label, size, actual_size
+                );
+                *self.offsets_wrong = true;
+            }
+            *self.last_assert_size = *self.n_witnesses;
+        }
+        fn input(&mut self, _name: IO) -> Var {
+            Var
+        }
+        fn output(&mut self, _name: IO) -> Var {
+            Var
         }
     }
 
     let mut n_witnesses = 0;
     let mut n_constraints = 0;
+    let mut offsets_wrong = false;
     let builder = Builder {
         n_witnesses: &mut n_witnesses,
         n_constraints: &mut n_constraints,
+        last_assert_size: &mut 0,
+        offsets_wrong: &mut offsets_wrong,
         label: "",
     };
-    c.run(builder, |_| Var, |_| Var);
+    c.run(builder);
+
+    if offsets_wrong {
+        panic!("offsets wrong");
+    }
 
     (n_witnesses, n_constraints)
 }
@@ -208,16 +240,20 @@ fn calculate_structure<IO, L, M>(
 
     impl CircuitBuilderVar for Var {}
 
-    struct Builder<'a> {
+    struct Builder<'a, io_mapping> {
         structure: &'a mut [(i128, i128)],
         witness_counter: &'a mut usize,
         constraint_counter: &'a mut usize,
         n_io: usize,
         n_witnesses: usize,
         n_constraints: usize,
+        io_mapping: io_mapping,
     }
 
-    impl<'a, L, M> CircuitBuilder<Var, L, M> for Builder<'a> {
+    impl<'a, IO, L, M, io_mapping> CircuitBuilder<Var, IO, L, M> for Builder<'a, io_mapping>
+    where
+        io_mapping: Fn(IO) -> usize,
+    {
         fn zero(&mut self) -> Var {
             Var(BTreeMap::new())
         }
@@ -255,7 +291,7 @@ fn calculate_structure<IO, L, M>(
         }
         fn lookup(&mut self, _: L, _: Var, _: Var) {}
         fn memory(&mut self, _: M, _: Var, _: Var, _: Var) {}
-        fn nest<'b>(&'b mut self, _: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
+        fn nest<'b>(&'b mut self, _: Location) -> impl CircuitBuilder<Var, IO, L, M> + 'b {
             Builder {
                 structure: self.structure,
                 witness_counter: self.witness_counter,
@@ -263,9 +299,18 @@ fn calculate_structure<IO, L, M>(
                 n_io: self.n_io,
                 n_witnesses: self.n_witnesses,
                 n_constraints: self.n_constraints,
+                io_mapping: &self.io_mapping,
             }
         }
-        fn assert_offset(&mut self, _: usize) {}
+        fn assert_size(&mut self, _: (usize, usize)) {}
+        fn input(&mut self, name: IO) -> Var {
+            Var([((self.io_mapping)(name), (1, 1))].into_iter().collect())
+        }
+        fn output(&mut self, name: IO) -> Var {
+            Var([((self.io_mapping)(name) + self.n_io, (1, 1))]
+                .into_iter()
+                .collect())
+        }
     }
 
     let mut structure = vec![(0i128, 1i128); n_constraints * (1 + n_witnesses + n_io + n_io) * 3]
@@ -273,8 +318,6 @@ fn calculate_structure<IO, L, M>(
     let mut witness_counter = 0;
     let mut constraint_counter = 0;
 
-    let input = |idx| Var([(io_mapping(idx), (1, 1))].into_iter().collect());
-    let output = |idx| Var([(io_mapping(idx) + n_io, (1, 1))].into_iter().collect());
     let builder = Builder {
         structure: &mut structure,
         witness_counter: &mut witness_counter,
@@ -282,8 +325,9 @@ fn calculate_structure<IO, L, M>(
         n_io,
         n_witnesses,
         n_constraints,
+        io_mapping,
     };
-    c.run(builder, input, output);
+    c.run(builder);
 
     assert_eq!(witness_counter, n_witnesses);
     assert_eq!(constraint_counter, n_constraints);

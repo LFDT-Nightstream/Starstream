@@ -5,6 +5,7 @@ pub mod circuits;
 pub mod exec;
 pub mod interface;
 pub mod r1cs;
+pub mod switchboard;
 pub mod test;
 pub mod wasm_parser;
 

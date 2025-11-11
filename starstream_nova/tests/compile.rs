@@ -1,6 +1,7 @@
 use starstream_nova::{
     circuits::{WASM_IO, WASM_VM},
     r1cs::gen_r1cs_structure,
+    switchboard::SwitchedCircuit,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -13,7 +14,11 @@ fn compile_to_r1cs() {
         WASM_IO::reg => 3,
         WASM_IO::cc => 4,
     };
-    let r1cs = gen_r1cs_structure(WASM_VM, 5, io_mapping);
+    let r1cs = gen_r1cs_structure(
+        SwitchedCircuit(std::marker::PhantomData, WASM_VM),
+        5,
+        io_mapping,
+    );
     let mut hasher = DefaultHasher::new();
     r1cs.structure.hash(&mut hasher);
     println!("{} {} {}", r1cs.n_io, r1cs.n_witnesses, r1cs.n_constraints);

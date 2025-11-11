@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use std::{
     fmt::Display,
     ops::{Add, Mul, Sub},
@@ -219,13 +221,16 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
 
     impl CircuitBuilderVar for Var {}
 
-    struct Builder<'a, W, H, Mem> {
+    struct Builder<'a, W, H, Mem, input, output> {
         locations: Locations<'a>,
         witness: &'a mut W,
         handler: &'a mut H,
         memory_mapping: &'a mut Mem,
         memories: &'a mut Vec<Vec<u64>>,
+        last_witness_count: &'a mut usize,
         witness_count: &'a mut usize,
+        input: input,
+        output: output,
     }
 
     impl<
@@ -235,7 +240,10 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
         M,
         H: Handler<L, M>,
         Mem: FnMut(M) -> (M, usize),
-    > CircuitBuilder<Var, L, M> for Builder<'a, W, H, Mem>
+        IO,
+        input: Fn(IO) -> (i128, i128),
+        output: Fn(IO) -> (i128, i128),
+    > CircuitBuilder<Var, IO, L, M> for Builder<'a, W, H, Mem, input, output>
     {
         fn zero(&mut self) -> Var {
             Var(0)
@@ -315,19 +323,31 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
             }
             m[address as usize] = new;
         }
-        fn nest<'b>(&'b mut self, location: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
+        fn nest<'b>(&'b mut self, location: Location) -> impl CircuitBuilder<Var, IO, L, M> + 'b {
             Builder {
                 locations: cons(location, &self.locations),
                 witness: self.witness,
                 handler: self.handler,
                 memory_mapping: self.memory_mapping,
                 memories: self.memories,
+                last_witness_count: self.last_witness_count,
                 witness_count: self.witness_count,
+                input: &self.input,
+                output: &self.output,
             }
         }
-        fn assert_offset(&mut self, offset: usize) {
+        fn assert_size(&mut self, (offset, size): (usize, usize)) {
             // FIXME: emit location on failure
-            assert_eq!(*self.witness_count, offset);
+            assert_eq!(*self.last_witness_count, offset);
+            assert_eq!(*self.witness_count - *self.last_witness_count, size);
+            assert_eq!(*self.witness_count, offset + size);
+            *self.last_witness_count = offset + size;
+        }
+        fn input(&mut self, name: IO) -> Var {
+            Var(of_i128_rat((self.input)(name)))
+        }
+        fn output(&mut self, name: IO) -> Var {
+            Var(of_i128_rat((self.output)(name)))
         }
     }
 
@@ -337,12 +357,11 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
         handler: &mut handler,
         memory_mapping: &mut memory_mapping,
         memories: &mut memories.0,
+        last_witness_count: &mut 0,
         witness_count: &mut 0,
+        input: &input,
+        output: &output,
     };
 
-    circuit.run(
-        builder,
-        move |idx| Var(of_i128_rat(input(idx))),
-        move |idx| Var(of_i128_rat(output(idx))),
-    );
+    circuit.run(builder);
 }

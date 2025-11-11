@@ -2,19 +2,21 @@ use std::fmt::Display;
 
 use combine::{Positioned, StreamOnce, stream::ResetStream};
 use starstream_nova::{
-    circuits,
-    circuits::{WASM_IO, WASM_VM, WITNESS_OFFSET_OPCODE_LOOKUP},
+    circuits::{self, WASM_IO, WASM_VM},
     exec,
+    switchboard::SwitchedCircuit,
     test::{Handler, Locations, init_memories, test_circuit_goldilocks},
     wasm_parser,
 };
 
 #[derive(Clone, Debug, PartialEq)]
-struct DisplayAsHex<'a>(&'a [u8]);
+struct DisplayAsHex<'a> {
+    slice: &'a [u8],
+}
 
 impl<'a> Display for DisplayAsHex<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:02x?}", self.0)
+        write!(f, "{:02x?}", self.slice)
     }
 }
 
@@ -24,10 +26,10 @@ impl<'a> StreamOnce for DisplayAsHex<'a> {
     type Position = <&'a [u8] as StreamOnce>::Position;
     type Error = <&'a [u8] as StreamOnce>::Error;
     fn uncons(&mut self) -> Result<Self::Token, combine::stream::StreamErrorFor<Self>> {
-        self.0.uncons()
+        self.slice.uncons()
     }
     fn is_partial(&self) -> bool {
-        self.0.is_partial()
+        self.slice.is_partial()
     }
 }
 
@@ -35,17 +37,17 @@ impl<'a> ResetStream for DisplayAsHex<'a> {
     type Checkpoint = <&'a [u8] as ResetStream>::Checkpoint;
 
     fn checkpoint(&self) -> Self::Checkpoint {
-        self.0.checkpoint()
+        self.slice.checkpoint()
     }
 
     fn reset(&mut self, checkpoint: Self::Checkpoint) -> Result<(), Self::Error> {
-        self.0.reset(checkpoint)
+        self.slice.reset(checkpoint)
     }
 }
 
 impl<'a> Positioned for DisplayAsHex<'a> {
     fn position(&self) -> Self::Position {
-        self.0.position()
+        self.slice.position()
     }
 }
 
@@ -137,7 +139,7 @@ const EXAMPLE_UTXO: &'static str = r#"
       (import "" "own_hash" (global i32))
       (memory 1)
       (func $main (param i32)
-        local.get $0
+        local.get 0
         call $yield
         drop
         drop
@@ -147,7 +149,7 @@ const EXAMPLE_UTXO: &'static str = r#"
     )
 "#;
 
-const EXAMPLE_MODULE: &'static str = r#"
+const EXAMPLE_COORD: &'static str = r#"
     (module
       (import "" "enter" (func $enter (param i32 i32) (result i32)))
       (import "" "coord" (func $coord (param i32 i32) (result i32)))
@@ -180,10 +182,30 @@ const EXAMPLE_MODULE: &'static str = r#"
 
 fn parse(name: &str, wat: &str) -> Vec<i32> {
     let binary: Vec<u8> = wat::parse_str(wat).unwrap();
-    println!("{}", DisplayAsHex(binary.as_slice()));
+    {
+        println!("printing WASM of {name}");
+        let len = binary.len();
+        for i in 0..len {
+            let b = binary[i];
+            print!("{b:02X} ");
+            if i % 16 == 15 {
+                println!();
+            }
+        }
+        if len % 16 != 0 {
+            println!();
+        }
+        println!("printing WASM done");
+    }
     // for now hash is always zero
     let globals = [0];
-    let code = wasm_parser::parse(DisplayAsHex(binary.as_slice()), &globals);
+    let code = wasm_parser::parse(
+        DisplayAsHex {
+            slice: binary.as_slice(),
+        },
+        &globals,
+        |p| format!("0x{:X}", p.translate_position(binary.as_slice())),
+    );
     {
         println!("printing IR of {name}");
         let len = code.len();
@@ -202,9 +224,12 @@ fn parse(name: &str, wat: &str) -> Vec<i32> {
     code
 }
 
-#[test]
-fn run() {
-    let code = parse("example_coord", EXAMPLE_MODULE);
+fn run(
+    name: &'static str,
+    code: &'static str,
+    mut host_calls: impl FnMut(i32, Vec<i32>) -> Vec<i32>,
+) {
+    let code = parse(name, code);
     // we start with an empty stack and an empty memory
     let mut state = exec::State {
         memory: Vec::new(),
@@ -229,28 +254,6 @@ fn run() {
         Vec::new(),
     ]);
 
-    let host = |idx: i32, mut args: Vec<i32>| -> Vec<i32> {
-        match idx {
-            // enter
-            0 => {
-                args.pop().expect("no utxo hash");
-                args.pop().expect("no arg to utxo");
-                vec![0] // FIXME: dummy
-            }
-            // coord
-            1 => {
-                args.pop().expect("no coord hash");
-                args.pop().expect("no arg to coord");
-                vec![0] // FIXME: dummy
-            }
-            // witness
-            2 => {
-                vec![0] // FIXME: dummy
-            }
-            _ => unimplemented!(),
-        }
-    };
-
     loop {
         let sp = state.stack.len() as i128;
         let pc = state.pc as i128;
@@ -260,7 +263,8 @@ fn run() {
         eprintln!("stack: {:?}", state.stack);
         let opcode = code[pc as usize];
         let param = *code.get(pc as usize + 1).unwrap_or(&0);
-        let exec::Witnesses { v, offset } = exec::step(code.as_slice(), &mut state, host);
+        let exec::Witnesses { v, branch } =
+            exec::step(code.as_slice(), &mut state, &mut host_calls);
         let input = |idx: WASM_IO| match idx {
             WASM_IO::sp => (sp, 1),
             WASM_IO::pc => (pc, 1),
@@ -281,6 +285,7 @@ fn run() {
             WASM_IO::cc => (new_cc, 1),
         };
         let v_len = v.len();
+        let offset = unimplemented!();
         let witness = [
             (OPCODE_TAG, (opcode as i128, 1)),
             (PARAM_TAG, (param as i128, 1)),
@@ -290,12 +295,7 @@ fn run() {
         .chain(
             v.into_iter()
                 .map(|(tag, n, d)| (tag, (n as i128, d as i128))),
-        )
-        .chain(((offset + v_len)..WITNESS_OFFSET_OPCODE_LOOKUP).map(|_| (0, (0, 1))))
-        .chain([
-            (REAL_OPCODE_IDX_TAG, (pc, 1)),
-            (REAL_PARAM_IDX_TAG, (pc + 1, 1)),
-        ]);
+        );
         let mut failed = false;
         let memory_mapping = |namespace| match namespace {
             circuits::Memories::Stack => (circuits::Memories::Stack, 0),
@@ -305,7 +305,7 @@ fn run() {
         test_circuit_goldilocks(
             input,
             output,
-            WASM_VM,
+            SwitchedCircuit(std::marker::PhantomData, WASM_VM),
             witness,
             H(&mut failed, &code),
             &mut memories,
@@ -315,8 +315,55 @@ fn run() {
             panic!("failed")
         }
         if new_pc == 0 {
-            println!("top-level return probably");
+            eprintln!("top-level return probably");
             break;
         }
     }
+}
+
+#[test]
+#[ignore]
+fn coord() {
+    let host_calls = |idx: i32, mut args: Vec<i32>| -> Vec<i32> {
+        match idx {
+            // enter
+            0 => {
+                args.pop().expect("no utxo hash");
+                args.pop().expect("no arg to utxo");
+                vec![0] // FIXME: dummy
+            }
+            // coord
+            1 => {
+                args.pop().expect("no coord hash");
+                args.pop().expect("no arg to coord");
+                vec![0] // FIXME: dummy
+            }
+            // witness
+            2 => {
+                vec![0] // FIXME: dummy
+            }
+            _ => unimplemented!(),
+        }
+    };
+    run("example_coord", EXAMPLE_COORD, host_calls);
+}
+
+#[test]
+#[ignore]
+fn utxo() {
+    let host_calls = |idx: i32, mut args: Vec<i32>| -> Vec<i32> {
+        match idx {
+            // yield
+            0 => {
+                args.pop().expect("nothing to yield");
+                vec![0, 0] // FIXME: dummy
+            }
+            // witness
+            1 => {
+                vec![0] // FIXME: dummy
+            }
+            _ => unimplemented!(),
+        }
+    };
+    run("example_utxo", EXAMPLE_UTXO, host_calls);
 }

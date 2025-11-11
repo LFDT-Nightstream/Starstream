@@ -56,12 +56,13 @@ pub trait CircuitBuilderVar:
 {
 }
 
-pub trait CircuitBuilder<Var, L, M> {
+// TODO: Make switches built-in
+pub trait CircuitBuilder<Var, IO, L, M> {
     fn zero(&mut self) -> Var;
     fn one(&mut self) -> Var;
-    // Literals are always specified as i128,
-    // albeit the actual value in the field is `n % p`,
-    // such that `-1i128` will be `p - 1` in the field, and so on.
+    /// Literals are always specified as i128,
+    /// albeit the actual value in the field is `n % p`,
+    /// such that `-1i128` will be `p - 1` in the field, and so on.
     #[must_use]
     fn lit(&mut self, n: i128) -> Var;
     #[must_use]
@@ -72,18 +73,28 @@ pub trait CircuitBuilder<Var, L, M> {
     fn lookup(&mut self, namespace: L, address: Var, val: Var);
     fn memory(&mut self, namespace: M, address: Var, old: Var, new: Var);
     #[must_use]
-    fn nest<'a>(&'a mut self, location: Location) -> impl CircuitBuilder<Var, L, M> + 'a;
+    fn nest<'a>(&'a mut self, location: Location) -> impl CircuitBuilder<Var, IO, L, M> + 'a;
     /// Check that `offset` witnesses have been allocated until now.
     /// Useful for ensuring witness generation is done correctly.
-    fn assert_offset(&mut self, offset: usize);
+    fn assert_size(&mut self, offset_size: (usize, usize));
+    /*
+    /// If both represent raw witnesses from `alloc`, then
+    fn link(&mut self, x: Var, y: Var);
+    */
+    fn input(&mut self, name: IO) -> Var;
+    fn output(&mut self, name: IO) -> Var;
 }
 
 pub trait Circuit<IO, L, M>: Send + Sync {
-    fn run<Var: CircuitBuilderVar, B: CircuitBuilder<Var, L, M>>(
+    fn run<Var: CircuitBuilderVar, Builder: CircuitBuilder<Var, IO, L, M>>(&self, builder: Builder);
+}
+
+pub trait BranchedCircuit<B, IO, L, M>: Send + Sync {
+    fn branches(&self) -> impl Iterator<Item = B>;
+    fn io(&self) -> impl Iterator<Item = IO>;
+    fn run<Var: CircuitBuilderVar, Builder: CircuitBuilder<Var, IO, L, M>>(
         &self,
-        builder: B,
-        // TODO: maybe you should get it from the builder?
-        input: impl Fn(IO) -> Var,
-        output: impl Fn(IO) -> Var,
+        branch: B,
+        builder: Builder,
     );
 }
