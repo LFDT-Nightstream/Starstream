@@ -1,10 +1,10 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 125
-description: "Source:\n\nfn test() {\n    let counter = 0;\n    while (counter < 3) {\n      counter = counter + 1;\n    }\n}\n"
+assertion_line: 118
+description: "Source:\n\nfn test() {\nlet mut counter = 0;\nwhile (counter < 3) {\n    counter = counter + 1;\n}\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let counter = 0; ⇒ i64
+  T-Let: {} ⊢ let mut counter = 0; ⇒ i64
     T-Int: {} ⊢ 0 ⇒ i64
   T-While: {counter: i64} ⊢ while (counter < 3) {
     counter = counter + 1;

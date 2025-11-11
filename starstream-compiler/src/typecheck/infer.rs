@@ -122,7 +122,18 @@ impl Inferencer {
         let mut typed_params = Vec::with_capacity(function.params.len());
         for param in &function.params {
             let ty = self.type_from_annotation(&param.ty)?;
-            env.insert(param.name.name.clone(), Scheme::monomorphic(ty.clone()));
+            env.insert(
+                param.name.name.clone(),
+                Binding {
+                    decl_span: param
+                        .name
+                        .span
+                        .or(function.name.span)
+                        .unwrap_or_else(dummy_span),
+                    mutable: false,
+                    scheme: Scheme::monomorphic(ty.clone()),
+                },
+            );
             typed_params.push(TypedFunctionParam {
                 name: param.name.clone(),
                 ty,
@@ -242,6 +253,16 @@ impl Inferencer {
                     )
                 })?;
 
+                if !binding.mutable {
+                    return Err(TypeError::new(
+                        TypeErrorKind::AssignmentToImmutable {
+                            name: target.name.clone(),
+                        },
+                        target.span.unwrap_or(value.span),
+                    )
+                    .with_secondary(binding.decl_span, "binding declared immutable here"));
+                }
+
                 let expected_type = self.instantiate(&binding.scheme);
                 let (typed_value, value_trace) = self.infer_expr(env, value)?;
                 let actual_type = typed_value.node.ty.clone();
@@ -266,18 +287,6 @@ impl Inferencer {
                     expected_repr,
                     || vec![value_trace, unify_trace],
                 );
-
-                if !binding.mutable {
-                    return Err(TypeError::new(
-                        TypeErrorKind::AssignmentToImmutable {
-                            name: target.name.clone(),
-                        },
-                        target.span.unwrap_or(value.span),
-                    )
-                    .with_primary_message("assigned here")
-                    .with_secondary(binding.decl_span, "declared without `mut` here")
-                    .with_help("consider changing `let` to `let mut`"));
-                }
 
                 Ok((
                     TypedStatement::Assignment {

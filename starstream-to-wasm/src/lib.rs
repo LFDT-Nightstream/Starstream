@@ -25,10 +25,7 @@ use wasm_encoder::*;
 /// Compile a Starstream program to a Wasm module.
 pub fn compile(program: &TypedProgram) -> (Option<Vec<u8>>, Vec<CompileError>) {
     let mut compiler = Compiler::default();
-    if let Err(e) = compiler.visit_program(program) {
-        compiler.errors.push(e);
-        return (None, compiler.errors);
-    }
+    compiler.visit_program(program);
     compiler.finish()
 }
 
@@ -156,26 +153,27 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &TypedProgram) -> miette::Result<()> {
-        let function = program
+    fn visit_program(&mut self, program: &TypedProgram) {
+        if let Some(function) = program
             .definitions
             .iter()
             .find_map(|definition| match definition {
                 TypedDefinition::Function(function) => Some(function),
             })
-            .ok_or_else(|| miette::miette!("no function definitions to compile"))?;
-
-        self.visit_function(function)
+        {
+            self.visit_function(function);
+        } else {
+            self.push_error(empty_span(), "no function definitions to compile");
+        }
     }
 
-    fn visit_function(&mut self, function: &TypedFunctionDef) -> miette::Result<()> {
+    fn visit_function(&mut self, function: &TypedFunctionDef) {
         let mut func = Function::default();
         self.visit_block(&mut func, &(), &function.body);
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new([], []), func);
         self.exports.export("main", ExportKind::Func, idx);
-        Ok(())
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -292,6 +290,14 @@ impl Compiler {
                 func.instructions().drop();
             }
         }
+    }
+
+    fn push_error(&mut self, span: Span, message: impl Into<String>) {
+        self.errors.push(CompileError {
+            message: message.into(),
+            span,
+        });
+        self.fatal = true;
     }
 
     /// Compile a single [Expr] into the current function, returning an
@@ -650,6 +656,14 @@ impl Compiler {
             message: format!("TODO: {why}"),
             span: Span::from(0..0), // TODO: better span
         });
+    }
+}
+
+fn empty_span() -> Span {
+    Span {
+        start: 0,
+        end: 0,
+        context: (),
     }
 }
 

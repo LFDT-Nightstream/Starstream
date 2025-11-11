@@ -21,8 +21,7 @@ pub(super) fn parser_with_block<'a>(
 ) -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
     let variable_declaration = just("let")
         .padded()
-        .ignore_then(just("mut").or_not())
-        .padded()
+        .ignore_then(just("mut").padded().or_not())
         .then(primitives::identifier())
         .then_ignore(just('=').padded())
         .then(expr.clone())

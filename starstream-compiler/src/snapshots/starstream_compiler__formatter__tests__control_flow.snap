@@ -1,12 +1,12 @@
 ---
 source: starstream-compiler/src/formatter.rs
-assertion_line: 352
-description: "Code:\n\nfn main() {\n        let flag = true;\n    if (    flag) {\n        let answer = 42;\n        while (answer < 100) {\n            answer = answer + 1;\n        }\n    }else if( ! flag && true ){\n        answer = 17;\n    } else {\n        answer = 0;\n    }\n}\n"
+assertion_line: 360
+description: "Code:\n\nfn main() {\n        let flag = true;\n    if (    flag) {\n        let mut answer = 42;\n        while (answer < 100) {\n            answer = answer + 1;\n        }\n    }else if( ! flag && true ){\n        answer = 17;\n    } else {\n        answer = 0;\n    }\n}\n"
 ---
 fn main() {
     let flag = true;
     if (flag) {
-        let answer = 42;
+        let mut answer = 42;
         while (answer < 100) {
             answer = answer + 1;
         }

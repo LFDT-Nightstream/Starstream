@@ -143,8 +143,10 @@ fn reports_type_error() {
 fn reports_immutable_error() {
     assert_typecheck_snapshot!(
         r#"
+        fn test() {
         let flag = true;
         flag = false;
+        }
         "#
     );
 }

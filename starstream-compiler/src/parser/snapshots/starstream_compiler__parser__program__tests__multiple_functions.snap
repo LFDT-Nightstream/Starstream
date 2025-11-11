@@ -18,6 +18,7 @@ Program {
                 body: Block {
                     statements: [
                         VariableDeclaration {
+                            mutable: false,
                             name: Identifier {
                                 name: "flag",
                                 span: Some(
@@ -96,6 +97,7 @@ Program {
                 body: Block {
                     statements: [
                         VariableDeclaration {
+                            mutable: false,
                             name: Identifier {
                                 name: "base",
                                 span: Some(

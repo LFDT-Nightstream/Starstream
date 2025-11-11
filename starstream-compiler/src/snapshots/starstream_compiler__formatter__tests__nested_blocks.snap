@@ -1,13 +1,13 @@
 ---
 source: starstream-compiler/src/formatter.rs
-assertion_line: 387
-description: "Code:\n\nfn main() {\n    {\n        let x = 1;\n        {\n            let y = x + 2;\n\n            y = y * (x + y);\n        }\n    }\n}\n"
+assertion_line: 395
+description: "Code:\n\nfn main() {\n    {\n        let x = 1;\n        {\n            let mut y = x + 2;\n\n            y = y * (x + y);\n        }\n    }\n}\n"
 ---
 fn main() {
     {
         let x = 1;
         {
-            let y = x + 2;
+            let mut y = x + 2;
             y = y * (x + y);
         }
     }
