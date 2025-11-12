@@ -1,6 +1,3 @@
-# `tree-sitter generate` artifacts
-src/
-
 # Rust artifacts
 target/
 Cargo.lock
