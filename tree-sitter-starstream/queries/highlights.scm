@@ -1,4 +1,5 @@
-; For scope names to use, see https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide#standard-token-types-and-modifiers
+; VSCode scopes: https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide#standard-token-types-and-modifiers
+; Zed scopes: https://zed.dev/docs/extensions/languages#syntax-highlighting
 
 ; Keywords
 "let" @keyword
@@ -20,8 +21,8 @@
 (type_annotation
   (identifier) @type
   "<" @operator
-  ">" @operator
-  "," @operator)
+  "," @operator
+  ">" @operator)
 (variable_declaration (identifier) @variable.declaration)
 (assignment (identifier) @variable.modification)
 (identifier) @variable
