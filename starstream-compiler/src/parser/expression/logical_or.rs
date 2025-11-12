@@ -10,5 +10,5 @@ pub fn parser<'a>(
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     let operator = just("||").to(BinaryOp::Or).padded();
 
-    chain(lower, operator).boxed()
+    chain(lower, operator)
 }

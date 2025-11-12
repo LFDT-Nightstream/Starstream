@@ -1,5 +1,6 @@
 ---
 source: starstream-compiler/src/parser/statement.rs
+assertion_line: 177
 description: "Code:\n\nwhile (count < 10) { count = count + 1; }\n"
 ---
 While {
@@ -64,5 +65,6 @@ While {
                 },
             },
         ],
+        tail_expression: None,
     },
 }

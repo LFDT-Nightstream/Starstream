@@ -23,11 +23,15 @@ and prefer to bundle concepts in codeblocks where it makes sense.
 ## Grammar Rules
 
 ```ebnf
-program ::= statement*
+program ::= definition*
+
+definition ::=
+  | function_definition
 
 statement ::=
   | variable_declaration
   | assignment
+  | return_statement
   | if_statement
   | while_statement
   | block
@@ -44,6 +48,20 @@ while_statement ::= "while" "(" expression ")" block
 block ::= "{" statement* "}"
 
 expression_statement ::= expression ";"
+
+function_definition ::= "fn" identifier "(" [ parameter_list ] ")" [ return_type ] function_block
+
+function_block ::= "{" statement* [ expression ] "}"
+
+parameter_list ::= parameter ( "," parameter )*
+
+parameter ::= identifier ":" type_annotation
+
+return_type ::= "->" type_annotation
+
+return_statement ::= "return" [ expression ] ";"
+
+type_annotation ::= identifier [ "<" type_annotation ( "," type_annotation )* ">" ]
 
 expression ::=
   | binary_or_expression
@@ -83,6 +101,13 @@ boolean_literal ::= "true" | "false"
 
 identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 ```
+
+Definitions live exclusively at the program (module) scope. Statements appear inside blocks (function bodies, control-flow branches, etc.) and cannot occur at the top level.
+
+`type_annotation` names reuse the type declarations defined elsewhere in this
+spec (e.g., `i64`, `Bool`, `CustomType`). Structured annotations such as tuples
+or generic parameters extend this rule by nesting additional `type_annotation`
+instances between `<…>` as described in the _Type system_ section.
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -212,6 +237,26 @@ The remainder always has the sign of the right-hand side.
 
 ## Semantics
 
+### Functions
+
+- Functions are first-class **definitions** that bind a name to a parameterized block at module scope.
+- All parameters **must** carry an explicit type annotation (`identifier: Type`).
+- The declared return type is optional; when omitted the function returns the `Unit` type (`()`).
+- The body block may terminate with a tail expression (no trailing semicolon). That expression becomes the implicit return value when no explicit `return` is executed.
+- `return` statements exit the current function early. `return;` returns the unit value, while `return <expr>;` yields the expression's value.
+- Parameter and return annotations participate in the Hindley–Milner inference engine; they constrain the inferred types of the body expressions.
+- Blocks that end without an explicit `return` or tail expression evaluate to unit.
+
+```star
+fn some_function(a: i64, b: i64) -> i64 {
+  if (a > b) {
+    return a;
+  }
+
+  a + b
+}
+```
+
 ### Environment
 
 The Env of the semantics is defined by the following contexts:
@@ -245,7 +290,6 @@ Type conveniences:
 Structure type definitions can be hashed for comparison. Names do not matter (structural typing).
 
 - Algebraic Data Types (ADTs) are supported
-
   - Struct identities are based on their field types, in order
     - So `(i32, i32)` == `struct Foo { a: i32, b: i32 }` == `struct Bar { b: i32, c: i32 }`
     - No such thing as anonymous `{ a: i32, b: i32 }`.

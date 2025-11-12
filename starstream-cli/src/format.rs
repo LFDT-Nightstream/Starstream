@@ -1,8 +1,4 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{fs, path::PathBuf, str::FromStr};
 
 use clap::Args;
 use console::{Color, style};
@@ -10,7 +6,7 @@ use miette::{IntoDiagnostic, NamedSource};
 use similar::{ChangeTag, TextDiff};
 use starstream_compiler::formatter;
 
-use crate::{diagnostics::print_diagnostic, style};
+use crate::{diagnostics::print_diagnostic, starstream_files_excluding_gitignore, style};
 
 /// Format Starstream source
 #[derive(Args, Debug)]
@@ -57,6 +53,7 @@ fn check_files(files: Vec<String>) -> miette::Result<()> {
                 "{}:",
                 style::INFO.underlined().apply_to(file.source.display())
             );
+
             eprintln!("{diff}");
         }
 
@@ -123,24 +120,6 @@ fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::R
     }
 
     Ok(())
-}
-
-/// Yield all `.star` files under `dir`, respecting gitignore-style filtering.
-pub fn starstream_files_excluding_gitignore(dir: &Path) -> impl Iterator<Item = PathBuf> + '_ {
-    ignore::WalkBuilder::new(dir)
-        .follow_links(true)
-        .require_git(false)
-        .build()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
-        .map(ignore::DirEntry::into_path)
-        .filter(move |d| is_starstream_path(d))
-}
-
-fn is_starstream_path(path: &Path) -> bool {
-    path.extension()
-        .map(|e| e == starstream_compiler::FILE_EXTENSION)
-        .unwrap_or_default()
 }
 
 fn diff_file(original: &str, formatted: &str) -> String {

@@ -1,0 +1,8 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+assertion_line: 200
+description: "Code:\n\nreturn;"
+---
+Return(
+    None,
+)

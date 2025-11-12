@@ -11,16 +11,40 @@ module.exports = grammar({
   name: "starstream",
 
   rules: {
-    source_file: ($) => repeat($._statement),
+    source_file: ($) => repeat($.definition),
+
+    definition: ($) => choice($.function_definition),
+
+    function_definition: ($) =>
+      seq(
+        "fn",
+        $.identifier,
+        "(",
+        optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        ")",
+        optional(seq("->", $.type_annotation)),
+        $.block,
+      ),
+
+    parameter: ($) => seq($.identifier, ":", $.type_annotation),
+
+    type_annotation: ($) =>
+      seq(
+        $.identifier,
+        optional(
+          seq("<", $.type_annotation, repeat(seq(",", $.type_annotation)), ">"),
+        ),
+      ),
 
     _statement: ($) =>
       choice(
         $.variable_declaration,
         $.assignment,
+        $.return_statement,
         $.if_statement,
         $.while_statement,
         $.block,
-        $._expression_statement
+        $._expression_statement,
       ),
 
     variable_declaration: ($) =>
@@ -39,12 +63,14 @@ module.exports = grammar({
         // Subsequent `else if` branches.
         repeat(seq("else", "if", "(", $.expression, ")", $.block)),
         // Final `else` branch.
-        optional(seq("else", $.block))
+        optional(seq("else", $.block)),
       ),
 
     while_statement: ($) => seq("while", "(", $.expression, ")", $.block),
 
-    block: ($) => seq("{", repeat($._statement), "}"),
+    block: ($) => seq("{", repeat($._statement), optional($.expression), "}"),
+
+    return_statement: ($) => seq("return", optional($.expression), ";"),
 
     _expression_statement: ($) => seq($.expression, ";"),
 
@@ -75,7 +101,7 @@ module.exports = grammar({
 
         prec.left(2, seq($.expression, "&&", $.expression)),
 
-        prec.left(1, seq($.expression, "||", $.expression))
+        prec.left(1, seq($.expression, "||", $.expression)),
       ),
 
     integer_literal: ($) => /[0-9]+/,

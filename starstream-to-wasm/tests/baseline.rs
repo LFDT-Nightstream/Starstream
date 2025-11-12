@@ -1,7 +1,7 @@
 use starstream_to_wasm::compile;
 use starstream_types::{
-    BinaryOp, Identifier, Literal, Spanned, Type, TypedBlock, TypedExpr, TypedExprKind,
-    TypedProgram, TypedStatement,
+    BinaryOp, Identifier, Literal, Spanned, Type, TypedBlock, TypedDefinition, TypedExpr,
+    TypedExprKind, TypedFunctionDef, TypedProgram, TypedStatement,
 };
 
 macro_rules! assert_wat_snapshot {
@@ -27,94 +27,135 @@ macro_rules! assert_wat_snapshot {
 
 #[test]
 fn empty() {
-    assert_wat_snapshot!(&TypedProgram { statements: vec![] });
+    let program = TypedProgram {
+        definitions: vec![TypedDefinition::Function(TypedFunctionDef {
+            name: Identifier::new("main", None),
+            params: Vec::new(),
+            return_type: Type::Unit,
+            body: TypedBlock {
+                statements: vec![],
+                tail_expression: None,
+            },
+        })],
+    };
+
+    assert_wat_snapshot!(&program);
 }
 
 #[test]
 fn simple_while_loop() {
-    assert_wat_snapshot!(&TypedProgram {
-        statements: vec![
-            TypedStatement::VariableDeclaration {
-                mutable: true,
-                name: Identifier::new("foo", None),
-                value: Spanned::none(TypedExpr::new(
-                    Type::Int,
-                    TypedExprKind::Literal(Literal::Integer(0))
-                )),
-            },
-            TypedStatement::While {
-                condition: Spanned::none(TypedExpr::new(
-                    Type::Bool,
-                    TypedExprKind::Binary {
-                        op: BinaryOp::Less,
-                        left: Box::new(Spanned::none(TypedExpr::new(
-                            Type::Int,
-                            TypedExprKind::Identifier(Identifier::new("foo", None))
-                        ))),
-                        right: Box::new(Spanned::none(TypedExpr::new(
-                            Type::Int,
-                            TypedExprKind::Literal(Literal::Integer(10))
-                        ))),
-                    }
-                )),
-                body: TypedBlock {
-                    statements: vec![TypedStatement::Assignment {
-                        target: Identifier::new("foo", None),
+    let program = TypedProgram {
+        definitions: vec![TypedDefinition::Function(TypedFunctionDef {
+            name: Identifier::new("main", None),
+            params: Vec::new(),
+            return_type: Type::Unit,
+            body: TypedBlock {
+                statements: vec![
+                    TypedStatement::VariableDeclaration {
+                        mutable: false,
+                        name: Identifier::new("foo", None),
                         value: Spanned::none(TypedExpr::new(
                             Type::Int,
+                            TypedExprKind::Literal(Literal::Integer(0)),
+                        )),
+                    },
+                    TypedStatement::While {
+                        condition: Spanned::none(TypedExpr::new(
+                            Type::Bool,
                             TypedExprKind::Binary {
-                                op: BinaryOp::Add,
+                                op: BinaryOp::Less,
                                 left: Box::new(Spanned::none(TypedExpr::new(
                                     Type::Int,
-                                    TypedExprKind::Identifier(Identifier::new("foo", None))
+                                    TypedExprKind::Identifier(Identifier::new("foo", None)),
                                 ))),
                                 right: Box::new(Spanned::none(TypedExpr::new(
                                     Type::Int,
-                                    TypedExprKind::Literal(Literal::Integer(1))
+                                    TypedExprKind::Literal(Literal::Integer(10)),
                                 ))),
-                            }
+                            },
                         )),
-                    }],
-                },
+                        body: TypedBlock {
+                            statements: vec![TypedStatement::Assignment {
+                                target: Identifier::new("foo", None),
+                                value: Spanned::none(TypedExpr::new(
+                                    Type::Int,
+                                    TypedExprKind::Binary {
+                                        op: BinaryOp::Add,
+                                        left: Box::new(Spanned::none(TypedExpr::new(
+                                            Type::Int,
+                                            TypedExprKind::Identifier(Identifier::new("foo", None)),
+                                        ))),
+                                        right: Box::new(Spanned::none(TypedExpr::new(
+                                            Type::Int,
+                                            TypedExprKind::Literal(Literal::Integer(1)),
+                                        ))),
+                                    },
+                                )),
+                            }],
+                            tail_expression: None,
+                        },
+                    },
+                ],
+                tail_expression: None,
             },
-        ],
-    });
+        })],
+    };
+
+    assert_wat_snapshot!(&program);
 }
 
 #[test]
 fn if_elseif_else() {
-    assert_wat_snapshot!(&TypedProgram {
-        statements: vec![TypedStatement::If {
-            branches: vec![
-                (
-                    Spanned::none(TypedExpr::new(
-                        Type::Bool,
-                        TypedExprKind::Literal(Literal::Boolean(false))
-                    )),
-                    TypedBlock {
+    let program = TypedProgram {
+        definitions: vec![TypedDefinition::Function(TypedFunctionDef {
+            name: Identifier::new("main", None),
+            params: Vec::new(),
+            return_type: Type::Unit,
+            body: TypedBlock {
+                statements: vec![TypedStatement::If {
+                    branches: vec![
+                        (
+                            Spanned::none(TypedExpr::new(
+                                Type::Bool,
+                                TypedExprKind::Literal(Literal::Boolean(false)),
+                            )),
+                            TypedBlock {
+                                statements: vec![TypedStatement::Expression(Spanned::none(
+                                    TypedExpr::new(
+                                        Type::Int,
+                                        TypedExprKind::Literal(Literal::Integer(1)),
+                                    ),
+                                ))],
+                                tail_expression: None,
+                            },
+                        ),
+                        (
+                            Spanned::none(TypedExpr::new(
+                                Type::Bool,
+                                TypedExprKind::Literal(Literal::Boolean(true)),
+                            )),
+                            TypedBlock {
+                                statements: vec![TypedStatement::Expression(Spanned::none(
+                                    TypedExpr::new(
+                                        Type::Int,
+                                        TypedExprKind::Literal(Literal::Integer(2)),
+                                    ),
+                                ))],
+                                tail_expression: None,
+                            },
+                        ),
+                    ],
+                    else_branch: Some(TypedBlock {
                         statements: vec![TypedStatement::Expression(Spanned::none(
-                            TypedExpr::new(Type::Int, TypedExprKind::Literal(Literal::Integer(1)))
-                        ))]
-                    },
-                ),
-                (
-                    Spanned::none(TypedExpr::new(
-                        Type::Bool,
-                        TypedExprKind::Literal(Literal::Boolean(true))
-                    )),
-                    TypedBlock {
-                        statements: vec![TypedStatement::Expression(Spanned::none(
-                            TypedExpr::new(Type::Bool, TypedExprKind::Literal(Literal::Integer(2)))
-                        ))]
-                    },
-                ),
-            ],
-            else_branch: Some(TypedBlock {
-                statements: vec![TypedStatement::Expression(Spanned::none(TypedExpr::new(
-                    Type::Int,
-                    TypedExprKind::Literal(Literal::Integer(3))
-                )))]
-            })
-        }]
-    })
+                            TypedExpr::new(Type::Int, TypedExprKind::Literal(Literal::Integer(3))),
+                        ))],
+                        tail_expression: None,
+                    }),
+                }],
+                tail_expression: None,
+            },
+        })],
+    };
+
+    assert_wat_snapshot!(&program);
 }

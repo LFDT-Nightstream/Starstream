@@ -1,15 +1,18 @@
 ---
 source: starstream-compiler/src/formatter.rs
-description: "Code:\n\n    let flag = true;\nif (    flag) {\n    let  mut  answer = 42;\n    while (answer < 100) {\n        answer = answer + 1;\n    }\n}else if( ! flag && true ){\n    answer = 17;\n} else {\n    answer = 0;\n}\n"
+assertion_line: 360
+description: "Code:\n\nfn main() {\n        let flag = true;\n    if (    flag) {\n        let mut answer = 42;\n        while (answer < 100) {\n            answer = answer + 1;\n        }\n    }else if( ! flag && true ){\n        answer = 17;\n    } else {\n        answer = 0;\n    }\n}\n"
 ---
-let flag = true;
-if (flag) {
-    let mut answer = 42;
-    while (answer < 100) {
-        answer = answer + 1;
+fn main() {
+    let flag = true;
+    if (flag) {
+        let mut answer = 42;
+        while (answer < 100) {
+            answer = answer + 1;
+        }
+    } else if (!flag && true) {
+        answer = 17;
+    } else {
+        answer = 0;
     }
-} else if (!flag && true) {
-    answer = 17;
-} else {
-    answer = 0;
 }

@@ -25,10 +25,7 @@ use wasm_encoder::*;
 /// Compile a Starstream program to a Wasm module.
 pub fn compile(program: &TypedProgram) -> (Option<Vec<u8>>, Vec<CompileError>) {
     let mut compiler = Compiler::default();
-    if let Err(e) = compiler.visit_program(program) {
-        compiler.errors.push(e);
-        return (None, compiler.errors);
-    }
+    compiler.visit_program(program);
     compiler.finish()
 }
 
@@ -156,22 +153,35 @@ impl Compiler {
 
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
-    fn visit_program(&mut self, program: &TypedProgram) -> std::result::Result<(), CompileError> {
+    fn visit_program(&mut self, program: &TypedProgram) {
+        if let Some(function) = program
+            .definitions
+            .iter()
+            .find_map(|definition| match definition {
+                TypedDefinition::Function(function) => Some(function),
+            })
+        {
+            self.visit_function(function);
+        } else {
+            self.push_error(empty_span(), "no function definitions to compile");
+        }
+    }
+
+    fn visit_function(&mut self, function: &TypedFunctionDef) {
         let mut func = Function::default();
-        self.visit_block(&mut func, &(), &program.statements);
+        self.visit_block(&mut func, &(), &function.body);
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new([], []), func);
         self.exports.export("main", ExportKind::Func, idx);
-        Ok(())
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &[TypedStatement]) {
+    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &TypedBlock) {
         let mut locals = HashMap::new();
-        for statement in block {
+        for statement in &block.statements {
             match statement {
                 TypedStatement::Expression(expr) => {
                     let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
@@ -206,7 +216,7 @@ impl Compiler {
                 }
                 // Recursive
                 TypedStatement::Block(block) => {
-                    self.visit_block(func, &(parent, &locals), &block.statements);
+                    self.visit_block(func, &(parent, &locals), block);
                 }
                 TypedStatement::If {
                     branches,
@@ -226,13 +236,13 @@ impl Compiler {
                         assert!(matches!(im, Intermediate::StackBool));
                         func.instructions().i32_eqz(); // If condition is false,
                         func.instructions().br_if(0); // then try the next condition.
-                        self.visit_block(func, &(parent, &locals), &block.statements);
+                        self.visit_block(func, &(parent, &locals), block);
                         func.instructions().br(1); // Go past end.
                         func.instructions().end();
                     }
                     // Final `else` branch is just inline.
                     if let Some(else_branch) = else_branch {
-                        self.visit_block(func, &(parent, &locals), &else_branch.statements);
+                        self.visit_block(func, &(parent, &locals), else_branch);
                     }
                     // End.
                     func.instructions().end();
@@ -248,11 +258,24 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
-                    self.visit_block(func, &(parent, &locals), &body.statements);
+                    self.visit_block(func, &(parent, &locals), body);
                     // continue
                     func.instructions().br(0).end().end();
                 }
+                TypedStatement::Return(Some(expr)) => {
+                    let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
+                    self.discard(func, im);
+                    func.instructions().return_();
+                }
+                TypedStatement::Return(None) => {
+                    func.instructions().return_();
+                }
             }
+        }
+
+        if let Some(expr) = &block.tail_expression {
+            let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
+            self.discard(func, im);
         }
     }
 
@@ -267,6 +290,14 @@ impl Compiler {
                 func.instructions().drop();
             }
         }
+    }
+
+    fn push_error(&mut self, span: Span, message: impl Into<String>) {
+        self.errors.push(CompileError {
+            message: message.into(),
+            span,
+        });
+        self.fatal = true;
     }
 
     /// Compile a single [Expr] into the current function, returning an
@@ -625,6 +656,14 @@ impl Compiler {
             message: format!("TODO: {why}"),
             span: Span::from(0..0), // TODO: better span
         });
+    }
+}
+
+fn empty_span() -> Span {
+    Span {
+        start: 0,
+        end: 0,
+        context: (),
     }
 }
 

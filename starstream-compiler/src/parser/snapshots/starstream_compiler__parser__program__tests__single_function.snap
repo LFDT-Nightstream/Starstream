@@ -1,0 +1,99 @@
+---
+source: starstream-compiler/src/parser/program.rs
+assertion_line: 40
+description: "Code:\n\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n"
+---
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                name: Identifier {
+                    name: "add",
+                    span: Some(
+                        3..6,
+                    ),
+                },
+                params: [
+                    FunctionParam {
+                        name: Identifier {
+                            name: "a",
+                            span: Some(
+                                7..8,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    10..13,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                    FunctionParam {
+                        name: Identifier {
+                            name: "b",
+                            span: Some(
+                                15..16,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    18..21,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                26..29,
+                            ),
+                        },
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Binary {
+                                op: Add,
+                                left: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "a",
+                                            span: Some(
+                                                36..37,
+                                            ),
+                                        },
+                                    ),
+                                    span: 36..38,
+                                },
+                                right: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "b",
+                                            span: Some(
+                                                40..41,
+                                            ),
+                                        },
+                                    ),
+                                    span: 40..42,
+                                },
+                            },
+                            span: 36..42,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}

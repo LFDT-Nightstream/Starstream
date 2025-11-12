@@ -1,4 +1,6 @@
 //! Starstream CLI parser and executor as a library.
+use std::path::{Path, PathBuf};
+
 use clap::Parser;
 
 mod check;
@@ -42,4 +44,22 @@ impl Cli {
             Command::Lsp(l) => l.exec(),
         }
     }
+}
+
+/// Yield all `.star` files under `dir`, respecting gitignore-style filtering.
+pub fn starstream_files_excluding_gitignore(dir: &Path) -> impl Iterator<Item = PathBuf> + '_ {
+    ignore::WalkBuilder::new(dir)
+        .follow_links(true)
+        .require_git(false)
+        .build()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .map(ignore::DirEntry::into_path)
+        .filter(move |d| is_starstream_path(d))
+}
+
+fn is_starstream_path(path: &Path) -> bool {
+    path.extension()
+        .map(|e| e == starstream_compiler::FILE_EXTENSION)
+        .unwrap_or_default()
 }

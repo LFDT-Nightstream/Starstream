@@ -34,7 +34,8 @@ Components:
 Language features:
 
 - [x] `else if`
-- [ ] functions
+- [x] functions
+- [ ] if expressions
 - [ ] type annotations on `let` bindings
 - [ ] make `let` const and add `let mut`
 - [ ] coordination script entry points

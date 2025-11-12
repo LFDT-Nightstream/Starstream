@@ -1,16 +1,19 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nlet flag = true;\nflag = false;\n"
+assertion_line: 144
+description: "Source:\n\nfn test() {\nlet flag = true;\nflag = false;\n}\n"
 ---
 starstream::type::assignment_to_immutable
 
   x cannot assign to immutable variable `flag`
-   ,-[test.star:2:1]
- 1 | let flag = true;
+   ,-[test.star:3:1]
+ 1 | fn test() {
+ 2 | let flag = true;
    :     ^^|^
    :       `-- declared without `mut` here
- 2 | flag = false;
+ 3 | flag = false;
    : ^^|^
    :   `-- assigned here
+ 4 | }
    `----
   help: consider changing `let` to `let mut`

@@ -14,7 +14,26 @@ use crate::{
 /// Entire program with types attached.
 #[derive(Clone, Debug)]
 pub struct TypedProgram {
-    pub statements: Vec<TypedStatement>,
+    pub definitions: Vec<TypedDefinition>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedDefinition {
+    Function(TypedFunctionDef),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedFunctionDef {
+    pub name: Identifier,
+    pub params: Vec<TypedFunctionParam>,
+    pub return_type: Type,
+    pub body: TypedBlock,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedFunctionParam {
+    pub name: Identifier,
+    pub ty: Type,
 }
 
 /// Typed statements.
@@ -39,12 +58,14 @@ pub enum TypedStatement {
     },
     Block(TypedBlock),
     Expression(Spanned<TypedExpr>),
+    Return(Option<Spanned<TypedExpr>>),
 }
 
 /// `{ statement* }`
 #[derive(Clone, Debug)]
 pub struct TypedBlock {
     pub statements: Vec<TypedStatement>,
+    pub tail_expression: Option<Spanned<TypedExpr>>,
 }
 
 /// Typed expression node. The [`kind`](TypedExpr::kind) mirrors the untyped
@@ -78,13 +99,19 @@ impl TypedExpr {
 }
 
 impl TypedBlock {
-    pub fn new(statements: Vec<TypedStatement>) -> Self {
-        Self { statements }
+    pub fn new(
+        statements: Vec<TypedStatement>,
+        tail_expression: Option<Spanned<TypedExpr>>,
+    ) -> Self {
+        Self {
+            statements,
+            tail_expression,
+        }
     }
 }
 
 impl TypedProgram {
-    pub fn new(statements: Vec<TypedStatement>) -> Self {
-        Self { statements }
+    pub fn new(definitions: Vec<TypedDefinition>) -> Self {
+        Self { definitions }
     }
 }

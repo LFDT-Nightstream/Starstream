@@ -28,6 +28,7 @@ impl Lsp {
     pub fn exec(self) -> miette::Result<()> {
         // Log version and debug info.
         eprintln!("starstream-cli-lsp {}", starstream_language_server::VERSION);
+
         match std::env::current_exe() {
             Ok(path) => eprintln!("executable: {}", path.display()),
             Err(e) => eprintln!("executable unknown: {e}"),
