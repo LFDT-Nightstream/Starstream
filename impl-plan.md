@@ -35,11 +35,15 @@ Language features:
 
 - [x] `else if`
 - [x] functions
+- [ ] function call expressions
 - [ ] if expressions
 - [x] make `let` const and add `let mut`
 - [x] type annotations on `let` bindings
 - [ ] coordination script entry points
-- [ ] string type & string literals
+- [ ] variable privacy
+  - [ ] `disclose` builtin
+  - [ ] check that `if` conditions are disclosed
+  - [ ] check that variables across yield points are disclosed
 - [ ] integer primitive types
   - `Int<N>`, `UInt<N>` primitives
     - for now, Wasm backend errors if a type is too big for Wasm
@@ -51,15 +55,16 @@ Language features:
 - [ ] struct types
   - remember structural typing (see spec)
 - [ ] typedefs
-- [ ] builtin container `List<T>` ?
 - [ ] UTXO and token stuff
 - [ ] linear/affine types
 - [ ] `abi` interface exports for utxo
   - errors, effects, methods, tokens
+- [ ] builtin container `List<T>` ?
 - [ ] coroutine support (yield/resume)
 - [ ] algebraic effects and effect handlers
 - [ ] enum (tagged union) types
   - builtin `Option<T>`, `Result<T, E>`
+- [ ] string type & string literals
 - [ ] patterns and pattern matching
   - exhaustive patterns in arguments?
   - patterns in `let` LHS?
