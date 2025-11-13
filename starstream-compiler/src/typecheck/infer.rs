@@ -206,13 +206,14 @@ impl Inferencer {
                 ty,
                 value,
             } => {
-                if env.contains_in_current_scope(&name.name) {
+                if let Some(previous_decl) = env.get_in_current_scope(&name.name) {
                     return Err(TypeError::new(
                         TypeErrorKind::Redeclaration {
                             name: name.name.clone(),
                         },
-                        value.span,
-                    ));
+                        name.span.unwrap_or(value.span),
+                    )
+                    .with_secondary(previous_decl.decl_span, "previously defined here"));
                 }
 
                 let (typed_value, value_trace) = self.infer_expr(env, value)?;
