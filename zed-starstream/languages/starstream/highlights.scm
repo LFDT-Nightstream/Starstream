@@ -11,7 +11,8 @@
 "return" @keyword
 
 ; Literals
-(boolean_literal) @boolean
+; Zed recognizes @boolean, but VSC doesn't, so set @keyword as well.
+(boolean_literal) @keyword @boolean
 (integer_literal) @number
 
 ; Fallback identifier
