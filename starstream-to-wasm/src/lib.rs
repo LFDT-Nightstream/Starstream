@@ -653,18 +653,8 @@ impl Compiler {
     }
 
     fn todo(&mut self, why: String) {
-        self.errors.push(CompileError {
-            message: format!("TODO: {why}"),
-            span: Span::from(0..0), // TODO: better span
-        });
-    }
-}
-
-fn empty_span() -> Span {
-    Span {
-        start: 0,
-        end: 0,
-        context: (),
+        // TODO: better span
+        self.push_error(Span::from(0..0), format!("TODO: {why}"));
     }
 }
 
