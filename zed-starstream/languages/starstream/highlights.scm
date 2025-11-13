@@ -11,11 +11,14 @@
 "return" @keyword
 
 ; Literals
-(boolean_literal) @keyword
+(boolean_literal) @boolean
 (integer_literal) @number
 
+; Fallback identifier
+(identifier) @variable
+
 ; Actual syntax forms
-(function_definition (identifier) @function)
+(function_definition (identifier) @function.definition)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
 (type_annotation
@@ -25,4 +28,3 @@
   ">" @operator)
 (variable_declaration (identifier) @variable.declaration)
 (assignment (identifier) @variable.modification)
-(identifier) @variable
