@@ -3,7 +3,8 @@ use std::{collections::HashMap, sync::Arc};
 
 use ropey::Rope;
 use tower_lsp_server::lsp_types::{
-    Hover, HoverContents, Location, MarkupContent, MarkupKind, Position, Range, Uri,
+    DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
+    MarkupKind, Position, Range, SymbolKind, Uri,
 };
 
 use starstream_compiler::{
@@ -34,6 +35,7 @@ pub struct DocumentState {
     diagnostics: Vec<tower_lsp_server::lsp_types::Diagnostic>,
     hover_entries: Vec<HoverEntry>,
     definition_entries: Vec<DefinitionEntry>,
+    document_symbols: Vec<DocumentSymbol>,
 }
 
 impl DocumentState {
@@ -47,16 +49,20 @@ impl DocumentState {
             diagnostics: Vec::new(),
             hover_entries: Vec::new(),
             definition_entries: Vec::new(),
+            document_symbols: Vec::new(),
         };
 
         state.reanalyse(uri, text);
+
         state
     }
 
     /// Update the stored text + version and recompute analysis artifacts.
     pub fn update(&mut self, uri: &Uri, text: &str, version: Option<i32>) {
         self.rope = Rope::from_str(text);
+
         self.version = version;
+
         self.reanalyse(uri, text);
     }
 
@@ -87,12 +93,22 @@ impl DocumentState {
         &self.rope
     }
 
+    /// Cached document symbols if type-checking succeeded.
+    pub fn document_symbols(&self) -> Option<DocumentSymbolResponse> {
+        let _ = self.typed.as_ref()?;
+
+        Some(DocumentSymbolResponse::Nested(
+            self.document_symbols.clone(),
+        ))
+    }
+
     fn reanalyse(&mut self, uri: &Uri, text: &str) {
         self.diagnostics.clear();
         self.program = None;
         self.typed = None;
         self.hover_entries.clear();
         self.definition_entries.clear();
+        self.document_symbols.clear();
 
         let parse_output = parse_program(text);
 
@@ -101,12 +117,14 @@ impl DocumentState {
         }
 
         let program = parse_output.program().cloned().map(Arc::new);
+
         self.program = program;
 
         if let Some(program) = self.program.as_ref() {
             match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                 Ok(typed) => {
                     self.build_indexes(&typed.program);
+
                     self.typed = Some(typed);
                 }
                 Err(type_errors) => {
@@ -120,11 +138,13 @@ impl DocumentState {
 
     fn push_parse_error(&mut self, uri: &Uri, error: &ParseError) {
         let diag = diagnostic_to_lsp(&self.rope, uri, error);
+
         self.diagnostics.push(diag);
     }
 
     fn push_type_error(&mut self, uri: &Uri, error: TypeError) {
         let diag = diagnostic_to_lsp(&self.rope, uri, &error);
+
         self.diagnostics.push(diag);
     }
 
@@ -141,6 +161,7 @@ impl DocumentState {
     /// Resolve hover information for the given cursor position.
     pub fn hover(&self, position: Position) -> Option<Hover> {
         let offset = self.position_to_offset(position)?;
+
         let entry = self
             .hover_entries
             .iter()
@@ -148,6 +169,7 @@ impl DocumentState {
             .min_by_key(|entry| (entry.len(), entry.span.start))?;
 
         let range = self.span_to_range(entry.span);
+
         let contents = HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
             value: format!("`{}`", entry.label),
@@ -162,6 +184,7 @@ impl DocumentState {
     /// Resolve go-to-definition for the given position.
     pub fn goto_definition(&self, uri: &Uri, position: Position) -> Option<Location> {
         let offset = self.position_to_offset(position)?;
+
         let entry = self
             .definition_entries
             .iter()
@@ -181,9 +204,12 @@ impl DocumentState {
         self.definition_entries.clear();
 
         let mut scopes: Vec<HashMap<String, Span>> = vec![HashMap::new()];
+
         for definition in &program.definitions {
             self.collect_definition(definition, &mut scopes);
         }
+
+        self.document_symbols = self.collect_document_symbols(program);
     }
 
     fn collect_definition(
@@ -206,24 +232,29 @@ impl DocumentState {
                 usage: span,
                 target: span,
             });
+
             self.add_hover_span(span, &function.return_type);
         }
 
         scopes.push(HashMap::new());
+
         if let Some(scope) = scopes.last_mut() {
             for param in &function.params {
                 if let Some(span) = param.name.span {
                     scope.insert(param.name.name.clone(), span);
+
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
                         target: span,
                     });
+
                     self.add_hover_span(span, &param.ty);
                 }
             }
         }
 
         self.collect_block(&function.body, scopes);
+
         scopes.pop();
     }
 
@@ -239,22 +270,27 @@ impl DocumentState {
                 value,
             } => {
                 self.collect_expr(value, scopes);
+
                 if let Some(span) = name.span {
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
                         target: span,
                     });
+
                     if let Some(scope) = scopes.last_mut() {
                         scope.insert(name.name.clone(), span);
                     }
                 }
+
                 if let Some(span) = name.span {
                     self.add_hover_span(span, &value.node.ty);
                 }
             }
             TypedStatement::Assignment { target, value } => {
                 self.collect_expr(value, scopes);
+
                 self.add_usage(target.span, &target.name, scopes);
+
                 if let Some(span) = target.span {
                     self.add_hover_span(span, &value.node.ty);
                 }
@@ -267,12 +303,14 @@ impl DocumentState {
                     self.collect_expr(condition, scopes);
                     self.collect_block(then_branch, scopes);
                 }
+
                 if let Some(block) = else_branch {
                     self.collect_block(block, scopes);
                 }
             }
             TypedStatement::While { condition, body } => {
                 self.collect_expr(condition, scopes);
+
                 self.collect_block(body, scopes);
             }
             TypedStatement::Block(block) => self.collect_block(block, scopes),
@@ -284,12 +322,15 @@ impl DocumentState {
 
     fn collect_block(&mut self, block: &TypedBlock, scopes: &mut Vec<HashMap<String, Span>>) {
         scopes.push(HashMap::new());
+
         for statement in &block.statements {
             self.collect_statement(statement, scopes);
         }
+
         if let Some(expr) = &block.tail_expression {
             self.collect_expr(expr, scopes);
         }
+
         scopes.pop();
     }
 
@@ -299,11 +340,13 @@ impl DocumentState {
         match &expr.node.kind {
             TypedExprKind::Identifier(identifier) => {
                 let usage_span = identifier.span.unwrap_or(expr.span);
+
                 self.add_usage(Some(usage_span), &identifier.name, scopes);
             }
             TypedExprKind::Unary { expr: inner, .. } => self.collect_expr(inner, scopes),
             TypedExprKind::Binary { left, right, .. } => {
                 self.collect_expr(left, scopes);
+
                 self.collect_expr(right, scopes);
             }
             TypedExprKind::Grouping(inner) => self.collect_expr(inner, scopes),
@@ -324,6 +367,7 @@ impl DocumentState {
 
     fn add_usage(&mut self, span: Option<Span>, name: &str, scopes: &[HashMap<String, Span>]) {
         let Some(usage_span) = span else { return };
+
         if let Some(target_span) = self.lookup_definition(name, scopes) {
             self.definition_entries.push(DefinitionEntry {
                 usage: usage_span,
@@ -338,6 +382,7 @@ impl DocumentState {
                 return Some(*span);
             }
         }
+
         None
     }
 
@@ -350,13 +395,17 @@ impl DocumentState {
 
     fn position_to_offset(&self, position: Position) -> Option<usize> {
         let line = position.line as usize;
+
         if line >= self.rope.len_lines() {
             return None;
         }
 
         let line_start = self.rope.line_to_char(line);
+
         let line_length = self.rope.line(line).len_chars();
+
         let column = position.character as usize;
+
         let clamped_column = column.min(line_length);
 
         Some(line_start + clamped_column)
@@ -364,18 +413,49 @@ impl DocumentState {
 
     fn offset_to_position(&self, mut offset: usize) -> Position {
         let total = self.rope.len_chars();
+
         if offset > total {
             offset = total;
         }
 
         let line = self.rope.char_to_line(offset);
+
         let line_start = self.rope.line_to_char(line);
+
         let column = offset.saturating_sub(line_start);
 
         Position {
             line: line as u32,
             character: column as u32,
         }
+    }
+
+    fn collect_document_symbols(&self, program: &TypedProgram) -> Vec<DocumentSymbol> {
+        program
+            .definitions
+            .iter()
+            .filter_map(|definition| match definition {
+                TypedDefinition::Function(function) => self.function_symbol(function),
+            })
+            .collect()
+    }
+
+    fn function_symbol(&self, function: &TypedFunctionDef) -> Option<DocumentSymbol> {
+        let name_span = function.name.span?;
+
+        #[allow(deprecated)]
+        let symbol = DocumentSymbol {
+            name: function.name.name.clone(),
+            detail: None,
+            kind: SymbolKind::FUNCTION,
+            tags: None,
+            deprecated: None,
+            range: self.span_to_range(name_span),
+            selection_range: self.span_to_range(name_span),
+            children: None,
+        };
+
+        Some(symbol)
     }
 }
 

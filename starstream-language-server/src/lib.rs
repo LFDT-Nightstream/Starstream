@@ -140,9 +140,13 @@ impl LanguageServer for Server {
             text_document,
             content_changes,
         } = params;
+
         let uri = text_document.uri;
+
         let version = text_document.version;
+
         let mut changes = content_changes.into_iter();
+
         let text = changes.next().map(|change| change.text).unwrap_or_default();
 
         self.client
@@ -167,6 +171,7 @@ impl LanguageServer for Server {
 
         if let Some(text) = params.text {
             let uri = params.text_document.uri;
+
             let item = TextDocumentItem {
                 uri,
                 text: text.as_str(),
@@ -226,10 +231,12 @@ impl LanguageServer for Server {
             text_document_position_params,
             ..
         } = params;
+
         let TextDocumentPositionParams {
             text_document,
             position,
         } = text_document_position_params;
+
         let uri = text_document.uri;
 
         self.client
@@ -247,6 +254,27 @@ impl LanguageServer for Server {
         Ok(hover)
     }
 
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("DocumentSymbol request: {}", uri.as_str()),
+            )
+            .await;
+
+        let symbols = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.document_symbols());
+
+        Ok(symbols)
+    }
+
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let text_document = params.text_document;
 
@@ -260,7 +288,9 @@ impl LanguageServer for Server {
         let Some(document) = self.document_map.get(&text_document.uri) else {
             return Ok(None);
         };
+
         let formatted = document.format();
+
         drop(document);
 
         let Ok(Some(new_text)) = formatted else {
@@ -270,7 +300,9 @@ impl LanguageServer for Server {
                     .await;
 
                 let mut error = Error::internal_error();
+
                 error.message = "failed to format file".into();
+
                 return Err(error);
             }
 
