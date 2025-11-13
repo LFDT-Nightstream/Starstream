@@ -1,18 +1,22 @@
 ; VSCode scopes: https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide#standard-token-types-and-modifiers
 ; Zed scopes: https://zed.dev/docs/extensions/languages#syntax-highlighting
 
-; Keywords
-"let" @keyword
-"mut" @keyword
-"if" @keyword
-"else" @keyword
-"while" @keyword
-"fn" @keyword
-"return" @keyword
+; Strict keywords that cannot be identifiers (see parser/primitives.rs)
+[
+  "let"
+  "mut"
+  "if"
+  "else"
+  "while"
+  "true"
+  "false"
+  "fn"
+  "return"
+] @keyword
 
 ; Literals
 ; Zed recognizes @boolean, but VSC doesn't, so set @keyword as well.
-(boolean_literal) @keyword @boolean
+(boolean_literal) @boolean
 (integer_literal) @number
 
 ; Fallback identifier
@@ -45,6 +49,7 @@
 
 ; Actual syntax forms
 (function_definition (identifier) @function.definition)
+(function_export "script" @keyword)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
 (variable_declaration (identifier) @variable.declaration)

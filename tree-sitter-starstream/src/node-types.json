@@ -58,6 +58,11 @@
     }
   },
   {
+    "type": "boolean_literal",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "definition",
     "named": true,
     "fields": {},
@@ -129,6 +134,11 @@
         }
       ]
     }
+  },
+  {
+    "type": "function_export",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "if_statement",
@@ -341,20 +351,16 @@
     "named": false
   },
   {
-    "type": "boolean_literal",
-    "named": true
+    "type": "else",
+    "named": false
   },
   {
-    "type": "else",
+    "type": "false",
     "named": false
   },
   {
     "type": "fn",
     "named": false
-  },
-  {
-    "type": "function_export",
-    "named": true
   },
   {
     "type": "identifier",
@@ -378,6 +384,14 @@
   },
   {
     "type": "return",
+    "named": false
+  },
+  {
+    "type": "script",
+    "named": false
+  },
+  {
+    "type": "true",
     "named": false
   },
   {

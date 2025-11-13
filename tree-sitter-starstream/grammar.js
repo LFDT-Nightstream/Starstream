@@ -27,7 +27,7 @@ module.exports = grammar({
         $.block,
       ),
 
-    function_export: ($) => "script",
+    function_export: ($) => choice("script"),
 
     parameter: ($) => seq($.identifier, ":", $.type_annotation),
 
@@ -116,7 +116,7 @@ module.exports = grammar({
       ),
 
     integer_literal: ($) => /[0-9]+/,
-    boolean_literal: ($) => /true|false/,
+    boolean_literal: ($) => choice("true", "false"),
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
   },
 });

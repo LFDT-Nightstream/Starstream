@@ -110,8 +110,13 @@
       ]
     },
     "function_export": {
-      "type": "STRING",
-      "value": "script"
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "script"
+        }
+      ]
     },
     "parameter": {
       "type": "SEQ",
@@ -811,8 +816,17 @@
       "value": "[0-9]+"
     },
     "boolean_literal": {
-      "type": "PATTERN",
-      "value": "true|false"
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "true"
+        },
+        {
+          "type": "STRING",
+          "value": "false"
+        }
+      ]
     },
     "identifier": {
       "type": "PATTERN",
