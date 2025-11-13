@@ -114,6 +114,18 @@ or generic parameters extend this rule by nesting additional `type_annotation`
 instances between `<…>` as described in the [Type System](#type-system) section.
 The name `_` means "unspecified", a free type variable subject to inference.
 
+The following reserved words may not be used as identifiers:
+
+- `let`
+- `mut`
+- `if`
+- `else`
+- `while`
+- `true`
+- `false`
+- `fn`
+- `return`
+
 <!--
   NOTE: When updating this grammar, also update:
   - the [canonical parser](../starstream-compiler/src/parser/).
