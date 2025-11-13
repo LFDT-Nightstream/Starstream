@@ -59,7 +59,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         document_highlight_provider: None,
 
         // The server provides document symbol support.
-        document_symbol_provider: None,
+        document_symbol_provider: Some(OneOf::Left(true)),
 
         // The server provides workspace symbol support.
         workspace_symbol_provider: None,

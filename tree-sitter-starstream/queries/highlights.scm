@@ -11,18 +11,41 @@
 "return" @keyword
 
 ; Literals
-(boolean_literal) @keyword
+; Zed recognizes @boolean, but VSC doesn't, so set @keyword as well.
+(boolean_literal) @keyword @boolean
 (integer_literal) @number
 
+; Fallback identifier
+(identifier) @variable
+
+; Type annotations (override the fallback for types)
+(type_annotation (identifier) @type)
+(type_annotation "<" @operator)
+(type_annotation "," @operator)
+(type_annotation ">" @operator)
+
+; Common operators
+[
+  "+"
+  "-"
+  "*"
+  "/"
+  "%"
+  "=="
+  "!="
+  "<"
+  "<="
+  ">"
+  ">="
+  "&&"
+  "||"
+  "="
+  "->"
+] @operator
+
 ; Actual syntax forms
-(function_definition (identifier) @function)
+(function_definition (identifier) @function.definition)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
-(type_annotation
-  (identifier) @type
-  "<" @operator
-  "," @operator
-  ">" @operator)
 (variable_declaration (identifier) @variable.declaration)
 (assignment (identifier) @variable.modification)
-(identifier) @variable

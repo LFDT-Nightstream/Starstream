@@ -22,7 +22,9 @@ struct Input<'a> {
     code: &'a str,
 }
 
-// Exports to do work, called by the JS page.
+/// # Safety
+///
+/// Exports to do work, called by the JS page.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn run(input_len: usize) {
     // Set up output and panic context.
