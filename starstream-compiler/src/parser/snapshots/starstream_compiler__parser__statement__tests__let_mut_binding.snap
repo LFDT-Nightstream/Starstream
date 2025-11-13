@@ -10,6 +10,7 @@ VariableDeclaration {
             8..14,
         ),
     },
+    ty: None,
     value: Spanned {
         node: Literal(
             Integer(

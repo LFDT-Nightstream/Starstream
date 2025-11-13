@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/parser/statement.rs
-assertion_line: 168
 description: "Code:\n\nif (flag) { let a = 1; } else { value = value + 1; }\n"
 ---
 If {
@@ -27,6 +26,7 @@ If {
                                 16..17,
                             ),
                         },
+                        ty: None,
                         value: Spanned {
                             node: Literal(
                                 Integer(

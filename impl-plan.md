@@ -36,8 +36,8 @@ Language features:
 - [x] `else if`
 - [x] functions
 - [ ] if expressions
-- [ ] type annotations on `let` bindings
-- [ ] make `let` const and add `let mut`
+- [x] make `let` const and add `let mut`
+- [x] type annotations on `let` bindings
 - [ ] coordination script entry points
 - [ ] string type & string literals
 - [ ] integer primitive types

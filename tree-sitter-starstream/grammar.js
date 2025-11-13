@@ -48,7 +48,15 @@ module.exports = grammar({
       ),
 
     variable_declaration: ($) =>
-      seq("let", optional("mut"), $.identifier, "=", $.expression, ";"),
+      seq(
+        "let",
+        optional("mut"),
+        $.identifier,
+        optional(seq(":", $.type_annotation)),
+        "=",
+        $.expression,
+        ";",
+      ),
 
     assignment: ($) => seq($.identifier, "=", $.expression, ";"),
 

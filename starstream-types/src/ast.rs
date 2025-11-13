@@ -23,6 +23,7 @@ pub enum Statement {
     VariableDeclaration {
         mutable: bool,
         name: Identifier,
+        ty: Option<TypeAnnotation>,
         value: Spanned<Expr>,
     },
     Assignment {

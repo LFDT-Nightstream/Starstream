@@ -1,6 +1,8 @@
 use chumsky::{prelude::*, recursive::Recursive};
 use starstream_types::ast::{Block, Expr, Spanned, Statement};
 
+use crate::parser::type_annotation;
+
 use super::{context::Extra, expression, primitives};
 
 /// Parser for individual statements.
@@ -25,14 +27,18 @@ pub(super) fn parser_with_block<'a>(
         .padded()
         .ignore_then(just("mut").padded().or_not())
         .then(primitives::identifier())
+        .then(just(":").ignore_then(type_annotation::parser()).or_not())
         .then_ignore(just('=').padded())
         .then(expr.clone())
         .then_ignore(just(';').padded())
-        .map(|((mutable, name), value)| Statement::VariableDeclaration {
-            mutable: mutable.is_some(),
-            name,
-            value,
-        });
+        .map(
+            |(((mutable, name), ty), value)| Statement::VariableDeclaration {
+                mutable: mutable.is_some(),
+                name,
+                ty,
+                value,
+            },
+        );
 
     let assignment = primitives::identifier()
         .then_ignore(just('=').padded())

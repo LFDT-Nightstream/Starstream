@@ -86,6 +86,7 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
         Statement::VariableDeclaration {
             mutable,
             name,
+            ty,
             value,
         } => RcDoc::text("let")
             .append(RcDoc::space())
@@ -95,6 +96,13 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
                 RcDoc::nil()
             })
             .append(identifier_to_doc(name))
+            .append(if let Some(ty) = ty {
+                RcDoc::text(":")
+                    .append(RcDoc::space())
+                    .append(type_annotation_to_doc(ty))
+            } else {
+                RcDoc::nil()
+            })
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())

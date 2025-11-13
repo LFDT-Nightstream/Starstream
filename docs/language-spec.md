@@ -37,7 +37,7 @@ statement ::=
   | block
   | expression_statement
 
-variable_declaration ::= "let" ("mut")? identifier "=" expression ";"
+variable_declaration ::= "let" ("mut")? identifier (":" type_annotation)? "=" expression ";"
 
 assignment ::= identifier "=" expression ";"
 
@@ -105,9 +105,10 @@ identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
 Definitions live exclusively at the program (module) scope. Statements appear inside blocks (function bodies, control-flow branches, etc.) and cannot occur at the top level.
 
 `type_annotation` names reuse the type declarations defined elsewhere in this
-spec (e.g., `i64`, `Bool`, `CustomType`). Structured annotations such as tuples
+spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations such as tuples
 or generic parameters extend this rule by nesting additional `type_annotation`
-instances between `<…>` as described in the _Type system_ section.
+instances between `<…>` as described in the [Type System](#type-system) section.
+The name `_` means "unspecified", a free type variable subject to inference.
 
 <!--
   NOTE: When updating this grammar, also update:

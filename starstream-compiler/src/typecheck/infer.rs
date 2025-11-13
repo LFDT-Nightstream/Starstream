@@ -202,6 +202,7 @@ impl Inferencer {
             Statement::VariableDeclaration {
                 mutable,
                 name,
+                ty,
                 value,
             } => {
                 if env.contains_in_current_scope(&name.name) {
@@ -214,7 +215,27 @@ impl Inferencer {
                 }
 
                 let (typed_value, value_trace) = self.infer_expr(env, value)?;
-                let value_type = self.apply(&typed_value.node.ty);
+                let mut children = vec![value_trace];
+                let mut value_type = self.apply(&typed_value.node.ty);
+
+                if let Some(ty) = ty {
+                    // Binding has a type annotation, so unify it with the initial value.
+                    let expected_type = self.type_from_annotation(ty)?;
+                    let (new_value_type, unify_trace) = self.unify(
+                        expected_type.clone(),
+                        value_type.clone(),
+                        name.span.unwrap_or(value.span),
+                        value.span,
+                        TypeErrorKind::AssignmentMismatch {
+                            name: name.name.clone(),
+                            expected: self.apply(&expected_type),
+                            found: self.apply(&value_type),
+                        },
+                    )?;
+                    value_type = new_value_type;
+                    children.push(unify_trace);
+                }
+
                 let scheme = self.generalize(env, &value_type);
                 env.insert(
                     name.name.clone(),
@@ -231,7 +252,7 @@ impl Inferencer {
                     env_context.clone(),
                     stmt_repr.clone(),
                     value_type_repr,
-                    || vec![value_trace],
+                    || children,
                 );
 
                 Ok((
@@ -799,7 +820,7 @@ impl Inferencer {
         }
     }
 
-    fn type_from_annotation(&self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
+    fn type_from_annotation(&mut self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
         if !annotation.generics.is_empty() {
             return Err(TypeError::new(
                 TypeErrorKind::UnsupportedTypeFeature {
@@ -814,6 +835,7 @@ impl Inferencer {
             "i64" => Ok(Type::int()),
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
+            "_" => Ok(self.fresh_var()),
             other => Err(TypeError::new(
                 TypeErrorKind::UnknownTypeAnnotation {
                     name: other.to_string(),
