@@ -4,7 +4,8 @@
 
 This document provides a complete EBNF grammar specification for the IMP
 (Imperative) language used in the Starstream DSL project. The grammar is written
-using W3C notation and follows literate programming principles (code embedded as
+using ISO EBNF notation—specifically parentheses with a trailing `?`
+for optional groups—and follows literate programming principles (code embedded as
 code blocks inside this markdown), where the documentation explains the language
 structure alongside the formal grammar rules.
 
@@ -41,7 +42,7 @@ variable_declaration ::= "let" ("mut")? identifier (":" type_annotation)? "=" ex
 
 assignment ::= identifier "=" expression ";"
 
-if_statement ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* [ "else" block ]
+if_statement ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* ( "else" block )?
 
 while_statement ::= "while" "(" expression ")" block
 
@@ -49,9 +50,9 @@ block ::= "{" statement* "}"
 
 expression_statement ::= expression ";"
 
-function_definition ::= "fn" identifier "(" [ parameter_list ] ")" [ return_type ] function_block
+function_definition ::= "fn" identifier "(" ( parameter_list )? ")" ( return_type )? function_block
 
-function_block ::= "{" statement* [ expression ] "}"
+function_block ::= "{" statement* ( expression )? "}"
 
 parameter_list ::= parameter ( "," parameter )*
 
@@ -59,9 +60,9 @@ parameter ::= identifier ":" type_annotation
 
 return_type ::= "->" type_annotation
 
-return_statement ::= "return" [ expression ] ";"
+return_statement ::= "return" ( expression )? ";"
 
-type_annotation ::= identifier [ "<" type_annotation ( "," type_annotation )* ">" ]
+type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ">" )?
 
 expression ::=
   | binary_or_expression
