@@ -38,7 +38,7 @@ jobs:
           sudo tar -xf wasm-bindgen.tar.gz -C /usr/local/bin --strip-components=1
       - run: cd website && npm i && npm run build
       - name: Require that `tree-sitter generate` output was committed
-        run: git diff --exit-code && echo "OK"
+        run: git diff --exit-code tree-sitter-starstream/src/ && echo "OK"
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./website/build
