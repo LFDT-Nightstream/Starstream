@@ -229,6 +229,10 @@
         {
           "type": "identifier",
           "named": true
+        },
+        {
+          "type": "type_annotation",
+          "named": true
         }
       ]
     }
