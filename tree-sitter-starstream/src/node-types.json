@@ -112,6 +112,10 @@
           "named": true
         },
         {
+          "type": "function_export",
+          "named": true
+        },
+        {
           "type": "identifier",
           "named": true
         },
@@ -347,6 +351,10 @@
   {
     "type": "fn",
     "named": false
+  },
+  {
+    "type": "function_export",
+    "named": true
   },
   {
     "type": "identifier",

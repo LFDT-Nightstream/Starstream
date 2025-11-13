@@ -17,6 +17,7 @@ module.exports = grammar({
 
     function_definition: ($) =>
       seq(
+        optional($.function_export),
         "fn",
         $.identifier,
         "(",
@@ -25,6 +26,8 @@ module.exports = grammar({
         optional(seq("->", $.type_annotation)),
         $.block,
       ),
+
+    function_export: ($) => "script",
 
     parameter: ($) => seq($.identifier, ":", $.type_annotation),
 

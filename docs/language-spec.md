@@ -50,7 +50,10 @@ block ::= "{" statement* "}"
 
 expression_statement ::= expression ";"
 
-function_definition ::= "fn" identifier "(" ( parameter_list )? ")" ( return_type )? function_block
+function_definition ::= ( function_export )? "fn" identifier "(" ( parameter_list )? ")" ( return_type )? function_block
+
+function_export ::=
+  | "script"
 
 function_block ::= "{" statement* ( expression )? "}"
 
@@ -129,6 +132,15 @@ The name `_` means "unspecified", a free type variable subject to inference.
 | 5           | `==`, `!=`           | Left          | Equality        |
 | 6           | `&&`                 | Left          | Logical AND     |
 | 7 (lowest)  | `\|\|`               | Left          | Logical OR      |
+
+## Function visibility
+
+All functions are visible within the module they are defined. By default,
+functions are private to the module. The `fn` keyword can be preceded by a
+visibility modifier:
+
+- `script fn` exports a coordination script. It can be the root of a transaction
+  or called by another coordination script.
 
 ## Scopes
 

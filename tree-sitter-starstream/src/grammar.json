@@ -22,6 +22,18 @@
       "type": "SEQ",
       "members": [
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "function_export"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "STRING",
           "value": "fn"
         },
@@ -96,6 +108,10 @@
           "name": "block"
         }
       ]
+    },
+    "function_export": {
+      "type": "STRING",
+      "value": "script"
     },
     "parameter": {
       "type": "SEQ",
