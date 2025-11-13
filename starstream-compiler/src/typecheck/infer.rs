@@ -180,6 +180,7 @@ impl Inferencer {
 
         Ok((
             TypedFunctionDef {
+                export: function.export.clone(),
                 name: function.name.clone(),
                 params: typed_params,
                 return_type: ctx.expected_return,
