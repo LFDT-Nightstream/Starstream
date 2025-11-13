@@ -17,14 +17,34 @@
 ; Fallback identifier
 (identifier) @variable
 
+; Type annotations (override the fallback for types)
+(type_annotation (identifier) @type)
+(type_annotation "<" @operator)
+(type_annotation "," @operator)
+(type_annotation ">" @operator)
+
+; Common operators
+[
+  "+"
+  "-"
+  "*"
+  "/"
+  "%"
+  "=="
+  "!="
+  "<"
+  "<="
+  ">"
+  ">="
+  "&&"
+  "||"
+  "="
+  "->"
+] @operator
+
 ; Actual syntax forms
 (function_definition (identifier) @function.definition)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
-(type_annotation
-  (identifier) @type
-  "<" @operator
-  "," @operator
-  ">" @operator)
 (variable_declaration (identifier) @variable.declaration)
 (assignment (identifier) @variable.modification)
