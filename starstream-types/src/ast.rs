@@ -115,10 +115,16 @@ impl Identifier {
 /// Function definition declared at module scope.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct FunctionDef {
+    pub export: Option<FunctionExport>,
     pub name: Identifier,
     pub params: Vec<FunctionParam>,
     pub return_type: Option<TypeAnnotation>,
     pub body: Block,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum FunctionExport {
+    Script,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

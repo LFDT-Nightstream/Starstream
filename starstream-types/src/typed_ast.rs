@@ -6,7 +6,7 @@
 //! without re-running inference.
 
 use crate::{
-    Spanned,
+    FunctionExport, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::Type,
 };
@@ -24,6 +24,7 @@ pub enum TypedDefinition {
 
 #[derive(Clone, Debug)]
 pub struct TypedFunctionDef {
+    pub export: Option<FunctionExport>,
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,

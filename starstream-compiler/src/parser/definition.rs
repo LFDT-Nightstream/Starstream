@@ -1,5 +1,8 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{Definition, FunctionDef, FunctionParam};
+use starstream_types::{
+    FunctionExport,
+    ast::{Definition, FunctionDef, FunctionParam},
+};
 
 use super::{context::Extra, primitives, statement, type_annotation};
 
@@ -16,9 +19,12 @@ fn function_definition<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>>
         .then(type_parser.clone())
         .map(|(name, ty)| FunctionParam { name, ty });
 
-    just("fn")
+    function_export()
         .padded()
-        .ignore_then(primitives::identifier())
+        .or_not()
+        .then_ignore(just("fn"))
+        .padded()
+        .then(primitives::identifier())
         .then(
             parameter
                 .separated_by(just(',').padded())
@@ -28,10 +34,17 @@ fn function_definition<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>>
         )
         .then(just("->").padded().ignore_then(type_parser).or_not())
         .then(block_parser)
-        .map(|(((name, params), return_type), body)| FunctionDef {
-            name,
-            params,
-            return_type,
-            body,
-        })
+        .map(
+            |((((export, name), params), return_type), body)| FunctionDef {
+                export,
+                name,
+                params,
+                return_type,
+                body,
+            },
+        )
+}
+
+fn function_export<'a>() -> impl Parser<'a, &'a str, FunctionExport, Extra<'a>> {
+    choice((just("script").map(|_| FunctionExport::Script),))
 }

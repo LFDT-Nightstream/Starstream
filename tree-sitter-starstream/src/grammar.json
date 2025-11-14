@@ -22,6 +22,18 @@
       "type": "SEQ",
       "members": [
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "function_export"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
           "type": "STRING",
           "value": "fn"
         },
@@ -94,6 +106,15 @@
         {
           "type": "SYMBOL",
           "name": "block"
+        }
+      ]
+    },
+    "function_export": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "script"
         }
       ]
     },
@@ -795,8 +816,17 @@
       "value": "[0-9]+"
     },
     "boolean_literal": {
-      "type": "PATTERN",
-      "value": "true|false"
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "true"
+        },
+        {
+          "type": "STRING",
+          "value": "false"
+        }
+      ]
     },
     "identifier": {
       "type": "PATTERN",

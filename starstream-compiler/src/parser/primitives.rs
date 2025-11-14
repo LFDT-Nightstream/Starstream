@@ -4,7 +4,7 @@ use starstream_types::ast::Identifier;
 use super::context::Extra;
 
 const KEYWORDS: &[&str] = &[
-    "let", "if", "else", "while", "true", "false", "fn", "return",
+    "let", "mut", "if", "else", "while", "true", "false", "fn", "return",
 ];
 
 pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {

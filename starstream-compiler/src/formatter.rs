@@ -1,7 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionParam, Identifier, Literal, Program,
-    Spanned, Statement, TypeAnnotation, UnaryOp,
+    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Identifier,
+    Literal, Program, Spanned, Statement, TypeAnnotation, UnaryOp,
 };
 use std::fmt;
 
@@ -47,12 +47,17 @@ fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
 
 fn function_to_doc(function: &FunctionDef) -> RcDoc<'_, ()> {
     let params = params_to_doc(&function.params);
-    let mut doc = RcDoc::text("fn")
-        .append(RcDoc::space())
-        .append(identifier_to_doc(&function.name))
-        .append(RcDoc::text("("))
-        .append(params)
-        .append(RcDoc::text(")"));
+    let mut doc = if let Some(export) = &function.export {
+        function_export_to_doc(export).append(RcDoc::space())
+    } else {
+        RcDoc::nil()
+    }
+    .append("fn")
+    .append(RcDoc::space())
+    .append(identifier_to_doc(&function.name))
+    .append(RcDoc::text("("))
+    .append(params)
+    .append(RcDoc::text(")"));
 
     if let Some(return_type) = &function.return_type {
         doc = doc
@@ -64,6 +69,12 @@ fn function_to_doc(function: &FunctionDef) -> RcDoc<'_, ()> {
 
     doc.append(RcDoc::space())
         .append(block_to_doc(&function.body))
+}
+
+fn function_export_to_doc(export: &FunctionExport) -> RcDoc<'_, ()> {
+    match export {
+        FunctionExport::Script => RcDoc::text("script"),
+    }
 }
 
 fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {

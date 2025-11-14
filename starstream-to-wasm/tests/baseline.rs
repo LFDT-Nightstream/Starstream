@@ -1,7 +1,7 @@
 use starstream_to_wasm::compile;
 use starstream_types::{
-    BinaryOp, Identifier, Literal, Spanned, Type, TypedBlock, TypedDefinition, TypedExpr,
-    TypedExprKind, TypedFunctionDef, TypedProgram, TypedStatement,
+    BinaryOp, FunctionExport, Identifier, Literal, Spanned, Type, TypedBlock, TypedDefinition,
+    TypedExpr, TypedExprKind, TypedFunctionDef, TypedProgram, TypedStatement,
 };
 
 macro_rules! assert_wat_snapshot {
@@ -29,6 +29,7 @@ macro_rules! assert_wat_snapshot {
 fn empty() {
     let program = TypedProgram {
         definitions: vec![TypedDefinition::Function(TypedFunctionDef {
+            export: Some(FunctionExport::Script),
             name: Identifier::new("main", None),
             params: Vec::new(),
             return_type: Type::Unit,
@@ -46,6 +47,7 @@ fn empty() {
 fn simple_while_loop() {
     let program = TypedProgram {
         definitions: vec![TypedDefinition::Function(TypedFunctionDef {
+            export: Some(FunctionExport::Script),
             name: Identifier::new("main", None),
             params: Vec::new(),
             return_type: Type::Unit,
@@ -108,6 +110,7 @@ fn simple_while_loop() {
 fn if_elseif_else() {
     let program = TypedProgram {
         definitions: vec![TypedDefinition::Function(TypedFunctionDef {
+            export: Some(FunctionExport::Script),
             name: Identifier::new("main", None),
             params: Vec::new(),
             return_type: Type::Unit,

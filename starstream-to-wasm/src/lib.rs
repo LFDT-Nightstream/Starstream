@@ -154,16 +154,10 @@ impl Compiler {
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
-        if let Some(function) = program
-            .definitions
-            .iter()
-            .find_map(|definition| match definition {
-                TypedDefinition::Function(function) => Some(function),
-            })
-        {
-            self.visit_function(function);
-        } else {
-            self.push_error(empty_span(), "no function definitions to compile");
+        for definition in &program.definitions {
+            match definition {
+                TypedDefinition::Function(func) => self.visit_function(func),
+            }
         }
     }
 
@@ -173,7 +167,14 @@ impl Compiler {
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new([], []), func);
-        self.exports.export("main", ExportKind::Func, idx);
+
+        match function.export {
+            Some(FunctionExport::Script) => {
+                self.exports
+                    .export(&function.name.name, ExportKind::Func, idx);
+            }
+            None => {}
+        }
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -652,18 +653,8 @@ impl Compiler {
     }
 
     fn todo(&mut self, why: String) {
-        self.errors.push(CompileError {
-            message: format!("TODO: {why}"),
-            span: Span::from(0..0), // TODO: better span
-        });
-    }
-}
-
-fn empty_span() -> Span {
-    Span {
-        start: 0,
-        end: 0,
-        context: (),
+        // TODO: better span
+        self.push_error(Span::from(0..0), format!("TODO: {why}"));
     }
 }
 

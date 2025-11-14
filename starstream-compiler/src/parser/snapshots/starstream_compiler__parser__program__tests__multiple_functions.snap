@@ -6,6 +6,7 @@ Program {
     definitions: [
         Function(
             FunctionDef {
+                export: None,
                 name: Identifier {
                     name: "main",
                     span: Some(
@@ -76,6 +77,7 @@ Program {
         ),
         Function(
             FunctionDef {
+                export: None,
                 name: Identifier {
                     name: "compute",
                     span: Some(

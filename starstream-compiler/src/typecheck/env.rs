@@ -45,11 +45,8 @@ impl TypeEnv {
         None
     }
 
-    pub fn contains_in_current_scope(&self, name: &str) -> bool {
-        self.scopes
-            .last()
-            .map(|scope| scope.contains_key(name))
-            .unwrap_or(false)
+    pub fn get_in_current_scope(&self, name: &str) -> Option<&Binding> {
+        self.scopes.last().and_then(|scope| scope.get(name))
     }
 
     pub fn free_type_vars(&self) -> HashSet<TypeVarId> {

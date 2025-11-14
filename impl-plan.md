@@ -39,7 +39,7 @@ Language features:
 - [ ] if expressions
 - [x] make `let` const and add `let mut`
 - [x] type annotations on `let` bindings
-- [ ] coordination script entry points
+- [x] coordination script exports
 - [ ] variable privacy
   - [ ] `disclose` builtin
   - [ ] check that `if` conditions are disclosed

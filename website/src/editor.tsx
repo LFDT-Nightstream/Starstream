@@ -5,7 +5,14 @@ import type { MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapp
 import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFactory";
 import "./starstream.vsix";
 
-const code = "let mut foo = 2 + 2;\nif (7 > 9) {\n    foo = 17;\n}\n";
+const code = `\
+script fn main() {
+    let mut foo = 2 + 2;
+    if (7 > 9) {
+        foo = 17;
+    }
+}
+`;
 
 // Doesn't seem to need to be global, but changes don't take effect, so it might as well be.
 const vscodeApiConfig: MonacoVscodeApiConfig = {
