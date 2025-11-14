@@ -2,14 +2,14 @@
   "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
   "name": "starstream",
   "rules": {
-    "source_file": {
+    "program": {
       "type": "REPEAT",
       "content": {
         "type": "SYMBOL",
-        "name": "definition"
+        "name": "_definition"
       }
     },
-    "definition": {
+    "_definition": {
       "type": "CHOICE",
       "members": [
         {
@@ -185,9 +185,45 @@
         }
       ]
     },
+    "block": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_statement"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "expression"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
+    },
     "_statement": {
       "type": "CHOICE",
       "members": [
+        {
+          "type": "SYMBOL",
+          "name": "block"
+        },
         {
           "type": "SYMBOL",
           "name": "variable_declaration"
@@ -195,10 +231,6 @@
         {
           "type": "SYMBOL",
           "name": "assignment"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "return_statement"
         },
         {
           "type": "SYMBOL",
@@ -210,7 +242,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "block"
+          "name": "return_statement"
         },
         {
           "type": "SYMBOL",
@@ -400,38 +432,6 @@
         }
       ]
     },
-    "block": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "{"
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "SYMBOL",
-            "name": "_statement"
-          }
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SYMBOL",
-              "name": "expression"
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "STRING",
-          "value": "}"
-        }
-      ]
-    },
     "return_statement": {
       "type": "SEQ",
       "members": [
@@ -475,32 +475,7 @@
       "members": [
         {
           "type": "SYMBOL",
-          "name": "integer_literal"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "boolean_literal"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "identifier"
-        },
-        {
-          "type": "SEQ",
-          "members": [
-            {
-              "type": "STRING",
-              "value": "("
-            },
-            {
-              "type": "SYMBOL",
-              "name": "expression"
-            },
-            {
-              "type": "STRING",
-              "value": ")"
-            }
-          ]
+          "name": "_primary_expression"
         },
         {
           "type": "PREC_LEFT",
@@ -808,6 +783,40 @@
               }
             ]
           }
+        }
+      ]
+    },
+    "_primary_expression": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "integer_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "boolean_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "SEQ",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "("
+            },
+            {
+              "type": "SYMBOL",
+              "name": "expression"
+            },
+            {
+              "type": "STRING",
+              "value": ")"
+            }
+          ]
         }
       ]
     },

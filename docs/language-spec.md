@@ -26,16 +26,38 @@ and prefer to bundle concepts in codeblocks where it makes sense.
 ```ebnf
 program ::= definition*
 
+(* Definitions *)
+
 definition ::=
   | function_definition
 
+function_definition ::=
+  ( function_export )?
+  "fn" identifier
+  "(" ( parameter ( "," parameter )* )? ")"
+  ( "->" type_annotation )?
+  block
+
+function_export ::=
+  | "script"
+
+parameter ::= identifier ":" type_annotation
+
+(* Type syntax *)
+
+type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ">" )?
+
+(* Blocks and statements *)
+
+block ::= "{" statement* ( expression )? "}"
+
 statement ::=
+  | block
   | variable_declaration
   | assignment
-  | return_statement
   | if_statement
   | while_statement
-  | block
+  | return_statement
   | expression_statement
 
 variable_declaration ::= "let" ("mut")? identifier (":" type_annotation)? "=" expression ";"
@@ -46,58 +68,44 @@ if_statement ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" 
 
 while_statement ::= "while" "(" expression ")" block
 
-block ::= "{" statement* "}"
+return_statement ::= "return" ( expression )? ";"
 
 expression_statement ::= expression ";"
 
-function_definition ::= ( function_export )? "fn" identifier "(" ( parameter_list )? ")" ( return_type )? function_block
-
-function_export ::=
-  | "script"
-
-function_block ::= "{" statement* ( expression )? "}"
-
-parameter_list ::= parameter ( "," parameter )*
-
-parameter ::= identifier ":" type_annotation
-
-return_type ::= "->" type_annotation
-
-return_statement ::= "return" ( expression )? ";"
-
-type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ">" )?
+(* Expressions *)
 
 expression ::=
-  | binary_or_expression
-  | binary_and_expression
-  | equality_expression
-  | comparison_expression
-  | additive_expression
-  | multiplicative_expression
-  | unary_expression
   | primary_expression
+  (* High to low precedence *)
+  | unary_expression
+  | multiplicative_expression
+  | additive_expression
+  | comparison_expression
+  | equality_expression
+  | logical_and_expression
+  | logical_or_expression
 
-binary_or_expression ::= expression "||" expression
-
-binary_and_expression ::= expression "&&" expression
-
-equality_expression ::= expression ( "==" | "!=" ) expression
-
-comparison_expression ::= expression ( "<" | "<=" | ">" | ">=" ) expression
-
-additive_expression ::= expression ( "+" | "-" ) expression
-
-multiplicative_expression ::= expression ( "*" | "/" | "%" ) expression
-
-unary_expression ::=
-  | "-" expression
-  | "!" expression
-
-primary_expression ::=
+primary_expresion ::=
   | integer_literal
   | boolean_literal
   | identifier
   | "(" expression ")"
+
+unary_expression ::= ("-" | "!") expression
+
+multiplicative_expression ::= expression ( "*" | "/" | "%" ) expression
+
+additive_expression ::= expression ( "+" | "-" ) expression
+
+comparison_expression ::= expression ( "<" | "<=" | ">" | ">=" ) expression
+
+equality_expression ::= expression ( "==" | "!=" ) expression
+
+logical_and_expression ::= expression "&&" expression
+
+logical_or_expression ::= expression "||" expression
+
+(* Literals and other terminals *)
 
 integer_literal ::= [0-9]+
 
@@ -137,13 +145,13 @@ The following reserved words may not be used as identifiers:
 
 | Precedence  | Operator             | Associativity | Description     |
 | ----------- | -------------------- | ------------- | --------------- |
-| 1 (highest) | `!`, `-`             | Right         | Unary operators |
-| 2           | `*`, `/`, `%`        | Left          | Multiplicative  |
-| 3           | `+`, `-`             | Left          | Additive        |
-| 4           | `<`, `<=`, `>`, `>=` | Left          | Relational      |
-| 5           | `==`, `!=`           | Left          | Equality        |
-| 6           | `&&`                 | Left          | Logical AND     |
-| 7 (lowest)  | `\|\|`               | Left          | Logical OR      |
+| 7 (highest) | `!`, `-`             | Right         | Unary operators |
+| 6           | `*`, `/`, `%`        | Left          | Multiplicative  |
+| 5           | `+`, `-`             | Left          | Additive        |
+| 4           | `<`, `<=`, `>`, `>=` | Left          | Comparison      |
+| 3           | `==`, `!=`           | Left          | Equality        |
+| 2           | `&&`                 | Left          | Logical AND     |
+| 1 (lowest)  | `\|\|`               | Left          | Logical OR      |
 
 ## Function visibility
 

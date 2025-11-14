@@ -10,10 +10,15 @@
 module.exports = grammar({
   name: "starstream",
 
+  // Meant to follow spec grammar closely.
+  // Rules names prefixed with _ are hidden in the output syntax tree, best
+  // used for choices between single children.
   rules: {
-    source_file: ($) => repeat($.definition),
+    program: ($) => repeat($._definition),
 
-    definition: ($) => choice($.function_definition),
+    // Definitions
+
+    _definition: ($) => choice($.function_definition),
 
     function_definition: ($) =>
       seq(
@@ -31,6 +36,8 @@ module.exports = grammar({
 
     parameter: ($) => seq($.identifier, ":", $.type_annotation),
 
+    // Type syntax
+
     type_annotation: ($) =>
       seq(
         $.identifier,
@@ -39,14 +46,18 @@ module.exports = grammar({
         ),
       ),
 
+    // Blocks and statements
+
+    block: ($) => seq("{", repeat($._statement), optional($.expression), "}"),
+
     _statement: ($) =>
       choice(
+        $.block,
         $.variable_declaration,
         $.assignment,
-        $.return_statement,
         $.if_statement,
         $.while_statement,
-        $.block,
+        $.return_statement,
         $._expression_statement,
       ),
 
@@ -79,18 +90,15 @@ module.exports = grammar({
 
     while_statement: ($) => seq("while", "(", $.expression, ")", $.block),
 
-    block: ($) => seq("{", repeat($._statement), optional($.expression), "}"),
-
     return_statement: ($) => seq("return", optional($.expression), ";"),
 
     _expression_statement: ($) => seq($.expression, ";"),
 
+    // Expressions
+
     expression: ($) =>
       choice(
-        $.integer_literal,
-        $.boolean_literal,
-        $.identifier,
-        seq("(", $.expression, ")"),
+        $._primary_expression,
 
         prec.left(7, seq("!", $.expression)),
         prec.left(7, seq("-", $.expression)),
@@ -114,6 +122,16 @@ module.exports = grammar({
 
         prec.left(1, seq($.expression, "||", $.expression)),
       ),
+
+    _primary_expression: ($) =>
+      choice(
+        $.integer_literal,
+        $.boolean_literal,
+        $.identifier,
+        seq("(", $.expression, ")"),
+      ),
+
+    // Literals and other terminals
 
     integer_literal: ($) => /[0-9]+/,
     boolean_literal: ($) => choice("true", "false"),
