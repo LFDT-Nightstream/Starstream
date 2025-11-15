@@ -18,7 +18,7 @@ use ::neo::{
 use ark_relations::gr1cs::SynthesisError;
 use circuit::StepCircuitBuilder;
 use goldilocks::FpGoldilocks;
-use memory::DummyMemory;
+use memory::nebula::NebulaMemory;
 use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -132,7 +132,7 @@ impl Transaction<Vec<LedgerOperation<F>>> {
     pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
         let utxos_len = self.utxo_deltas.len();
 
-        let tx = StepCircuitBuilder::<DummyMemory<F>>::new(
+        let tx = StepCircuitBuilder::<NebulaMemory<F>>::new(
             self.utxo_deltas.clone(),
             self.proof_like.clone(),
         );
