@@ -17,7 +17,6 @@ use ark_r1cs_std::{GR1CSVar as _, alloc::AllocVar as _, fields::fp::FpVar};
 use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
 pub use constants::RoundConstants;
 
-#[allow(unused)]
 pub fn compress(inputs: &[FpVar<F>; 8]) -> Result<[FpVar<F>; 4], SynthesisError> {
     let constants = RoundConstants::new_goldilocks_8_constants();
 
