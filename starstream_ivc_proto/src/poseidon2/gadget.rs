@@ -124,7 +124,7 @@ impl<
     }
 }
 
-/// Convenience function to hash inputs using Poseidon2
+#[cfg(test)]
 pub fn poseidon2_hash<
     F: PrimeField,
     ExtLinear: ExternalLinearLayer<F, WIDTH>,

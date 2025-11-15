@@ -1,11 +1,6 @@
 use crate::goldilocks::FpGoldilocks;
 use std::sync::OnceLock;
 
-/// Degree of the chosen permutation polynomial for Goldilocks, used as the Poseidon2 S-Box.
-///
-/// As p - 1 = 2^32 * 3 * 5 * 17 * ... the smallest choice for a degree D satisfying gcd(p - 1, D) = 1 is 7.
-const GOLDILOCKS_S_BOX_DEGREE: u64 = 7;
-
 pub static MATRIX_DIAG_8_GOLDILOCKS: OnceLock<[FpGoldilocks; 8]> = OnceLock::new();
 
 pub(crate) fn matrix_diag_8_goldilocks() -> &'static [FpGoldilocks; 8] {
@@ -23,8 +18,10 @@ pub(crate) fn matrix_diag_8_goldilocks() -> &'static [FpGoldilocks; 8] {
     })
 }
 
+#[allow(unused)]
 pub static MATRIX_DIAG_12_GOLDILOCKS: OnceLock<[FpGoldilocks; 12]> = OnceLock::new();
 
+#[allow(unused)]
 pub(crate) fn matrix_diag_12_goldilocks() -> &'static [FpGoldilocks; 12] {
     MATRIX_DIAG_12_GOLDILOCKS.get_or_init(|| {
         [
@@ -44,8 +41,10 @@ pub(crate) fn matrix_diag_12_goldilocks() -> &'static [FpGoldilocks; 12] {
     })
 }
 
+#[allow(unused)]
 pub static MATRIX_DIAG_16_GOLDILOCKS: OnceLock<[FpGoldilocks; 16]> = OnceLock::new();
 
+#[allow(unused)]
 pub(crate) fn matrix_diag_16_goldilocks() -> &'static [FpGoldilocks; 16] {
     MATRIX_DIAG_16_GOLDILOCKS.get_or_init(|| {
         [
@@ -69,8 +68,10 @@ pub(crate) fn matrix_diag_16_goldilocks() -> &'static [FpGoldilocks; 16] {
     })
 }
 
+#[allow(unused)]
 pub static MATRIX_DIAG_20_GOLDILOCKS: OnceLock<[FpGoldilocks; 20]> = OnceLock::new();
 
+#[allow(unused)]
 pub(crate) fn matrix_diag_20_goldilocks() -> &'static [FpGoldilocks; 20] {
     MATRIX_DIAG_20_GOLDILOCKS.get_or_init(|| {
         [
