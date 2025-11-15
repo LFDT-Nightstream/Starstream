@@ -133,41 +133,6 @@ pub struct RoundConstants<
     pub ending_full_round_constants: [[F; WIDTH]; HALF_FULL_ROUNDS],
 }
 
-impl<F: PrimeField, const WIDTH: usize, const HALF_FULL_ROUNDS: usize, const PARTIAL_ROUNDS: usize>
-    RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>
-{
-    pub const fn new(
-        beginning_full_round_constants: [[F; WIDTH]; HALF_FULL_ROUNDS],
-        partial_round_constants: [F; PARTIAL_ROUNDS],
-        ending_full_round_constants: [[F; WIDTH]; HALF_FULL_ROUNDS],
-    ) -> Self {
-        Self {
-            beginning_full_round_constants,
-            partial_round_constants,
-            ending_full_round_constants,
-        }
-    }
-
-    /// Create test constants with simple deterministic values
-    pub fn test_constants() -> Self {
-        Self {
-            beginning_full_round_constants: core::array::from_fn(|round| {
-                core::array::from_fn(|i| F::from((round * WIDTH + i + 1) as u64))
-            }),
-            partial_round_constants: core::array::from_fn(|round| {
-                F::from((HALF_FULL_ROUNDS * WIDTH + round + 1) as u64)
-            }),
-            ending_full_round_constants: core::array::from_fn(|round| {
-                core::array::from_fn(|i| {
-                    F::from(
-                        (HALF_FULL_ROUNDS * WIDTH + PARTIAL_ROUNDS + round * WIDTH + i + 1) as u64,
-                    )
-                })
-            }),
-        }
-    }
-}
-
 impl RoundConstants<F, 8, 4, 22> {
     // TODO: cache/lazyfy this
     pub fn new_goldilocks_8_constants() -> Self {
