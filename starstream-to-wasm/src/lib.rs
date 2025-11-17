@@ -166,7 +166,31 @@ impl Compiler {
         self.visit_block(&mut func, &(), &function.body);
         func.instructions().end();
 
-        let idx = self.add_function(FuncType::new([], []), func);
+        let mut params = Vec::with_capacity(16);
+        for p in &function.params {
+            if !lower_type_to_stack(&mut params, &p.ty) {
+                self.push_error(
+                    p.name
+                        .span
+                        .or(function.name.span)
+                        .unwrap_or(Span::from(0..0)),
+                    format!("unknown lowering for parameter type {:?}", p.ty),
+                );
+            }
+        }
+
+        let mut results = Vec::with_capacity(1);
+        if !lower_type_to_stack(&mut results, &function.return_type) {
+            self.push_error(
+                function.name.span.unwrap_or(Span::from(0..0)),
+                format!(
+                    "unknown lowering for return type {:?}",
+                    function.return_type
+                ),
+            );
+        }
+
+        let idx = self.add_function(FuncType::new(params, results), func);
 
         match function.export {
             Some(FunctionExport::Script) => {
@@ -676,6 +700,24 @@ impl Locals for (&dyn Locals, &HashMap<String, u32>) {
             None => self.0.get(name),
         }
     }
+}
+
+fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
+    let mut ok = true;
+    match ty {
+        Type::Var(_) => ok = false,
+        Type::Function(_, _) => ok = false,
+
+        Type::Int => dest.push(ValType::I64),
+        Type::Bool => dest.push(ValType::I32),
+        Type::Unit => {}
+        Type::Tuple(items) => {
+            for each in items {
+                ok = lower_type_to_stack(dest, each) && ok;
+            }
+        }
+    }
+    ok
 }
 
 /// Typed intermediate value.
