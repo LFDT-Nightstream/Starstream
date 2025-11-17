@@ -152,7 +152,11 @@ fn ark_matrix_to_neo(
     cs: &ConstraintSystemRef<FpGoldilocks>,
     sparse_matrix: &[Vec<(FpGoldilocks, usize)>],
 ) -> neo_ccs::Mat<neo_math::F> {
+    // the final result should be a square matrix (but the sparse matrix may not be)
     let n = cs.num_constraints().max(cs.num_variables());
+
+    dbg!(cs.num_constraints());
+    dbg!(cs.num_variables());
 
     // TODO: would be nice to just be able to construct the sparse matrix
     let mut dense = vec![neo_math::F::from_u64(0); n * n];
