@@ -140,7 +140,11 @@ export function Sandbox() {
       setBusy(false);
     } else if (response.type == "log") {
       // TODO: Show in UI
-      console.log(response.level, response.target, response.body);
+      console.log(
+        ["", "Error", "Warn", "Info", "Debug", "Trace"][response.level],
+        `[${response.target}]`,
+        response.body,
+      );
     } else if (response.type == "wat") {
       setWat(response.wat);
     } else if (response.type == "core_wasm") {
