@@ -229,14 +229,21 @@ impl Compiler {
                     }
                 }
                 TypedStatement::Assignment { target, value } => {
-                    let local = (parent, &locals).get(&target.name);
-                    let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
-                    match value {
-                        Intermediate::Error => {}
-                        Intermediate::StackI64 => {
-                            func.instructions().local_set(local);
+                    if let Some(local) = (parent, &locals).get(&target.name) {
+                        let value =
+                            self.visit_expr(func, &(parent, &locals), value.span, &value.node);
+                        match value {
+                            Intermediate::Error => {}
+                            Intermediate::StackI64 => {
+                                func.instructions().local_set(local);
+                            }
+                            value => self.todo(format!("VariableDeclaration({value:?})")),
                         }
-                        value => self.todo(format!("VariableDeclaration({value:?})")),
+                    } else {
+                        self.push_error(
+                            target.span.unwrap_or(value.span),
+                            format!("unknown name {:?}", target.name),
+                        );
                     }
                 }
                 // Recursive
@@ -331,15 +338,22 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         locals: &dyn Locals,
-        _: Span,
+        span: Span,
         expr: &TypedExpr,
     ) -> Intermediate {
         match &expr.kind {
             // Identifiers
-            TypedExprKind::Identifier(Identifier { name, .. }) => {
-                let local = locals.get(name);
-                func.instructions().local_get(local);
-                Intermediate::StackI64
+            TypedExprKind::Identifier(ident) => {
+                if let Some(local) = locals.get(&ident.name) {
+                    func.instructions().local_get(local);
+                    Intermediate::StackI64 // TODO: use `expr.ty` here
+                } else {
+                    self.push_error(
+                        ident.span.unwrap_or(span),
+                        format!("unknown name {:?}", &ident.name),
+                    );
+                    Intermediate::Error
+                }
             }
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
@@ -684,19 +698,19 @@ impl Compiler {
 
 // Probably inefficient, but fun. Fix later?
 trait Locals {
-    fn get(&self, name: &str) -> u32;
+    fn get(&self, name: &str) -> Option<u32>;
 }
 
 impl Locals for () {
-    fn get(&self, name: &str) -> u32 {
-        panic!("unknown local: {name:?}")
+    fn get(&self, _: &str) -> Option<u32> {
+        None
     }
 }
 
 impl Locals for (&dyn Locals, &HashMap<String, u32>) {
-    fn get(&self, name: &str) -> u32 {
+    fn get(&self, name: &str) -> Option<u32> {
         match self.1.get(name) {
-            Some(v) => *v,
+            Some(v) => Some(*v),
             None => self.0.get(name),
         }
     }
