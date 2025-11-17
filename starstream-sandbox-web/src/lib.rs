@@ -15,6 +15,8 @@ unsafe extern "C" {
         body_len: usize,
     );
     unsafe fn set_wat(ptr: *const u8, len: usize);
+    unsafe fn set_core_wasm(ptr: *const u8, len: usize);
+    unsafe fn set_component_wasm(ptr: *const u8, len: usize);
 }
 
 #[derive(serde::Deserialize)]
@@ -77,6 +79,8 @@ pub unsafe extern "C" fn run(input_len: usize) {
     let Some(wasm) = wasm else {
         return;
     };
+
+    unsafe { set_core_wasm(wasm.as_ptr(), wasm.len()) };
 
     // Format to WAT.
     let mut wat = Vec::new();

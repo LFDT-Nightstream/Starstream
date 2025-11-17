@@ -22,6 +22,14 @@ export type SandboxWorkerResponse = {
       type: "wat";
       wat: string;
     }
+  | {
+      type: "core_wasm";
+      bytes: Uint8Array<ArrayBuffer>;
+    }
+  | {
+      type: "component_wasm";
+      bytes: Uint8Array<ArrayBuffer>;
+    }
 );
 
 // ----------------------------------------------------------------------------
@@ -38,9 +46,11 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
     target: number,
     target_len: number,
     body: number,
-    body_len: number
+    body_len: number,
   ): void;
   set_wat(ptr: number, len: number): void;
+  set_core_wasm(ptr: number, len: number): void;
+  set_component_wasm(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -52,13 +62,13 @@ interface SandboxWasmExports {
 let modulePromise: Promise<WebAssembly.WebAssemblyInstantiatedSource> | null =
   null;
 export async function getWasmInstance(
-  env: SandboxWasmImports
+  env: SandboxWasmImports,
 ): Promise<SandboxWasmExports> {
   if (modulePromise === null) {
     // First fetch gets instantiateStreaming privilege.
     modulePromise = WebAssembly.instantiateStreaming(
       fetch(starstreamSandboxWasm),
-      { env }
+      { env },
     );
     const { instance } = await modulePromise;
     return instance.exports as unknown as SandboxWasmExports;
@@ -101,6 +111,20 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         request_id,
         type: "wat",
         wat: utf8(wasm, ptr, len),
+      });
+    },
+    set_core_wasm(ptr, len) {
+      send({
+        request_id,
+        type: "core_wasm",
+        bytes: new Uint8Array(wasm.memory.buffer, ptr, len),
+      });
+    },
+    set_component_wasm(ptr, len) {
+      send({
+        request_id,
+        type: "component_wasm",
+        bytes: new Uint8Array(wasm.memory.buffer, ptr, len),
       });
     },
   });
