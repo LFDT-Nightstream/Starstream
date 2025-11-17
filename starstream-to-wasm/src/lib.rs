@@ -163,11 +163,11 @@ impl Compiler {
 
     fn visit_function(&mut self, function: &TypedFunctionDef) {
         let mut func = Function::default();
-        self.visit_block(&mut func, &(), &function.body);
-        func.instructions().end();
 
+        let mut locals = HashMap::<String, u32>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
+            locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
             if !lower_type_to_stack(&mut params, &p.ty) {
                 self.push_error(
                     p.name
@@ -190,6 +190,15 @@ impl Compiler {
             );
         }
 
+        let _ = self.visit_block(
+            &mut func,
+            &(&() as &dyn Locals, &locals),
+            &function.body,
+            &function.return_type,
+        );
+        func.instructions().return_();
+        func.instructions().end();
+
         let idx = self.add_function(FuncType::new(params, results), func);
 
         match function.export {
@@ -204,7 +213,13 @@ impl Compiler {
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &TypedBlock) {
+    fn visit_block(
+        &mut self,
+        func: &mut Function,
+        parent: &dyn Locals,
+        block: &TypedBlock,
+        return_: &Type,
+    ) -> Intermediate {
         let mut locals = HashMap::new();
         for statement in &block.statements {
             match statement {
@@ -248,7 +263,8 @@ impl Compiler {
                 }
                 // Recursive
                 TypedStatement::Block(block) => {
-                    self.visit_block(func, &(parent, &locals), block);
+                    let im = self.visit_block(func, &(parent, &locals), block, return_);
+                    self.discard(func, im);
                 }
                 TypedStatement::If {
                     branches,
@@ -268,13 +284,15 @@ impl Compiler {
                         assert!(matches!(im, Intermediate::StackBool));
                         func.instructions().i32_eqz(); // If condition is false,
                         func.instructions().br_if(0); // then try the next condition.
-                        self.visit_block(func, &(parent, &locals), block);
+                        let im = self.visit_block(func, &(parent, &locals), block, return_);
+                        self.discard(func, im);
                         func.instructions().br(1); // Go past end.
                         func.instructions().end();
                     }
                     // Final `else` branch is just inline.
                     if let Some(else_branch) = else_branch {
-                        self.visit_block(func, &(parent, &locals), else_branch);
+                        let im = self.visit_block(func, &(parent, &locals), else_branch, return_);
+                        self.discard(func, im);
                     }
                     // End.
                     func.instructions().end();
@@ -290,24 +308,27 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
-                    self.visit_block(func, &(parent, &locals), body);
+                    let im = self.visit_block(func, &(parent, &locals), body, return_);
+                    self.discard(func, im);
                     // continue
                     func.instructions().br(0).end().end();
                 }
                 TypedStatement::Return(Some(expr)) => {
-                    let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
-                    self.discard(func, im);
+                    assert_eq!(&expr.node.ty, return_); // Should be enforced by typechecker.
+                    let _ = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
                     func.instructions().return_();
                 }
                 TypedStatement::Return(None) => {
+                    assert_eq!(return_, &Type::Unit); // Should be enforced by typechecker.
                     func.instructions().return_();
                 }
             }
         }
 
         if let Some(expr) = &block.tail_expression {
-            let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
-            self.discard(func, im);
+            self.visit_expr(func, &(parent, &locals), expr.span, &expr.node)
+        } else {
+            Intermediate::Void
         }
     }
 
