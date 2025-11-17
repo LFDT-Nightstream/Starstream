@@ -11,7 +11,7 @@ license.workspace = true
 miette.workspace = true
 starstream-types.workspace = true
 thiserror.workspace = true
-wasm-encoder.workspace = true
+wasm-encoder = { workspace = true, features = ["component-model"] }
 
 [dev-dependencies]
 insta.workspace = true

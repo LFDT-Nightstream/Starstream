@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
@@ -59,6 +59,27 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
+    // Component binary output.
+    /*
+        (@custom "component-type"
+            (component ;; the component embedded in the file exports a single Package type
+                (type
+                    (component ;; that Package exports a single World type
+                        (type
+                            (component ;; that World exports our actual functions
+                                (type (func ...))
+                                (export "function-name" (func (type 0)))
+                            )
+                        )
+                        (export "namespace-name:package-name/world-name@0.1.0" (component (type 0)))
+                    )
+                )
+                (export "anything here, it's ignored" (type 0))
+            )
+        )
+    */
+    world_type: ComponentType,
+
     // Diagnostics.
     fatal: bool,
     errors: Vec<CompileError>,
@@ -81,6 +102,32 @@ impl Compiler {
         if self.fatal {
             return (None, self.errors);
         }
+
+        // The package type must always have 0 imports and 1 export which is the world.
+        // Export must be named namespace:package/world, but @version is optional.
+        let mut package_type = ComponentType::new();
+        package_type.ty().component(&self.world_type);
+        package_type.export(
+            "my-namespace:my-package/my-world",
+            ComponentTypeRef::Component(0),
+        );
+
+        let mut component_types = ComponentTypeSection::new();
+        let mut component_exports: ComponentExportSection = ComponentExportSection::new();
+        // Embedded component must have 1 export which is the package type.
+        // Export name doesn't matter.
+        component_types.component(&package_type);
+        component_exports.export("x", ComponentExportKind::Type, 0, None);
+
+        // Write component sections to embedded component.
+        let mut component = Component::new();
+        component.section(&CustomSection {
+            name: Cow::Borrowed("wit-component-encoding"),
+            data: Cow::Borrowed(b"\x04\x00"),
+        });
+        component.section(&component_types);
+        component.section(&component_exports);
+        let component = component.finish();
 
         // Write sections to module.
         // Mandatory WASM order per https://webassembly.github.io/spec/core/binary/modules.html#binary-module:
@@ -110,6 +157,11 @@ impl Compiler {
         if !self.data.is_empty() {
             module.section(&self.data);
         }
+        module.section(&CustomSection {
+            name: Cow::Borrowed("component-type"),
+            data: Cow::Owned(component),
+        });
+
         (Some(module.finish()), self.errors)
     }
 
