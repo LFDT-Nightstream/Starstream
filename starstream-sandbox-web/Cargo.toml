@@ -19,4 +19,5 @@ serde_cbor = "0.11.2"
 starstream-compiler.workspace = true
 starstream-to-wasm.workspace = true
 termcolor = "1.4.1"
-wasmprinter.workspace = true
+wasmprinter = { workspace = true, features = ["component-model"] }
+wit-component.workspace = true

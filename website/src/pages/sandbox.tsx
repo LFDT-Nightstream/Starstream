@@ -219,8 +219,8 @@ export function Sandbox() {
                           ]
                         : []),
                     ].reduce(
-                      (prev, cur) => (prev.length ? [prev, " - ", cur] : cur),
-                      [],
+                      (prev, cur) => (prev ? [prev, " - ", cur] : cur),
+                      null,
                     )}
                   </div>
                   <pre>
