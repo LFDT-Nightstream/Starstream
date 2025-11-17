@@ -9,19 +9,20 @@ mod poseidon2;
 mod test_utils;
 
 pub use memory::nebula;
+use neo_ajtai::AjtaiSModule;
+use neo_ccs::CcsStructure;
+use neo_fold::pi_ccs::FoldingMode;
+use neo_fold::session::FoldingSession;
+use neo_params::NeoParams;
 
-use crate::neo::StepCircuitNeo;
-use ::neo::{
-    FoldingSession, NeoParams, NeoStep as _, StepDescriptor,
-    session::{IvcFinalizeOptions, finalize_ivc_chain_with_options},
-};
-use ark_relations::gr1cs::SynthesisError;
+use crate::circuit::InterRoundWires;
+use crate::memory::IVCMemory;
+use crate::neo::arkworks_to_neo_ccs;
+use crate::{memory::DummyMemory, neo::StepCircuitNeo};
+use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
 use circuit::StepCircuitBuilder;
 use goldilocks::FpGoldilocks;
-use memory::nebula::NebulaMemory;
-use p3_field::PrimeCharacteristicRing;
 use std::collections::BTreeMap;
-use std::time::Instant;
 
 type F = FpGoldilocks;
 
@@ -111,7 +112,8 @@ pub enum LedgerOperation<F> {
 }
 
 pub struct ProverOutput {
-    pub proof: ::neo::Proof,
+    // pub proof: Proof,
+    pub proof: (),
 }
 
 impl Transaction<Vec<LedgerOperation<F>>> {
@@ -130,78 +132,68 @@ impl Transaction<Vec<LedgerOperation<F>>> {
     }
 
     pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
-        let utxos_len = self.utxo_deltas.len();
+        let shape_ccs = ccs_step_shape()?;
 
-        let tx = StepCircuitBuilder::<NebulaMemory<F>>::new(
+        let tx = StepCircuitBuilder::<DummyMemory<F>>::new(
             self.utxo_deltas.clone(),
             self.proof_like.clone(),
         );
 
         let num_iters = tx.ops.len();
 
-        let mut f_circuit = StepCircuitNeo::new(tx);
+        let n = shape_ccs.n.max(shape_ccs.m);
 
-        let y0 = vec![
-            ::neo::F::from_u64(1),                // current_program_in
-            ::neo::F::from_u64(utxos_len as u64), // utxos_len_in
-            ::neo::F::from_u64(0),                // n_finalized_in
-        ];
+        let mut f_circuit = StepCircuitNeo::new(tx, shape_ccs.clone());
 
-        let params = NeoParams::goldilocks_small_circuits();
+        // since we are using square matrices, n = m
+        neo::setup_ajtai_for_dims(n);
 
-        let mut session = FoldingSession::new(
-            &params,
-            Some(y0.clone()),
-            0,
-            ::neo::AppInputBinding::WitnessBound,
-        );
+        let l = AjtaiSModule::from_global_for_dims(neo_math::D, n).expect("AjtaiSModule init");
+
+        let params = NeoParams::goldilocks_auto_r1cs_ccs(n)
+            .expect("goldilocks_auto_r1cs_ccs should find valid params");
+
+        let mut session = FoldingSession::new(FoldingMode::PaperExact, params, l.clone());
 
         for _i in 0..num_iters {
-            let start = Instant::now();
             session.prove_step(&mut f_circuit, &()).unwrap();
-            let elapsed = start.elapsed();
-            println!("Step {} took {:?}", _i, elapsed);
         }
 
-        let descriptor = StepDescriptor {
-            ccs: f_circuit.shape_ccs.clone().expect("missing step CCS"),
-            spec: f_circuit.step_spec(),
-        };
-        let (chain, step_ios) = session.finalize();
+        let run = session.finalize(&shape_ccs).unwrap();
 
-        let ok = ::neo::verify_chain_with_descriptor(
-            &descriptor,
-            &chain,
-            &y0,
-            &params,
-            &step_ios,
-            ::neo::AppInputBinding::WitnessBound,
-        )
-        .unwrap();
-
-        assert!(ok, "neo chain verification failed");
-
-        let start = Instant::now();
-
-        let (final_proof, _final_ccs, _final_public_input) = finalize_ivc_chain_with_options(
-            &descriptor,
-            &params,
-            chain,
-            ::neo::AppInputBinding::WitnessBound,
-            IvcFinalizeOptions { embed_ivc_ev: true },
-        )
-        .map_err(|_| SynthesisError::Unsatisfiable)?
-        .ok_or(SynthesisError::Unsatisfiable)?;
-
-        println!("Spartan proof took {} ms", start.elapsed().as_millis());
-
-        let prover_output = ProverOutput { proof: final_proof };
+        let mcss_public = session.mcss_public();
+        let ok = session
+            .verify(&shape_ccs, &mcss_public, &run)
+            .expect("verify should run");
+        assert!(ok, "optimized verification should pass");
 
         Ok(Transaction {
             utxo_deltas: self.utxo_deltas.clone(),
-            proof_like: prover_output,
+            proof_like: ProverOutput { proof: () },
         })
     }
+}
+
+fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
+    let _span = tracing::debug_span!("dummy circuit").entered();
+
+    tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
+
+    let cs = ConstraintSystem::new_ref();
+    cs.set_optimization_goal(ark_relations::gr1cs::OptimizationGoal::Constraints);
+
+    let mut dummy_tx = StepCircuitBuilder::<DummyMemory<F>>::new(
+        Default::default(),
+        vec![LedgerOperation::Nop {}],
+    );
+
+    let mb = dummy_tx.trace_memory_ops(());
+    let irw = InterRoundWires::new(dummy_tx.rom_offset());
+    dummy_tx.make_step_circuit(0, &mut mb.constraints(), cs.clone(), irw)?;
+
+    cs.finalize();
+
+    Ok(arkworks_to_neo_ccs(&cs))
 }
 
 impl Transaction<ProverOutput> {
@@ -217,6 +209,17 @@ mod tests {
         F, LedgerOperation, ProgramId, Transaction, UtxoChange, test_utils::init_test_logging,
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn test_nop() {
+        init_test_logging();
+
+        let changes = vec![].into_iter().collect::<BTreeMap<_, _>>();
+        let tx = Transaction::new_unproven(changes.clone(), vec![LedgerOperation::Nop {}]);
+        let proof = tx.prove().unwrap();
+
+        proof.verify(changes);
+    }
 
     #[test]
     fn test_starstream_tx_success() {
