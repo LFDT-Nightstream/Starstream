@@ -11,15 +11,17 @@ ark-bn254 = { version = "0.5.0", features = ["scalar_field"] }
 ark-poly = "0.5.0"
 ark-poly-commit = "0.5.0"
 tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
-tracing-subscriber = { version = "0.3" }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-neo = { git = "https://github.com/nicarq/halo3", rev = "3b2a85115984b2c2cbcf90dce394075e045c6931", features = ["fs-guard"] }
-neo-math = { git = "https://github.com/nicarq/halo3", rev = "3b2a85115984b2c2cbcf90dce394075e045c6931" }
-neo-ccs = { git = "https://github.com/nicarq/halo3", rev = "3b2a85115984b2c2cbcf90dce394075e045c6931" }
-neo-ajtai = { git = "https://github.com/nicarq/halo3", rev = "3b2a85115984b2c2cbcf90dce394075e045c6931" }
-rand = "0.9"
+neo-fold = { git = "https://github.com/nicarq/Nightstream.git", rev = "cb16b3f4d08d0bed4c0701aec51a26f8ffe38721", features = ["fs-guard", "debug-logs"] }
+neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "cb16b3f4d08d0bed4c0701aec51a26f8ffe38721" }
+neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "cb16b3f4d08d0bed4c0701aec51a26f8ffe38721" }
+neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "cb16b3f4d08d0bed4c0701aec51a26f8ffe38721" }
+neo-params = { git = "https://github.com/nicarq/Nightstream.git", rev = "cb16b3f4d08d0bed4c0701aec51a26f8ffe38721" }
 
 p3-goldilocks = { version = "0.3.0", default-features = false }
 p3-field = "0.3.0"
 p3-symmetric = "0.3.0"
 p3-poseidon2 = "0.3.0"
+rand_chacha = "0.9.0"
+rand = "0.9"
