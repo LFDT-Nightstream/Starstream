@@ -1344,6 +1344,7 @@ version = "0.0.0"
 dependencies = [
  "insta",
  "miette",
+ "starstream-compiler",
  "starstream-types",
  "thiserror 2.0.17",
  "wasm-encoder",

@@ -15,4 +15,5 @@ wasm-encoder = { workspace = true, features = ["component-model"] }
 
 [dev-dependencies]
 insta.workspace = true
-wasmprinter.workspace = true
+starstream-compiler.workspace = true
+wasmprinter = { workspace = true, features = ["component-model"] }

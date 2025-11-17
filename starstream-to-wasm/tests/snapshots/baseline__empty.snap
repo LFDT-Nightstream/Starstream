@@ -1,9 +1,26 @@
 ---
 source: starstream-to-wasm/tests/baseline.rs
-description: "Program { statements: [] }"
+description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"main\", span: None }, params: [], return_type: Unit, body: TypedBlock { statements: [], tail_expression: None } })] }"
 ---
 (module
   (type (;0;) (func))
   (export "main" (func 0))
   (func (;0;) (type 0))
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func))
+              (export (;0;) "main" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
 )
