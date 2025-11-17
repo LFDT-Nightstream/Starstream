@@ -171,7 +171,13 @@ fn ark_matrix_to_neo(
 }
 
 pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
-    neo_math::F::from_u64(col_v.into_bigint().0[0])
+    let result = neo_math::F::from_u64(col_v.into_bigint().0[0]);
+    
+    // Assert that we can convert back and get the same element
+    let converted_back = FpGoldilocks::from(result.as_u64());
+    assert_eq!(*col_v, converted_back, "Field element conversion is not reversible");
+    
+    result
 }
 
 pub(crate) fn setup_ajtai_for_dims(m: usize) {
