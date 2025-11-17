@@ -140,7 +140,7 @@ dependencies = [
  "generic-array 1.2.0",
  "group",
  "grumpkin-msm",
- "halo2curves 0.6.0",
+ "halo2curves",
  "itertools 0.13.0",
  "num-bigint 0.4.6",
  "num-traits",
@@ -473,30 +473,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "bellpepper"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ae286c2cb403324ab644c7cc68dceb25fe52ca9429908a726d7ed272c1edf7b"
-dependencies = [
- "bellpepper-core",
- "byteorder",
- "ff",
-]
-
-[[package]]
-name = "bellpepper-core"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d8abb418570756396d722841b19edfec21d4e89e1cf8990610663040ecb1aea"
-dependencies = [
- "blake2s_simd",
- "byteorder",
- "ff",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -558,17 +534,6 @@ name = "blake2b_simd"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06e903a20b159e944f91ec8499fe1e55651480c541ea0a584f5d967c49ad9d99"
-dependencies = [
- "arrayref",
- "arrayvec",
- "constant_time_eq",
-]
-
-[[package]]
-name = "blake2s_simd"
-version = "1.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e90f7deecfac93095eb874a40febd69427776e24e1bd7f87f33ac62d6f0174df"
 dependencies = [
  "arrayref",
  "arrayvec",
@@ -714,10 +679,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "145052bdd345b87320e369255277e3fb5152762ad123a901ef5c262dd38fe8d2"
 dependencies = [
  "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
  "windows-link",
 ]
 
@@ -816,15 +779,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "crc32fast"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9481c1c90cbf2ac953f07c8d4a58aa3945c425b7185c9154d67a65e4230da511"
-dependencies = [
- "cfg-if",
 ]
 
 [[package]]
@@ -1141,16 +1095,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "flate2"
-version = "1.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a3d7db9596fecd151c5f638c0ee5d5bd487b6e0ea232e5dc96d5250f6f94b1d"
-dependencies = [
- "crc32fast",
- "miniz_oxide",
-]
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1342,7 +1286,7 @@ dependencies = [
  "cc",
  "ff",
  "getrandom 0.2.16",
- "halo2curves 0.6.0",
+ "halo2curves",
  "pasta_curves",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
@@ -1379,51 +1323,9 @@ dependencies = [
  "rand_core 0.6.4",
  "rayon",
  "serde",
- "serde_arrays 0.1.0",
+ "serde_arrays",
  "static_assertions",
  "subtle",
-]
-
-[[package]]
-name = "halo2curves"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f82f3e7809d6118c2afbde9667b3ba5c7621723df3729cc2157fac39121ecb62"
-dependencies = [
- "digest",
- "ff",
- "group",
- "halo2derive",
- "hex",
- "lazy_static",
- "libm",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "pairing",
- "paste",
- "plonky2_maybe_rayon",
- "rand_core 0.6.4",
- "rayon",
- "serde",
- "serde_arrays 0.2.0",
- "sha2",
- "static_assertions",
- "subtle",
-]
-
-[[package]]
-name = "halo2derive"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0d74794c1b24716c5abf5d6bfd98ee3c2d346bc67da374ba21d80adb38c336c"
-dependencies = [
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "proc-macro2",
- "quote",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -1956,34 +1858,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "685a9ac4b61f4e728e1d2c6a7844609c16527aeb5e6c865915c08e619c16410f"
 
 [[package]]
-name = "neo"
-version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
-dependencies = [
- "anyhow",
- "bincode",
- "neo-ajtai",
- "neo-ccs",
- "neo-fold",
- "neo-math",
- "neo-params",
- "neo-spartan-bridge",
- "neo-transcript",
- "p3-field",
- "p3-goldilocks",
- "p3-symmetric",
- "rand 0.9.1",
- "rand_chacha 0.9.0",
- "rayon",
- "serde",
- "subtle",
- "tracing",
-]
-
-[[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2003,7 +1880,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -2022,33 +1899,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "neo-challenge"
-version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
-dependencies = [
- "neo-math",
- "neo-transcript",
- "p3-field",
- "p3-goldilocks",
- "p3-matrix",
- "rand 0.9.1",
- "serde",
- "thiserror 2.0.17",
-]
-
-[[package]]
 name = "neo-fold"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
  "bincode",
  "blake3",
  "neo-ajtai",
  "neo-ccs",
- "neo-challenge",
  "neo-math",
  "neo-params",
- "neo-spartan-bridge",
+ "neo-reductions",
  "neo-transcript",
  "p3-challenger",
  "p3-field",
@@ -2065,7 +1926,7 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -2080,47 +1941,40 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
 ]
 
 [[package]]
-name = "neo-spartan-bridge"
+name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
- "anyhow",
- "bellpepper-core",
  "bincode",
  "blake3",
- "chrono",
- "dashmap 5.5.3",
- "ff",
  "neo-ajtai",
  "neo-ccs",
  "neo-math",
- "once_cell",
+ "neo-params",
+ "neo-transcript",
  "p3-challenger",
  "p3-field",
  "p3-goldilocks",
+ "p3-matrix",
  "p3-poseidon2",
  "p3-symmetric",
  "rand 0.9.1",
  "rand_chacha 0.9.0",
- "serde",
- "serde_json",
- "spartan2",
- "subtle",
+ "rayon",
  "thiserror 2.0.17",
- "tracing",
 ]
 
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/halo3?rev=3b2a85115984b2c2cbcf90dce394075e045c6931#3b2a85115984b2c2cbcf90dce394075e045c6931"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2449,15 +2303,6 @@ name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
-
-[[package]]
-name = "plonky2_maybe_rayon"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e1e554181dc95243b8d9948ae7bae5759c7fb2502fed28f671f95ef38079406"
-dependencies = [
- "rayon",
-]
 
 [[package]]
 name = "portable-atomic"
@@ -2918,15 +2763,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_arrays"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94a16b99c5ea4fe3daccd14853ad260ec00ea043b2708d1fd1da3106dcd8d9df"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_cbor"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3075,44 +2911,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spartan2"
-version = "0.4.0"
-source = "git+https://github.com/nicarq/Spartan2.git?rev=b244f5c891718235efc7b2b9814b6725010d5e71#b244f5c891718235efc7b2b9814b6725010d5e71"
-dependencies = [
- "bellpepper",
- "bellpepper-core",
- "bincode",
- "bitvec",
- "byteorder",
- "digest",
- "ff",
- "flate2",
- "generic-array 0.14.7",
- "getrandom 0.2.16",
- "group",
- "halo2curves 0.9.0",
- "itertools 0.14.0",
- "num-bigint 0.4.6",
- "num-integer",
- "num-traits",
- "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "rand 0.9.1",
- "rand_chacha 0.9.0",
- "rand_core 0.6.4",
- "rayon",
- "serde",
- "sha3",
- "subtle",
- "thiserror 2.0.17",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "spin"
 version = "0.9.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3188,15 +2986,17 @@ dependencies = [
  "ark-poly-commit",
  "ark-r1cs-std",
  "ark-relations",
- "neo",
  "neo-ajtai",
  "neo-ccs",
+ "neo-fold",
  "neo-math",
+ "neo-params",
  "p3-field",
  "p3-goldilocks",
  "p3-poseidon2",
  "p3-symmetric",
  "rand 0.9.1",
+ "rand_chacha 0.9.0",
  "tracing",
  "tracing-subscriber",
 ]
@@ -3248,7 +3048,7 @@ version = "0.0.0"
 dependencies = [
  "byteorder",
  "env_logger",
- "halo2curves 0.6.0",
+ "halo2curves",
  "log",
  "rand 0.8.5",
  "serde",
@@ -3646,7 +3446,6 @@ dependencies = [
  "sharded-slab",
  "smallvec",
  "thread_local",
- "time",
  "tracing",
  "tracing-core",
  "tracing-log",
