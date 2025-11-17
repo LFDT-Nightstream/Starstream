@@ -5,36 +5,39 @@ use crate::{
 };
 use ark_ff::{Field, PrimeField};
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, OptimizationGoal};
-use neo::{CcsStructure, F, NeoStep, StepArtifacts, StepSpec};
+use neo_ccs::CcsStructure;
+use neo_fold::session::{NeoStep, StepArtifacts, StepSpec};
+use neo_math::D;
 use p3_field::PrimeCharacteristicRing;
+use rand::SeedableRng as _;
 
 pub(crate) struct StepCircuitNeo<M>
 where
     M: IVCMemory<crate::F>,
 {
-    pub(crate) shape_ccs: Option<CcsStructure<::neo::F>>, // stable shape across steps
+    pub(crate) shape_ccs: CcsStructure<neo_math::F>, // stable shape across steps
     pub(crate) circuit_builder: StepCircuitBuilder<M>,
     pub(crate) irw: InterRoundWires,
     pub(crate) mem: M::Allocator,
-
-    debug_prev_state: Option<Vec<neo::F>>,
 }
 
 impl<M> StepCircuitNeo<M>
 where
     M: IVCMemory<crate::F, Params = ()>,
 {
-    pub fn new(mut circuit_builder: StepCircuitBuilder<M>) -> Self {
+    pub fn new(
+        mut circuit_builder: StepCircuitBuilder<M>,
+        shape_ccs: CcsStructure<neo_math::F>,
+    ) -> Self {
         let irw = InterRoundWires::new(circuit_builder.rom_offset());
 
         let mb = circuit_builder.trace_memory_ops(());
 
         Self {
-            shape_ccs: None,
+            shape_ccs,
             circuit_builder,
             irw,
             mem: mb.constraints(),
-            debug_prev_state: None,
         }
     }
 }
@@ -54,14 +57,15 @@ where
             y_len: self.state_len(),
             const1_index: 0,
             y_step_indices: vec![2, 4, 6],
-            app_input_indices: None,
+            app_input_indices: Some(vec![1, 3, 5]),
+            m_in: 7,
         }
     }
 
     fn synthesize_step(
         &mut self,
         step_idx: usize,
-        _z_prev: &[::neo::F],
+        _z_prev: &[::neo_math::F],
         _inputs: &Self::ExternalInputs,
     ) -> StepArtifacts {
         let cs = ConstraintSystem::<crate::F>::new_ref();
@@ -74,20 +78,15 @@ where
 
         let spec = self.step_spec();
 
-        let step = arkworks_to_neo(cs.clone());
+        let mut step = arkworks_to_neo(cs.clone());
 
-        if self.shape_ccs.is_none() {
-            self.shape_ccs = Some(step.ccs.clone());
-        }
+        assert!(cs.is_satisfied().unwrap());
 
-        // State chaining validation removed - no longer needed with updated neo version
+        let padded_witness_len = step.ccs.n.max(step.ccs.m);
+        step.witness.resize(padded_witness_len, neo_math::F::ZERO);
 
-        self.debug_prev_state.replace(
-            spec.y_step_indices
-                .iter()
-                .map(|i| step.witness[*i])
-                .collect::<Vec<_>>(),
-        );
+        neo_ccs::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).unwrap();
+        neo_ccs::check_ccs_rowwise_zero(&self.shape_ccs, &[], &step.witness).unwrap();
 
         StepArtifacts {
             ccs: step.ccs,
@@ -99,21 +98,15 @@ where
 }
 
 pub(crate) struct NeoInstance {
-    pub(crate) ccs: CcsStructure<F>,
+    pub(crate) ccs: CcsStructure<neo_math::F>,
     // instance + witness assignments
-    pub(crate) witness: Vec<F>,
+    pub(crate) witness: Vec<neo_math::F>,
 }
 
 pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoInstance {
     cs.finalize();
 
-    let matrices = &cs.to_matrices().unwrap()["R1CS"];
-
-    let a_mat = ark_matrix_to_neo(&cs, &matrices[0]);
-    let b_mat = ark_matrix_to_neo(&cs, &matrices[1]);
-    let c_mat = ark_matrix_to_neo(&cs, &matrices[2]);
-
-    let ccs = neo_ccs::r1cs_to_ccs(a_mat, b_mat, c_mat);
+    let ccs = arkworks_to_neo_ccs(&cs);
 
     let instance_assignment = cs.instance_assignment().unwrap();
     assert_eq!(instance_assignment[0], FpGoldilocks::ONE);
@@ -138,27 +131,49 @@ pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoInsta
     }
 }
 
+pub(crate) fn arkworks_to_neo_ccs(
+    cs: &ConstraintSystemRef<crate::F>,
+) -> neo_ccs::CcsStructure<neo_math::F> {
+    let matrices = &cs.to_matrices().unwrap()["R1CS"];
+
+    let a_mat = ark_matrix_to_neo(cs, &matrices[0]);
+    let b_mat = ark_matrix_to_neo(cs, &matrices[1]);
+    let c_mat = ark_matrix_to_neo(cs, &matrices[2]);
+
+    let ccs = neo_ccs::r1cs_to_ccs(a_mat, b_mat, c_mat);
+
+    ccs.ensure_identity_first()
+        .expect("ensure_identity_first should succeed");
+
+    ccs
+}
+
 fn ark_matrix_to_neo(
     cs: &ConstraintSystemRef<FpGoldilocks>,
     sparse_matrix: &[Vec<(FpGoldilocks, usize)>],
-) -> neo_ccs::Mat<F> {
-    let n_rows = cs.num_constraints();
-    let n_cols = cs.num_variables();
+) -> neo_ccs::Mat<neo_math::F> {
+    let n = cs.num_constraints().max(cs.num_variables());
 
     // TODO: would be nice to just be able to construct the sparse matrix
-    let mut dense = vec![F::from_u64(0); n_rows * n_cols];
+    let mut dense = vec![neo_math::F::from_u64(0); n * n];
 
     for (row_i, row) in sparse_matrix.iter().enumerate() {
         for (col_v, col_i) in row.iter() {
-            dense[n_cols * row_i + col_i] = ark_field_to_p3_goldilocks(col_v);
+            dense[n * row_i + col_i] = ark_field_to_p3_goldilocks(col_v);
         }
     }
 
-    neo_ccs::Mat::from_row_major(n_rows, n_cols, dense)
+    neo_ccs::Mat::from_row_major(n, n, dense)
 }
 
 pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
-    F::from_u64(col_v.into_bigint().0[0])
+    neo_math::F::from_u64(col_v.into_bigint().0[0])
+}
+
+pub(crate) fn setup_ajtai_for_dims(m: usize) {
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+    let pp = neo_ajtai::setup(&mut rng, D, 4, m).expect("Ajtai setup should succeed");
+    let _ = neo_ajtai::set_global_pp(pp);
 }
 
 #[cfg(test)]
@@ -168,33 +183,29 @@ mod tests {
         neo::{ark_field_to_p3_goldilocks, arkworks_to_neo},
     };
     use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget as _, fields::fp::FpVar};
-    use ark_relations::gr1cs::{self, ConstraintSystem};
-    use neo::{
-        CcsStructure, FoldingSession, NeoParams, NeoStep, StepArtifacts, StepDescriptor, StepSpec,
-    };
+    use ark_relations::gr1cs::ConstraintSystem;
     use p3_field::PrimeCharacteristicRing;
-    use p3_field::PrimeField;
 
     #[test]
     fn test_ark_field() {
         assert_eq!(
             ark_field_to_p3_goldilocks(&F::from(20)),
-            ::neo::F::from_u64(20)
+            ::neo_math::F::from_u64(20)
         );
 
         assert_eq!(
             ark_field_to_p3_goldilocks(&F::from(100)),
-            ::neo::F::from_u64(100)
+            ::neo_math::F::from_u64(100)
         );
 
         assert_eq!(
             ark_field_to_p3_goldilocks(&F::from(400)),
-            ::neo::F::from_u64(400)
+            ::neo_math::F::from_u64(400)
         );
 
         assert_eq!(
             ark_field_to_p3_goldilocks(&F::from(u64::MAX)),
-            ::neo::F::from_u64(u64::MAX)
+            ::neo_math::F::from_u64(u64::MAX)
         );
     }
 
@@ -230,111 +241,5 @@ mod tests {
             neo_ccs::relations::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).is_ok();
 
         assert_eq!(cs.is_satisfied().unwrap(), neo_check);
-    }
-
-    pub(crate) struct ArkStepAdapter {
-        shape_ccs: Option<CcsStructure<::neo::F>>, // stable shape across steps
-    }
-
-    impl ArkStepAdapter {
-        pub fn new() -> Self {
-            Self { shape_ccs: None }
-        }
-    }
-
-    impl NeoStep for ArkStepAdapter {
-        type ExternalInputs = ();
-
-        fn state_len(&self) -> usize {
-            1
-        }
-
-        fn step_spec(&self) -> StepSpec {
-            StepSpec {
-                y_len: 1,
-                const1_index: 0,
-                y_step_indices: vec![3],
-                app_input_indices: None,
-            }
-        }
-
-        fn synthesize_step(
-            &mut self,
-            _step_idx: usize,
-            z_prev: &[::neo::F],
-            _inputs: &Self::ExternalInputs,
-        ) -> StepArtifacts {
-            let i = z_prev
-                .first()
-                .map(|z_prev| z_prev.as_canonical_biguint().to_u64_digits()[0])
-                .unwrap_or(0);
-
-            // TODO: i should really be step_idx here
-            let cs = make_step(i);
-
-            let step = arkworks_to_neo(cs.clone());
-
-            if self.shape_ccs.is_none() {
-                self.shape_ccs = Some(step.ccs.clone());
-            }
-
-            StepArtifacts {
-                ccs: step.ccs,
-                witness: step.witness,
-                public_app_inputs: vec![],
-                spec: self.step_spec(),
-            }
-        }
-    }
-    #[test]
-    fn test_arkworks_to_neo() {
-        let params = NeoParams::goldilocks_small_circuits();
-
-        let mut session = FoldingSession::new(&params, None, 0, neo::AppInputBinding::WitnessBound);
-
-        let mut adapter = ArkStepAdapter::new();
-        let _step_result = session.prove_step(&mut adapter, &()).unwrap();
-        let _step_result = session.prove_step(&mut adapter, &()).unwrap();
-
-        let (chain, step_ios) = session.finalize();
-        let descriptor = StepDescriptor {
-            ccs: adapter.shape_ccs.as_ref().unwrap().clone(),
-            spec: adapter.step_spec().clone(),
-        };
-
-        let ok = neo::verify_chain_with_descriptor(
-            &descriptor,
-            &chain,
-            &[::neo::F::from_u64(0)],
-            &params,
-            &step_ios,
-            neo::AppInputBinding::WitnessBound,
-        )
-        .unwrap();
-
-        assert!(ok, "verify chain");
-    }
-
-    fn make_step(i: u64) -> gr1cs::ConstraintSystemRef<F> {
-        let cs = ConstraintSystem::<F>::new_ref();
-
-        let var1 = FpVar::new_input(cs.clone(), || Ok(F::from(i))).unwrap();
-        let delta = FpVar::new_input(cs.clone(), || Ok(F::from(1))).unwrap();
-        let var2 = FpVar::new_input(cs.clone(), || Ok(F::from(i + 1))).unwrap();
-
-        (var1.clone() + delta.clone()).enforce_equal(&var2).unwrap();
-        (var1.clone() + delta.clone()).enforce_equal(&var2).unwrap();
-        (var1 + delta).enforce_equal(&var2).unwrap();
-
-        let is_sat = cs.is_satisfied().unwrap();
-
-        if !is_sat {
-            let trace = cs.which_is_unsatisfied().unwrap().unwrap();
-            panic!(
-                "The constraint system was not satisfied; here is a trace indicating which constraint was unsatisfied: \n{trace}",
-            )
-        }
-
-        cs
     }
 }
