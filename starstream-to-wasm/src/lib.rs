@@ -196,7 +196,6 @@ impl Compiler {
             &function.body,
             &function.return_type,
         );
-        func.instructions().return_();
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new(params, results), func);
