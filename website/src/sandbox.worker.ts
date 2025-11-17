@@ -41,7 +41,7 @@ interface SandboxInput {
 interface SandboxWasmImports extends WebAssembly.ModuleImports {
   read_input(ptr: number, len: number): void;
 
-  log(
+  sandbox_log(
     level: number,
     target: number,
     target_len: number,
@@ -97,7 +97,7 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
     read_input(ptr, len) {
       new Uint8Array(wasm.memory.buffer, ptr, len).set(input);
     },
-    log(level, target, target_len, body, body_len) {
+    sandbox_log(level, target, target_len, body, body_len) {
       send({
         request_id,
         type: "log",

@@ -7,7 +7,7 @@ use log::error;
 unsafe extern "C" {
     unsafe fn read_input(ptr: *mut u8, len: usize);
 
-    unsafe fn log(
+    unsafe fn sandbox_log(
         level: u32,
         target: *const u8,
         target_len: usize,
@@ -118,7 +118,7 @@ impl log::Log for Logger {
     fn log(&self, record: &log::Record) {
         let body = record.args().to_string();
         unsafe {
-            log(
+            sandbox_log(
                 record.level() as u32,
                 record.target().as_ptr(),
                 record.target().len(),
