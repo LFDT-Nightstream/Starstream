@@ -16,7 +16,7 @@ unsafe extern "C" {
     );
     unsafe fn set_wat(ptr: *const u8, len: usize);
     unsafe fn set_core_wasm(ptr: *const u8, len: usize);
-    unsafe fn set_component_wasm(ptr: *const u8, len: usize);
+    //unsafe fn set_component_wasm(ptr: *const u8, len: usize);
 }
 
 #[derive(serde::Deserialize)]
