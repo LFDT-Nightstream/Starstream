@@ -200,6 +200,52 @@ impl Compiler {
         func_index
     }
 
+    fn add_component_type(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
+        let idx = self.world_type.type_count();
+        (idx, self.world_type.ty())
+    }
+
+    fn lower_component_type(&mut self, ty: &Type) -> ComponentValType {
+        match ty {
+            Type::Var(_) => todo!(),
+            Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
+            Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
+            Type::Unit => {
+                let (idx, ty) = self.add_component_type();
+                ty.defined_type()
+                    .tuple(std::iter::empty::<ComponentValType>());
+                ComponentValType::Type(idx)
+            }
+            Type::Function(_, _) => todo!(),
+            Type::Tuple(items) => {
+                let children: Vec<_> = items
+                    .iter()
+                    .map(|ty| self.lower_component_type(ty))
+                    .collect();
+                let (idx, ty) = self.add_component_type();
+                ty.defined_type().tuple(children);
+                ComponentValType::Type(idx)
+            }
+        }
+    }
+
+    fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
+        let mut params = Vec::with_capacity(function.params.len());
+        for p in &function.params {
+            params.push((p.name.name.as_str(), self.lower_component_type(&p.ty)));
+        }
+
+        let result = match &function.return_type {
+            // tuple<> is not a valid return type, so return none
+            Type::Unit => None,
+            other => Some(self.lower_component_type(other)),
+        };
+
+        let (idx, ty) = self.add_component_type();
+        ty.function().params(params).result(result);
+        idx
+    }
+
     // ------------------------------------------------------------------------
     // Visitors
 
@@ -256,9 +302,16 @@ impl Compiler {
             Some(FunctionExport::Script) => {
                 self.exports
                     .export(&function.name.name, ExportKind::Func, idx);
+                self.world_export_fn(function);
             }
             None => {}
         }
+    }
+
+    fn world_export_fn(&mut self, function: &TypedFunctionDef) {
+        let idx = self.add_component_func_type(function);
+        self.world_type
+            .export(&function.name.name, ComponentTypeRef::Func(idx));
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
