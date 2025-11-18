@@ -5,16 +5,7 @@
 use std::ops::{BitAnd, Shr};
 
 use crate::{
-    circuits::{
-        Instr, WITNESS_OFFSET_ADD, WITNESS_OFFSET_ALLOC, WITNESS_OFFSET_COND_JUMP_C_0,
-        WITNESS_OFFSET_COND_JUMP_C_NOT_0, WITNESS_OFFSET_CONST, WITNESS_OFFSET_DROP,
-        WITNESS_OFFSET_FROM_HELPER, WITNESS_OFFSET_FROM_HOST, WITNESS_OFFSET_GET,
-        WITNESS_OFFSET_GET_REG, WITNESS_OFFSET_INIT_HOST_CALL, WITNESS_OFFSET_JUMP,
-        WITNESS_OFFSET_NOP, WITNESS_OFFSET_READ, WITNESS_OFFSET_SELECT_C_0,
-        WITNESS_OFFSET_SELECT_C_NOT_0, WITNESS_OFFSET_SET, WITNESS_OFFSET_SET_REG,
-        WITNESS_OFFSET_SWAP, WITNESS_OFFSET_TO_HELPER, WITNESS_OFFSET_TO_HOST,
-        WITNESS_OFFSET_WRITE,
-    },
+    circuits::{Branch, Instr},
     interface::const_hash_str,
 };
 
@@ -43,7 +34,7 @@ const fn cons_tag(head: &str, tail: u64) -> u64 {
 
 pub struct Witnesses {
     pub v: Vec<(u64, i32, i32)>,
-    pub offset: usize,
+    pub branch: Branch,
 }
 
 /// Execute one step of the VM and generate the witnesses for the
@@ -68,7 +59,7 @@ pub fn step(
             let v = vec![(t("switch"), 1, 1)];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_NOP,
+                branch: Branch::Nop,
             }
         }
         o if o == Instr::Drop as i32 => {
@@ -86,7 +77,7 @@ pub fn step(
             ];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_DROP,
+                branch: Branch::Drop,
             }
         }
         o if o == Instr::Const as i32 => {
@@ -105,7 +96,7 @@ pub fn step(
             ];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_CONST,
+                branch: Branch::Const,
             }
         }
         o if o == Instr::Add as i32 => {
@@ -148,7 +139,7 @@ pub fn step(
             .collect();
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_ADD,
+                branch: Branch::OpAdd,
             }
         }
         o if o == Instr::Get as i32 => {
@@ -172,7 +163,7 @@ pub fn step(
             ];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_GET,
+                branch: Branch::Get,
             }
         }
         o if o == Instr::Set as i32 => {
@@ -198,7 +189,7 @@ pub fn step(
             ];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_SET,
+                branch: Branch::Set,
             }
         }
         o if o == Instr::Swap as i32 => {
@@ -226,7 +217,7 @@ pub fn step(
             ];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_SWAP,
+                branch: Branch::Swap,
             }
         }
         o if o == Instr::CondJump as i32 => {
@@ -247,7 +238,7 @@ pub fn step(
                 state.pc = new_pc;
                 Witnesses {
                     v,
-                    offset: WITNESS_OFFSET_COND_JUMP_C_0,
+                    branch: Branch::CondJumpC0,
                 }
             } else {
                 const fn t(l: &str) -> u64 {
@@ -266,7 +257,7 @@ pub fn step(
                 state.pc += 1;
                 Witnesses {
                     v,
-                    offset: WITNESS_OFFSET_COND_JUMP_C_NOT_0,
+                    branch: Branch::CondJumpCNot0,
                 }
             }
         }
@@ -285,7 +276,7 @@ pub fn step(
             state.pc = new_pc;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_JUMP,
+                branch: Branch::Jump,
             }
         }
         o if o == Instr::Read as i32 => {
@@ -311,7 +302,7 @@ pub fn step(
             state.pc += 1;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_READ,
+                branch: Branch::Read,
             }
         }
         o if o == Instr::Write as i32 => {
@@ -343,7 +334,7 @@ pub fn step(
             state.memory[address as usize] = new;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_WRITE,
+                branch: Branch::Write,
             }
         }
         o if o == Instr::Alloc as i32 => {
@@ -357,7 +348,7 @@ pub fn step(
             let v = vec![(t("switch"), 1, 1)];
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_ALLOC,
+                branch: Branch::Alloc,
             }
         }
         o if o == Instr::Select as i32 => {
@@ -385,7 +376,7 @@ pub fn step(
                 state.pc += 1;
                 Witnesses {
                     v,
-                    offset: WITNESS_OFFSET_SELECT_C_0,
+                    branch: Branch::SelectC0,
                 }
             } else {
                 const fn t(l: &str) -> u64 {
@@ -405,7 +396,7 @@ pub fn step(
                 state.pc += 1;
                 Witnesses {
                     v,
-                    offset: WITNESS_OFFSET_SELECT_C_NOT_0,
+                    branch: Branch::SelectCNot0,
                 }
             }
         }
@@ -426,7 +417,7 @@ pub fn step(
             state.pc += 1;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_SET_REG,
+                branch: Branch::SetReg,
             }
         }
         o if o == Instr::GetReg as i32 => {
@@ -445,7 +436,7 @@ pub fn step(
             state.pc += 1;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_GET_REG,
+                branch: Branch::GetReg,
             }
         }
         o if o == Instr::ToHelper as i32 => {
@@ -468,7 +459,7 @@ pub fn step(
             state.pc += 1;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_TO_HELPER,
+                branch: Branch::ToHelper,
             }
         }
         o if o == Instr::FromHelper as i32 => {
@@ -491,7 +482,7 @@ pub fn step(
             state.pc += 1;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_FROM_HELPER,
+                branch: Branch::FromHelper,
             }
         }
         o if o == Instr::InitHostCall as i32 => {
@@ -512,7 +503,7 @@ pub fn step(
             state.getting_from_host = false;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_INIT_HOST_CALL,
+                branch: Branch::InitHostCall,
             }
         }
         o if o == Instr::ToHost as i32 => {
@@ -535,7 +526,7 @@ pub fn step(
             state.host_args.push(val);
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_TO_HOST,
+                branch: Branch::ToHost,
             }
         }
         o if o == Instr::FromHost as i32 => {
@@ -566,7 +557,7 @@ pub fn step(
             state.cc += 1;
             Witnesses {
                 v,
-                offset: WITNESS_OFFSET_FROM_HOST,
+                branch: Branch::FromHost,
             }
         }
         o if o >= Instr::_End as i32 => {

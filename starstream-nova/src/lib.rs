@@ -2,9 +2,11 @@
 #![allow(clippy::suspicious_arithmetic_impl)]
 
 pub mod circuits;
+pub mod display_as_hex;
 pub mod exec;
 pub mod interface;
 pub mod r1cs;
+pub mod switchboard;
 pub mod test;
 pub mod wasm_parser;
 

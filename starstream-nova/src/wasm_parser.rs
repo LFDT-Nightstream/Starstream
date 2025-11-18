@@ -35,7 +35,9 @@ use combine::Stream;
 use combine::any;
 use combine::choice;
 use combine::count;
+use combine::easy::Errors;
 use combine::error::Commit;
+use combine::error::Format;
 use combine::many;
 use combine::optional;
 use combine::parser;
@@ -43,6 +45,10 @@ use combine::parser::byte::byte;
 use combine::value;
 
 use crate::circuits;
+
+macro_rules! l {
+    () => {{ Format(format!("at {}:{}", line!(), column!(),)) }};
+}
 
 fn leb128<N: Default + From<u8> + Shl<u32, Output = N> + BitOrAssign, Input: Stream<Token = u8>>()
 -> impl Parser<Input, Output = N, PartialState = ()> {
@@ -115,11 +121,11 @@ fn name_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
 }
 
 fn numtype_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    byte(0x7F).map(|_| ())
+    byte(0x7F).message(l!()).map(|_| ())
 }
 
 fn valtype_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    numtype_p()
+    numtype_p().message(l!())
 }
 
 fn memarg_offset_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = u32> {
@@ -131,6 +137,13 @@ fn memarg_offset_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = u
 enum Instr {
     Unreachable,
     Nop,
+    Block,
+    Loop,
+    If,
+    Else,
+    EndBlock,
+    Br { l: u32 },
+    BrIf { l: u32 },
     Drop,
     Const(i32),
     Get { local: u32 },
@@ -180,13 +193,18 @@ fn control_non_rec_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output =
     choice((
         byte(0x00).with(value(Instr::Unreachable)),
         byte(0x01).with(value(Instr::Nop)),
-        // byte(0x0C).with(u32_p()).map(|l| Instr::Jump { l }),
-        // byte(0x0D).with(u32_p()).map(|l| Instr::Jump { l }),
+        byte(0x0C)
+            .with(u32_p().message(l!()))
+            .map(|l| Instr::Br { l }),
+        byte(0x0D)
+            .with(u32_p().message(l!()))
+            .map(|l| Instr::BrIf { l }),
         byte(0x0F).with(value(Instr::Return)),
         byte(0x10)
-            .with(u32_p())
+            .with(u32_p().message(l!()))
             .map(|fn_idx| Instr::Call { fn_idx }),
     ))
+    .message(l!())
 }
 
 fn parametric_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
@@ -197,17 +215,25 @@ fn parametric_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Inst
             .skip(list_p(valtype_p))
             .with(value(Instr::Select)),
     ))
+    .message(l!())
 }
 
 fn variable_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
     choice((
-        byte(0x20).with(u32_p()).map(|local| Instr::Get { local }),
-        byte(0x21).with(u32_p()).map(|local| Instr::Set { local }),
-        byte(0x22).with(u32_p()).map(|local| Instr::Tee { local }),
+        byte(0x20)
+            .with(u32_p().message(l!()))
+            .map(|local| Instr::Get { local }),
+        byte(0x21)
+            .with(u32_p().message(l!()))
+            .map(|local| Instr::Set { local }),
+        byte(0x22)
+            .with(u32_p().message(l!()))
+            .map(|local| Instr::Tee { local }),
         byte(0x23)
-            .with(u32_p())
+            .with(u32_p().message(l!()))
             .map(|global| Instr::GlobalGet { global }),
     ))
+    .message(l!())
 }
 
 fn memory_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
@@ -233,8 +259,9 @@ fn memory_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
             byte(0x36).with(value(E::Store)),
             byte(0x3A).with(value(E::Store8)),
             byte(0x3B).with(value(E::Store16)),
-        )),
-        memarg_offset_p(),
+        ))
+        .message(l!()),
+        memarg_offset_p().message(l!()),
     )
         .map(|(i, offset)| match i {
             E::Load => Instr::Load { offset },
@@ -249,12 +276,15 @@ fn memory_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
 }
 
 fn const_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
-    byte(0x41).with(sleb128(32).map(|n: i64| Instr::Const(n as i32)))
+    byte(0x41)
+        .message(l!())
+        .with(sleb128(32).map(|n: i64| Instr::Const(n as i32)))
+        .message(l!())
 }
 
 fn i32_unary_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
     // choice((
-    byte(0x45).with(value(Instr::Eqz))
+    byte(0x45).message(l!()).with(value(Instr::Eqz))
     /*
     byte(0x67).with(value(Instr::Clz)),
     byte(0x68).with(value(Instr::Ctz)),
@@ -291,9 +321,30 @@ fn i32_binary_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Inst
         byte(0x77).with(value(Instr::Rotl)),
         byte(0x78).with(value(Instr::Rotr)),
     ))
+    .message(l!())
 }
 
-fn non_rec_instr_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
+fn blocktype_p<Input: Stream<Token = u8>>() -> impl Parser<Input> {
+    choice((
+        byte(0x40).map(|_| ()),
+        byte(0x7F).map(|_| ()),
+        sleb128(33).map(|_| ()),
+    ))
+    .message(l!())
+}
+
+fn control_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
+    choice((
+        byte(0x02).skip(blocktype_p()).with(value(Instr::Block)),
+        byte(0x03).skip(blocktype_p()).with(value(Instr::Loop)),
+        byte(0x04).skip(blocktype_p()).with(value(Instr::If)),
+        byte(0x05).with(value(Instr::Else)),
+        byte(0x0B).with(value(Instr::EndBlock)),
+    ))
+    .message(l!())
+}
+
+fn instr_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Instr> {
     choice((
         control_non_rec_p(),
         parametric_p(),
@@ -302,51 +353,12 @@ fn non_rec_instr_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = I
         const_p(),
         i32_unary_p(),
         i32_binary_p(),
+        control_p(),
     ))
 }
 
-/*
-
-fn block_p<Input: Stream<Token = u8>>(out: impl FnMut(Instr)) -> impl Parser<Input, Output = ()> {
-    byte(0x02)
-        .with(blocktype_p())
-        .with(many::<(), _, _>(lazy(instr_p)))
-        .skip(byte(0x0B))
-        .map(|_| ())
-}
-
-fn loop_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    byte(0x03)
-        .with(blocktype_p())
-        .with(many::<(), _, _>(lazy(|| instr_p())))
-        .skip(byte(0x0B))
-        .map(|_| ())
-}
-
-fn if_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
-    byte(0x04)
-        .with(blocktype_p())
-        .with(many::<(), _, _>(lazy(|| instr_p())))
-        .with(optional(
-            byte(0x05).with(many::<(), _, _>(lazy(|| instr_p()))),
-        ))
-        .skip(byte(0x0B))
-        .map(|_| ())
-}
-
-parser! {
-    fn instr_p[Input]()(Input) -> () where [Input: Stream<Token = u8>]
-    // { choice((non_rec_instr_p(), block_p(), loop_p(), if_p())) }
-    { lazy(block_p) }
-}
-
-fn expr_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = impl DiffList> {
-    many(instr_p()).skip(byte(0x0B))
-}
-*/
-
 fn locals_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = u32> {
-    u32_p().skip(valtype_p())
+    u32_p().message(l!()).skip(valtype_p().message(l!()))
 }
 
 fn magic_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = ()> {
@@ -374,7 +386,10 @@ fn unknown_section_p<Input: Stream<Token = u8>>(id: u8) -> impl Parser<Input, Ou
 
 fn type_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = (u32, u32)> {
     byte(0x60)
-        .with((list_p(valtype_p), list_p(valtype_p)))
+        .with((
+            list_p(valtype_p).message(l!()),
+            list_p(valtype_p).message(l!()),
+        ))
         // FIXME: these were originally u32,
         // somehow recover typing without `as`
         .map(|(i, o)| (i.len() as u32, o.len() as u32))
@@ -399,15 +414,17 @@ fn import_fun_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Impo
 
 fn import_i32_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
     byte(3)
-        .skip(byte(0x7F))
-        .skip(byte(0))
+        .message(l!())
+        .skip(byte(0x7F).message(l!()))
+        .skip(byte(0).message(l!()))
         .map(|_| Import::Global)
 }
 
 fn import_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Import> {
     name_p()
-        .skip(name_p())
-        .with(choice((import_fun_p(), import_i32_p())))
+        .message(l!())
+        .skip(name_p().message(l!()))
+        .with(choice((import_fun_p(), import_i32_p())).message(l!()))
 }
 
 fn importsec_p<Input: Stream<Token = u8>>() -> impl Parser<Input, Output = Vec<Import>> {
@@ -423,7 +440,8 @@ fn prelude<Input: Stream<Token = u8>>()
 -> impl Parser<Input, Output = (u32, Vec<(u32, u32)>, Vec<(u32, u32)>)> {
     (
         magic_p()
-            .skip(version_p())
+            .message(l!())
+            .skip(version_p().message(l!()))
             .skip(custom_sections_p())
             .with(typesec_p())
             .skip(custom_sections_p()),
@@ -477,10 +495,21 @@ enum Datum {
     Raw(i32),
     CurrentAddr(i32),
     FnAddr(u32),
+    Label { l: u32 },
+    Else,
+}
+
+enum Control {
+    Same,
+    Else,
+    EnterBlock,
+    EnterLoop,
+    Leave,
 }
 
 struct R {
     stack_diff: i32,
+    control: Control,
 }
 
 // pc
@@ -513,14 +542,16 @@ fn instr_get_set(
         .for_each(out);
 }
 
-fn handle_instruction(
+fn code_of_instr(
     instr: Instr,
     stack_size: i32,
-    n_args: i32,
-    n_results: i32,
-    func_types: &[(u32, u32)],
-    imports: &[(u32, u32)],
-    globals: &[i32],
+    Ctx {
+        n_args,
+        n_results,
+        func_types,
+        imports,
+        globals,
+    }: Ctx,
     out: impl FnMut(Datum) -> (),
 ) -> R {
     match instr {
@@ -529,28 +560,105 @@ fn handle_instruction(
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: 0 }
+            R {
+                stack_diff: 0,
+                control: Control::Same,
+            }
         }
         Instr::Nop => {
             [circuits::Instr::Nop as i32]
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: 0 }
+            R {
+                stack_diff: 0,
+                control: Control::Same,
+            }
         }
+        Instr::Block => R {
+            stack_diff: 0,
+            control: Control::EnterBlock,
+        },
+        Instr::Loop => R {
+            stack_diff: 0,
+            control: Control::EnterLoop,
+        },
+        Instr::Br { l } => {
+            [
+                Datum::Raw(circuits::Instr::Const as i32),
+                Datum::Label { l },
+                Datum::Raw(circuits::Instr::Jump as i32),
+            ]
+            .into_iter()
+            .for_each(out);
+            R {
+                stack_diff: 0,
+                control: Control::Same,
+            }
+        }
+        Instr::BrIf { l } => {
+            [
+                Datum::Raw(circuits::Instr::Not as i32),
+                Datum::Raw(circuits::Instr::Const as i32),
+                Datum::Label { l },
+                Datum::Raw(circuits::Instr::CondJump as i32),
+            ]
+            .into_iter()
+            .for_each(out);
+            R {
+                stack_diff: 0,
+                control: Control::Same,
+            }
+        }
+        Instr::If => {
+            [
+                Datum::Raw(circuits::Instr::Const as i32),
+                Datum::Else,
+                Datum::Raw(circuits::Instr::CondJump as i32),
+            ]
+            .into_iter()
+            .for_each(out);
+            R {
+                stack_diff: -1,
+                control: Control::EnterBlock,
+            }
+        }
+        Instr::Else => {
+            [
+                Datum::Raw(circuits::Instr::Const as i32),
+                Datum::Label { l: 0 },
+                Datum::Raw(circuits::Instr::Jump as i32),
+            ]
+            .into_iter()
+            .for_each(out);
+            R {
+                stack_diff: 0,
+                control: Control::Else,
+            }
+        }
+        Instr::EndBlock => R {
+            stack_diff: 0,
+            control: Control::Leave,
+        },
         Instr::Drop => {
             [circuits::Instr::Drop as i32]
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: -1 }
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
         }
         Instr::Const(c) => {
             [circuits::Instr::Const as i32, c]
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: 1 }
+            R {
+                stack_diff: 1,
+                control: Control::Same,
+            }
         }
         Instr::Get { local } => {
             instr_get_set(
@@ -561,7 +669,10 @@ fn handle_instruction(
                 out,
                 1,
             );
-            R { stack_diff: 1 }
+            R {
+                stack_diff: 1,
+                control: Control::Same,
+            }
         }
         Instr::Set { local } => {
             instr_get_set(
@@ -572,7 +683,10 @@ fn handle_instruction(
                 out,
                 2,
             );
-            R { stack_diff: -1 }
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
         }
         Instr::Tee { local } => {
             let idx = calculate_local_idx(local, stack_size + 1, n_args);
@@ -585,23 +699,54 @@ fn handle_instruction(
             .into_iter()
             .map(Datum::Raw)
             .for_each(out);
-            R { stack_diff: 0 }
+            R {
+                stack_diff: 0,
+                control: Control::Same,
+            }
         }
         Instr::GlobalGet { global } => {
             [circuits::Instr::Const as i32, globals[global as usize]]
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: 1 }
+            R {
+                stack_diff: 1,
+                control: Control::Same,
+            }
         }
-        Instr::Load { offset: _ } => unimplemented!(),
-        Instr::Load8_s { offset: _ } => unimplemented!(),
-        Instr::Load8_u { offset: _ } => unimplemented!(),
-        Instr::Load16_s { offset: _ } => unimplemented!(),
-        Instr::Load16_u { offset: _ } => unimplemented!(),
-        Instr::Store { offset: _ } => unimplemented!(),
-        Instr::Store8 { offset: _ } => unimplemented!(),
-        Instr::Store16 { offset: _ } => unimplemented!(),
+        // FIXME: implement offset support
+        Instr::Load { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Load8_s { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Load8_u { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Load16_s { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Load16_u { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Store { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Store8 { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
+        Instr::Store16 { offset } => {
+            assert_eq!(offset, 0);
+            unimplemented!()
+        }
         Instr::Call { fn_idx } if (fn_idx as usize) < imports.len() => {
             let (host_n_args, host_n_results) = imports[fn_idx as usize];
             [
@@ -614,6 +759,7 @@ fn handle_instruction(
             .for_each(out);
             R {
                 stack_diff: host_n_results as i32 - host_n_args as i32,
+                control: Control::Same,
             }
         }
         Instr::Call { fn_idx } => {
@@ -629,11 +775,11 @@ fn handle_instruction(
             .into_iter()
             .for_each(out);
             R {
-                stack_diff: match func_types[fn_idx as usize] {
-                    (callee_n_args, callee_n_results) => {
-                        callee_n_results as i32 - callee_n_args as i32
-                    }
+                stack_diff: {
+                    let (callee_n_args, callee_n_results) = func_types[fn_idx as usize];
+                    callee_n_results as i32 - callee_n_args as i32
                 },
+                control: Control::Same,
             }
         }
         Instr::Return => {
@@ -649,6 +795,7 @@ fn handle_instruction(
                 .for_each(out);
             R {
                 stack_diff: -stack_size,
+                control: Control::Same,
             }
         }
         Instr::Select => {
@@ -656,11 +803,50 @@ fn handle_instruction(
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: -2 }
+            R {
+                stack_diff: -2,
+                control: Control::Same,
+            }
         }
-        Instr::Eqz => unimplemented!(),
-        Instr::Eq => unimplemented!(),
-        Instr::Ne => unimplemented!(),
+        Instr::Eqz => {
+            [circuits::Instr::Not as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R {
+                stack_diff: 0,
+                control: Control::Same,
+            }
+        }
+        Instr::Eq => {
+            [
+                circuits::Instr::Neg as i32,
+                circuits::Instr::Add as i32,
+                circuits::Instr::Not as i32,
+            ]
+            .into_iter()
+            .map(Datum::Raw)
+            .for_each(out);
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
+        }
+        Instr::Ne => {
+            [
+                circuits::Instr::Neg as i32,
+                circuits::Instr::Add as i32,
+                circuits::Instr::Not as i32,
+                circuits::Instr::Not as i32,
+            ]
+            .into_iter()
+            .map(Datum::Raw)
+            .for_each(out);
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
+        }
         Instr::Lt_s => unimplemented!(),
         Instr::Lt_u => unimplemented!(),
         Instr::Gt_s => unimplemented!(),
@@ -674,10 +860,31 @@ fn handle_instruction(
                 .into_iter()
                 .map(Datum::Raw)
                 .for_each(out);
-            R { stack_diff: -1 }
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
         }
-        Instr::Sub => unimplemented!(),
-        Instr::Mul => unimplemented!(),
+        Instr::Sub => {
+            [circuits::Instr::Neg as i32, circuits::Instr::Add as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
+        }
+        Instr::Mul => {
+            [circuits::Instr::Mul as i32]
+                .into_iter()
+                .map(Datum::Raw)
+                .for_each(out);
+            R {
+                stack_diff: -1,
+                control: Control::Same,
+            }
+        }
         Instr::Div_s => unimplemented!(),
         Instr::Div_u => unimplemented!(),
         Instr::Rem_s => unimplemented!(),
@@ -693,12 +900,232 @@ fn handle_instruction(
     }
 }
 
-// FIXME: handle partial parsing correctly
-pub fn parse<Input: Stream<Token = u8>>(input: Input, globals: &[i32]) -> Vec<i32>
+enum Label {
+    Resolved(usize),
+    Unresolved,
+}
+
+fn unwrap<A, T, R, P, Q>(
+    x: Result<A, Errors<T, R, P>>,
+    transform_position: impl FnOnce(P) -> Q,
+) -> A
+where
+    Q: Display,
+    T: Display,
+    R: Display,
+{
+    match x {
+        Ok(x) => x,
+        Err(Errors { position, errors }) => {
+            let position = transform_position(position);
+            panic!("failed: {}", Errors { position, errors })
+        }
+    }
+}
+
+fn parse_pretty<Input: Stream<Token = u8>, O, P, Partial: Default>(
+    input: &mut combine::easy::Stream<Input>,
+    mut parser: impl Parser<combine::easy::Stream<Input>, Output = O, PartialState = Partial>,
+    transform_position: impl FnOnce(Input::Position) -> P,
+) -> O
 where
     Input::Error: Debug,
     Input::Range: PartialEq + Debug + Display,
     Input::Position: Default + Debug + Display,
+    P: Display,
+{
+    unwrap(
+        parser.parse_with_state(input, &mut Default::default()),
+        transform_position,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct Ctx<'a> {
+    n_args: i32,
+    n_results: i32,
+    func_types: &'a [(u32, u32)],
+    imports: &'a [(u32, u32)],
+    globals: &'a [i32],
+}
+
+struct C {
+    label_idx: usize,
+    else_pos: Option<usize>,
+}
+struct State {
+    stack_size: i32,
+    labels: Vec<Label>,
+    control_stack: Vec<C>,
+    label_uses: Vec<(usize, usize)>,
+}
+
+// FIXME: support br as return
+fn iter_instrs<I: Iterator<Item = Instr>>(
+    mut iter: I,
+    ctx: Ctx<'_>,
+    mut state: State,
+    v: &mut Vec<i32>,
+    mut call: impl FnMut((usize, u32)) -> (),
+) -> (I, State) {
+    let instr = iter.next().expect("expected instruction");
+    eprintln!("got {instr:?}");
+    let mut else_pos = None;
+    let R {
+        stack_diff,
+        control,
+    } = code_of_instr(instr, state.stack_size, ctx, |d| {
+        let x = match d {
+            Datum::Raw(n) => n,
+            Datum::CurrentAddr(offset) => v.len() as i32 + offset,
+            Datum::FnAddr(fn_idx) => {
+                call((v.len(), fn_idx));
+                0 // placeholder
+            }
+            Datum::Label { l } => {
+                state.label_uses.push((
+                    v.len(),
+                    state.control_stack[state.control_stack.len() - l as usize].label_idx,
+                ));
+                0 // placeholder
+            }
+            Datum::Else => {
+                else_pos = Some(v.len());
+                0 // placeholder
+            }
+        };
+        v.push(x);
+    });
+    state.stack_size += stack_diff;
+    match control {
+        Control::Same => iter_instrs(iter, ctx, state, v, call),
+        Control::Else => {
+            let C {
+                label_idx: _,
+                else_pos,
+            } = state
+                .control_stack
+                .last_mut()
+                .expect("else without if (or loop or block)");
+            let p = else_pos.take().expect("else where no else expected");
+            v[p] = v.len() as i32;
+            iter_instrs(iter, ctx, state, v, call)
+        }
+        // end of function
+        Control::Leave if state.control_stack.is_empty() => {
+            let R {
+                stack_diff: _,
+                control,
+            } = code_of_instr(Instr::Return, state.stack_size, ctx, |d| {
+                let x = match d {
+                    Datum::Raw(n) => n,
+                    _ => unreachable!(),
+                };
+                v.push(x);
+            });
+            match control {
+                Control::Same => {}
+                _ => unreachable!(),
+            }
+            (iter, state)
+        }
+        Control::Leave => {
+            let C {
+                label_idx,
+                else_pos,
+            } = state
+                .control_stack
+                .pop()
+                .expect("0x0B without corresponding block or loop or if");
+            match state.labels[label_idx] {
+                Label::Resolved(_) => {}
+                Label::Unresolved => state.labels[label_idx] = Label::Resolved(v.len()),
+            }
+            match else_pos {
+                None => {}
+                // If there is an unfilled "else" branch,
+                // then we fill it as we'd fill `br 0`.
+                Some(pos) => v[pos] = v.len() as i32,
+            }
+            iter_instrs(iter, ctx, state, v, call)
+        }
+        Control::EnterBlock => {
+            state.control_stack.push(C {
+                label_idx: state.labels.len(),
+                else_pos,
+            });
+            state.labels.push(Label::Unresolved);
+            iter_instrs(iter, ctx, state, v, call)
+        }
+        Control::EnterLoop => {
+            assert!(else_pos.is_none(), "impossible");
+            state.control_stack.push(C {
+                label_idx: state.labels.len(),
+                else_pos,
+            });
+            state.labels.push(Label::Resolved(v.len()));
+            iter_instrs(iter, ctx, state, v, call)
+        }
+    }
+}
+
+fn parse_function<Input: Stream<Token = u8>, P>(
+    input: &mut combine::easy::Stream<Input>,
+    ctx: Ctx<'_>,
+    v: &mut Vec<i32>,
+    call: impl FnMut((usize, u32)) -> (),
+    transform_position: impl FnOnce(Input::Position) -> P,
+) where
+    Input::Error: Debug,
+    Input::Range: PartialEq + Debug + Display,
+    Input::Position: Default + Debug + Display,
+    P: Display,
+{
+    eprintln!("parsing function");
+    let mut transform_position = Some(transform_position);
+    let (_function_size, locals): (u32, Vec<u32>) =
+        parse_pretty(input, (leb128(), list_p(locals_p)), |p| {
+            (transform_position.take().unwrap())(p)
+        });
+    let n_locals = locals.into_iter().fold(0, Add::add) as i32;
+    if n_locals != 0 {
+        v.push(circuits::Instr::Alloc as i32);
+    }
+    let iter = instr_p().iter(input);
+    let stack_size: i32 = n_locals;
+    let labels = vec![];
+    let control_stack: Vec<C> = vec![];
+    let label_uses = vec![];
+    let state = State {
+        stack_size,
+        labels,
+        control_stack,
+        label_uses,
+    };
+    let (iter, state) = iter_instrs(iter, ctx, state, v, call);
+    let ((), _commit) = unwrap(
+        iter.into_result(()).map_err(|e| e.into_inner().error),
+        |p| (transform_position.take().unwrap())(p),
+    );
+    for (pos, label_idx) in state.label_uses {
+        v[pos] = match state.labels[label_idx] {
+            Label::Unresolved => panic!("there should be no unresolved labels left"),
+            Label::Resolved(target) => target as i32,
+        }
+    }
+}
+
+// FIXME: handle partial parsing correctly
+pub fn parse<Input: Stream<Token = u8>, P>(
+    input: Input,
+    globals: &[i32],
+    transform_position: impl FnOnce(Input::Position) -> P,
+) -> Vec<i32>
+where
+    Input::Error: Debug,
+    Input::Range: PartialEq + Debug + Display,
+    Input::Position: Default + Debug + Display,
+    P: Display,
 {
     let ((n_globals, imports, func_types), input) = match prelude().easy_parse(input) {
         Ok(r) => r,
@@ -709,53 +1136,32 @@ where
     if n_globals as usize != globals.len() {
         panic!("need {} globals, got {}", globals.len(), n_globals);
     }
-    let (_, input) = byte(10).parse(input).unwrap(); // codesec section id
-    let (_codesec_size, input) = leb128::<u32, _>().parse(input).unwrap();
-    let (n_functions, input) = leb128::<u32, _>().parse(input).unwrap();
+    let mut input = combine::easy::Stream(input);
+    let mut transform_position = Some(transform_position);
+    let (_, _codesec_size, n_functions): (_, u32, u32) =
+        parse_pretty(&mut input, (byte(10), leb128(), leb128()), |p| {
+            (transform_position.take().unwrap())(p)
+        });
     assert_eq!(n_functions as usize, func_types.len());
     // NB: we must have an initial 0 for cond_lookup to work
     let mut v: Vec<i32> = vec![0];
     let mut function_calls_to_patch: Vec<(usize, u32)> = Vec::new();
     let mut function_info: Vec<FunctionInfo> = Vec::new();
-    let mut input = input;
     for (n_args, n_results) in &func_types {
-        let n_args = *n_args as i32;
-        let n_results = *n_results as i32;
-        let _function_size: u32 = leb128().parse_with_state(&mut input, &mut ()).unwrap();
-        let n_locals = list_p(locals_p)
-            .parse_with_state(&mut input, &mut Default::default())
-            .unwrap()
-            .into_iter()
-            .fold(0, Add::add) as i32;
         function_info.push(FunctionInfo { pc: v.len() });
-        let mut stack_size: i32 = n_locals;
-        if n_locals != 0 {
-            v.push(circuits::Instr::Alloc as i32);
-        }
-        let mut iter = non_rec_instr_p().iter(&mut input);
-        // add implicit return instruction at the end of the function
-        for instr in (&mut iter).chain(Some(Instr::Return)) {
-            let R { stack_diff } = handle_instruction(
-                instr,
-                stack_size,
-                n_args,
-                n_results,
-                func_types.as_slice(),
-                imports.as_slice(),
+        parse_function(
+            &mut input,
+            Ctx {
+                n_args: *n_args as i32,
+                n_results: *n_results as i32,
+                func_types: func_types.as_slice(),
+                imports: imports.as_slice(),
                 globals,
-                |d| match d {
-                    Datum::Raw(n) => v.push(n),
-                    Datum::CurrentAddr(offset) => v.push(v.len() as i32 + offset),
-                    Datum::FnAddr(fn_idx) => {
-                        function_calls_to_patch.push((v.len(), fn_idx));
-                        v.push(0); // placeholder
-                    }
-                },
-            );
-            stack_size += stack_diff;
-        }
-        iter.into_result(()).unwrap();
-        byte(0x0B).parse_with_state(&mut input, &mut ()).unwrap();
+            },
+            &mut v,
+            |call| function_calls_to_patch.push(call),
+            |p| (transform_position.take().unwrap())(p),
+        );
     }
     for (patch_location, fn_idx) in function_calls_to_patch {
         v[patch_location] = function_info[fn_idx as usize].pc as i32;

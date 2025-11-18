@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use std::{
     fmt::Display,
     ops::{Add, Mul, Sub},
@@ -158,23 +160,21 @@ pub trait Handler<L, M> {
     fn missing_witness(&mut self, locations: Locations<'_>, expected_tag: u64);
 }
 
-pub struct Memories(Vec<Vec<u64>>);
+pub struct Memory(Vec<u64>);
 
-pub fn init_memories(x: Vec<Vec<(i128, i128)>>) -> Memories {
-    Memories(
-        x.into_iter()
-            .map(|memory| memory.into_iter().map(of_i128_rat).collect())
-            .collect(),
-    )
+pub fn init_memory(memory: impl Iterator<Item = (i128, i128)>) -> Memory {
+    Memory(memory.map(of_i128_rat).collect())
 }
 
 // TODO: accumulate errors somehow
-pub fn assert_memories(Memories(mem): Memories, should_be: Vec<Vec<(i128, i128)>>) {
-    for (x, y) in mem.into_iter().zip(should_be.into_iter()) {
-        for (x_, y_) in x.into_iter().zip(y.into_iter()) {
-            assert_eq!(x_, of_i128_rat(y_));
-        }
+pub fn assert_memory(Memory(x): Memory, y: Vec<(i128, i128)>) {
+    for (x_, y_) in x.into_iter().zip(y.into_iter()) {
+        assert_eq!(x_, of_i128_rat(y_));
     }
+}
+
+pub trait MemoryMapping<M> {
+    fn get<'a>(&'a mut self, m: &M) -> &'a mut Memory;
 }
 
 pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
@@ -183,8 +183,7 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
     circuit: C,
     mut witness: impl Iterator<Item = (u64, (i128, i128))>,
     mut handler: impl Handler<L, M>,
-    memories: &mut Memories,
-    mut memory_mapping: impl FnMut(M) -> (M, usize),
+    memory_mapping: &mut impl MemoryMapping<M>,
 ) {
     #[derive(Clone, Copy, Debug)]
     struct Var(u64);
@@ -219,13 +218,15 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
 
     impl CircuitBuilderVar for Var {}
 
-    struct Builder<'a, W, H, Mem> {
+    struct Builder<'a, W, H, memory_mapping, input, output> {
         locations: Locations<'a>,
         witness: &'a mut W,
         handler: &'a mut H,
-        memory_mapping: &'a mut Mem,
-        memories: &'a mut Vec<Vec<u64>>,
+        memory_mapping: &'a mut memory_mapping,
+        last_witness_count: &'a mut usize,
         witness_count: &'a mut usize,
+        input: &'a input,
+        output: &'a output,
     }
 
     impl<
@@ -234,8 +235,11 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
         L,
         M,
         H: Handler<L, M>,
-        Mem: FnMut(M) -> (M, usize),
-    > CircuitBuilder<Var, L, M> for Builder<'a, W, H, Mem>
+        IO,
+        memory_mapping: MemoryMapping<M>,
+        input: Fn(IO) -> (i128, i128),
+        output: Fn(IO) -> (i128, i128),
+    > CircuitBuilder<Var, IO, L, M> for Builder<'a, W, H, memory_mapping, input, output>
     {
         fn zero(&mut self) -> Var {
             Var(0)
@@ -294,11 +298,7 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
                 .lookup(self.locations, namespace, pretty(address), pretty(val));
         }
         fn memory(&mut self, namespace: M, Var(address): Var, Var(old): Var, Var(new): Var) {
-            let (namespace, idx) = (self.memory_mapping)(namespace);
-            if self.memories.len() <= idx {
-                self.memories.resize_with(idx + 1, Vec::default);
-            }
-            let m = &mut self.memories[idx];
+            let Memory(m) = self.memory_mapping.get(&namespace);
             if m.len() <= address as usize {
                 m.resize_with(address as usize + 1, u64::default);
             }
@@ -315,19 +315,30 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
             }
             m[address as usize] = new;
         }
-        fn nest<'b>(&'b mut self, location: Location) -> impl CircuitBuilder<Var, L, M> + 'b {
+        fn nest<'b>(&'b mut self, location: Location) -> impl CircuitBuilder<Var, IO, L, M> + 'b {
             Builder {
                 locations: cons(location, &self.locations),
                 witness: self.witness,
                 handler: self.handler,
                 memory_mapping: self.memory_mapping,
-                memories: self.memories,
+                last_witness_count: self.last_witness_count,
                 witness_count: self.witness_count,
+                input: self.input,
+                output: self.output,
             }
         }
-        fn assert_offset(&mut self, offset: usize) {
+        fn assert_size(&mut self, (offset, size): (usize, usize)) {
             // FIXME: emit location on failure
-            assert_eq!(*self.witness_count, offset);
+            assert_eq!(*self.last_witness_count, offset);
+            assert_eq!(*self.witness_count - *self.last_witness_count, size);
+            assert_eq!(*self.witness_count, offset + size);
+            *self.last_witness_count = offset + size;
+        }
+        fn input(&mut self, name: IO) -> Var {
+            Var(of_i128_rat((self.input)(name)))
+        }
+        fn output(&mut self, name: IO) -> Var {
+            Var(of_i128_rat((self.output)(name)))
         }
     }
 
@@ -335,14 +346,12 @@ pub fn test_circuit_goldilocks<IO, L, M, C: Circuit<IO, L, M>>(
         locations: Locations::Nil,
         witness: &mut witness,
         handler: &mut handler,
-        memory_mapping: &mut memory_mapping,
-        memories: &mut memories.0,
+        memory_mapping,
+        last_witness_count: &mut 0,
         witness_count: &mut 0,
+        input: &input,
+        output: &output,
     };
 
-    circuit.run(
-        builder,
-        move |idx| Var(of_i128_rat(input(idx))),
-        move |idx| Var(of_i128_rat(output(idx))),
-    );
+    circuit.run(builder);
 }

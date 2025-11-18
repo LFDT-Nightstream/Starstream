@@ -1,57 +1,16 @@
-use std::fmt::Display;
-
-use combine::{Positioned, StreamOnce, stream::ResetStream};
 use starstream_nova::{
-    circuits,
-    circuits::{WASM_IO, WASM_VM, WITNESS_OFFSET_OPCODE_LOOKUP},
+    circuits::{self, MemoryTable, WASM_IO, WASM_VM},
+    display_as_hex::DisplayAsHex,
     exec,
-    test::{Handler, Locations, init_memories, test_circuit_goldilocks},
+    interface::BranchedCircuit,
+    switchboard::{SwitchedCircuit, calculate_offsets},
+    test::{Handler, Locations, Memory, MemoryMapping, init_memory, test_circuit_goldilocks},
     wasm_parser,
 };
 
-#[derive(Clone, Debug, PartialEq)]
-struct DisplayAsHex<'a>(&'a [u8]);
-
-impl<'a> Display for DisplayAsHex<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:02x?}", self.0)
-    }
-}
-
-impl<'a> StreamOnce for DisplayAsHex<'a> {
-    type Token = <&'a [u8] as StreamOnce>::Token;
-    type Range = DisplayAsHex<'a>;
-    type Position = <&'a [u8] as StreamOnce>::Position;
-    type Error = <&'a [u8] as StreamOnce>::Error;
-    fn uncons(&mut self) -> Result<Self::Token, combine::stream::StreamErrorFor<Self>> {
-        self.0.uncons()
-    }
-    fn is_partial(&self) -> bool {
-        self.0.is_partial()
-    }
-}
-
-impl<'a> ResetStream for DisplayAsHex<'a> {
-    type Checkpoint = <&'a [u8] as ResetStream>::Checkpoint;
-
-    fn checkpoint(&self) -> Self::Checkpoint {
-        self.0.checkpoint()
-    }
-
-    fn reset(&mut self, checkpoint: Self::Checkpoint) -> Result<(), Self::Error> {
-        self.0.reset(checkpoint)
-    }
-}
-
-impl<'a> Positioned for DisplayAsHex<'a> {
-    fn position(&self) -> Self::Position {
-        self.0.position()
-    }
-}
-
 struct H<'a>(&'a mut bool, &'a [i32]);
 
-impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
+impl<'a> Handler<circuits::LookupTable, circuits::MemoryTable> for H<'a> {
     fn failed_enforce(
         &mut self,
         locations: Locations<'_>,
@@ -66,26 +25,26 @@ impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
     fn lookup(
         &mut self,
         locations: Locations<'_>,
-        namespace: circuits::LookupTables,
+        namespace: circuits::LookupTable,
         address: i128,
         val: i128,
     ) {
         if address != 0 || val != 0 {
             match namespace {
-                circuits::LookupTables::Code if self.1.len() <= address as usize => {
+                circuits::LookupTable::Code if self.1.len() <= address as usize => {
                     if val != 0 {
                         eprintln!("code invalid {locations} {address} {val} 0",);
                         *self.0 = true;
                     }
                 }
-                circuits::LookupTables::Code if self.1[address as usize] as i128 != val => {
+                circuits::LookupTable::Code if self.1[address as usize] as i128 != val => {
                     eprintln!(
                         "code invalid {locations} {address} {val} {}",
                         self.1[address as usize] as i128
                     );
                     *self.0 = true;
                 }
-                circuits::LookupTables::HostInteractions => {
+                circuits::LookupTable::HostInteractions => {
                     eprintln!("host {locations} {address} {val}");
                 }
                 _ => {}
@@ -95,16 +54,16 @@ impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
     fn invalid_memory(
         &mut self,
         locations: Locations<'_>,
-        namespace: circuits::Memories,
+        namespace: MemoryTable,
         address: i128,
         expected: i128,
         actual: i128,
         new: i128,
     ) {
         let name = match namespace {
-            circuits::Memories::Stack => "stack",
-            circuits::Memories::HelperStack => "helper stack",
-            circuits::Memories::Memory => "memory",
+            MemoryTable::Stack => "stack",
+            MemoryTable::HelperStack => "helper stack",
+            MemoryTable::Memory => "memory",
         };
         eprintln!(
             "invalid_memory {name} {locations} {address}: wanted {expected}, found {actual}, new {new}"
@@ -125,10 +84,6 @@ impl<'a> Handler<circuits::LookupTables, circuits::Memories> for H<'a> {
         *self.0 = true;
     }
 }
-const OPCODE_TAG: u64 = 0xAEBEAEB02806E525;
-const PARAM_TAG: u64 = 0x9552D766C092875D;
-const REAL_OPCODE_IDX_TAG: u64 = 0xDE9FA51A3F8BE178;
-const REAL_PARAM_IDX_TAG: u64 = 0x65FCC8A817C3E178;
 
 const EXAMPLE_UTXO: &'static str = r#"
     (module
@@ -137,7 +92,7 @@ const EXAMPLE_UTXO: &'static str = r#"
       (import "" "own_hash" (global i32))
       (memory 1)
       (func $main (param i32)
-        local.get $0
+        local.get 0
         call $yield
         drop
         drop
@@ -147,43 +102,32 @@ const EXAMPLE_UTXO: &'static str = r#"
     )
 "#;
 
-const EXAMPLE_MODULE: &'static str = r#"
-    (module
-      (import "" "enter" (func $enter (param i32 i32) (result i32)))
-      (import "" "coord" (func $coord (param i32 i32) (result i32)))
-      (import "" "witness" (func $witness (result i32)))
-      (import "" "own_hash" (global i32))
-      (memory 1)
-      (func $main
-        i32.const 0 ;; hash of example_utxo, NB: make sure it matches
-        i32.const 1
-        i32.const 2
-        i32.const 3
-        i32.const 4
-        call $f
-        call $enter
-        drop
-      )
-      (func $f (param i32 i32 i32 i32) (result i32)
-        local.get 0
-        local.get 1
-        i32.add
-        local.get 2
-        i32.add
-        local.get 3
-        i32.add
-      )
-      (export "main" (func $main))
-      (export "memory" (memory 0))
-    )
-"#;
-
 fn parse(name: &str, wat: &str) -> Vec<i32> {
     let binary: Vec<u8> = wat::parse_str(wat).unwrap();
-    println!("{}", DisplayAsHex(binary.as_slice()));
+    {
+        println!("printing WASM of {name}");
+        let len = binary.len();
+        for i in 0..len {
+            let b = binary[i];
+            print!("{b:02X} ");
+            if i % 16 == 15 {
+                println!();
+            }
+        }
+        if len % 16 != 0 {
+            println!();
+        }
+        println!("printing WASM done");
+    }
     // for now hash is always zero
     let globals = [0];
-    let code = wasm_parser::parse(DisplayAsHex(binary.as_slice()), &globals);
+    let code = wasm_parser::parse(
+        DisplayAsHex {
+            slice: binary.as_slice(),
+        },
+        &globals,
+        |p| format!("0x{:X}", p.translate_position(binary.as_slice())),
+    );
     {
         println!("printing IR of {name}");
         let len = code.len();
@@ -202,9 +146,12 @@ fn parse(name: &str, wat: &str) -> Vec<i32> {
     code
 }
 
-#[test]
-fn run() {
-    let code = parse("example_coord", EXAMPLE_MODULE);
+fn run(
+    name: &'static str,
+    code: &'static str,
+    mut host_calls: impl FnMut(i32, Vec<i32>) -> Vec<i32>,
+) {
+    let code = parse(name, code);
     // we start with an empty stack and an empty memory
     let mut state = exec::State {
         memory: Vec::new(),
@@ -223,33 +170,35 @@ fn run() {
         host_args: Vec::new(),
         getting_from_host: false,
     };
-    let mut memories = init_memories(vec![
-        state.stack.iter().map(|v| (*v as i128, 1)).collect(),
-        state.helper_stack.iter().map(|v| (*v as i128, 1)).collect(),
-        Vec::new(),
-    ]);
-
-    let host = |idx: i32, mut args: Vec<i32>| -> Vec<i32> {
-        match idx {
-            // enter
-            0 => {
-                args.pop().expect("no utxo hash");
-                args.pop().expect("no arg to utxo");
-                vec![0] // FIXME: dummy
+    let mut memory_mapping = {
+        let stack = init_memory(state.stack.iter().map(|v| (*v as i128, 1)));
+        let helper_stack = init_memory(state.helper_stack.iter().map(|v| (*v as i128, 1)));
+        let linear_memory = init_memory(None.into_iter());
+        struct Mapper {
+            stack: Memory,
+            helper_stack: Memory,
+            linear_memory: Memory,
+        }
+        impl MemoryMapping<MemoryTable> for Mapper {
+            fn get<'a>(&'a mut self, m: &MemoryTable) -> &'a mut Memory {
+                match m {
+                    MemoryTable::Stack => &mut self.stack,
+                    MemoryTable::HelperStack => &mut self.helper_stack,
+                    MemoryTable::Memory => &mut self.linear_memory,
+                }
             }
-            // coord
-            1 => {
-                args.pop().expect("no coord hash");
-                args.pop().expect("no arg to coord");
-                vec![0] // FIXME: dummy
-            }
-            // witness
-            2 => {
-                vec![0] // FIXME: dummy
-            }
-            _ => unimplemented!(),
+        }
+        Mapper {
+            stack,
+            helper_stack,
+            linear_memory,
         }
     };
+
+    let offsets: Vec<_> = WASM_VM
+        .branches()
+        .zip(calculate_offsets(&WASM_VM))
+        .collect();
 
     loop {
         let sp = state.stack.len() as i128;
@@ -258,9 +207,8 @@ fn run() {
         let reg = state.reg as i128;
         let cc = state.cc as i128;
         eprintln!("stack: {:?}", state.stack);
-        let opcode = code[pc as usize];
-        let param = *code.get(pc as usize + 1).unwrap_or(&0);
-        let exec::Witnesses { v, offset } = exec::step(code.as_slice(), &mut state, host);
+        let exec::Witnesses { v, branch } =
+            exec::step(code.as_slice(), &mut state, &mut host_calls);
         let input = |idx: WASM_IO| match idx {
             WASM_IO::sp => (sp, 1),
             WASM_IO::pc => (pc, 1),
@@ -280,43 +228,49 @@ fn run() {
             WASM_IO::reg => (new_reg, 1),
             WASM_IO::cc => (new_cc, 1),
         };
-        let v_len = v.len();
-        let witness = [
-            (OPCODE_TAG, (opcode as i128, 1)),
-            (PARAM_TAG, (param as i128, 1)),
-        ]
-        .into_iter()
-        .chain((2..offset).map(|_| (0, (0, 1))))
-        .chain(
+        let (_, offset) = offsets
+            .iter()
+            .find(|(branch_, _)| branch_ == &branch)
+            .expect("impossible");
+        let witness = (0..*offset).map(|_| (0, (0, 1))).chain(
             v.into_iter()
                 .map(|(tag, n, d)| (tag, (n as i128, d as i128))),
-        )
-        .chain(((offset + v_len)..WITNESS_OFFSET_OPCODE_LOOKUP).map(|_| (0, (0, 1))))
-        .chain([
-            (REAL_OPCODE_IDX_TAG, (pc, 1)),
-            (REAL_PARAM_IDX_TAG, (pc + 1, 1)),
-        ]);
+        );
         let mut failed = false;
-        let memory_mapping = |namespace| match namespace {
-            circuits::Memories::Stack => (circuits::Memories::Stack, 0),
-            circuits::Memories::HelperStack => (circuits::Memories::HelperStack, 1),
-            circuits::Memories::Memory => (circuits::Memories::Memory, 2),
-        };
         test_circuit_goldilocks(
             input,
             output,
-            WASM_VM,
+            SwitchedCircuit(std::marker::PhantomData, WASM_VM),
             witness,
             H(&mut failed, &code),
-            &mut memories,
-            memory_mapping,
+            &mut memory_mapping,
         );
         if failed {
             panic!("failed")
         }
         if new_pc == 0 {
-            println!("top-level return probably");
+            eprintln!("top-level return probably");
             break;
         }
     }
+}
+
+#[test]
+#[ignore]
+fn utxo() {
+    let host_calls = |idx: i32, mut args: Vec<i32>| -> Vec<i32> {
+        match idx {
+            // yield
+            0 => {
+                args.pop().expect("nothing to yield");
+                vec![0, 0] // FIXME: dummy
+            }
+            // witness
+            1 => {
+                vec![0] // FIXME: dummy
+            }
+            _ => unimplemented!(),
+        }
+    };
+    run("example_utxo", EXAMPLE_UTXO, host_calls);
 }
