@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
@@ -59,6 +59,27 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
+    // Component binary output.
+    /*
+        (@custom "component-type"
+            (component ;; the component embedded in the file exports a single Package type
+                (type
+                    (component ;; that Package exports a single World type
+                        (type
+                            (component ;; that World exports our actual functions
+                                (type (func ...))
+                                (export "function-name" (func (type 0)))
+                            )
+                        )
+                        (export "namespace-name:package-name/world-name@0.1.0" (component (type 0)))
+                    )
+                )
+                (export "anything here, it's ignored" (type 0))
+            )
+        )
+    */
+    world_type: ComponentType,
+
     // Diagnostics.
     fatal: bool,
     errors: Vec<CompileError>,
@@ -81,6 +102,32 @@ impl Compiler {
         if self.fatal {
             return (None, self.errors);
         }
+
+        // The package type must always have 0 imports and 1 export which is the world.
+        // Export must be named namespace:package/world, but @version is optional.
+        let mut package_type = ComponentType::new();
+        package_type.ty().component(&self.world_type);
+        package_type.export(
+            "my-namespace:my-package/my-world",
+            ComponentTypeRef::Component(0),
+        );
+
+        let mut component_types = ComponentTypeSection::new();
+        let mut component_exports: ComponentExportSection = ComponentExportSection::new();
+        // Embedded component must have 1 export which is the package type.
+        // Export name doesn't matter.
+        component_types.component(&package_type);
+        component_exports.export("x", ComponentExportKind::Type, 0, None);
+
+        // Write component sections to embedded component.
+        let mut component = Component::new();
+        component.section(&CustomSection {
+            name: Cow::Borrowed("wit-component-encoding"),
+            data: Cow::Borrowed(b"\x04\x00"),
+        });
+        component.section(&component_types);
+        component.section(&component_exports);
+        let component = component.finish();
 
         // Write sections to module.
         // Mandatory WASM order per https://webassembly.github.io/spec/core/binary/modules.html#binary-module:
@@ -110,6 +157,11 @@ impl Compiler {
         if !self.data.is_empty() {
             module.section(&self.data);
         }
+        module.section(&CustomSection {
+            name: Cow::Borrowed("component-type"),
+            data: Cow::Owned(component),
+        });
+
         (Some(module.finish()), self.errors)
     }
 
@@ -148,6 +200,52 @@ impl Compiler {
         func_index
     }
 
+    fn add_component_type(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
+        let idx = self.world_type.type_count();
+        (idx, self.world_type.ty())
+    }
+
+    fn lower_component_type(&mut self, ty: &Type) -> ComponentValType {
+        match ty {
+            Type::Var(_) => todo!(),
+            Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
+            Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
+            Type::Unit => {
+                let (idx, ty) = self.add_component_type();
+                ty.defined_type()
+                    .tuple(std::iter::empty::<ComponentValType>());
+                ComponentValType::Type(idx)
+            }
+            Type::Function(_, _) => todo!(),
+            Type::Tuple(items) => {
+                let children: Vec<_> = items
+                    .iter()
+                    .map(|ty| self.lower_component_type(ty))
+                    .collect();
+                let (idx, ty) = self.add_component_type();
+                ty.defined_type().tuple(children);
+                ComponentValType::Type(idx)
+            }
+        }
+    }
+
+    fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
+        let mut params = Vec::with_capacity(function.params.len());
+        for p in &function.params {
+            params.push((p.name.name.as_str(), self.lower_component_type(&p.ty)));
+        }
+
+        let result = match &function.return_type {
+            // tuple<> is not a valid return type, so return none
+            Type::Unit => None,
+            other => Some(self.lower_component_type(other)),
+        };
+
+        let (idx, ty) = self.add_component_type();
+        ty.function().params(params).result(result);
+        idx
+    }
+
     // ------------------------------------------------------------------------
     // Visitors
 
@@ -163,24 +261,69 @@ impl Compiler {
 
     fn visit_function(&mut self, function: &TypedFunctionDef) {
         let mut func = Function::default();
-        self.visit_block(&mut func, &(), &function.body);
+
+        let mut locals = HashMap::<String, u32>::new();
+        let mut params = Vec::with_capacity(16);
+        for p in &function.params {
+            locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
+            if !lower_type_to_stack(&mut params, &p.ty) {
+                self.push_error(
+                    p.name
+                        .span
+                        .or(function.name.span)
+                        .unwrap_or(Span::from(0..0)),
+                    format!("unknown lowering for parameter type {:?}", p.ty),
+                );
+            }
+        }
+
+        let mut results = Vec::with_capacity(1);
+        if !lower_type_to_stack(&mut results, &function.return_type) {
+            self.push_error(
+                function.name.span.unwrap_or(Span::from(0..0)),
+                format!(
+                    "unknown lowering for return type {:?}",
+                    function.return_type
+                ),
+            );
+        }
+
+        let _ = self.visit_block(
+            &mut func,
+            &(&() as &dyn Locals, &locals),
+            &function.body,
+            &function.return_type,
+        );
         func.instructions().end();
 
-        let idx = self.add_function(FuncType::new([], []), func);
+        let idx = self.add_function(FuncType::new(params, results), func);
 
         match function.export {
             Some(FunctionExport::Script) => {
                 self.exports
                     .export(&function.name.name, ExportKind::Func, idx);
+                self.world_export_fn(function);
             }
             None => {}
         }
     }
 
+    fn world_export_fn(&mut self, function: &TypedFunctionDef) {
+        let idx = self.add_component_func_type(function);
+        self.world_type
+            .export(&function.name.name, ComponentTypeRef::Func(idx));
+    }
+
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(&mut self, func: &mut Function, parent: &dyn Locals, block: &TypedBlock) {
+    fn visit_block(
+        &mut self,
+        func: &mut Function,
+        parent: &dyn Locals,
+        block: &TypedBlock,
+        return_: &Type,
+    ) -> Intermediate {
         let mut locals = HashMap::new();
         for statement in &block.statements {
             match statement {
@@ -205,19 +348,27 @@ impl Compiler {
                     }
                 }
                 TypedStatement::Assignment { target, value } => {
-                    let local = (parent, &locals).get(&target.name);
-                    let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
-                    match value {
-                        Intermediate::Error => {}
-                        Intermediate::StackI64 => {
-                            func.instructions().local_set(local);
+                    if let Some(local) = (parent, &locals).get(&target.name) {
+                        let value =
+                            self.visit_expr(func, &(parent, &locals), value.span, &value.node);
+                        match value {
+                            Intermediate::Error => {}
+                            Intermediate::StackI64 => {
+                                func.instructions().local_set(local);
+                            }
+                            value => self.todo(format!("VariableDeclaration({value:?})")),
                         }
-                        value => self.todo(format!("VariableDeclaration({value:?})")),
+                    } else {
+                        self.push_error(
+                            target.span.unwrap_or(value.span),
+                            format!("unknown name {:?}", target.name),
+                        );
                     }
                 }
                 // Recursive
                 TypedStatement::Block(block) => {
-                    self.visit_block(func, &(parent, &locals), block);
+                    let im = self.visit_block(func, &(parent, &locals), block, return_);
+                    self.discard(func, im);
                 }
                 TypedStatement::If {
                     branches,
@@ -237,13 +388,15 @@ impl Compiler {
                         assert!(matches!(im, Intermediate::StackBool));
                         func.instructions().i32_eqz(); // If condition is false,
                         func.instructions().br_if(0); // then try the next condition.
-                        self.visit_block(func, &(parent, &locals), block);
+                        let im = self.visit_block(func, &(parent, &locals), block, return_);
+                        self.discard(func, im);
                         func.instructions().br(1); // Go past end.
                         func.instructions().end();
                     }
                     // Final `else` branch is just inline.
                     if let Some(else_branch) = else_branch {
-                        self.visit_block(func, &(parent, &locals), else_branch);
+                        let im = self.visit_block(func, &(parent, &locals), else_branch, return_);
+                        self.discard(func, im);
                     }
                     // End.
                     func.instructions().end();
@@ -259,24 +412,27 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
-                    self.visit_block(func, &(parent, &locals), body);
+                    let im = self.visit_block(func, &(parent, &locals), body, return_);
+                    self.discard(func, im);
                     // continue
                     func.instructions().br(0).end().end();
                 }
                 TypedStatement::Return(Some(expr)) => {
-                    let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
-                    self.discard(func, im);
+                    assert_eq!(&expr.node.ty, return_); // Should be enforced by typechecker.
+                    let _ = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
                     func.instructions().return_();
                 }
                 TypedStatement::Return(None) => {
+                    assert_eq!(return_, &Type::Unit); // Should be enforced by typechecker.
                     func.instructions().return_();
                 }
             }
         }
 
         if let Some(expr) = &block.tail_expression {
-            let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
-            self.discard(func, im);
+            self.visit_expr(func, &(parent, &locals), expr.span, &expr.node)
+        } else {
+            Intermediate::Void
         }
     }
 
@@ -307,15 +463,22 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         locals: &dyn Locals,
-        _: Span,
+        span: Span,
         expr: &TypedExpr,
     ) -> Intermediate {
         match &expr.kind {
             // Identifiers
-            TypedExprKind::Identifier(Identifier { name, .. }) => {
-                let local = locals.get(name);
-                func.instructions().local_get(local);
-                Intermediate::StackI64
+            TypedExprKind::Identifier(ident) => {
+                if let Some(local) = locals.get(&ident.name) {
+                    func.instructions().local_get(local);
+                    Intermediate::StackI64 // TODO: use `expr.ty` here
+                } else {
+                    self.push_error(
+                        ident.span.unwrap_or(span),
+                        format!("unknown name {:?}", &ident.name),
+                    );
+                    Intermediate::Error
+                }
             }
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
@@ -660,22 +823,40 @@ impl Compiler {
 
 // Probably inefficient, but fun. Fix later?
 trait Locals {
-    fn get(&self, name: &str) -> u32;
+    fn get(&self, name: &str) -> Option<u32>;
 }
 
 impl Locals for () {
-    fn get(&self, name: &str) -> u32 {
-        panic!("unknown local: {name:?}")
+    fn get(&self, _: &str) -> Option<u32> {
+        None
     }
 }
 
 impl Locals for (&dyn Locals, &HashMap<String, u32>) {
-    fn get(&self, name: &str) -> u32 {
+    fn get(&self, name: &str) -> Option<u32> {
         match self.1.get(name) {
-            Some(v) => *v,
+            Some(v) => Some(*v),
             None => self.0.get(name),
         }
     }
+}
+
+fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
+    let mut ok = true;
+    match ty {
+        Type::Var(_) => ok = false,
+        Type::Function(_, _) => ok = false,
+
+        Type::Int => dest.push(ValType::I64),
+        Type::Bool => dest.push(ValType::I32),
+        Type::Unit => {}
+        Type::Tuple(items) => {
+            for each in items {
+                ok = lower_type_to_stack(dest, each) && ok;
+            }
+        }
+    }
+    ok
 }
 
 /// Typed intermediate value.

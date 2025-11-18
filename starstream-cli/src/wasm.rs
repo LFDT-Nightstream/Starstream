@@ -3,6 +3,7 @@ use std::{fs, path::PathBuf};
 use crate::diagnostics::print_diagnostic;
 use clap::Args;
 use miette::{IntoDiagnostic, NamedSource};
+use wit_component::ComponentEncoder;
 
 /// Compile Starstream source to Wasm.
 #[derive(Args, Debug)]
@@ -13,6 +14,10 @@ pub struct Wasm {
     /// The Wasm output file.
     #[arg(short = 'o')]
     output_file: Option<PathBuf>,
+
+    /// If set, the output will be a component instead of a core Wasm module.
+    #[arg(long)]
+    component: bool,
 }
 
 impl Wasm {
@@ -45,9 +50,16 @@ impl Wasm {
         for error in errors {
             print_diagnostic(named.clone(), error)?;
         }
-        let Some(wasm) = wasm else {
+        let Some(mut wasm) = wasm else {
             std::process::exit(1);
         };
+
+        // Componentize
+        if self.component {
+            let mut encoder = ComponentEncoder::default().validate(true);
+            encoder = encoder.module(&wasm).unwrap();
+            wasm = encoder.encode().unwrap();
+        }
 
         if let Some(output_file) = &self.output_file {
             std::fs::write(output_file, &wasm).expect("Error writing Wasm output");

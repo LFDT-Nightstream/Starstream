@@ -25,3 +25,4 @@ thiserror = { workspace = true }
 tokio = { version = "1.47.1", features = ["full"] }
 tower-lsp-server = { workspace = true }
 walkdir = "2.5.0"
+wit-component.workspace = true

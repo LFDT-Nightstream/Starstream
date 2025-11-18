@@ -37,6 +37,7 @@ tower-lsp-server = { version = "0.22.1", default-features = false, features = [
 ] }
 wasm-encoder = "0.240.0"
 wasmprinter = "0.240.0"
+wit-component = "0.240.0"
 
 [profile.dev.package]
 insta.opt-level = 3

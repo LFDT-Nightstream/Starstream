@@ -2,12 +2,13 @@
 use std::panic;
 
 use log::error;
+use wit_component::ComponentEncoder;
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
     unsafe fn read_input(ptr: *mut u8, len: usize);
 
-    unsafe fn log(
+    unsafe fn sandbox_log(
         level: u32,
         target: *const u8,
         target_len: usize,
@@ -15,6 +16,8 @@ unsafe extern "C" {
         body_len: usize,
     );
     unsafe fn set_wat(ptr: *const u8, len: usize);
+    unsafe fn set_core_wasm(ptr: *const u8, len: usize);
+    unsafe fn set_component_wasm(ptr: *const u8, len: usize);
 }
 
 #[derive(serde::Deserialize)]
@@ -78,6 +81,20 @@ pub unsafe extern "C" fn run(input_len: usize) {
         return;
     };
 
+    unsafe { set_core_wasm(wasm.as_ptr(), wasm.len()) };
+
+    // Componentize.
+    let wasm = match componentize(&wasm) {
+        Ok(wasm) => {
+            unsafe { set_component_wasm(wasm.as_ptr(), wasm.len()) };
+            wasm
+        }
+        Err(error) => {
+            error!("{}", error);
+            wasm
+        }
+    };
+
     // Format to WAT.
     let mut wat = Vec::new();
     match wasmprinter::Config::new().fold_instructions(true).print(
@@ -92,6 +109,13 @@ pub unsafe extern "C" fn run(input_len: usize) {
             unsafe { set_wat(wat_err.as_ptr(), wat_err.len()) };
         }
     }
+}
+
+fn componentize(wasm: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut encoder = ComponentEncoder::default().validate(true);
+    encoder = encoder.module(&wasm)?;
+    let wasm = encoder.encode()?;
+    Ok(wasm)
 }
 
 // ----------------------------------------------------------------------------
@@ -114,7 +138,7 @@ impl log::Log for Logger {
     fn log(&self, record: &log::Record) {
         let body = record.args().to_string();
         unsafe {
-            log(
+            sandbox_log(
                 record.level() as u32,
                 record.target().as_ptr(),
                 record.target().len(),

@@ -6,11 +6,8 @@ import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFacto
 import "./starstream.vsix";
 
 const code = `\
-script fn main() {
-    let mut foo = 2 + 2;
-    if (7 > 9) {
-        foo = 17;
-    }
+script fn add(x: i64, y: i64) -> i64 {
+    x + y
 }
 `;
 

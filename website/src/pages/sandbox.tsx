@@ -14,6 +14,7 @@ import type {
   SandboxWorkerRequest,
   SandboxWorkerResponse,
 } from "../sandbox.worker";
+import { useBlobUrl } from "../hooks";
 
 function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   request(r: SandboxWorkerRequest): void;
@@ -38,7 +39,7 @@ function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
     restart() {
       worker.current!.terminate();
       worker.current = new Worker(
-        new URL("../sandbox.worker", import.meta.url)
+        new URL("../sandbox.worker", import.meta.url),
       );
     },
   };
@@ -114,6 +115,20 @@ export function Sandbox() {
   const [busy, setBusy] = useState(false);
   const [wat, setWat] = useState("");
 
+  const [coreWasm, setCoreWasm] = useState<Uint8Array<ArrayBuffer>>();
+  const [componentWasm, setComponentWasm] = useState<Uint8Array<ArrayBuffer>>();
+
+  const coreWasmUrl = useBlobUrl(
+    coreWasm,
+    "starstream_sandbox.core.wasm",
+    "application/wasm",
+  );
+  const componentWasmUrl = useBlobUrl(
+    componentWasm,
+    "starstream_sandbox.component.wasm",
+    "application/wasm",
+  );
+
   const request_id = useRef(0);
   const worker = useSandboxWorker((response) => {
     if (response.request_id !== request_id.current) {
@@ -125,9 +140,17 @@ export function Sandbox() {
       setBusy(false);
     } else if (response.type == "log") {
       // TODO: Show in UI
-      console.log(response.level, response.target, response.body);
+      console.log(
+        ["", "Error", "Warn", "Info", "Debug", "Trace"][response.level],
+        `[${response.target}]`,
+        response.body,
+      );
     } else if (response.type == "wat") {
       setWat(response.wat);
+    } else if (response.type == "core_wasm") {
+      setCoreWasm(response.bytes);
+    } else if (response.type == "component_wasm") {
+      setComponentWasm(response.bytes);
     } else {
       response satisfies never;
     }
@@ -179,6 +202,27 @@ export function Sandbox() {
               key: "Wasm",
               body: (
                 <div className="margin--sm">
+                  <div>
+                    {[
+                      ...(coreWasmUrl
+                        ? [
+                            <a href={coreWasmUrl} download>
+                              Download core .wasm
+                            </a>,
+                          ]
+                        : []),
+                      ...(componentWasmUrl
+                        ? [
+                            <a href={componentWasmUrl} download>
+                              Download component .wasm
+                            </a>,
+                          ]
+                        : []),
+                    ].reduce(
+                      (prev, cur) => (prev ? [prev, " - ", cur] : cur),
+                      null,
+                    )}
+                  </div>
                   <pre>
                     <AnsiHtml text={wat} />
                   </pre>
