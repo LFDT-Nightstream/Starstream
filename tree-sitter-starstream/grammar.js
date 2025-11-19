@@ -170,7 +170,9 @@ module.exports = grammar({
         $.enum_constructor,
         $.integer_literal,
         $.boolean_literal,
-        $.identifier,
+        // Ambiguity: `match foo { patterns }` vs `match foo { struct fields } { patterns }`.
+        // In this case, identifier has priority. Use parens to get struct literal.
+        prec(1, $.identifier),
         seq("(", $.expression, ")"),
       ),
 
@@ -216,6 +218,8 @@ module.exports = grammar({
       ),
 
     match_arm: ($) => seq($.pattern, "=>", $.block),
+
+    // Patterns
 
     pattern: ($) =>
       choice($.struct_pattern, $.enum_variant_pattern, $.identifier),
