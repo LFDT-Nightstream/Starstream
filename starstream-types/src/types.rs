@@ -27,11 +27,6 @@ impl TypeVarId {
 }
 
 /// Starstream type.
-///
-/// This is deliberately conservative for now: the current grammar only
-/// exposes integers and booleans, but the enum leaves room for function types
-/// and other structured forms we plan to add shortly (structs, enums, linear
-/// resources, etc.).
 #[derive(Clone, Debug)]
 pub enum Type {
     /// An unknown type represented by a type variable.
@@ -215,6 +210,12 @@ impl fmt::Display for Type {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct RecordType {
+    pub name: String,
+    pub fields: Vec<RecordFieldType>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordFieldType {
     pub name: String,
@@ -303,9 +304,4 @@ impl fmt::Display for Scheme {
             write!(f, "forall {vars}. {}", self.ty)
         }
     }
-}
-#[derive(Clone, Debug)]
-pub struct RecordType {
-    pub name: String,
-    pub fields: Vec<RecordFieldType>,
 }

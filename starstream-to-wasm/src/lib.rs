@@ -226,7 +226,16 @@ impl Compiler {
                 ty.defined_type().tuple(children);
                 ComponentValType::Type(idx)
             }
-            Type::Record(_record_field_types) => todo!(),
+            Type::Record(record) => {
+                let fields: Vec<_> = record
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.as_str(), self.lower_component_type(&f.ty)))
+                    .collect();
+                let (idx, ty) = self.add_component_type();
+                ty.defined_type().record(fields);
+                ComponentValType::Type(idx)
+            }
             Type::Enum(_enum_variant_types) => todo!(),
         }
     }
@@ -234,7 +243,7 @@ impl Compiler {
     fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
         let mut params = Vec::with_capacity(function.params.len());
         for p in &function.params {
-            params.push((p.name.name.as_str(), self.lower_component_type(&p.ty)));
+            params.push((p.name.as_str(), self.lower_component_type(&p.ty)));
         }
 
         let result = match &function.return_type {
@@ -248,6 +257,17 @@ impl Compiler {
         idx
     }
 
+    fn add_component_struct_type(&mut self, struct_: &TypedStructDef) -> u32 {
+        let mut fields = Vec::with_capacity(struct_.fields.len());
+        for f in &struct_.fields {
+            fields.push((f.name.as_str(), self.lower_component_type(&f.ty)));
+        }
+
+        let (idx, ty) = self.add_component_type();
+        ty.defined_type().record(fields);
+        idx
+    }
+
     // ------------------------------------------------------------------------
     // Visitors
 
@@ -257,9 +277,8 @@ impl Compiler {
         for definition in &program.definitions {
             match definition {
                 TypedDefinition::Function(func) => self.visit_function(func),
-                TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {
-                    self.todo("structs and enums are not supported in Wasm yet".into())
-                }
+                TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
+                TypedDefinition::Enum(_) => self.todo("enums are not supported in Wasm yet".into()),
             }
         }
     }
@@ -317,6 +336,15 @@ impl Compiler {
         let idx = self.add_component_func_type(function);
         self.world_type
             .export(&function.name.name, ComponentTypeRef::Func(idx));
+    }
+
+    fn visit_struct(&mut self, struct_: &TypedStructDef) {
+        // Export to WIT.
+        let idx = self.add_component_struct_type(struct_);
+        self.world_type.export(
+            struct_.name.as_str(),
+            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
+        );
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -444,12 +472,20 @@ impl Compiler {
     /// Insert bytecode to discard the given [Intermediate], such as during
     /// statement expressions.
     fn discard(&mut self, func: &mut Function, im: Intermediate) {
+        for _ in 0..self.count_stack_slots(&im) {
+            func.instructions().drop();
+        }
+    }
+
+    fn count_stack_slots(&mut self, im: &Intermediate) -> usize {
         match im {
             // 0 stack slots
-            Intermediate::Error | Intermediate::Void => {}
+            Intermediate::Error | Intermediate::Void => 0,
             // 1 stack slot
-            Intermediate::StackBool | Intermediate::StackI64 => {
-                func.instructions().drop();
+            Intermediate::StackBool | Intermediate::StackI64 => 1,
+            Intermediate::Stack(ty) => {
+                // ...
+                todo!()
             }
         }
     }
@@ -495,6 +531,7 @@ impl Compiler {
                 Intermediate::StackBool
             }
             TypedExprKind::Literal(Literal::Unit) => Intermediate::Void,
+            TypedExprKind::StructLiteral { name, fields } => Intermediate::Error,
             // Arithmetic operators
             TypedExprKind::Binary {
                 op: BinaryOp::Add,
@@ -816,13 +853,16 @@ impl Compiler {
                     Intermediate::Error
                 }
             },
+            // Field access
+            TypedExprKind::FieldAccess { target, field } => {
+                let target = self.visit_expr(func, locals, target.span, &target.node);
+                Intermediate::Error
+            }
             // Nesting
             TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
-            TypedExprKind::StructLiteral { .. }
-            | TypedExprKind::FieldAccess { .. }
-            | TypedExprKind::EnumConstructor { .. }
-            | TypedExprKind::Match { .. } => {
-                self.todo("structs and enums are not supported in Wasm yet".to_string());
+            // Todo
+            TypedExprKind::EnumConstructor { .. } | TypedExprKind::Match { .. } => {
+                self.todo("enums are not supported in Wasm yet".to_string());
                 Intermediate::Error
             }
         }
@@ -867,8 +907,8 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
                 ok = lower_type_to_stack(dest, each) && ok;
             }
         }
-        Type::Record(_record_field_types) => todo!(),
-        Type::Enum(_enum_variant_types) => todo!(),
+        Type::Record(_record_field_types) => ok = false,
+        Type::Enum(_enum_variant_types) => ok = false,
     }
     ok
 }
@@ -893,6 +933,8 @@ enum Intermediate {
     StackBool,
     /// `(i64)`
     StackI64,
+    /// An instance on the stack. Stack slots determined by ABI lowering.
+    Stack(Type),
 }
 
 /// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
