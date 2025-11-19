@@ -38,6 +38,8 @@ pub struct DocumentState {
     definition_entries: Vec<DefinitionEntry>,
     document_symbols: Vec<DocumentSymbol>,
     type_definitions: HashMap<String, Span>,
+    struct_field_definitions: HashMap<String, HashMap<String, Span>>,
+    enum_variant_definitions: HashMap<String, HashMap<String, Span>>,
 }
 
 impl DocumentState {
@@ -53,6 +55,8 @@ impl DocumentState {
             definition_entries: Vec::new(),
             document_symbols: Vec::new(),
             type_definitions: HashMap::new(),
+            struct_field_definitions: HashMap::new(),
+            enum_variant_definitions: HashMap::new(),
         };
 
         state.reanalyse(uri, text);
@@ -113,6 +117,8 @@ impl DocumentState {
         self.definition_entries.clear();
         self.document_symbols.clear();
         self.type_definitions.clear();
+        self.struct_field_definitions.clear();
+        self.enum_variant_definitions.clear();
 
         let parse_output = parse_program(text);
 
@@ -235,9 +241,22 @@ impl DocumentState {
                 usage: span,
                 target: span,
             });
+
             self.type_definitions
                 .insert(definition.name.name.clone(), span);
+
             self.add_hover_span(span, &definition.ty);
+        }
+
+        let entry = self
+            .struct_field_definitions
+            .entry(definition.name.name.clone())
+            .or_default();
+
+        for field in &definition.fields {
+            if let Some(span) = field.name.span {
+                entry.insert(field.name.name.clone(), span);
+            }
         }
     }
 
@@ -247,9 +266,22 @@ impl DocumentState {
                 usage: span,
                 target: span,
             });
+
             self.type_definitions
                 .insert(definition.name.name.clone(), span);
+
             self.add_hover_span(span, &definition.ty);
+        }
+
+        let entry = self
+            .enum_variant_definitions
+            .entry(definition.name.name.clone())
+            .or_default();
+
+        for variant in &definition.variants {
+            if let Some(span) = variant.name.span {
+                entry.insert(variant.name.name.clone(), span);
+            }
         }
     }
 
@@ -384,21 +416,28 @@ impl DocumentState {
             TypedExprKind::Literal(_) => {}
             TypedExprKind::StructLiteral { name, fields } => {
                 self.add_type_usage(name.span, &name.name);
+
                 for field in fields {
-                    self.collect_struct_literal_field(field, scopes);
+                    self.collect_struct_literal_field(&name.name, field, scopes);
                 }
             }
             TypedExprKind::FieldAccess { target, .. } => self.collect_expr(target, scopes),
             TypedExprKind::EnumConstructor {
-                enum_name, payload, ..
+                enum_name,
+                variant,
+                payload,
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
+
+                self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
+
                 for expr in payload {
                     self.collect_expr(expr, scopes);
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.collect_expr(scrutinee, scopes);
+
                 for arm in arms {
                     self.collect_match_arm(arm, scopes);
                 }
@@ -408,8 +447,11 @@ impl DocumentState {
 
     fn collect_match_arm(&mut self, arm: &TypedMatchArm, scopes: &mut Vec<HashMap<String, Span>>) {
         scopes.push(HashMap::new());
+
         self.collect_pattern(&arm.pattern, scopes);
+
         self.collect_block(&arm.body, scopes);
+
         scopes.pop();
     }
 
@@ -421,6 +463,7 @@ impl DocumentState {
                         usage: span,
                         target: span,
                     });
+
                     if let Some(scope) = scopes.last_mut() {
                         scope.insert(identifier.name.clone(), span);
                     }
@@ -428,14 +471,20 @@ impl DocumentState {
             }
             TypedPattern::Struct { name, fields } => {
                 self.add_type_usage(name.span, &name.name);
+
                 for field in fields {
+                    self.add_struct_field_usage(field.name.span, &name.name, &field.name.name);
+
                     self.collect_pattern(&field.pattern, scopes);
                 }
             }
             TypedPattern::EnumVariant {
-                enum_name, payload, ..
+                enum_name,
+                variant,
+                payload,
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
+                self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
                 for pattern in payload {
                     self.collect_pattern(pattern, scopes);
                 }
@@ -445,10 +494,13 @@ impl DocumentState {
 
     fn collect_struct_literal_field(
         &mut self,
+        struct_name: &str,
         field: &TypedStructLiteralField,
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         self.collect_expr(&field.value, scopes);
+
+        self.add_struct_field_usage(field.name.span, struct_name, &field.name.name);
     }
 
     fn add_hover_span(&mut self, span: Span, ty: &Type) {
@@ -475,10 +527,41 @@ impl DocumentState {
 
     fn add_type_usage(&mut self, span: Option<Span>, name: &str) {
         let Some(usage_span) = span else { return };
+
         if let Some(target_span) = self.type_definitions.get(name).copied() {
             self.definition_entries.push(DefinitionEntry {
                 usage: usage_span,
                 target: target_span,
+            });
+        }
+    }
+
+    fn add_struct_field_usage(&mut self, span: Option<Span>, struct_name: &str, field_name: &str) {
+        let Some(usage_span) = span else { return };
+
+        if let Some(target_span) = self
+            .struct_field_definitions
+            .get(struct_name)
+            .and_then(|fields| fields.get(field_name))
+        {
+            self.definition_entries.push(DefinitionEntry {
+                usage: usage_span,
+                target: *target_span,
+            });
+        }
+    }
+
+    fn add_enum_variant_usage(&mut self, span: Option<Span>, enum_name: &str, variant_name: &str) {
+        let Some(usage_span) = span else { return };
+
+        if let Some(target_span) = self
+            .enum_variant_definitions
+            .get(enum_name)
+            .and_then(|variants| variants.get(variant_name))
+        {
+            self.definition_entries.push(DefinitionEntry {
+                usage: usage_span,
+                target: *target_span,
             });
         }
     }
