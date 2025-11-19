@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/formatter.rs
+assertion_line: 703
+description: "Code:\n\nstruct Point {\n    x:   i64,\n    y: i64\n}\n"
+---
+struct Point {
+    x: i64,
+    y: i64,
+}

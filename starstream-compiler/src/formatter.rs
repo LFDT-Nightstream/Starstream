@@ -101,6 +101,7 @@ fn struct_fields_to_doc(fields: &[StructField]) -> RcDoc<'_, ()> {
                 identifier_to_doc(&field.name)
                     .append(RcDoc::text(": "))
                     .append(type_annotation_to_doc(&field.ty))
+                    .append(RcDoc::text(","))
             }),
             RcDoc::line(),
         );
@@ -312,6 +313,7 @@ fn struct_literal_fields_to_doc<'a>(fields: &'a [StructLiteralField]) -> RcDoc<'
                 identifier_to_doc(&field.name)
                     .append(RcDoc::text(": "))
                     .append(expr_to_doc(&field.value.node))
+                    .append(RcDoc::text(","))
             }),
             RcDoc::line(),
         );
@@ -691,6 +693,33 @@ mod tests {
             enum Message {
                 Ping,
                 Pong { x: i64     },
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn struct_definition_commas() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                x:   i64,
+                y: i64
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn enum_struct_variant_commas() {
+        assert_format_snapshot!(
+            r#"
+            enum Message {
+                Ping,
+                Pong {
+                    x: i64,
+                    y: i64
+                }
             }
             "#,
         );

@@ -1,9 +1,10 @@
 ---
 source: starstream-compiler/src/formatter.rs
+assertion_line: 678
 description: "Code:\n\nstruct Point { x: i64 }\n\nfn add(a: Point, b: i64) -> i64 {\n    a.x + b\n}\n"
 ---
 struct Point {
-    x: i64
+    x: i64,
 }
 
 fn add(a: Point, b: i64) -> i64 {
