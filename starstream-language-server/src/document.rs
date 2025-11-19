@@ -134,12 +134,12 @@ impl DocumentState {
         self.program = program;
 
         if let Some(program) = self.program.as_ref() {
-                match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
-                    Ok(typed) => {
-                        let program_ast = self.program.clone();
-                        self.build_indexes(&typed.program, program_ast.as_deref());
+            match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
+                Ok(typed) => {
+                    let program_ast = self.program.clone();
+                    self.build_indexes(&typed.program, program_ast.as_deref());
 
-                        self.typed = Some(typed);
+                    self.typed = Some(typed);
                 }
                 Err(type_errors) => {
                     for error in type_errors {
@@ -326,7 +326,6 @@ impl DocumentState {
 
                     self.add_hover_span(span, &param.ty);
                 }
-
             }
         }
 
@@ -344,26 +343,25 @@ impl DocumentState {
             TypedStatement::VariableDeclaration {
                 mutable: _,
                 name,
-            value,
-        } => {
-            self.collect_expr(value, scopes);
+                value,
+            } => {
+                self.collect_expr(value, scopes);
 
-            if let Some(span) = name.span {
-                self.definition_entries.push(DefinitionEntry {
-                    usage: span,
-                    target: span,
-                });
+                if let Some(span) = name.span {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: span,
+                        target: span,
+                    });
 
-                if let Some(scope) = scopes.last_mut() {
-                    scope.insert(name.name.clone(), span);
+                    if let Some(scope) = scopes.last_mut() {
+                        scope.insert(name.name.clone(), span);
+                    }
+                }
+
+                if let Some(span) = name.span {
+                    self.add_hover_span(span, &value.node.ty);
                 }
             }
-
-            if let Some(span) = name.span {
-                self.add_hover_span(span, &value.node.ty);
-            }
-
-        }
             TypedStatement::Assignment { target, value } => {
                 self.collect_expr(value, scopes);
 
@@ -642,10 +640,16 @@ impl DocumentState {
 
     fn collect_statement_annotations_from_ast(&mut self, statement: &untyped_ast::Statement) {
         match statement {
-            untyped_ast::Statement::VariableDeclaration { ty: Some(annotation), .. } => {
+            untyped_ast::Statement::VariableDeclaration {
+                ty: Some(annotation),
+                ..
+            } => {
                 self.collect_type_annotation_node(annotation);
             }
-            untyped_ast::Statement::If { branches, else_branch } => {
+            untyped_ast::Statement::If {
+                branches,
+                else_branch,
+            } => {
                 for (_, block) in branches {
                     self.collect_block_annotations_from_ast(block);
                 }
