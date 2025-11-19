@@ -79,7 +79,7 @@ pub enum Expr {
     EnumConstructor {
         enum_name: Identifier,
         variant: Identifier,
-        payload: Vec<Spanned<Expr>>,
+        payload: EnumConstructorPayload,
     },
     Match {
         scrutinee: Box<Spanned<Expr>>,
@@ -130,6 +130,13 @@ pub struct MatchArm {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumConstructorPayload {
+    Unit,
+    Tuple(Vec<Spanned<Expr>>),
+    Struct(Vec<StructLiteralField>),
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Pattern {
     Binding(Identifier),
     Struct {
@@ -139,7 +146,7 @@ pub enum Pattern {
     EnumVariant {
         enum_name: Identifier,
         variant: Identifier,
-        payload: Vec<Pattern>,
+        payload: EnumPatternPayload,
     },
 }
 
@@ -147,6 +154,13 @@ pub enum Pattern {
 pub struct StructPatternField {
     pub name: Identifier,
     pub pattern: Box<Pattern>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumPatternPayload {
+    Unit,
+    Tuple(Vec<Pattern>),
+    Struct(Vec<StructPatternField>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
@@ -207,7 +221,14 @@ pub struct EnumDef {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct EnumVariant {
     pub name: Identifier,
-    pub payload: Vec<TypeAnnotation>,
+    pub payload: EnumVariantPayload,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumVariantPayload {
+    Unit,
+    Tuple(Vec<TypeAnnotation>),
+    Struct(Vec<StructField>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

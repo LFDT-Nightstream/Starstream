@@ -1,30 +1,11 @@
 use chumsky::{prelude::*, recursive::recursive};
-use starstream_types::ast::{Pattern, StructPatternField};
+use starstream_types::ast::{EnumPatternPayload, Pattern, StructPatternField};
 
 use super::{context::Extra, primitives};
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
     recursive(|pattern| {
         let identifier = primitives::identifier().boxed();
-
-        let enum_variant = identifier
-            .clone()
-            .then_ignore(just("::").padded())
-            .then(identifier.clone())
-            .then(
-                pattern
-                    .clone()
-                    .separated_by(just(',').padded())
-                    .allow_trailing()
-                    .collect::<Vec<_>>()
-                    .delimited_by(just('(').padded(), just(')').padded())
-                    .or_not(),
-            )
-            .map(|((enum_name, variant), payload)| Pattern::EnumVariant {
-                enum_name,
-                variant,
-                payload: payload.unwrap_or_default(),
-            });
 
         let struct_field = identifier
             .clone()
@@ -33,6 +14,37 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
             .map(|(name, pattern)| StructPatternField {
                 name,
                 pattern: Box::new(pattern),
+            });
+
+        let tuple_payload = pattern
+            .clone()
+            .separated_by(just(',').padded())
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('(').padded(), just(')').padded())
+            .map(EnumPatternPayload::Tuple);
+
+        let struct_payload = struct_field
+            .clone()
+            .separated_by(just(',').padded())
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('{').padded(), just('}').padded())
+            .map(EnumPatternPayload::Struct);
+
+        let enum_variant = identifier
+            .clone()
+            .then_ignore(just("::").padded())
+            .then(identifier.clone())
+            .then(
+                choice((struct_payload, tuple_payload))
+                    .or_not()
+                    .map(|payload| payload.unwrap_or(EnumPatternPayload::Unit)),
+            )
+            .map(|((enum_name, variant), payload)| Pattern::EnumVariant {
+                enum_name,
+                variant,
+                payload,
             });
 
         let struct_pattern = identifier

@@ -1,5 +1,6 @@
 ---
 source: starstream-compiler/src/parser/expression/mod.rs
+assertion_line: 123
 description: "Code:\n\nmatch value {\n    Result::Ok(inner) => {\n        inner\n    },\n    Result::Err(reason) => {\n        reason\n    },\n}\n"
 ---
 Spanned {
@@ -30,16 +31,18 @@ Spanned {
                             26..28,
                         ),
                     },
-                    payload: [
-                        Binding(
-                            Identifier {
-                                name: "inner",
-                                span: Some(
-                                    29..34,
-                                ),
-                            },
-                        ),
-                    ],
+                    payload: Tuple(
+                        [
+                            Binding(
+                                Identifier {
+                                    name: "inner",
+                                    span: Some(
+                                        29..34,
+                                    ),
+                                },
+                            ),
+                        ],
+                    ),
                 },
                 body: Block {
                     statements: [],
@@ -72,16 +75,18 @@ Spanned {
                             74..77,
                         ),
                     },
-                    payload: [
-                        Binding(
-                            Identifier {
-                                name: "reason",
-                                span: Some(
-                                    78..84,
-                                ),
-                            },
-                        ),
-                    ],
+                    payload: Tuple(
+                        [
+                            Binding(
+                                Identifier {
+                                    name: "reason",
+                                    span: Some(
+                                        78..84,
+                                    ),
+                                },
+                            ),
+                        ],
+                    ),
                 },
                 body: Block {
                     statements: [],

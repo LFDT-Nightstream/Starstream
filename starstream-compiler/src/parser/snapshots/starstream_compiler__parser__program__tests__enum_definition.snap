@@ -1,5 +1,6 @@
 ---
 source: starstream-compiler/src/parser/program.rs
+assertion_line: 80
 description: "Code:\n\nenum Message {\n    Ping,\n    Pong(i64),\n}\n"
 ---
 Program {
@@ -20,7 +21,7 @@ Program {
                                 19..23,
                             ),
                         },
-                        payload: [],
+                        payload: Unit,
                     },
                     EnumVariant {
                         name: Identifier {
@@ -29,17 +30,19 @@ Program {
                                 29..33,
                             ),
                         },
-                        payload: [
-                            TypeAnnotation {
-                                name: Identifier {
-                                    name: "i64",
-                                    span: Some(
-                                        34..37,
-                                    ),
+                        payload: Tuple(
+                            [
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            34..37,
+                                        ),
+                                    },
+                                    generics: [],
                                 },
-                                generics: [],
-                            },
-                        ],
+                            ],
+                        ),
                     },
                 ],
             },

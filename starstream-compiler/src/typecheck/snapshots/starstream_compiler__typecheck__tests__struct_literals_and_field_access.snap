@@ -5,34 +5,34 @@ description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nfn total
 :  => 
 
 T-Fn: total => i64
-  T-Let: {point: { x: i64, y: i64 }} ⊢ let translated = Point {
+  T-Let: {point: Point { x: i64, y: i64 }} ⊢ let translated = Point {
     x: point.x + 1
     y: point.y + 1
-}; ⇒ { x: i64, y: i64 }
-    T-StructLit: {point: { x: i64, y: i64 }} ⊢ Point {
+}; ⇒ Point { x: i64, y: i64 }
+    T-StructLit: {point: Point { x: i64, y: i64 }} ⊢ Point {
     x: point.x + 1
     y: point.y + 1
-} ⇒ { x: i64, y: i64 }
-      T-Bin-Add: {point: { x: i64, y: i64 }} ⊢ point.x + 1 ⇒ i64
-        T-FieldAccess: {point: { x: i64, y: i64 }} ⊢ point.x ⇒ i64
-          T-Var: {point: { x: i64, y: i64 }} ⊢ point ⇒ { x: i64, y: i64 }
-        T-Int: {point: { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+} ⇒ Point { x: i64, y: i64 }
+      T-Bin-Add: {point: Point { x: i64, y: i64 }} ⊢ point.x + 1 ⇒ i64
+        T-FieldAccess: {point: Point { x: i64, y: i64 }} ⊢ point.x ⇒ i64
+          T-Var: {point: Point { x: i64, y: i64 }} ⊢ point ⇒ Point { x: i64, y: i64 }
+        T-Int: {point: Point { x: i64, y: i64 }} ⊢ 1 ⇒ i64
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
-      T-Bin-Add: {point: { x: i64, y: i64 }} ⊢ point.y + 1 ⇒ i64
-        T-FieldAccess: {point: { x: i64, y: i64 }} ⊢ point.y ⇒ i64
-          T-Var: {point: { x: i64, y: i64 }} ⊢ point ⇒ { x: i64, y: i64 }
-        T-Int: {point: { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+      T-Bin-Add: {point: Point { x: i64, y: i64 }} ⊢ point.y + 1 ⇒ i64
+        T-FieldAccess: {point: Point { x: i64, y: i64 }} ⊢ point.y ⇒ i64
+          T-Var: {point: Point { x: i64, y: i64 }} ⊢ point ⇒ Point { x: i64, y: i64 }
+        T-Int: {point: Point { x: i64, y: i64 }} ⊢ 1 ⇒ i64
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
   T-ReturnTail: translated.x + translated.y => i64
-    T-Bin-Add: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated.x + translated.y ⇒ i64
-      T-FieldAccess: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated.x ⇒ i64
-        T-Var: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated ⇒ { x: i64, y: i64 }
-      T-FieldAccess: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated.y ⇒ i64
-        T-Var: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated ⇒ { x: i64, y: i64 }
+    T-Bin-Add: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.x + translated.y ⇒ i64
+      T-FieldAccess: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.x ⇒ i64
+        T-Var: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated ⇒ Point { x: i64, y: i64 }
+      T-FieldAccess: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.y ⇒ i64
+        T-Var: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated ⇒ Point { x: i64, y: i64 }
       Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}

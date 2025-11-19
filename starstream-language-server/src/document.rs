@@ -17,9 +17,10 @@ use starstream_types::{
     Span, Spanned,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
-        TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef,
-        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-        TypedStructLiteralField,
+        TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef,
+        TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
+        TypedFunctionDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement,
+        TypedStructDef, TypedStructLiteralField,
     },
     types::Type,
 };
@@ -447,8 +448,18 @@ impl DocumentState {
 
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
 
-                for expr in payload {
-                    self.collect_expr(expr, scopes);
+                match payload {
+                    TypedEnumConstructorPayload::Unit => {}
+                    TypedEnumConstructorPayload::Tuple(values) => {
+                        for expr in values {
+                            self.collect_expr(expr, scopes);
+                        }
+                    }
+                    TypedEnumConstructorPayload::Struct(fields) => {
+                        for field in fields {
+                            self.collect_expr(&field.value, scopes);
+                        }
+                    }
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {
@@ -501,8 +512,18 @@ impl DocumentState {
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
-                for pattern in payload {
-                    self.collect_pattern(pattern, scopes);
+                match payload {
+                    TypedEnumPatternPayload::Unit => {}
+                    TypedEnumPatternPayload::Tuple(patterns) => {
+                        for pattern in patterns {
+                            self.collect_pattern(pattern, scopes);
+                        }
+                    }
+                    TypedEnumPatternPayload::Struct(fields) => {
+                        for field in fields {
+                            self.collect_pattern(&field.pattern, scopes);
+                        }
+                    }
                 }
             }
         }
@@ -584,22 +605,24 @@ impl DocumentState {
 
     fn add_field_access_usage(&mut self, span: Option<Span>, ty: &Type, field_name: &str) {
         let Some(usage_span) = span else { return };
+
         if !matches!(ty, Type::Record(_)) {
             return;
         }
+
         for entry in &self.struct_type_index {
-            if entry.ty == *ty {
-                if let Some(target_span) = self
+            if entry.ty == *ty
+                && let Some(target_span) = self
                     .struct_field_definitions
                     .get(&entry.name)
                     .and_then(|fields| fields.get(field_name))
-                {
-                    self.definition_entries.push(DefinitionEntry {
-                        usage: usage_span,
-                        target: *target_span,
-                    });
-                    break;
-                }
+            {
+                self.definition_entries.push(DefinitionEntry {
+                    usage: usage_span,
+                    target: *target_span,
+                });
+
+                break;
             }
         }
     }
@@ -623,8 +646,18 @@ impl DocumentState {
                 }
                 untyped_ast::Definition::Enum(definition) => {
                     for variant in &definition.variants {
-                        for ty in &variant.payload {
-                            self.collect_type_annotation_node(ty);
+                        match &variant.payload {
+                            untyped_ast::EnumVariantPayload::Unit => {}
+                            untyped_ast::EnumVariantPayload::Tuple(types) => {
+                                for ty in types {
+                                    self.collect_type_annotation_node(ty);
+                                }
+                            }
+                            untyped_ast::EnumVariantPayload::Struct(fields) => {
+                                for field in fields {
+                                    self.collect_type_annotation_node(&field.ty);
+                                }
+                            }
                         }
                     }
                 }
@@ -800,17 +833,34 @@ impl DocumentState {
         let mut children = Vec::new();
         for variant in &definition.variants {
             if let Some(span) = variant.name.span {
-                let detail = if variant.payload.is_empty() {
-                    None
-                } else {
-                    Some(
-                        variant
-                            .payload
-                            .iter()
-                            .map(|ty| ty.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                    )
+                let detail = match &variant.payload {
+                    TypedEnumVariantPayload::Unit => None,
+                    TypedEnumVariantPayload::Tuple(types) => {
+                        if types.is_empty() {
+                            Some("()".to_string())
+                        } else {
+                            Some(
+                                types
+                                    .iter()
+                                    .map(|ty| ty.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            )
+                        }
+                    }
+                    TypedEnumVariantPayload::Struct(fields) => {
+                        if fields.is_empty() {
+                            Some("{ }".to_string())
+                        } else {
+                            Some(
+                                fields
+                                    .iter()
+                                    .map(|field| format!("{}: {}", field.name.name, field.ty))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            )
+                        }
+                    }
                 };
                 #[allow(deprecated)]
                 let child = DocumentSymbol {

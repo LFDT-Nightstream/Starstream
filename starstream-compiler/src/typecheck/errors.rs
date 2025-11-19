@@ -258,8 +258,8 @@ pub enum TypeErrorKind {
     EnumPayloadMismatch {
         enum_name: String,
         variant_name: String,
-        expected: usize,
-        found: usize,
+        expected: EnumPayloadKind,
+        found: EnumPayloadKind,
     },
     MatchNotEnum {
         found: Type,
@@ -284,6 +284,49 @@ impl fmt::Display for ConditionContext {
         match self {
             ConditionContext::If => write!(f, "if condition"),
             ConditionContext::While => write!(f, "while condition"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum EnumPayloadKind {
+    Unit,
+    Tuple(usize),
+    Struct(usize),
+}
+
+impl EnumPayloadKind {
+    pub fn unit() -> Self {
+        EnumPayloadKind::Unit
+    }
+
+    pub fn tuple(len: usize) -> Self {
+        EnumPayloadKind::Tuple(len)
+    }
+
+    pub fn struct_payload(len: usize) -> Self {
+        EnumPayloadKind::Struct(len)
+    }
+}
+
+impl fmt::Display for EnumPayloadKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EnumPayloadKind::Unit => write!(f, "no payload"),
+            EnumPayloadKind::Tuple(len) => {
+                if *len == 1 {
+                    write!(f, "a tuple with 1 value")
+                } else {
+                    write!(f, "a tuple with {len} values")
+                }
+            }
+            EnumPayloadKind::Struct(len) => {
+                if *len == 1 {
+                    write!(f, "a struct with 1 field")
+                } else {
+                    write!(f, "a struct with {len} fields")
+                }
+            }
         }
     }
 }
@@ -397,7 +440,7 @@ impl fmt::Display for TypeErrorKind {
                 found,
             } => write!(
                 f,
-                "variant `{enum_name}::{variant_name}` expects {expected} value(s) but {found} provided"
+                "variant `{enum_name}::{variant_name}` expects {expected} but {found} provided"
             ),
             TypeErrorKind::MatchNotEnum { found } => {
                 write!(f, "match scrutinee must be an enum, found `{found}`")

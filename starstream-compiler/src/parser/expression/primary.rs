@@ -1,5 +1,7 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{Block, Expr, Literal, MatchArm, Spanned, StructLiteralField};
+use starstream_types::ast::{
+    Block, EnumConstructorPayload, Expr, Literal, MatchArm, Spanned, StructLiteralField,
+};
 
 use crate::parser::{context::Extra, pattern, primitives};
 
@@ -43,24 +45,35 @@ pub fn parser<'a>(
             Spanned::new(Expr::StructLiteral { name, fields }, extra.span())
         });
 
+    let tuple_constructor_payload = expression
+        .clone()
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
+        .map(EnumConstructorPayload::Tuple);
+
+    let struct_constructor_payload = struct_field_initializer(expression.clone())
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('{').padded(), just('}').padded())
+        .map(EnumConstructorPayload::Struct);
+
     let enum_constructor = primitives::identifier()
         .then_ignore(just("::").padded())
         .then(primitives::identifier())
         .then(
-            expression
-                .clone()
-                .separated_by(just(',').padded())
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just('(').padded(), just(')').padded())
-                .or_not(),
+            choice((struct_constructor_payload, tuple_constructor_payload))
+                .or_not()
+                .map(|payload| payload.unwrap_or(EnumConstructorPayload::Unit)),
         )
         .map_with(|((enum_name, variant), payload), extra| {
             Spanned::new(
                 Expr::EnumConstructor {
                     enum_name,
                     variant,
-                    payload: payload.unwrap_or_default(),
+                    payload,
                 },
                 extra.span(),
             )

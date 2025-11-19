@@ -18,6 +18,7 @@ pub struct TypedProgram {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum TypedDefinition {
     Function(TypedFunctionDef),
     Struct(TypedStructDef),
@@ -62,7 +63,7 @@ pub struct TypedEnumDef {
 #[derive(Clone, Debug)]
 pub struct TypedEnumVariant {
     pub name: Identifier,
-    pub payload: Vec<Type>,
+    pub payload: TypedEnumVariantPayload,
 }
 
 /// Typed statements.
@@ -130,7 +131,7 @@ pub enum TypedExprKind {
     EnumConstructor {
         enum_name: Identifier,
         variant: Identifier,
-        payload: Vec<Spanned<TypedExpr>>,
+        payload: TypedEnumConstructorPayload,
     },
     Match {
         scrutinee: Box<Spanned<TypedExpr>>,
@@ -142,6 +143,13 @@ pub enum TypedExprKind {
 pub struct TypedStructLiteralField {
     pub name: Identifier,
     pub value: Spanned<TypedExpr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedEnumConstructorPayload {
+    Unit,
+    Tuple(Vec<Spanned<TypedExpr>>),
+    Struct(Vec<TypedStructLiteralField>),
 }
 
 #[derive(Clone, Debug)]
@@ -160,8 +168,22 @@ pub enum TypedPattern {
     EnumVariant {
         enum_name: Identifier,
         variant: Identifier,
-        payload: Vec<TypedPattern>,
+        payload: TypedEnumPatternPayload,
     },
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedEnumVariantPayload {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<TypedStructField>),
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedEnumPatternPayload {
+    Unit,
+    Tuple(Vec<TypedPattern>),
+    Struct(Vec<TypedStructPatternField>),
 }
 
 #[derive(Clone, Debug)]

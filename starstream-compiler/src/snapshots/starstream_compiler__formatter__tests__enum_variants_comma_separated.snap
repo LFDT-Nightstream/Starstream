@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nenum Message {\n    Ping,\n    Pong { x: i64     },\n}\n"
+---
+enum Message {
+    Ping,
+    Pong {
+        x: i64
+    },
+}

@@ -2,7 +2,8 @@ use chumsky::prelude::*;
 use starstream_types::{
     FunctionExport,
     ast::{
-        Definition, EnumDef, EnumVariant, FunctionDef, FunctionParam, StructDef, StructField,
+        Definition, EnumDef, EnumVariant, EnumVariantPayload, FunctionDef, FunctionParam,
+        StructDef, StructField,
     },
 };
 
@@ -79,19 +80,33 @@ fn struct_definition<'a>() -> impl Parser<'a, &'a str, StructDef, Extra<'a>> {
 fn enum_definition<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
-    let payload = type_parser
+    let tuple_payload = type_parser
         .clone()
         .separated_by(just(',').padded())
         .allow_trailing()
         .collect::<Vec<_>>()
         .delimited_by(just('(').padded(), just(')').padded())
-        .or_not();
+        .map(EnumVariantPayload::Tuple);
+
+    let struct_payload = primitives::identifier()
+        .then_ignore(just(':').padded())
+        .then(type_parser)
+        .map(|(name, ty)| StructField { name, ty })
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('{').padded(), just('}').padded())
+        .map(EnumVariantPayload::Struct);
+
+    let payload = choice((struct_payload, tuple_payload))
+        .or_not()
+        .map(|payload| payload.unwrap_or(EnumVariantPayload::Unit));
 
     let variant = primitives::identifier()
         .then(payload)
         .map(|(name, payload)| EnumVariant {
             name,
-            payload: payload.unwrap_or_default(),
+            payload,
         });
 
     just("enum")

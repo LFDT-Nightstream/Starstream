@@ -1,5 +1,6 @@
 ---
 source: starstream-compiler/src/parser/expression/mod.rs
+assertion_line: 113
 description: "Code:\n\nResult::Ok(answer)"
 ---
 Spanned {
@@ -16,19 +17,21 @@ Spanned {
                 8..10,
             ),
         },
-        payload: [
-            Spanned {
-                node: Identifier(
-                    Identifier {
-                        name: "answer",
-                        span: Some(
-                            11..17,
-                        ),
-                    },
-                ),
-                span: 11..17,
-            },
-        ],
+        payload: Tuple(
+            [
+                Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "answer",
+                            span: Some(
+                                11..17,
+                            ),
+                        },
+                    ),
+                    span: 11..17,
+                },
+            ],
+        ),
     },
     span: 0..18,
 }

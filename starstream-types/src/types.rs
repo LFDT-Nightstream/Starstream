@@ -5,7 +5,10 @@
 //! features like generics, traits, linear resources, and effect sets without
 //! discarding the API surface introduced here.
 
-use std::fmt;
+use std::{
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 /// Identifier for a type variable.
 ///
@@ -29,7 +32,7 @@ impl TypeVarId {
 /// exposes integers and booleans, but the enum leaves room for function types
 /// and other structured forms we plan to add shortly (structs, enums, linear
 /// resources, etc.).
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug)]
 pub enum Type {
     /// An unknown type represented by a type variable.
     Var(TypeVarId),
@@ -49,9 +52,9 @@ pub enum Type {
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
     /// Struct/record type with named fields.
-    Record(Vec<RecordFieldType>),
+    Record(RecordType),
     /// Enum/sum type with named variants.
-    Enum(Vec<EnumVariantType>),
+    Enum(EnumType),
 }
 
 impl Type {
@@ -68,15 +71,72 @@ impl Type {
     }
 
     /// Canonical record type helper that sorts fields by name.
-    pub fn record(mut fields: Vec<RecordFieldType>) -> Self {
+    pub fn record(name: impl Into<String>, mut fields: Vec<RecordFieldType>) -> Self {
         fields.sort_by(|a, b| a.name.cmp(&b.name));
-        Type::Record(fields)
+        Type::Record(RecordType {
+            name: name.into(),
+            fields,
+        })
     }
 
     /// Canonical enum type helper that sorts variants by name.
-    pub fn enum_type(mut variants: Vec<EnumVariantType>) -> Self {
+    pub fn enum_type(name: impl Into<String>, mut variants: Vec<EnumVariantType>) -> Self {
         variants.sort_by(|a, b| a.name.cmp(&b.name));
-        Type::Enum(variants)
+        Type::Enum(EnumType {
+            name: name.into(),
+            variants,
+        })
+    }
+}
+
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Type::Var(a), Type::Var(b)) => a == b,
+            (Type::Int, Type::Int) => true,
+            (Type::Bool, Type::Bool) => true,
+            (Type::Unit, Type::Unit) => true,
+            (Type::Function(a_params, a_result), Type::Function(b_params, b_result)) => {
+                a_params == b_params && a_result == b_result
+            }
+            (Type::Tuple(a), Type::Tuple(b)) => a == b,
+            (Type::Record(a), Type::Record(b)) => a.fields == b.fields,
+            (Type::Enum(a), Type::Enum(b)) => a.variants == b.variants,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Type {}
+
+impl Hash for Type {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            Type::Var(id) => {
+                0u8.hash(state);
+                id.hash(state);
+            }
+            Type::Int => 1u8.hash(state),
+            Type::Bool => 2u8.hash(state),
+            Type::Unit => 3u8.hash(state),
+            Type::Function(params, result) => {
+                4u8.hash(state);
+                params.hash(state);
+                result.hash(state);
+            }
+            Type::Tuple(items) => {
+                5u8.hash(state);
+                items.hash(state);
+            }
+            Type::Record(record) => {
+                6u8.hash(state);
+                record.fields.hash(state);
+            }
+            Type::Enum(enum_type) => {
+                7u8.hash(state);
+                enum_type.variants.hash(state);
+            }
+        }
     }
 }
 
@@ -107,40 +167,48 @@ impl fmt::Display for Type {
                     .join(", ");
                 write!(f, "({contents})")
             }
-            Type::Record(fields) => {
+            Type::Record(record) => {
+                let fields = record
+                    .fields
+                    .iter()
+                    .map(|field| format!("{}: {}", field.name, field.ty))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 if fields.is_empty() {
-                    write!(f, "{{}}")
+                    write!(f, "{}", record.name)
                 } else {
-                    let contents = fields
-                        .iter()
-                        .map(|field| format!("{}: {}", field.name, field.ty))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    write!(f, "{{ {contents} }}")
+                    write!(f, "{} {{ {fields} }}", record.name)
                 }
             }
-            Type::Enum(variants) => {
-                if variants.is_empty() {
-                    write!(f, "enum {{}}")
+            Type::Enum(enum_type) => {
+                if enum_type.variants.is_empty() {
+                    write!(f, "enum {} {{}}", enum_type.name)
                 } else {
-                    let contents = variants
+                    let contents = enum_type
+                        .variants
                         .iter()
-                        .map(|variant| {
-                            if variant.payload.is_empty() {
-                                variant.name.clone()
-                            } else {
-                                let payload = variant
-                                    .payload
+                        .map(|variant| match &variant.kind {
+                            EnumVariantKind::Unit => variant.name.clone(),
+                            EnumVariantKind::Tuple(payload) => {
+                                let payload = payload
                                     .iter()
                                     .map(|ty| ty.to_string())
                                     .collect::<Vec<_>>()
                                     .join(", ");
                                 format!("{}({})", variant.name, payload)
                             }
+                            EnumVariantKind::Struct(fields) => {
+                                let contents = fields
+                                    .iter()
+                                    .map(|field| format!("{}: {}", field.name, field.ty))
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("{} {{ {contents} }}", variant.name)
+                            }
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
-                    write!(f, "enum {{ {contents} }}")
+                    write!(f, "{} {{ {contents} }}", enum_type.name)
                 }
             }
         }
@@ -162,17 +230,45 @@ impl RecordFieldType {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct EnumType {
+    pub name: String,
+    pub variants: Vec<EnumVariantType>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EnumVariantType {
     pub name: String,
-    pub payload: Vec<Type>,
+    pub kind: EnumVariantKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum EnumVariantKind {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<RecordFieldType>),
 }
 
 impl EnumVariantType {
-    pub fn new(name: impl Into<String>, payload: Vec<Type>) -> Self {
+    pub fn unit(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            payload,
+            kind: EnumVariantKind::Unit,
+        }
+    }
+
+    pub fn tuple(name: impl Into<String>, payload: Vec<Type>) -> Self {
+        Self {
+            name: name.into(),
+            kind: EnumVariantKind::Tuple(payload),
+        }
+    }
+
+    pub fn struct_variant(name: impl Into<String>, mut fields: Vec<RecordFieldType>) -> Self {
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+        Self {
+            name: name.into(),
+            kind: EnumVariantKind::Struct(fields),
         }
     }
 }
@@ -207,4 +303,9 @@ impl fmt::Display for Scheme {
             write!(f, "forall {vars}. {}", self.ty)
         }
     }
+}
+#[derive(Clone, Debug)]
+pub struct RecordType {
+    pub name: String,
+    pub fields: Vec<RecordFieldType>,
 }
