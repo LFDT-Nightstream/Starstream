@@ -149,6 +149,7 @@ export function Sandbox() {
       setWat(response.wat);
     } else if (response.type == "core_wasm") {
       setCoreWasm(response.bytes);
+      setComponentWasm(undefined); // In case of error.
     } else if (response.type == "component_wasm") {
       setComponentWasm(response.bytes);
     } else {

@@ -1031,15 +1031,23 @@ fn to_kebab_case(name: &str) -> String {
             }
             out.push(ch.to_ascii_lowercase());
         } else if ch.is_ascii_alphanumeric() {
+            if ch.is_numeric() {
+                // WIT doesn't permit segments to start with numbers.
+                out.truncate(out.trim_end_matches('-').len());
+                if out.is_empty() {
+                    out.push('x');
+                }
+            }
             out.push(ch);
         } else if ch == '_' {
             if let Some(p) = prev
-                && p.is_ascii_lowercase()
+                && p != '_'
             {
                 out.push('-');
             }
         }
         prev = Some(ch);
     }
+    out.truncate(out.trim_end_matches('-').len());
     out
 }
