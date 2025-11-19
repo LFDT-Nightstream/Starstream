@@ -3,14 +3,17 @@
 use std::collections::{HashMap, HashSet};
 
 use starstream_types::{
+    types::{EnumVariantType as TypeEnumVariant, RecordFieldType as TypeRecordField},
     Scheme, Span, Spanned, Type, TypeVarId,
     ast::{
-        BinaryOp, Block, Definition, Expr, FunctionDef, Identifier, Literal, Program, Statement,
-        TypeAnnotation, UnaryOp,
+        BinaryOp, Block, Definition, EnumDef, Expr, FunctionDef, Identifier, Literal, Pattern,
+        Program, Statement, StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
-        TypedBlock, TypedDefinition, TypedExpr, TypedExprKind, TypedFunctionDef,
-        TypedFunctionParam, TypedProgram, TypedStatement,
+        TypedBlock, TypedDefinition, TypedEnumDef, TypedEnumVariant, TypedExpr, TypedExprKind,
+        TypedFunctionDef, TypedFunctionParam, TypedMatchArm, TypedPattern, TypedProgram,
+        TypedStatement, TypedStructDef, TypedStructField, TypedStructLiteralField,
+        TypedStructPatternField,
     },
 };
 
@@ -34,6 +37,82 @@ pub struct TypecheckSuccess {
     pub traces: Vec<InferenceTree>,
 }
 
+struct TypeRegistry {
+    entries: HashMap<String, TypeEntry>,
+}
+
+impl TypeRegistry {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, name: String, entry: TypeEntry) {
+        self.entries.insert(name, entry);
+    }
+
+    fn get(&self, name: &str) -> Option<&TypeEntry> {
+        self.entries.get(name)
+    }
+
+    fn struct_info(&self, name: &str) -> Option<StructInfo> {
+        self.entries.get(name).and_then(|entry| match &entry.kind {
+            TypeEntryKind::Struct { fields } => Some(StructInfo {
+                ty: entry.ty.clone(),
+                fields: fields.clone(),
+            }),
+            _ => None,
+        })
+    }
+
+    fn enum_info(&self, name: &str) -> Option<EnumInfo> {
+        self.entries.get(name).and_then(|entry| match &entry.kind {
+            TypeEntryKind::Enum { variants } => Some(EnumInfo {
+                ty: entry.ty.clone(),
+                variants: variants.clone(),
+            }),
+            _ => None,
+        })
+    }
+}
+
+struct TypeEntry {
+    ty: Type,
+    kind: TypeEntryKind,
+    span: Span,
+}
+
+enum TypeEntryKind {
+    Struct { fields: Vec<StructFieldInfo> },
+    Enum { variants: Vec<EnumVariantInfo> },
+}
+
+#[derive(Clone)]
+struct StructInfo {
+    ty: Type,
+    fields: Vec<StructFieldInfo>,
+}
+
+#[derive(Clone)]
+struct StructFieldInfo {
+    name: Identifier,
+    ty: Type,
+    span: Span,
+}
+
+#[derive(Clone)]
+struct EnumInfo {
+    ty: Type,
+    variants: Vec<EnumVariantInfo>,
+}
+
+#[derive(Clone)]
+struct EnumVariantInfo {
+    name: Identifier,
+    payload: Vec<Type>,
+}
+
 /// Run Hindley–Milner style inference over the parsed program and return the
 /// typed AST along with optional tracing information.
 pub fn typecheck_program(
@@ -41,6 +120,11 @@ pub fn typecheck_program(
     options: TypecheckOptions,
 ) -> Result<TypecheckSuccess, Vec<TypeError>> {
     let mut inferencer = Inferencer::new(options.capture_traces);
+
+    if let Err(error) = inferencer.register_type_definitions(&program.definitions) {
+        return Err(vec![error]);
+    }
+
     let mut typed_definitions = Vec::with_capacity(program.definitions.len());
     let mut definition_traces = Vec::with_capacity(program.definitions.len());
     let mut errors = Vec::new();
@@ -83,6 +167,7 @@ struct Inferencer {
     capture_traces: bool,
     next_type_var: u32,
     subst: HashMap<TypeVarId, Type>,
+    types: TypeRegistry,
 }
 
 struct FunctionCtx {
@@ -98,6 +183,376 @@ impl Inferencer {
             capture_traces,
             next_type_var: 0,
             subst: HashMap::new(),
+            types: TypeRegistry::new(),
+        }
+    }
+
+    fn register_type_definitions(
+        &mut self,
+        definitions: &[Definition],
+    ) -> Result<(), TypeError> {
+        for definition in definitions {
+            match definition {
+                Definition::Struct(def) => self.register_struct(def)?,
+                Definition::Enum(def) => self.register_enum(def)?,
+                Definition::Function(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn register_struct(&mut self, def: &StructDef) -> Result<(), TypeError> {
+        let name = def.name.name.clone();
+        if let Some(existing) = self.types.get(&name) {
+            return Err(
+                TypeError::new(
+                    TypeErrorKind::TypeAlreadyDefined { name },
+                    def.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_secondary(existing.span, "previously defined here"),
+            );
+        }
+
+        let mut seen = HashSet::new();
+        let mut fields = Vec::with_capacity(def.fields.len());
+        for field in &def.fields {
+            if !seen.insert(field.name.name.clone()) {
+                return Err(TypeError::new(
+                    TypeErrorKind::DuplicateStructField {
+                        struct_name: def.name.name.clone(),
+                        field_name: field.name.name.clone(),
+                    },
+                    field.name.span.unwrap_or_else(dummy_span),
+                ));
+            }
+            let ty = self.type_from_annotation(&field.ty)?;
+            fields.push(StructFieldInfo {
+                name: field.name.clone(),
+                ty,
+                span: field.name.span.unwrap_or_else(dummy_span),
+            });
+        }
+
+        let type_fields = fields
+            .iter()
+            .map(|field| TypeRecordField::new(field.name.name.clone(), field.ty.clone()))
+            .collect();
+        let ty = Type::record(type_fields);
+        self.types.insert(
+            def.name.name.clone(),
+            TypeEntry {
+                ty,
+                kind: TypeEntryKind::Struct { fields },
+                span: def.name.span.unwrap_or_else(dummy_span),
+            },
+        );
+        Ok(())
+    }
+
+    fn register_enum(&mut self, def: &EnumDef) -> Result<(), TypeError> {
+        let name = def.name.name.clone();
+        if let Some(existing) = self.types.get(&name) {
+            return Err(
+                TypeError::new(
+                    TypeErrorKind::TypeAlreadyDefined { name },
+                    def.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_secondary(existing.span, "previously defined here"),
+            );
+        }
+
+        let mut seen = HashSet::new();
+        let mut variants = Vec::with_capacity(def.variants.len());
+        for variant in &def.variants {
+            if !seen.insert(variant.name.name.clone()) {
+                return Err(TypeError::new(
+                    TypeErrorKind::DuplicateEnumVariant {
+                        enum_name: def.name.name.clone(),
+                        variant_name: variant.name.name.clone(),
+                    },
+                    variant.name.span.unwrap_or_else(dummy_span),
+                ));
+            }
+            let mut payload = Vec::with_capacity(variant.payload.len());
+            for ty in &variant.payload {
+                payload.push(self.type_from_annotation(ty)?);
+            }
+            variants.push(EnumVariantInfo {
+                name: variant.name.clone(),
+                payload,
+            });
+        }
+
+        let type_variants = variants
+            .iter()
+            .map(|variant| TypeEnumVariant::new(variant.name.name.clone(), variant.payload.clone()))
+            .collect();
+        let ty = Type::enum_type(type_variants);
+        self.types.insert(
+            def.name.name.clone(),
+            TypeEntry {
+                ty,
+                kind: TypeEntryKind::Enum { variants },
+                span: def.name.span.unwrap_or_else(dummy_span),
+            },
+        );
+        Ok(())
+    }
+
+    fn build_typed_struct(&self, def: &StructDef) -> Result<TypedStructDef, TypeError> {
+        let info = self
+            .types
+            .struct_info(&def.name.name)
+            .ok_or_else(|| {
+                TypeError::new(
+                    TypeErrorKind::UnknownStruct {
+                        name: def.name.name.clone(),
+                    },
+                    def.name.span.unwrap_or_else(dummy_span),
+                )
+            })?;
+
+        let fields = info
+            .fields
+            .iter()
+            .map(|field| TypedStructField {
+                name: field.name.clone(),
+                ty: field.ty.clone(),
+            })
+            .collect();
+
+        Ok(TypedStructDef {
+            name: def.name.clone(),
+            fields,
+            ty: info.ty,
+        })
+    }
+
+    fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
+        let info = self
+            .types
+            .enum_info(&def.name.name)
+            .ok_or_else(|| {
+                TypeError::new(
+                    TypeErrorKind::UnknownEnum {
+                        name: def.name.name.clone(),
+                    },
+                    def.name.span.unwrap_or_else(dummy_span),
+                )
+            })?;
+
+        let variants = info
+            .variants
+            .iter()
+            .map(|variant| TypedEnumVariant {
+                name: variant.name.clone(),
+                payload: variant.payload.clone(),
+            })
+            .collect();
+
+        Ok(TypedEnumDef {
+            name: def.name.clone(),
+            variants,
+            ty: info.ty,
+        })
+    }
+
+    fn lookup_struct_info(&self, name: &Identifier) -> Result<StructInfo, TypeError> {
+        self.types
+            .struct_info(&name.name)
+            .ok_or_else(|| {
+                TypeError::new(
+                    TypeErrorKind::UnknownStruct {
+                        name: name.name.clone(),
+                    },
+                    name.span.unwrap_or_else(dummy_span),
+                )
+            })
+    }
+
+    fn lookup_enum_info(&self, name: &Identifier) -> Result<EnumInfo, TypeError> {
+        self.types
+            .enum_info(&name.name)
+            .ok_or_else(|| {
+                TypeError::new(
+                    TypeErrorKind::UnknownEnum {
+                        name: name.name.clone(),
+                    },
+                    name.span.unwrap_or_else(dummy_span),
+                )
+            })
+    }
+
+    fn bind_pattern_identifier(
+        &mut self,
+        env: &mut TypeEnv,
+        ident: &Identifier,
+        ty: Type,
+    ) -> Result<(), TypeError> {
+        if env.get_in_current_scope(&ident.name).is_some() {
+            return Err(TypeError::new(
+                TypeErrorKind::Redeclaration {
+                    name: ident.name.clone(),
+                },
+                ident.span.unwrap_or_else(dummy_span),
+            ));
+        }
+
+        env.insert(
+            ident.name.clone(),
+            Binding {
+                decl_span: ident.span.unwrap_or_else(dummy_span),
+                mutable: false,
+                scheme: Scheme::monomorphic(ty),
+            },
+        );
+        Ok(())
+    }
+
+    fn infer_pattern(
+        &mut self,
+        env: &mut TypeEnv,
+        pattern: &Pattern,
+        expected_ty: Type,
+        value_span: Span,
+    ) -> Result<(TypedPattern, Vec<InferenceTree>), TypeError> {
+        match pattern {
+            Pattern::Binding(ident) => {
+                self.bind_pattern_identifier(env, ident, expected_ty.clone())?;
+                Ok((TypedPattern::Binding(ident.clone()), Vec::new()))
+            }
+            Pattern::EnumVariant {
+                enum_name,
+                variant,
+                payload,
+            } => {
+                let info = self.lookup_enum_info(enum_name)?;
+                let (.., unify_trace) = self.unify(
+                    expected_ty.clone(),
+                    info.ty.clone(),
+                    value_span,
+                    enum_name.span.unwrap_or_else(dummy_span),
+                    TypeErrorKind::PatternEnumMismatch {
+                        enum_name: enum_name.name.clone(),
+                        found: self.apply(&expected_ty),
+                    },
+                )?;
+                let mut traces = vec![unify_trace];
+
+                let variant_info = info
+                    .variants
+                    .iter()
+                    .find(|v| v.name.name == variant.name)
+                    .ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEnumVariant {
+                                enum_name: enum_name.name.clone(),
+                                variant_name: variant.name.clone(),
+                            },
+                            variant.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                if payload.len() != variant_info.payload.len() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::EnumPayloadMismatch {
+                            enum_name: enum_name.name.clone(),
+                            variant_name: variant.name.clone(),
+                            expected: variant_info.payload.len(),
+                            found: payload.len(),
+                        },
+                        variant.span.unwrap_or_else(dummy_span),
+                    ));
+                }
+
+                let mut typed_payload = Vec::with_capacity(payload.len());
+                for (pattern, ty) in payload.iter().zip(variant_info.payload.iter()) {
+                    let (typed, mut pattern_traces) =
+                        self.infer_pattern(env, pattern, ty.clone(), value_span)?;
+                    traces.append(&mut pattern_traces);
+                    typed_payload.push(typed);
+                }
+
+                Ok((
+                    TypedPattern::EnumVariant {
+                        enum_name: enum_name.clone(),
+                        variant: variant.clone(),
+                        payload: typed_payload,
+                    },
+                    traces,
+                ))
+            }
+            Pattern::Struct { name, fields } => {
+                let info = self.lookup_struct_info(name)?;
+                let (.., unify_trace) = self.unify(
+                    expected_ty.clone(),
+                    info.ty.clone(),
+                    value_span,
+                    name.span.unwrap_or_else(dummy_span),
+                    TypeErrorKind::GeneralMismatch {
+                        expected: info.ty.clone(),
+                        found: expected_ty.clone(),
+                    },
+                )?;
+                let mut traces = vec![unify_trace];
+
+                let mut expected_fields = info
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.name.clone(), field.clone()))
+                    .collect::<HashMap<_, _>>();
+
+                let mut typed_fields = Vec::with_capacity(fields.len());
+                let mut seen = HashSet::new();
+                for field in fields {
+                    if !seen.insert(field.name.name.clone()) {
+                        return Err(TypeError::new(
+                            TypeErrorKind::DuplicateStructLiteralField {
+                                field_name: field.name.name.clone(),
+                            },
+                            field.name.span.unwrap_or_else(dummy_span),
+                        ));
+                    }
+
+                    let expected_field = expected_fields
+                        .remove(&field.name.name)
+                        .ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::UnknownStructField {
+                                    struct_name: name.name.clone(),
+                                    field_name: field.name.name.clone(),
+                                },
+                                field.name.span.unwrap_or_else(dummy_span),
+                            )
+                        })?;
+
+                    let (typed_pattern, mut pattern_traces) =
+                        self.infer_pattern(env, &field.pattern, expected_field.ty.clone(), value_span)?;
+                    traces.append(&mut pattern_traces);
+                    typed_fields.push(TypedStructPatternField {
+                        name: field.name.clone(),
+                        pattern: Box::new(typed_pattern),
+                    });
+                }
+
+                if let Some((field_name, _)) = expected_fields.into_iter().next() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::MissingStructField {
+                            struct_name: name.name.clone(),
+                            field_name,
+                        },
+                        name.span.unwrap_or_else(dummy_span),
+                    ));
+                }
+
+                Ok((
+                    TypedPattern::Struct {
+                        name: name.clone(),
+                        fields: typed_fields,
+                    },
+                    traces,
+                ))
+            }
         }
     }
 
@@ -110,6 +565,14 @@ impl Inferencer {
             Definition::Function(function) => {
                 let (typed_function, trace) = self.infer_function(function)?;
                 Ok((TypedDefinition::Function(typed_function), trace))
+            }
+            Definition::Struct(def) => {
+                let typed = self.build_typed_struct(def)?;
+                Ok((TypedDefinition::Struct(typed), InferenceTree::default()))
+            }
+            Definition::Enum(def) => {
+                let typed = self.build_typed_enum(def)?;
+                Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
             }
         }
     }
@@ -216,7 +679,7 @@ impl Inferencer {
                     .with_secondary(previous_decl.decl_span, "previously defined here"));
                 }
 
-                let (typed_value, value_trace) = self.infer_expr(env, value)?;
+                let (typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
                 let mut children = vec![value_trace];
                 let mut value_type = self.apply(&typed_value.node.ty);
 
@@ -289,7 +752,7 @@ impl Inferencer {
                 }
 
                 let expected_type = self.instantiate(&binding.scheme);
-                let (typed_value, value_trace) = self.infer_expr(env, value)?;
+                let (typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
                 let actual_type = typed_value.node.ty.clone();
 
                 let (_, unify_trace) = self.unify(
@@ -325,7 +788,7 @@ impl Inferencer {
                 let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
                 match value {
                     Some(expr) => {
-                        let (typed_expr, expr_trace) = self.infer_expr(env, expr)?;
+                        let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
                         let actual_type = typed_expr.node.ty.clone();
                         let (_, unify_trace) = self.unify(
                             actual_type.clone(),
@@ -379,7 +842,7 @@ impl Inferencer {
 
                 let mut typed_branches = Vec::with_capacity(branches.len());
                 for (condition, then_branch) in branches {
-                    let (typed_condition, cond_trace) = self.infer_expr(env, condition)?;
+                    let (typed_condition, cond_trace) = self.infer_expr(env, condition, ctx)?;
                     children.push(cond_trace);
                     let bool_check = self.require_bool(
                         &typed_condition.node.ty,
@@ -421,7 +884,7 @@ impl Inferencer {
                 ))
             }
             Statement::While { condition, body } => {
-                let (typed_condition, cond_trace) = self.infer_expr(env, condition)?;
+                let (typed_condition, cond_trace) = self.infer_expr(env, condition, ctx)?;
                 let bool_check = self.require_bool(
                     &typed_condition.node.ty,
                     condition.span,
@@ -463,7 +926,7 @@ impl Inferencer {
                 Ok((TypedStatement::Block(typed_block), tree))
             }
             Statement::Expression(expr) => {
-                let (typed_expr, expr_trace) = self.infer_expr(env, expr)?;
+                let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
                 let unit_result = self.maybe_string(|| "()".to_string());
                 let tree = self.make_trace("T-Expr", env_context, stmt_repr, unit_result, || {
                     vec![expr_trace]
@@ -492,7 +955,7 @@ impl Inferencer {
 
         let mut tail_expression = None;
         if let Some(expr) = &block.tail_expression {
-            let (typed_expr, expr_trace) = self.infer_expr(env, expr)?;
+                let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
                 ctx.saw_return = true;
@@ -531,6 +994,7 @@ impl Inferencer {
         &mut self,
         env: &mut TypeEnv,
         expr: &Spanned<Expr>,
+        ctx: &mut FunctionCtx,
     ) -> Result<(Spanned<TypedExpr>, InferenceTree), TypeError> {
         let env_context = self.maybe_string(|| self.format_env(env));
         let subject_repr = self.maybe_string(|| self.format_expr_src(expr));
@@ -586,7 +1050,7 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Unary { op, expr: inner } => {
-                let (typed_inner, inner_trace) = self.infer_expr(env, inner)?;
+                let (typed_inner, inner_trace) = self.infer_expr(env, inner, ctx)?;
                 let check = match op {
                     UnaryOp::Negate => self.require_is(
                         &typed_inner.node.ty,
@@ -640,8 +1104,8 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Binary { op, left, right } => {
-                let (typed_left, left_trace) = self.infer_expr(env, left)?;
-                let (typed_right, right_trace) = self.infer_expr(env, right)?;
+                let (typed_left, left_trace) = self.infer_expr(env, left, ctx)?;
+                let (typed_right, right_trace) = self.infer_expr(env, right, ctx)?;
                 let left_ty = self.apply(&typed_left.node.ty);
                 let right_ty = self.apply(&typed_right.node.ty);
                 let left_label_span = self.label_span_for_expr(left);
@@ -804,7 +1268,7 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Grouping(inner) => {
-                let (typed_inner, inner_trace) = self.infer_expr(env, inner)?;
+                let (typed_inner, inner_trace) = self.infer_expr(env, inner, ctx)?;
                 let typed = Spanned::new(
                     TypedExpr::new(
                         typed_inner.node.ty.clone(),
@@ -817,6 +1281,283 @@ impl Inferencer {
                     self.make_trace("T-Group", env_context, subject_repr, result_repr, || {
                         vec![inner_trace]
                     });
+                Ok((typed, tree))
+            }
+            Expr::StructLiteral { name, fields } => {
+                let info = self.lookup_struct_info(name)?;
+                let mut expected = info
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.name.clone(), (field.ty.clone(), field.span)))
+                    .collect::<HashMap<_, _>>();
+                let mut typed_fields = Vec::with_capacity(fields.len());
+                let mut children = Vec::new();
+                let mut seen = HashSet::new();
+
+                for field in fields {
+                    if !seen.insert(field.name.name.clone()) {
+                        return Err(TypeError::new(
+                            TypeErrorKind::DuplicateStructLiteralField {
+                                field_name: field.name.name.clone(),
+                            },
+                            field.name.span.unwrap_or_else(dummy_span),
+                        ));
+                    }
+
+                    let (expected_ty, _) = expected
+                        .remove(&field.name.name)
+                        .ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::UnknownStructField {
+                                    struct_name: name.name.clone(),
+                                    field_name: field.name.name.clone(),
+                                },
+                                field.name.span.unwrap_or_else(dummy_span),
+                            )
+                        })?;
+
+                    let (typed_value, value_trace) = self.infer_expr(env, &field.value, ctx)?;
+                    let actual_ty = typed_value.node.ty.clone();
+                    let (_, unify_trace) = self.unify(
+                        actual_ty.clone(),
+                        expected_ty.clone(),
+                        field.value.span,
+                        field.name.span.unwrap_or(field.value.span),
+                        TypeErrorKind::GeneralMismatch {
+                            expected: expected_ty,
+                            found: self.apply(&actual_ty),
+                        },
+                    )?;
+                    children.push(value_trace);
+                    children.push(unify_trace);
+
+                    typed_fields.push(TypedStructLiteralField {
+                        name: field.name.clone(),
+                        value: typed_value,
+                    });
+                }
+
+                if let Some((field_name, _)) = expected.into_iter().next() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::MissingStructField {
+                            struct_name: name.name.clone(),
+                            field_name,
+                        },
+                        name.span.unwrap_or_else(dummy_span),
+                    ));
+                }
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        info.ty.clone(),
+                        TypedExprKind::StructLiteral {
+                            name: name.clone(),
+                            fields: typed_fields,
+                        },
+                    ),
+                    expr.span,
+                );
+                let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
+                let tree = self.make_trace(
+                    "T-StructLit",
+                    env_context,
+                    subject_repr,
+                    result_repr,
+                    || children,
+                );
+                Ok((typed, tree))
+            }
+            Expr::FieldAccess { target, field } => {
+                let (typed_target, target_trace) = self.infer_expr(env, target, ctx)?;
+                let target_ty = self.apply(&typed_target.node.ty);
+                let field_ty = match target_ty.clone() {
+                    Type::Record(fields) => fields
+                        .into_iter()
+                        .find(|entry| entry.name == field.name)
+                        .map(|entry| entry.ty)
+                        .ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::FieldAccessUnknownField {
+                                    field_name: field.name.clone(),
+                                    ty: target_ty.clone(),
+                                },
+                                field.span.unwrap_or_else(dummy_span),
+                            )
+                        })?,
+                    _ => {
+                        return Err(TypeError::new(
+                            TypeErrorKind::FieldAccessNotStruct { found: target_ty.clone() },
+                            target.span,
+                        ))
+                    }
+                };
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        field_ty.clone(),
+                        TypedExprKind::FieldAccess {
+                            target: Box::new(typed_target.clone()),
+                            field: field.clone(),
+                        },
+                    ),
+                    expr.span,
+                );
+                let result_repr = self.maybe_string(|| self.format_type(&field_ty));
+                let tree = self.make_trace(
+                    "T-FieldAccess",
+                    env_context,
+                    subject_repr,
+                    result_repr,
+                    || vec![target_trace],
+                );
+                Ok((typed, tree))
+            }
+            Expr::EnumConstructor {
+                enum_name,
+                variant,
+                payload,
+            } => {
+                let info = self.lookup_enum_info(enum_name)?;
+                let variant_info = info
+                    .variants
+                    .iter()
+                    .find(|entry| entry.name.name == variant.name)
+                    .ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEnumVariant {
+                                enum_name: enum_name.name.clone(),
+                                variant_name: variant.name.clone(),
+                            },
+                            variant.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                if payload.len() != variant_info.payload.len() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::EnumPayloadMismatch {
+                            enum_name: enum_name.name.clone(),
+                            variant_name: variant.name.clone(),
+                            expected: variant_info.payload.len(),
+                            found: payload.len(),
+                        },
+                        variant.span.unwrap_or_else(dummy_span),
+                    ));
+                }
+
+                let mut typed_payload = Vec::with_capacity(payload.len());
+                let mut children = Vec::new();
+                for (expr, expected_ty) in payload.iter().zip(variant_info.payload.iter()) {
+                    let (typed_expr, value_trace) = self.infer_expr(env, expr, ctx)?;
+                    let actual_ty = typed_expr.node.ty.clone();
+                    let (_, unify_trace) = self.unify(
+                        actual_ty.clone(),
+                        expected_ty.clone(),
+                        expr.span,
+                        variant.span.unwrap_or(expr.span),
+                        TypeErrorKind::GeneralMismatch {
+                            expected: expected_ty.clone(),
+                            found: self.apply(&actual_ty),
+                        },
+                    )?;
+                    children.push(value_trace);
+                    children.push(unify_trace);
+                    typed_payload.push(typed_expr);
+                }
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        info.ty.clone(),
+                        TypedExprKind::EnumConstructor {
+                            enum_name: enum_name.clone(),
+                            variant: variant.clone(),
+                            payload: typed_payload,
+                        },
+                    ),
+                    expr.span,
+                );
+                let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
+                let tree = self.make_trace(
+                    "T-EnumCtor",
+                    env_context,
+                    subject_repr,
+                    result_repr,
+                    || children,
+                );
+                Ok((typed, tree))
+            }
+            Expr::Match { scrutinee, arms } => {
+                let (typed_scrutinee, scrutinee_trace) = self.infer_expr(env, scrutinee, ctx)?;
+                let mut children = vec![scrutinee_trace];
+                let mut typed_arms = Vec::with_capacity(arms.len());
+                let mut result_ty: Option<Type> = None;
+
+                for arm in arms {
+                    env.push_scope();
+                    let (typed_pattern, mut pattern_traces) = self.infer_pattern(
+                        env,
+                        &arm.pattern,
+                        typed_scrutinee.node.ty.clone(),
+                        scrutinee.span,
+                    )?;
+                    children.append(&mut pattern_traces);
+
+                    let (typed_block, mut block_traces) =
+                        self.infer_block(env, &arm.body, ctx, false)?;
+                    children.append(&mut block_traces);
+                    env.pop_scope();
+
+                    let arm_ty = typed_block
+                        .tail_expression
+                        .as_ref()
+                        .map(|expr| expr.node.ty.clone())
+                        .unwrap_or_else(Type::unit);
+
+                    result_ty = if let Some(current) = result_ty {
+                        let (merged, unify_trace) = self.unify(
+                            current.clone(),
+                            arm_ty.clone(),
+                            arm.body
+                                .tail_expression
+                                .as_ref()
+                                .map(|expr| expr.span)
+                                .unwrap_or(expr.span),
+                            expr.span,
+                            TypeErrorKind::GeneralMismatch {
+                                expected: current,
+                                found: self.apply(&arm_ty),
+                            },
+                        )?;
+                        children.push(unify_trace);
+                        Some(merged)
+                    } else {
+                        Some(arm_ty)
+                    };
+
+                    typed_arms.push(TypedMatchArm {
+                        pattern: typed_pattern,
+                        body: typed_block,
+                    });
+                }
+
+                let expr_type = result_ty.unwrap_or_else(Type::unit);
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        expr_type.clone(),
+                        TypedExprKind::Match {
+                            scrutinee: Box::new(typed_scrutinee.clone()),
+                            arms: typed_arms,
+                        },
+                    ),
+                    expr.span,
+                );
+                let result_repr = self.maybe_string(|| self.format_type(&expr_type));
+                let tree = self.make_trace(
+                    "T-Match",
+                    env_context,
+                    subject_repr,
+                    result_repr,
+                    || children,
+                );
                 Ok((typed, tree))
             }
         }
@@ -838,12 +1579,18 @@ impl Inferencer {
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
-            other => Err(TypeError::new(
-                TypeErrorKind::UnknownTypeAnnotation {
-                    name: other.to_string(),
-                },
-                annotation.name.span.unwrap_or_else(dummy_span),
-            )),
+            other => {
+                if let Some(entry) = self.types.get(other) {
+                    Ok(entry.ty.clone())
+                } else {
+                    Err(TypeError::new(
+                        TypeErrorKind::UnknownTypeAnnotation {
+                            name: other.to_string(),
+                        },
+                        annotation.name.span.unwrap_or_else(dummy_span),
+                    ))
+                }
+            }
         }
     }
 
@@ -975,6 +1722,28 @@ impl Inferencer {
                 Box::new(self.apply(result)),
             ),
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
+            Type::Record(fields) => Type::Record(
+                fields
+                    .iter()
+                    .map(|field| TypeRecordField {
+                        name: field.name.clone(),
+                        ty: self.apply(&field.ty),
+                    })
+                    .collect(),
+            ),
+            Type::Enum(variants) => Type::Enum(
+                variants
+                    .iter()
+                    .map(|variant| TypeEnumVariant {
+                        name: variant.name.clone(),
+                        payload: variant
+                            .payload
+                            .iter()
+                            .map(|ty| self.apply(ty))
+                            .collect(),
+                    })
+                    .collect(),
+            ),
             Type::Int => Type::Int,
             Type::Bool => Type::Bool,
             Type::Unit => Type::Unit,
@@ -991,6 +1760,7 @@ impl Inferencer {
     fn apply_definition(&self, definition: &mut TypedDefinition) {
         match definition {
             TypedDefinition::Function(function) => self.apply_function(function),
+            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {}
         }
     }
 
@@ -1055,6 +1825,23 @@ impl Inferencer {
                 self.apply_expr(right);
             }
             TypedExprKind::Grouping(inner) => self.apply_expr(inner),
+            TypedExprKind::StructLiteral { fields, .. } => {
+                for field in fields {
+                    self.apply_expr(&mut field.value);
+                }
+            }
+            TypedExprKind::FieldAccess { target, .. } => self.apply_expr(target),
+            TypedExprKind::EnumConstructor { payload, .. } => {
+                for expr in payload {
+                    self.apply_expr(expr);
+                }
+            }
+            TypedExprKind::Match { scrutinee, arms } => {
+                self.apply_expr(scrutinee);
+                for arm in arms {
+                    self.apply_block(&mut arm.body);
+                }
+            }
         }
     }
 
@@ -1257,6 +2044,68 @@ impl Inferencer {
 
                 (Type::Function(lp, lr), arrow_children, "Unify-Arrow")
             }
+            (Type::Record(mut ls), Type::Record(mut rs)) => {
+                ls.sort_by(|a, b| a.name.cmp(&b.name));
+                rs.sort_by(|a, b| a.name.cmp(&b.name));
+                if ls.len() != rs.len()
+                    || ls.iter().zip(rs.iter()).any(|(l, r)| l.name != r.name)
+                {
+                    return Err(TypeError::new(error_kind, left_span)
+                        .with_secondary(right_span, "struct field mismatch"));
+                }
+
+                let mut record_children = Vec::new();
+                for (left_field, right_field) in ls.iter().zip(rs.iter()) {
+                    let (_, trace) = self.unify(
+                        left_field.ty.clone(),
+                        right_field.ty.clone(),
+                        left_span,
+                        right_span,
+                        TypeErrorKind::GeneralMismatch {
+                            expected: left_field.ty.clone(),
+                            found: right_field.ty.clone(),
+                        },
+                    )?;
+                    record_children.push(trace);
+                }
+                (Type::Record(ls), record_children, "Unify-Record")
+            }
+            (Type::Enum(mut ls), Type::Enum(mut rs)) => {
+                ls.sort_by(|a, b| a.name.cmp(&b.name));
+                rs.sort_by(|a, b| a.name.cmp(&b.name));
+                if ls.len() != rs.len()
+                    || ls.iter().zip(rs.iter()).any(|(l, r)| l.name != r.name)
+                {
+                    return Err(TypeError::new(error_kind, left_span)
+                        .with_secondary(right_span, "enum variant mismatch"));
+                }
+
+                let mut enum_children = Vec::new();
+                for (left_variant, right_variant) in ls.iter().zip(rs.iter()) {
+                    if left_variant.payload.len() != right_variant.payload.len() {
+                        return Err(TypeError::new(error_kind.clone(), left_span)
+                            .with_secondary(right_span, "enum payload mismatch"));
+                    }
+                    for (left_ty, right_ty) in left_variant
+                        .payload
+                        .iter()
+                        .zip(right_variant.payload.iter())
+                    {
+                        let (_, trace) = self.unify(
+                            left_ty.clone(),
+                            right_ty.clone(),
+                            left_span,
+                            right_span,
+                            TypeErrorKind::GeneralMismatch {
+                                expected: left_ty.clone(),
+                                found: right_ty.clone(),
+                            },
+                        )?;
+                        enum_children.push(trace);
+                    }
+                }
+                (Type::Enum(ls), enum_children, "Unify-Enum")
+            }
             (Type::Var(id), ty) => {
                 self.bind(id, ty.clone(), left_span, right_span, error_kind.clone())?;
                 (ty, Vec::new(), "Unify-Var")
@@ -1330,6 +2179,28 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
         ),
+        Type::Record(fields) => Type::Record(
+            fields
+                .iter()
+                .map(|field| TypeRecordField {
+                    name: field.name.clone(),
+                    ty: substitute_type(&field.ty, mapping),
+                })
+                .collect(),
+        ),
+        Type::Enum(variants) => Type::Enum(
+            variants
+                .iter()
+                .map(|variant| TypeEnumVariant {
+                    name: variant.name.clone(),
+                    payload: variant
+                        .payload
+                        .iter()
+                        .map(|ty| substitute_type(ty, mapping))
+                        .collect(),
+                })
+                .collect(),
+        ),
         Type::Int => Type::Int,
         Type::Bool => Type::Bool,
         Type::Unit => Type::Unit,
@@ -1353,6 +2224,10 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
             params.iter().any(|t| occurs_in(var, t, subst)) || occurs_in(var, result, subst)
         }
         Type::Tuple(items) => items.iter().any(|t| occurs_in(var, t, subst)),
+        Type::Record(fields) => fields.iter().any(|field| occurs_in(var, &field.ty, subst)),
+        Type::Enum(variants) => variants
+            .iter()
+            .any(|variant| variant.payload.iter().any(|ty| occurs_in(var, ty, subst))),
         Type::Int | Type::Bool | Type::Unit => false,
     }
 }
@@ -1379,6 +2254,18 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         Type::Tuple(items) => {
             for ty in items {
                 collect_free_type_vars(ty, set);
+            }
+        }
+        Type::Record(fields) => {
+            for field in fields {
+                collect_free_type_vars(&field.ty, set);
+            }
+        }
+        Type::Enum(variants) => {
+            for variant in variants {
+                for ty in &variant.payload {
+                    collect_free_type_vars(ty, set);
+                }
             }
         }
         Type::Int | Type::Bool | Type::Unit => {}

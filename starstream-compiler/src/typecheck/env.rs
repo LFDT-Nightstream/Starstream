@@ -94,6 +94,18 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
                 free_type_vars_type(ty, out);
             }
         }
+        Type::Record(fields) => {
+            for field in fields {
+                free_type_vars_type(&field.ty, out);
+            }
+        }
+        Type::Enum(variants) => {
+            for variant in variants {
+                for ty in &variant.payload {
+                    free_type_vars_type(ty, out);
+                }
+            }
+        }
         Type::Int | Type::Bool | Type::Unit => {}
     }
 }

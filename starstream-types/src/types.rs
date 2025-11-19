@@ -48,6 +48,10 @@ pub enum Type {
     Function(Vec<Type>, Box<Type>),
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
+    /// Struct/record type with named fields.
+    Record(Vec<RecordFieldType>),
+    /// Enum/sum type with named variants.
+    Enum(Vec<EnumVariantType>),
 }
 
 impl Type {
@@ -61,6 +65,18 @@ impl Type {
 
     pub fn int() -> Self {
         Type::Int
+    }
+
+    /// Canonical record type helper that sorts fields by name.
+    pub fn record(mut fields: Vec<RecordFieldType>) -> Self {
+        fields.sort_by(|a, b| a.name.cmp(&b.name));
+        Type::Record(fields)
+    }
+
+    /// Canonical enum type helper that sorts variants by name.
+    pub fn enum_type(mut variants: Vec<EnumVariantType>) -> Self {
+        variants.sort_by(|a, b| a.name.cmp(&b.name));
+        Type::Enum(variants)
     }
 }
 
@@ -91,6 +107,72 @@ impl fmt::Display for Type {
                     .join(", ");
                 write!(f, "({contents})")
             }
+            Type::Record(fields) => {
+                if fields.is_empty() {
+                    write!(f, "{{}}")
+                } else {
+                    let contents = fields
+                        .iter()
+                        .map(|field| format!("{}: {}", field.name, field.ty))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    write!(f, "{{ {contents} }}")
+                }
+            }
+            Type::Enum(variants) => {
+                if variants.is_empty() {
+                    write!(f, "enum {{}}")
+                } else {
+                    let contents = variants
+                        .iter()
+                        .map(|variant| {
+                            if variant.payload.is_empty() {
+                                variant.name.clone()
+                            } else {
+                                let payload = variant
+                                    .payload
+                                    .iter()
+                                    .map(|ty| ty.to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("{}({})", variant.name, payload)
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    write!(f, "enum {{ {contents} }}")
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct RecordFieldType {
+    pub name: String,
+    pub ty: Type,
+}
+
+impl RecordFieldType {
+    pub fn new(name: impl Into<String>, ty: Type) -> Self {
+        Self {
+            name: name.into(),
+            ty,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EnumVariantType {
+    pub name: String,
+    pub payload: Vec<Type>,
+}
+
+impl EnumVariantType {
+    pub fn new(name: impl Into<String>, payload: Vec<Type>) -> Self {
+        Self {
+            name: name.into(),
+            payload,
         }
     }
 }

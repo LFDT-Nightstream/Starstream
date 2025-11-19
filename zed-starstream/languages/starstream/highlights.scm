@@ -12,6 +12,9 @@
   "false"
   "fn"
   "return"
+  "struct"
+  "enum"
+  "match"
 ] @keyword
 
 ; Literals
@@ -54,3 +57,18 @@
 (parameter ":" @operator)
 (variable_declaration (identifier) @variable.declaration)
 (assignment (identifier) @variable.modification)
+(struct_definition (identifier) @type.definition)
+(struct_field (identifier) @variable.member)
+(struct_field ":" @operator)
+(enum_definition (identifier) @type.definition)
+(enum_variant (identifier) @constant)
+(block "{" @punctuation.bracket)
+(block "}" @punctuation.bracket)
+(struct_literal (identifier) @type)
+(struct_field_initializer (identifier) @variable.member)
+(struct_field_initializer ":" @operator)
+("." @operator)
+(enum_constructor (identifier) @type)
+(enum_constructor "::" @operator)
+(match_expression "match" @keyword)
+(match_arm "=>" @operator)

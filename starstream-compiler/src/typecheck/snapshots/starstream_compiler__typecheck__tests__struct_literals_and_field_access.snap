@@ -1,0 +1,38 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct Point {\nx: i64,\ny: i64,\n}\n\nfn total(point: Point) -> i64 {\nlet translated = Point {\n    x: point.x + 1,\n    y: point.y + 1,\n};\n\ntranslated.x + translated.y\n}\n"
+---
+:  => 
+
+T-Fn: total => i64
+  T-Let: {point: { x: i64, y: i64 }} ⊢ let translated = Point {
+    x: (point).x + 1
+    y: (point).y + 1
+}; ⇒ { x: i64, y: i64 }
+    T-StructLit: {point: { x: i64, y: i64 }} ⊢ Point {
+    x: (point).x + 1
+    y: (point).y + 1
+} ⇒ { x: i64, y: i64 }
+      T-Bin-Add: {point: { x: i64, y: i64 }} ⊢ (point).x + 1 ⇒ i64
+        T-FieldAccess: {point: { x: i64, y: i64 }} ⊢ (point).x ⇒ i64
+          T-Var: {point: { x: i64, y: i64 }} ⊢ point ⇒ { x: i64, y: i64 }
+        T-Int: {point: { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+      T-Bin-Add: {point: { x: i64, y: i64 }} ⊢ (point).y + 1 ⇒ i64
+        T-FieldAccess: {point: { x: i64, y: i64 }} ⊢ (point).y ⇒ i64
+          T-Var: {point: { x: i64, y: i64 }} ⊢ point ⇒ { x: i64, y: i64 }
+        T-Int: {point: { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+  T-ReturnTail: (translated).x + (translated).y => i64
+    T-Bin-Add: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ (translated).x + (translated).y ⇒ i64
+      T-FieldAccess: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ (translated).x ⇒ i64
+        T-Var: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated ⇒ { x: i64, y: i64 }
+      T-FieldAccess: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ (translated).y ⇒ i64
+        T-Var: {point: { x: i64, y: i64 }, translated: { x: i64, y: i64 }} ⊢ translated ⇒ { x: i64, y: i64 }
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

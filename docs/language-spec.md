@@ -30,6 +30,8 @@ program ::= definition*
 
 definition ::=
   | function_definition
+  | struct_definition
+  | enum_definition
 
 function_definition ::=
   ( function_export )?
@@ -38,10 +40,20 @@ function_definition ::=
   ( "->" type_annotation )?
   block
 
+struct_definition ::=
+  "struct" identifier "{" ( struct_field ( "," struct_field )* )? "}"
+
+enum_definition ::=
+  "enum" identifier "{" ( enum_variant ( "," enum_variant )* )? "}"
+
 function_export ::=
   | "script"
 
 parameter ::= identifier ":" type_annotation
+
+struct_field ::= identifier ":" type_annotation
+
+enum_variant ::= identifier ( "(" ( type_annotation ( "," type_annotation )* )? ")" )?
 
 (* Type syntax *)
 
@@ -84,12 +96,38 @@ expression ::=
   | equality_expression
   | logical_and_expression
   | logical_or_expression
+  | field_access_expression
+  | struct_literal
+  | enum_construction
+  | match_expression
 
 primary_expresion ::=
   | integer_literal
   | boolean_literal
   | identifier
   | "(" expression ")"
+  | struct_literal
+  | enum_construction
+  | match_expression
+
+struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
+
+struct_field_initializer ::= identifier ":" expression
+
+field_access_expression ::= expression "." identifier
+
+enum_construction ::= identifier "::" identifier ( "(" ( expression ( "," expression )* )? ")" )?
+
+match_expression ::= "match" expression "{" ( match_arm ( "," match_arm )* )? "}"
+
+match_arm ::= pattern "=>" block
+
+pattern ::=
+  | identifier
+  | identifier "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
+  | identifier "(" ( pattern ( "," pattern )* )? ")"
+
+struct_field_pattern ::= identifier ":" pattern
 
 unary_expression ::= ("-" | "!") expression
 
@@ -120,7 +158,9 @@ Definitions live exclusively at the program (module) scope. Statements appear in
 spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations such as tuples
 or generic parameters extend this rule by nesting additional `type_annotation`
 instances between `<…>` as described in the [Type System](#type-system) section.
-The name `_` means "unspecified", a free type variable subject to inference.
+Record and enum shapes must first be declared via `struct`/`enum` definitions
+before they can be referenced. The name `_` means "unspecified", a free type
+variable subject to inference.
 
 The following reserved words may not be used as identifiers:
 
@@ -133,6 +173,9 @@ The following reserved words may not be used as identifiers:
 - `false`
 - `fn`
 - `return`
+- `struct`
+- `enum`
+- `match`
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -143,15 +186,16 @@ The following reserved words may not be used as identifiers:
 
 ## Precedence and Associativity
 
-| Precedence  | Operator             | Associativity | Description     |
-| ----------- | -------------------- | ------------- | --------------- |
-| 7 (highest) | `!`, `-`             | Right         | Unary operators |
-| 6           | `*`, `/`, `%`        | Left          | Multiplicative  |
-| 5           | `+`, `-`             | Left          | Additive        |
-| 4           | `<`, `<=`, `>`, `>=` | Left          | Comparison      |
-| 3           | `==`, `!=`           | Left          | Equality        |
-| 2           | `&&`                 | Left          | Logical AND     |
-| 1 (lowest)  | `\|\|`               | Left          | Logical OR      |
+| Precedence  | Operator             | Associativity | Description        |
+| ----------- | -------------------- | ------------- | ------------------ |
+| 8 (highest) | `.`                  | Left          | Field access       |
+| 7           | `!`, `-`             | Right         | Unary operators    |
+| 6           | `*`, `/`, `%`        | Left          | Multiplicative     |
+| 5           | `+`, `-`             | Left          | Additive           |
+| 4           | `<`, `<=`, `>`, `>=` | Left          | Comparison         |
+| 3           | `==`, `!=`           | Left          | Equality           |
+| 2           | `&&`                 | Left          | Logical AND        |
+| 1 (lowest)  | `\|\|`               | Left          | Logical OR         |
 
 ## Function visibility
 
@@ -172,6 +216,10 @@ visibility modifier:
 
 - Integer literals work in the obvious way.
 - Boolean literals work in the obvious way.
+- Struct literals `TypeName { field: expr, ... }` evaluate each field expression once and produce a record value. Field names must be unique; order is irrelevant.
+- Enum constructors use `TypeName::Variant` with a previously declared enum name. Tuple-style payloads evaluate left-to-right and are stored without reordering.
+- Field accesses evaluate the receiver, ensure it is a struct value, then project the requested field. Accessing a missing field is a type error.
+- `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Exhaustiveness checks and unreachable-arm diagnostics are future work.
 - Variable names refer to a `let` declaration earlier in the current scope or
   one of its parents, but not child scopes.
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
@@ -184,6 +232,7 @@ visibility modifier:
 - The boolean operators `!`, `&&`, `||` accept booleans and produce
   booleans.
   - `&&` and `||` are short-circuiting.
+- Structural records/enums are compared by shape, not name. Two structs with identical field sets and types are interchangeable; enum variants must likewise line up by name and payload shape.
 
 | Syntax rule                 | Type rule                                                                 | Value rule                |
 | --------------------------- | ------------------------------------------------------------------------- | ------------------------- |
@@ -212,6 +261,13 @@ visibility modifier:
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
 | expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
 | expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
+
+### Structural typing rules
+
+- Struct and enum definitions introduce canonical shapes, but names are merely aliases; two independently-declared structs with the same field names/types are interchangeable.
+- Type annotations refer to those named definitions. During type checking the compiler canonicalizes field/variant order before comparing shapes so structurally identical names unify.
+- Unification succeeds for records when both sides have the same field names (order-insensitive) and each corresponding field type unifies. A similar rule holds for enums, matching variant names and payload arity/type.
+- Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
 ### Overflow and underflow
 

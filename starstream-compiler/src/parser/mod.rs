@@ -2,6 +2,7 @@ mod context;
 mod definition;
 mod error;
 mod expression;
+mod pattern;
 mod primitives;
 mod program;
 mod statement;

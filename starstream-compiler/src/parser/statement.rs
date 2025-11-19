@@ -7,14 +7,24 @@ use super::{context::Extra, expression, primitives};
 
 /// Parser for individual statements.
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
-    let (statement_parser, _) = build_parsers();
+    let expr = expression::parser().boxed();
+    let (statement_parser, _) = build_parsers(expr);
 
     statement_parser
 }
 
 /// Parser for `{ ... }` blocks, including optional tail expressions.
 pub fn block_parser<'a>() -> impl Parser<'a, &'a str, Block, Extra<'a>> {
-    let (_, block_parser) = build_parsers();
+    let expr = expression::parser().boxed();
+    let (_, block_parser) = build_parsers(expr);
+
+    block_parser
+}
+
+pub fn block_parser_with_expr<'a>(
+    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, &'a str, Block, Extra<'a>> {
+    let (_, block_parser) = build_parsers(expr);
 
     block_parser
 }
@@ -116,13 +126,14 @@ pub(super) fn parser_with_block<'a>(
     ))
 }
 
-fn build_parsers<'a>() -> (
+fn build_parsers<'a>(
+    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+) -> (
     impl Parser<'a, &'a str, Statement, Extra<'a>>,
     impl Parser<'a, &'a str, Block, Extra<'a>>,
 ) {
     let mut statement_parser = Recursive::declare();
     let mut block_parser = Recursive::declare();
-    let expr = expression::parser().boxed();
 
     let block = statement_parser
         .clone()

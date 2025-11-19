@@ -18,7 +18,8 @@ module.exports = grammar({
 
     // Definitions
 
-    _definition: ($) => choice($.function_definition),
+    _definition: ($) =>
+      choice($.function_definition, $.struct_definition, $.enum_definition),
 
     function_definition: ($) =>
       seq(
@@ -35,6 +36,43 @@ module.exports = grammar({
     function_export: ($) => choice("script"),
 
     parameter: ($) => seq($.identifier, ":", $.type_annotation),
+
+    struct_definition: ($) =>
+      seq(
+        "struct",
+        $.identifier,
+        "{",
+        optional(seq($.struct_field, repeat(seq(",", $.struct_field)))),
+        optional(","),
+        "}",
+      ),
+
+    struct_field: ($) => seq($.identifier, ":", $.type_annotation),
+
+    enum_definition: ($) =>
+      seq(
+        "enum",
+        $.identifier,
+        "{",
+        optional(seq($.enum_variant, repeat(seq(",", $.enum_variant)))),
+        optional(","),
+        "}",
+      ),
+
+    enum_variant: ($) =>
+      seq(
+        $.identifier,
+        optional(
+          seq(
+            "(",
+            optional(
+              seq($.type_annotation, repeat(seq(",", $.type_annotation))),
+            ),
+            optional(","),
+            ")",
+          ),
+        ),
+      ),
 
     // Type syntax
 
@@ -98,7 +136,9 @@ module.exports = grammar({
 
     expression: ($) =>
       choice(
+        $.match_expression,
         $._primary_expression,
+        prec.left(8, seq($.expression, ".", $.identifier)),
 
         prec.left(7, seq("!", $.expression)),
         prec.left(7, seq("-", $.expression)),
@@ -125,10 +165,86 @@ module.exports = grammar({
 
     _primary_expression: ($) =>
       choice(
+        $.struct_literal,
+        $.enum_constructor,
         $.integer_literal,
         $.boolean_literal,
         $.identifier,
         seq("(", $.expression, ")"),
+      ),
+
+    struct_literal: ($) =>
+      seq(
+        $.identifier,
+        "{",
+        optional(
+          seq(
+            $.struct_field_initializer,
+            repeat(seq(",", $.struct_field_initializer)),
+          ),
+        ),
+        optional(","),
+        "}",
+      ),
+
+    struct_field_initializer: ($) => seq($.identifier, ":", $.expression),
+
+    enum_constructor: ($) =>
+      seq(
+        $.identifier,
+        "::",
+        $.identifier,
+        optional(
+          seq(
+            "(",
+            optional(seq($.expression, repeat(seq(",", $.expression)))),
+            optional(","),
+            ")",
+          ),
+        ),
+      ),
+
+    match_expression: ($) =>
+      seq(
+        "match",
+        $.expression,
+        "{",
+        optional(seq($.match_arm, repeat(seq(",", $.match_arm)))),
+        optional(","),
+        "}",
+      ),
+
+    match_arm: ($) => seq($.pattern, "=>", $.block),
+
+    pattern: ($) =>
+      choice($.struct_pattern, $.enum_variant_pattern, $.identifier),
+
+    struct_pattern: ($) =>
+      seq(
+        $.identifier,
+        "{",
+        optional(
+          seq($.struct_field_pattern, repeat(seq(",", $.struct_field_pattern))),
+        ),
+        optional(","),
+        "}",
+      ),
+
+    struct_field_pattern: ($) => seq($.identifier, ":", $.pattern),
+
+    enum_variant_pattern: ($) =>
+      seq(
+        $.identifier,
+        "::",
+        $.identifier,
+        optional(
+          seq(
+            "(",
+            optional(seq($.pattern, repeat(seq(",", $.pattern)))),
+            optional(","),
+            ")",
+          ),
+        ),
       ),
 
     // Literals and other terminals

@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct Point {\nx: i64,\ny: i64,\n}\n\nfn bad() {\nlet value = Point { x: 1 };\n}\n"
+---
+starstream::type::missing_struct_field
+
+  x struct `Point` literal is missing field `y`
+   ,-[test.star:7:13]
+ 6 | fn bad() {
+ 7 | let value = Point { x: 1 };
+   :             ^^^^^
+ 8 | }
+   `----

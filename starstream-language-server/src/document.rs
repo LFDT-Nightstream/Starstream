@@ -17,8 +17,9 @@ use starstream_types::{
     Span, Spanned,
     ast::Program,
     typed_ast::{
-        TypedBlock, TypedDefinition, TypedExpr, TypedExprKind, TypedFunctionDef, TypedProgram,
-        TypedStatement,
+        TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef,
+        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
+        TypedStructLiteralField,
     },
     types::Type,
 };
@@ -36,6 +37,7 @@ pub struct DocumentState {
     hover_entries: Vec<HoverEntry>,
     definition_entries: Vec<DefinitionEntry>,
     document_symbols: Vec<DocumentSymbol>,
+    type_definitions: HashMap<String, Span>,
 }
 
 impl DocumentState {
@@ -50,6 +52,7 @@ impl DocumentState {
             hover_entries: Vec::new(),
             definition_entries: Vec::new(),
             document_symbols: Vec::new(),
+            type_definitions: HashMap::new(),
         };
 
         state.reanalyse(uri, text);
@@ -109,6 +112,7 @@ impl DocumentState {
         self.hover_entries.clear();
         self.definition_entries.clear();
         self.document_symbols.clear();
+        self.type_definitions.clear();
 
         let parse_output = parse_program(text);
 
@@ -202,6 +206,7 @@ impl DocumentState {
     fn build_indexes(&mut self, program: &TypedProgram) {
         self.hover_entries.clear();
         self.definition_entries.clear();
+        self.type_definitions.clear();
 
         let mut scopes: Vec<HashMap<String, Span>> = vec![HashMap::new()];
 
@@ -219,6 +224,32 @@ impl DocumentState {
     ) {
         match definition {
             TypedDefinition::Function(function) => self.collect_function(function, scopes),
+            TypedDefinition::Struct(definition) => self.collect_struct(definition),
+            TypedDefinition::Enum(definition) => self.collect_enum(definition),
+        }
+    }
+
+    fn collect_struct(&mut self, definition: &TypedStructDef) {
+        if let Some(span) = definition.name.span {
+            self.definition_entries.push(DefinitionEntry {
+                usage: span,
+                target: span,
+            });
+            self.type_definitions
+                .insert(definition.name.name.clone(), span);
+            self.add_hover_span(span, &definition.ty);
+        }
+    }
+
+    fn collect_enum(&mut self, definition: &TypedEnumDef) {
+        if let Some(span) = definition.name.span {
+            self.definition_entries.push(DefinitionEntry {
+                usage: span,
+                target: span,
+            });
+            self.type_definitions
+                .insert(definition.name.name.clone(), span);
+            self.add_hover_span(span, &definition.ty);
         }
     }
 
@@ -351,7 +382,73 @@ impl DocumentState {
             }
             TypedExprKind::Grouping(inner) => self.collect_expr(inner, scopes),
             TypedExprKind::Literal(_) => {}
+            TypedExprKind::StructLiteral { name, fields } => {
+                self.add_type_usage(name.span, &name.name);
+                for field in fields {
+                    self.collect_struct_literal_field(field, scopes);
+                }
+            }
+            TypedExprKind::FieldAccess { target, .. } => self.collect_expr(target, scopes),
+            TypedExprKind::EnumConstructor {
+                enum_name, payload, ..
+            } => {
+                self.add_type_usage(enum_name.span, &enum_name.name);
+                for expr in payload {
+                    self.collect_expr(expr, scopes);
+                }
+            }
+            TypedExprKind::Match { scrutinee, arms } => {
+                self.collect_expr(scrutinee, scopes);
+                for arm in arms {
+                    self.collect_match_arm(arm, scopes);
+                }
+            }
         }
+    }
+
+    fn collect_match_arm(&mut self, arm: &TypedMatchArm, scopes: &mut Vec<HashMap<String, Span>>) {
+        scopes.push(HashMap::new());
+        self.collect_pattern(&arm.pattern, scopes);
+        self.collect_block(&arm.body, scopes);
+        scopes.pop();
+    }
+
+    fn collect_pattern(&mut self, pattern: &TypedPattern, scopes: &mut Vec<HashMap<String, Span>>) {
+        match pattern {
+            TypedPattern::Binding(identifier) => {
+                if let Some(span) = identifier.span {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: span,
+                        target: span,
+                    });
+                    if let Some(scope) = scopes.last_mut() {
+                        scope.insert(identifier.name.clone(), span);
+                    }
+                }
+            }
+            TypedPattern::Struct { name, fields } => {
+                self.add_type_usage(name.span, &name.name);
+                for field in fields {
+                    self.collect_pattern(&field.pattern, scopes);
+                }
+            }
+            TypedPattern::EnumVariant {
+                enum_name, payload, ..
+            } => {
+                self.add_type_usage(enum_name.span, &enum_name.name);
+                for pattern in payload {
+                    self.collect_pattern(pattern, scopes);
+                }
+            }
+        }
+    }
+
+    fn collect_struct_literal_field(
+        &mut self,
+        field: &TypedStructLiteralField,
+        scopes: &mut Vec<HashMap<String, Span>>,
+    ) {
+        self.collect_expr(&field.value, scopes);
     }
 
     fn add_hover_span(&mut self, span: Span, ty: &Type) {
@@ -369,6 +466,16 @@ impl DocumentState {
         let Some(usage_span) = span else { return };
 
         if let Some(target_span) = self.lookup_definition(name, scopes) {
+            self.definition_entries.push(DefinitionEntry {
+                usage: usage_span,
+                target: target_span,
+            });
+        }
+    }
+
+    fn add_type_usage(&mut self, span: Option<Span>, name: &str) {
+        let Some(usage_span) = span else { return };
+        if let Some(target_span) = self.type_definitions.get(name).copied() {
             self.definition_entries.push(DefinitionEntry {
                 usage: usage_span,
                 target: target_span,
@@ -436,6 +543,8 @@ impl DocumentState {
             .iter()
             .filter_map(|definition| match definition {
                 TypedDefinition::Function(function) => self.function_symbol(function),
+                TypedDefinition::Struct(definition) => self.struct_symbol(definition),
+                TypedDefinition::Enum(definition) => self.enum_symbol(definition),
             })
             .collect()
     }
@@ -453,6 +562,96 @@ impl DocumentState {
             range: self.span_to_range(name_span),
             selection_range: self.span_to_range(name_span),
             children: None,
+        };
+
+        Some(symbol)
+    }
+
+    fn struct_symbol(&self, definition: &TypedStructDef) -> Option<DocumentSymbol> {
+        let name_span = definition.name.span?;
+        let mut children = Vec::new();
+        for field in &definition.fields {
+            if let Some(span) = field.name.span {
+                #[allow(deprecated)]
+                let child = DocumentSymbol {
+                    name: field.name.name.clone(),
+                    detail: Some(field.ty.to_string()),
+                    kind: SymbolKind::FIELD,
+                    tags: None,
+                    deprecated: None,
+                    range: self.span_to_range(span),
+                    selection_range: self.span_to_range(span),
+                    children: None,
+                };
+                children.push(child);
+            }
+        }
+
+        #[allow(deprecated)]
+        let symbol = DocumentSymbol {
+            name: definition.name.name.clone(),
+            detail: Some(definition.ty.to_string()),
+            kind: SymbolKind::STRUCT,
+            tags: None,
+            deprecated: None,
+            range: self.span_to_range(name_span),
+            selection_range: self.span_to_range(name_span),
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
+        };
+
+        Some(symbol)
+    }
+
+    fn enum_symbol(&self, definition: &TypedEnumDef) -> Option<DocumentSymbol> {
+        let name_span = definition.name.span?;
+        let mut children = Vec::new();
+        for variant in &definition.variants {
+            if let Some(span) = variant.name.span {
+                let detail = if variant.payload.is_empty() {
+                    None
+                } else {
+                    Some(
+                        variant
+                            .payload
+                            .iter()
+                            .map(|ty| ty.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    )
+                };
+                #[allow(deprecated)]
+                let child = DocumentSymbol {
+                    name: variant.name.name.clone(),
+                    detail,
+                    kind: SymbolKind::ENUM_MEMBER,
+                    tags: None,
+                    deprecated: None,
+                    range: self.span_to_range(span),
+                    selection_range: self.span_to_range(span),
+                    children: None,
+                };
+                children.push(child);
+            }
+        }
+
+        #[allow(deprecated)]
+        let symbol = DocumentSymbol {
+            name: definition.name.name.clone(),
+            detail: Some(definition.ty.to_string()),
+            kind: SymbolKind::ENUM,
+            tags: None,
+            deprecated: None,
+            range: self.span_to_range(name_span),
+            selection_range: self.span_to_range(name_span),
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
         };
 
         Some(symbol)

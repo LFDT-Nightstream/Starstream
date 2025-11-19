@@ -16,13 +16,10 @@ use starstream_types::{Spanned, Type};
 
 /// Execute a program.
 pub fn exec_program(program: &TypedProgram) {
-    if let Some(function) = program
-        .definitions
-        .iter()
-        .find_map(|definition| match definition {
-            TypedDefinition::Function(function) => Some(function),
-        })
-    {
+    if let Some(function) = program.definitions.iter().find_map(|definition| match definition {
+        TypedDefinition::Function(function) => Some(function),
+        TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => None,
+    }) {
         eval_function(function);
     }
 }
@@ -215,6 +212,12 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
         }
         // Nesting
         TypedExprKind::Grouping(expr) => eval(&expr.node, locals),
+        TypedExprKind::StructLiteral { .. }
+        | TypedExprKind::FieldAccess { .. }
+        | TypedExprKind::EnumConstructor { .. }
+        | TypedExprKind::Match { .. } => {
+            todo!("structs and enums are not supported in the interpreter yet")
+        }
     }
 }
 

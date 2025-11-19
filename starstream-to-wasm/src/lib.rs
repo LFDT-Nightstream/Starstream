@@ -255,6 +255,9 @@ impl Compiler {
         for definition in &program.definitions {
             match definition {
                 TypedDefinition::Function(func) => self.visit_function(func),
+                TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {
+                    self.todo("structs and enums are not supported in Wasm yet".into())
+                }
             }
         }
     }
@@ -812,6 +815,13 @@ impl Compiler {
             },
             // Nesting
             TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
+            TypedExprKind::StructLiteral { .. }
+            | TypedExprKind::FieldAccess { .. }
+            | TypedExprKind::EnumConstructor { .. }
+            | TypedExprKind::Match { .. } => {
+                self.todo("structs and enums are not supported in Wasm yet".to_string());
+                Intermediate::Error
+            }
         }
     }
 

@@ -80,10 +80,10 @@ fn let_binding_traces() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let answer = 42;
-        let foo: i64 = 10;
-        let bar: bool = false;
-        let baz: _ = 2;
+            let answer = 42;
+            let foo: i64 = 10;
+            let bar: bool = false;
+            let baz: _ = 2;
         }
         "#
     );
@@ -94,9 +94,9 @@ fn binary_add_traces() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let left = 1;
-        let right = 2;
-        let total = left + right;
+            let left = 1;
+            let right = 2;
+            let total = left + right;
         }
         "#
     );
@@ -107,10 +107,10 @@ fn if_branch_traces() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let mut score = 10;
-        if (score > 5) {
-            score = score + 1;
-        }
+            let mut score = 10;
+            if (score > 5) {
+                score = score + 1;
+            }
         }
         "#
     );
@@ -121,10 +121,70 @@ fn while_loop_traces() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let mut counter = 0;
-        while (counter < 3) {
-            counter = counter + 1;
+            let mut counter = 0;
+            while (counter < 3) {
+                counter = counter + 1;
+            }
         }
+        "#
+    );
+}
+
+#[test]
+fn struct_literals_and_field_access() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+
+        fn total(point: Point) -> i64 {
+            let translated = Point {
+                x: point.x + 1,
+                y: point.y + 1,
+            };
+
+            translated.x + translated.y
+        }
+        "#
+    );
+}
+
+#[test]
+fn enum_match_inference() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Message {
+            Ping,
+            Pong(i64),
+        }
+
+        fn respond(msg: Message) -> i64 {
+            match msg {
+                Message::Ping => {
+                    0
+                },
+                Message::Pong(value) => {
+                    value
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn struct_literal_missing_field_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+
+        fn bad() {
+            let value = Point { x: 1 };
         }
         "#
     );
@@ -135,8 +195,8 @@ fn reports_type_error() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let flag = true;
-        let x = flag + 1;
+            let flag = true;
+            let x = flag + 1;
         }
         "#
     );
@@ -147,8 +207,8 @@ fn reports_immutable_error() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let flag = true;
-        flag = false;
+            let flag = true;
+            flag = false;
         }
         "#
     );
@@ -159,7 +219,7 @@ fn reports_let_annotation_error() {
     assert_typecheck_snapshot!(
         r#"
         fn test() {
-        let wrong: bool = 1;
+            let wrong: bool = 1;
         }
         "#
     );

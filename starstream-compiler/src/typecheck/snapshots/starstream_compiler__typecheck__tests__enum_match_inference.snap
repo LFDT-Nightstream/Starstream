@@ -1,0 +1,34 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Message {\nPing,\nPong(i64),\n}\n\nfn respond(msg: Message) -> i64 {\nmatch msg {\n    Message::Ping => {\n        0\n    },\n    Message::Pong(value) => {\n        value\n    },\n}\n}\n"
+---
+:  => 
+
+T-Fn: respond => i64
+  T-ReturnTail: match msg {
+    Message::Ping => {
+        0
+    }
+    Message::Pong(value) => {
+        value
+    }
+} => i64
+    T-Match: {msg: enum { Ping, Pong(i64) }} ⊢ match msg {
+    Message::Ping => {
+        0
+    }
+    Message::Pong(value) => {
+        value
+    }
+} ⇒ i64
+      T-Var: {msg: enum { Ping, Pong(i64) }} ⊢ msg ⇒ enum { Ping, Pong(i64) }
+      Unify-Enum: enum { Ping, Pong(i64) } ~ enum { Ping, Pong(i64) } => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: 0 => i64
+        T-Int: {msg: enum { Ping, Pong(i64) }} ⊢ 0 ⇒ i64
+      Unify-Enum: enum { Ping, Pong(i64) } ~ enum { Ping, Pong(i64) } => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: value => i64
+        T-Var: {msg: enum { Ping, Pong(i64) }, value: i64} ⊢ value ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
