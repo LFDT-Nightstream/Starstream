@@ -509,18 +509,6 @@ impl Compiler {
         }
     }
 
-    fn im_to_stack<'i>(&mut self, func: &mut Function, im: Intermediate<'i>) -> Option<&'i Type> {
-        match im {
-            // Intermediate::Local { local, ty } => {
-            //     for i in 0..self.count_type_stack_slots(ty) {
-            //         func.instructions().local_get(local + i);
-            //     }
-            //     Some(ty)
-            // }
-            Intermediate::Stack(ty) => Some(ty),
-        }
-    }
-
     fn push_error(&mut self, span: Span, message: impl Into<String>) {
         self.errors.push(CompileError {
             message: message.into(),
@@ -561,9 +549,6 @@ impl Compiler {
                 Ok(Intermediate::Stack(&Type::Bool))
             }
             TypedExprKind::Literal(Literal::Unit) => Ok(Intermediate::Stack(&Type::Unit)),
-            TypedExprKind::StructLiteral { name, fields } => {
-                Err(self.todo("StructLiteral".to_owned()))
-            }
             // Arithmetic operators
             TypedExprKind::Binary {
                 op: BinaryOp::Add,
@@ -819,6 +804,7 @@ impl Compiler {
             },
             // Field access
             TypedExprKind::FieldAccess { target, field } => {
+                // TODO: this always fetches to the stack but we don't want that.
                 let lhs = self.visit_expr(func, locals, target.span, &target.node);
                 match lhs? {
                     Intermediate::Stack(Type::Record(fields)) => {
@@ -832,6 +818,7 @@ impl Compiler {
                             offset += self.count_type_stack_slots(&f.ty);
                         }
                         if let Some(ty) = ty {
+                            // TODO: only works on the first parameter right now.
                             func.instructions().local_get(offset);
                             Ok(Intermediate::Stack(ty))
                         } else {
@@ -854,9 +841,9 @@ impl Compiler {
             // Nesting
             TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
             // Todo
-            TypedExprKind::EnumConstructor { .. } | TypedExprKind::Match { .. } => {
-                Err(self.todo("enums are not supported in Wasm yet".to_string()))
-            }
+            TypedExprKind::StructLiteral { .. }
+            | TypedExprKind::EnumConstructor { .. }
+            | TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
         }
     }
 
