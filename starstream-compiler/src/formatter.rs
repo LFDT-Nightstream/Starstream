@@ -447,7 +447,7 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
                 }
                 Expr::FieldAccess { target, field } => {
                     let receiver =
-                        expr_with_prec(&target.node, prec, ChildPosition::Left).group();
+                        expr_with_prec(&target.node, PREC_PRIMARY, ChildPosition::Top);
                     receiver
                         .append(RcDoc::text("."))
                         .append(identifier_to_doc(field))
@@ -645,6 +645,19 @@ mod tests {
                         y = y * (x + y);
                     }
                 }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn struct_field_access() {
+        assert_format_snapshot!(
+            r#"
+            struct Point { x: i64 }
+
+            fn add(a: Point, b: i64) -> i64 {
+                a.x + b
             }
             "#,
         );
