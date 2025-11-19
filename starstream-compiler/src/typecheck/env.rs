@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use starstream_types::{types::EnumVariantKind, Scheme, Span, Type, TypeVarId};
+use starstream_types::{Scheme, Span, Type, TypeVarId, types::EnumVariantKind};
 
 #[derive(Clone, Debug)]
 pub struct Binding {

@@ -104,10 +104,7 @@ fn enum_definition<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
 
     let variant = primitives::identifier()
         .then(payload)
-        .map(|(name, payload)| EnumVariant {
-            name,
-            payload,
-        });
+        .map(|(name, payload)| EnumVariant { name, payload });
 
     just("enum")
         .padded()

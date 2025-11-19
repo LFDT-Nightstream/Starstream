@@ -3,10 +3,6 @@
 use std::collections::{HashMap, HashSet};
 
 use starstream_types::{
-    types::{
-        EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
-        RecordFieldType as TypeRecordField, RecordType,
-    },
     Scheme, Span, Spanned, Type, TypeVarId,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
@@ -14,10 +10,15 @@ use starstream_types::{
         StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
-        TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef, TypedEnumPatternPayload,
-        TypedEnumVariant, TypedEnumVariantPayload, TypedExpr, TypedExprKind, TypedFunctionDef,
-        TypedFunctionParam, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement,
-        TypedStructDef, TypedStructField, TypedStructLiteralField, TypedStructPatternField,
+        TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef,
+        TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload, TypedExpr,
+        TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedMatchArm, TypedPattern,
+        TypedProgram, TypedStatement, TypedStructDef, TypedStructField, TypedStructLiteralField,
+        TypedStructPatternField,
+    },
+    types::{
+        EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
+        RecordFieldType as TypeRecordField, RecordType,
     },
 };
 
@@ -198,10 +199,7 @@ impl Inferencer {
         }
     }
 
-    fn register_type_definitions(
-        &mut self,
-        definitions: &[Definition],
-    ) -> Result<(), TypeError> {
+    fn register_type_definitions(&mut self, definitions: &[Definition]) -> Result<(), TypeError> {
         for definition in definitions {
             match definition {
                 Definition::Struct(def) => self.register_struct(def)?,
@@ -215,30 +213,26 @@ impl Inferencer {
     fn register_struct(&mut self, def: &StructDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
         if let Some(existing) = self.types.get(&name) {
-            return Err(
-                TypeError::new(
-                    TypeErrorKind::TypeAlreadyDefined { name },
-                    def.name.span.unwrap_or_else(dummy_span),
-                )
-                .with_secondary(existing.span, "previously defined here"),
-            );
+            return Err(TypeError::new(
+                TypeErrorKind::TypeAlreadyDefined { name },
+                def.name.span.unwrap_or_else(dummy_span),
+            )
+            .with_secondary(existing.span, "previously defined here"));
         }
 
         let mut seen = HashMap::new();
         let mut fields = Vec::with_capacity(def.fields.len());
         for field in &def.fields {
             if let Some(previous_span) = seen.get(&field.name.name) {
-                return Err(
-                    TypeError::new(
-                        TypeErrorKind::DuplicateStructField {
-                            struct_name: def.name.name.clone(),
-                            field_name: field.name.name.clone(),
-                        },
-                        field.name.span.unwrap_or_else(dummy_span),
-                    )
-                    .with_primary_message("duplicate")
-                    .with_secondary(*previous_span, "first defined here"),
-                );
+                return Err(TypeError::new(
+                    TypeErrorKind::DuplicateStructField {
+                        struct_name: def.name.name.clone(),
+                        field_name: field.name.name.clone(),
+                    },
+                    field.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_primary_message("duplicate")
+                .with_secondary(*previous_span, "first defined here"));
             }
             seen.insert(
                 field.name.name.clone(),
@@ -271,30 +265,26 @@ impl Inferencer {
     fn register_enum(&mut self, def: &EnumDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
         if let Some(existing) = self.types.get(&name) {
-            return Err(
-                TypeError::new(
-                    TypeErrorKind::TypeAlreadyDefined { name },
-                    def.name.span.unwrap_or_else(dummy_span),
-                )
-                .with_secondary(existing.span, "previously defined here"),
-            );
+            return Err(TypeError::new(
+                TypeErrorKind::TypeAlreadyDefined { name },
+                def.name.span.unwrap_or_else(dummy_span),
+            )
+            .with_secondary(existing.span, "previously defined here"));
         }
 
         let mut seen = HashMap::new();
         let mut variants = Vec::with_capacity(def.variants.len());
         for variant in &def.variants {
             if let Some(previous_span) = seen.get(&variant.name.name) {
-                return Err(
-                    TypeError::new(
-                        TypeErrorKind::DuplicateEnumVariant {
-                            enum_name: def.name.name.clone(),
-                            variant_name: variant.name.name.clone(),
-                        },
-                        variant.name.span.unwrap_or_else(dummy_span),
-                    )
-                    .with_primary_message("duplicate")
-                    .with_secondary(*previous_span, "first defined here"),
-                );
+                return Err(TypeError::new(
+                    TypeErrorKind::DuplicateEnumVariant {
+                        enum_name: def.name.name.clone(),
+                        variant_name: variant.name.name.clone(),
+                    },
+                    variant.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_primary_message("duplicate")
+                .with_secondary(*previous_span, "first defined here"));
             }
             seen.insert(
                 variant.name.name.clone(),
@@ -314,20 +304,18 @@ impl Inferencer {
                     let mut payload = Vec::with_capacity(fields.len());
                     for field in fields {
                         if let Some(previous_span) = seen_fields.get(&field.name.name) {
-                            return Err(
-                                TypeError::new(
-                                    TypeErrorKind::DuplicateStructField {
-                                        struct_name: format!(
-                                            "{}::{}",
-                                            def.name.name, variant.name.name
-                                        ),
-                                        field_name: field.name.name.clone(),
-                                    },
-                                    field.name.span.unwrap_or_else(dummy_span),
-                                )
-                                .with_primary_message("duplicate")
-                                .with_secondary(*previous_span, "first defined here"),
-                            );
+                            return Err(TypeError::new(
+                                TypeErrorKind::DuplicateStructField {
+                                    struct_name: format!(
+                                        "{}::{}",
+                                        def.name.name, variant.name.name
+                                    ),
+                                    field_name: field.name.name.clone(),
+                                },
+                                field.name.span.unwrap_or_else(dummy_span),
+                            )
+                            .with_primary_message("duplicate")
+                            .with_secondary(*previous_span, "first defined here"));
                         }
                         seen_fields.insert(
                             field.name.name.clone(),
@@ -381,17 +369,14 @@ impl Inferencer {
     }
 
     fn build_typed_struct(&self, def: &StructDef) -> Result<TypedStructDef, TypeError> {
-        let info = self
-            .types
-            .struct_info(&def.name.name)
-            .ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::UnknownStruct {
-                        name: def.name.name.clone(),
-                    },
-                    def.name.span.unwrap_or_else(dummy_span),
-                )
-            })?;
+        let info = self.types.struct_info(&def.name.name).ok_or_else(|| {
+            TypeError::new(
+                TypeErrorKind::UnknownStruct {
+                    name: def.name.name.clone(),
+                },
+                def.name.span.unwrap_or_else(dummy_span),
+            )
+        })?;
 
         let fields = info
             .fields
@@ -410,17 +395,14 @@ impl Inferencer {
     }
 
     fn build_typed_enum(&self, def: &EnumDef) -> Result<TypedEnumDef, TypeError> {
-        let info = self
-            .types
-            .enum_info(&def.name.name)
-            .ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::UnknownEnum {
-                        name: def.name.name.clone(),
-                    },
-                    def.name.span.unwrap_or_else(dummy_span),
-                )
-            })?;
+        let info = self.types.enum_info(&def.name.name).ok_or_else(|| {
+            TypeError::new(
+                TypeErrorKind::UnknownEnum {
+                    name: def.name.name.clone(),
+                },
+                def.name.span.unwrap_or_else(dummy_span),
+            )
+        })?;
 
         let variants = info
             .variants
@@ -432,17 +414,15 @@ impl Inferencer {
                     EnumVariantInfoKind::Tuple(payload) => {
                         TypedEnumVariantPayload::Tuple(payload.clone())
                     }
-                    EnumVariantInfoKind::Struct(fields) => {
-                        TypedEnumVariantPayload::Struct(
-                            fields
-                                .iter()
-                                .map(|field| TypedStructField {
-                                    name: field.name.clone(),
-                                    ty: field.ty.clone(),
-                                })
-                                .collect(),
-                        )
-                    }
+                    EnumVariantInfoKind::Struct(fields) => TypedEnumVariantPayload::Struct(
+                        fields
+                            .iter()
+                            .map(|field| TypedStructField {
+                                name: field.name.clone(),
+                                ty: field.ty.clone(),
+                            })
+                            .collect(),
+                    ),
                 },
             })
             .collect();
@@ -455,29 +435,25 @@ impl Inferencer {
     }
 
     fn lookup_struct_info(&self, name: &Identifier) -> Result<StructInfo, TypeError> {
-        self.types
-            .struct_info(&name.name)
-            .ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::UnknownStruct {
-                        name: name.name.clone(),
-                    },
-                    name.span.unwrap_or_else(dummy_span),
-                )
-            })
+        self.types.struct_info(&name.name).ok_or_else(|| {
+            TypeError::new(
+                TypeErrorKind::UnknownStruct {
+                    name: name.name.clone(),
+                },
+                name.span.unwrap_or_else(dummy_span),
+            )
+        })
     }
 
     fn lookup_enum_info(&self, name: &Identifier) -> Result<EnumInfo, TypeError> {
-        self.types
-            .enum_info(&name.name)
-            .ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::UnknownEnum {
-                        name: name.name.clone(),
-                    },
-                    name.span.unwrap_or_else(dummy_span),
-                )
-            })
+        self.types.enum_info(&name.name).ok_or_else(|| {
+            TypeError::new(
+                TypeErrorKind::UnknownEnum {
+                    name: name.name.clone(),
+                },
+                name.span.unwrap_or_else(dummy_span),
+            )
+        })
     }
 
     fn bind_pattern_identifier(
@@ -588,25 +564,22 @@ impl Inferencer {
 
                         for field in fields {
                             if let Some(previous_span) = seen.get(&field.name.name) {
-                                return Err(
-                                    TypeError::new(
-                                        TypeErrorKind::DuplicateStructLiteralField {
-                                            field_name: field.name.name.clone(),
-                                        },
-                                        field.name.span.unwrap_or_else(dummy_span),
-                                    )
-                                    .with_primary_message("duplicate")
-                                    .with_secondary(*previous_span, "first used here"),
-                                );
+                                return Err(TypeError::new(
+                                    TypeErrorKind::DuplicateStructLiteralField {
+                                        field_name: field.name.name.clone(),
+                                    },
+                                    field.name.span.unwrap_or_else(dummy_span),
+                                )
+                                .with_primary_message("duplicate")
+                                .with_secondary(*previous_span, "first used here"));
                             }
                             seen.insert(
                                 field.name.name.clone(),
                                 field.name.span.unwrap_or_else(dummy_span),
                             );
 
-                            let expected_field = expected_fields
-                                .remove(&field.name.name)
-                                .ok_or_else(|| {
+                            let expected_field =
+                                expected_fields.remove(&field.name.name).ok_or_else(|| {
                                     TypeError::new(
                                         TypeErrorKind::UnknownStructField {
                                             struct_name: struct_name.clone(),
@@ -687,22 +660,22 @@ impl Inferencer {
                 let mut seen = HashMap::new();
                 for field in fields {
                     if let Some(previous_span) = seen.get(&field.name.name) {
-                        return Err(
-                            TypeError::new(
-                                TypeErrorKind::DuplicateStructLiteralField {
-                                    field_name: field.name.name.clone(),
-                                },
-                                field.name.span.unwrap_or_else(dummy_span),
-                            )
-                            .with_primary_message("duplicate")
-                            .with_secondary(*previous_span, "first used here"),
-                        );
+                        return Err(TypeError::new(
+                            TypeErrorKind::DuplicateStructLiteralField {
+                                field_name: field.name.name.clone(),
+                            },
+                            field.name.span.unwrap_or_else(dummy_span),
+                        )
+                        .with_primary_message("duplicate")
+                        .with_secondary(*previous_span, "first used here"));
                     }
-                    seen.insert(field.name.name.clone(), field.name.span.unwrap_or_else(dummy_span));
+                    seen.insert(
+                        field.name.name.clone(),
+                        field.name.span.unwrap_or_else(dummy_span),
+                    );
 
-                    let expected_field = expected_fields
-                        .remove(&field.name.name)
-                        .ok_or_else(|| {
+                    let expected_field =
+                        expected_fields.remove(&field.name.name).ok_or_else(|| {
                             TypeError::new(
                                 TypeErrorKind::UnknownStructField {
                                     struct_name: name.name.clone(),
@@ -712,8 +685,12 @@ impl Inferencer {
                             )
                         })?;
 
-                    let (typed_pattern, mut pattern_traces) =
-                        self.infer_pattern(env, &field.pattern, expected_field.ty.clone(), value_span)?;
+                    let (typed_pattern, mut pattern_traces) = self.infer_pattern(
+                        env,
+                        &field.pattern,
+                        expected_field.ty.clone(),
+                        value_span,
+                    )?;
                     traces.append(&mut pattern_traces);
                     typed_fields.push(TypedStructPatternField {
                         name: field.name.clone(),
@@ -1141,7 +1118,7 @@ impl Inferencer {
 
         let mut tail_expression = None;
         if let Some(expr) = &block.tail_expression {
-                let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
+            let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
             let mut children = vec![expr_trace];
             if treat_tail_as_return {
                 ctx.saw_return = true;
@@ -1487,30 +1464,29 @@ impl Inferencer {
 
                 for field in fields {
                     if let Some(previous_span) = seen.get(&field.name.name) {
-                        return Err(
-                            TypeError::new(
-                                TypeErrorKind::DuplicateStructLiteralField {
-                                    field_name: field.name.name.clone(),
-                                },
-                                field.name.span.unwrap_or_else(dummy_span),
-                            )
-                            .with_primary_message("duplicate")
-                            .with_secondary(*previous_span, "first used here"),
-                        );
+                        return Err(TypeError::new(
+                            TypeErrorKind::DuplicateStructLiteralField {
+                                field_name: field.name.name.clone(),
+                            },
+                            field.name.span.unwrap_or_else(dummy_span),
+                        )
+                        .with_primary_message("duplicate")
+                        .with_secondary(*previous_span, "first used here"));
                     }
-                    seen.insert(field.name.name.clone(), field.name.span.unwrap_or_else(dummy_span));
+                    seen.insert(
+                        field.name.name.clone(),
+                        field.name.span.unwrap_or_else(dummy_span),
+                    );
 
-                    let (expected_ty, _) = expected
-                        .remove(&field.name.name)
-                        .ok_or_else(|| {
-                            TypeError::new(
-                                TypeErrorKind::UnknownStructField {
-                                    struct_name: name.name.clone(),
-                                    field_name: field.name.name.clone(),
-                                },
-                                field.name.span.unwrap_or_else(dummy_span),
-                            )
-                        })?;
+                    let (expected_ty, _) = expected.remove(&field.name.name).ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownStructField {
+                                struct_name: name.name.clone(),
+                                field_name: field.name.name.clone(),
+                            },
+                            field.name.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
 
                     let (typed_value, value_trace) = self.infer_expr(env, &field.value, ctx)?;
                     let actual_ty = typed_value.node.ty.clone();
@@ -1583,9 +1559,11 @@ impl Inferencer {
                         })?,
                     _ => {
                         return Err(TypeError::new(
-                            TypeErrorKind::FieldAccessNotStruct { found: target_ty.clone() },
+                            TypeErrorKind::FieldAccessNotStruct {
+                                found: target_ty.clone(),
+                            },
                             target.span,
-                        ))
+                        ));
                     }
                 };
 
@@ -1634,7 +1612,10 @@ impl Inferencer {
                     (EnumConstructorPayload::Unit, EnumVariantInfoKind::Unit) => {
                         TypedEnumConstructorPayload::Unit
                     }
-                    (EnumConstructorPayload::Tuple(values), EnumVariantInfoKind::Tuple(expected)) => {
+                    (
+                        EnumConstructorPayload::Tuple(values),
+                        EnumVariantInfoKind::Tuple(expected),
+                    ) => {
                         if values.len() != expected.len() {
                             return Err(TypeError::new(
                                 TypeErrorKind::EnumPayloadMismatch {
@@ -1667,7 +1648,10 @@ impl Inferencer {
                         }
                         TypedEnumConstructorPayload::Tuple(typed_values)
                     }
-                    (EnumConstructorPayload::Struct(fields), EnumVariantInfoKind::Struct(expected)) => {
+                    (
+                        EnumConstructorPayload::Struct(fields),
+                        EnumVariantInfoKind::Struct(expected),
+                    ) => {
                         let mut expected_fields = expected
                             .iter()
                             .map(|field| (field.name.name.clone(), field.clone()))
@@ -1679,25 +1663,22 @@ impl Inferencer {
 
                         for field in fields {
                             if let Some(previous_span) = seen.get(&field.name.name) {
-                                return Err(
-                                    TypeError::new(
-                                        TypeErrorKind::DuplicateStructLiteralField {
-                                            field_name: field.name.name.clone(),
-                                        },
-                                        field.name.span.unwrap_or_else(dummy_span),
-                                    )
-                                    .with_primary_message("duplicate")
-                                    .with_secondary(*previous_span, "first used here"),
-                                );
+                                return Err(TypeError::new(
+                                    TypeErrorKind::DuplicateStructLiteralField {
+                                        field_name: field.name.name.clone(),
+                                    },
+                                    field.name.span.unwrap_or_else(dummy_span),
+                                )
+                                .with_primary_message("duplicate")
+                                .with_secondary(*previous_span, "first used here"));
                             }
                             seen.insert(
                                 field.name.name.clone(),
                                 field.name.span.unwrap_or_else(dummy_span),
                             );
 
-                            let expected_field = expected_fields
-                                .remove(&field.name.name)
-                                .ok_or_else(|| {
+                            let expected_field =
+                                expected_fields.remove(&field.name.name).ok_or_else(|| {
                                     TypeError::new(
                                         TypeErrorKind::UnknownStructField {
                                             struct_name: struct_name.clone(),
@@ -1707,7 +1688,8 @@ impl Inferencer {
                                     )
                                 })?;
 
-                            let (typed_value, value_trace) = self.infer_expr(env, &field.value, ctx)?;
+                            let (typed_value, value_trace) =
+                                self.infer_expr(env, &field.value, ctx)?;
                             let actual_ty = typed_value.node.ty.clone();
                             let (_, unify_trace) = self.unify(
                                 actual_ty.clone(),
@@ -1765,13 +1747,10 @@ impl Inferencer {
                     expr.span,
                 );
                 let result_repr = self.maybe_string(|| self.format_type(&typed.node.ty));
-                let tree = self.make_trace(
-                    "T-EnumCtor",
-                    env_context,
-                    subject_repr,
-                    result_repr,
-                    || children,
-                );
+                let tree =
+                    self.make_trace("T-EnumCtor", env_context, subject_repr, result_repr, || {
+                        children
+                    });
                 Ok((typed, tree))
             }
             Expr::Match { scrutinee, arms } => {
@@ -1840,13 +1819,10 @@ impl Inferencer {
                     expr.span,
                 );
                 let result_repr = self.maybe_string(|| self.format_type(&expr_type));
-                let tree = self.make_trace(
-                    "T-Match",
-                    env_context,
-                    subject_repr,
-                    result_repr,
-                    || children,
-                );
+                let tree =
+                    self.make_trace("T-Match", env_context, subject_repr, result_repr, || {
+                        children
+                    });
                 Ok((typed, tree))
             }
         }
@@ -2040,9 +2016,9 @@ impl Inferencer {
                         name: variant.name.clone(),
                         kind: match &variant.kind {
                             TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
-                            TypeEnumVariantKind::Tuple(payload) => {
-                                TypeEnumVariantKind::Tuple(payload.iter().map(|ty| self.apply(ty)).collect())
-                            }
+                            TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
+                                payload.iter().map(|ty| self.apply(ty)).collect(),
+                            ),
                             TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
                                 fields
                                     .iter()
@@ -2157,7 +2133,7 @@ impl Inferencer {
                         self.apply_expr(&mut field.value);
                     }
                 }
-            }
+            },
             TypedExprKind::Match { scrutinee, arms } => {
                 self.apply_expr(scrutinee);
                 for arm in arms {
@@ -2381,9 +2357,7 @@ impl Inferencer {
                 }
 
                 let mut record_children = Vec::new();
-                for (left_field, right_field) in
-                    ls.fields.iter().zip(rs.fields.iter())
-                {
+                for (left_field, right_field) in ls.fields.iter().zip(rs.fields.iter()) {
                     let (_, trace) = self.unify(
                         left_field.ty.clone(),
                         right_field.ty.clone(),
@@ -2413,19 +2387,19 @@ impl Inferencer {
                 }
 
                 let mut enum_children = Vec::new();
-                for (left_variant, right_variant) in
-                    ls.variants.iter().zip(rs.variants.iter())
-                {
+                for (left_variant, right_variant) in ls.variants.iter().zip(rs.variants.iter()) {
                     match (&left_variant.kind, &right_variant.kind) {
                         (TypeEnumVariantKind::Unit, TypeEnumVariantKind::Unit) => {}
-                        (TypeEnumVariantKind::Tuple(left_payload), TypeEnumVariantKind::Tuple(right_payload)) => {
+                        (
+                            TypeEnumVariantKind::Tuple(left_payload),
+                            TypeEnumVariantKind::Tuple(right_payload),
+                        ) => {
                             if left_payload.len() != right_payload.len() {
-                                return Err(
-                                    TypeError::new(error_kind.clone(), left_span)
-                                        .with_secondary(right_span, "enum payload mismatch"),
-                                );
+                                return Err(TypeError::new(error_kind.clone(), left_span)
+                                    .with_secondary(right_span, "enum payload mismatch"));
                             }
-                            for (left_ty, right_ty) in left_payload.iter().zip(right_payload.iter()) {
+                            for (left_ty, right_ty) in left_payload.iter().zip(right_payload.iter())
+                            {
                                 let (_, trace) = self.unify(
                                     left_ty.clone(),
                                     right_ty.clone(),
@@ -2439,20 +2413,23 @@ impl Inferencer {
                                 enum_children.push(trace);
                             }
                         }
-                        (TypeEnumVariantKind::Struct(left_fields), TypeEnumVariantKind::Struct(right_fields)) => {
+                        (
+                            TypeEnumVariantKind::Struct(left_fields),
+                            TypeEnumVariantKind::Struct(right_fields),
+                        ) => {
                             if left_fields.len() != right_fields.len()
                                 || left_fields
                                     .iter()
                                     .zip(right_fields.iter())
                                     .any(|(l, r)| l.name != r.name)
                             {
-                                return Err(
-                                    TypeError::new(error_kind.clone(), left_span)
-                                        .with_secondary(right_span, "enum payload mismatch"),
-                                );
+                                return Err(TypeError::new(error_kind.clone(), left_span)
+                                    .with_secondary(right_span, "enum payload mismatch"));
                             }
 
-                            for (left_field, right_field) in left_fields.iter().zip(right_fields.iter()) {
+                            for (left_field, right_field) in
+                                left_fields.iter().zip(right_fields.iter())
+                            {
                                 let (_, trace) = self.unify(
                                     left_field.ty.clone(),
                                     right_field.ty.clone(),
@@ -2467,10 +2444,8 @@ impl Inferencer {
                             }
                         }
                         _ => {
-                            return Err(
-                                TypeError::new(error_kind.clone(), left_span)
-                                    .with_secondary(right_span, "enum payload mismatch"),
-                            );
+                            return Err(TypeError::new(error_kind.clone(), left_span)
+                                .with_secondary(right_span, "enum payload mismatch"));
                         }
                     }
                 }
@@ -2569,14 +2544,12 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                     name: variant.name.clone(),
                     kind: match &variant.kind {
                         TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
-                        TypeEnumVariantKind::Tuple(payload) => {
-                            TypeEnumVariantKind::Tuple(
-                                payload
-                                    .iter()
-                                    .map(|ty| substitute_type(ty, mapping))
-                                    .collect(),
-                            )
-                        }
+                        TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
+                            payload
+                                .iter()
+                                .map(|ty| substitute_type(ty, mapping))
+                                .collect(),
+                        ),
                         TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
                             fields
                                 .iter()
@@ -2619,13 +2592,18 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
             .fields
             .iter()
             .any(|field| occurs_in(var, &field.ty, subst)),
-        Type::Enum(enum_type) => enum_type.variants.iter().any(|variant| match &variant.kind {
-            TypeEnumVariantKind::Unit => false,
-            TypeEnumVariantKind::Tuple(payload) => payload.iter().any(|ty| occurs_in(var, ty, subst)),
-            TypeEnumVariantKind::Struct(fields) => {
-                fields.iter().any(|field| occurs_in(var, &field.ty, subst))
-            }
-        }),
+        Type::Enum(enum_type) => enum_type
+            .variants
+            .iter()
+            .any(|variant| match &variant.kind {
+                TypeEnumVariantKind::Unit => false,
+                TypeEnumVariantKind::Tuple(payload) => {
+                    payload.iter().any(|ty| occurs_in(var, ty, subst))
+                }
+                TypeEnumVariantKind::Struct(fields) => {
+                    fields.iter().any(|field| occurs_in(var, &field.ty, subst))
+                }
+            }),
         Type::Int | Type::Bool | Type::Unit => false,
     }
 }

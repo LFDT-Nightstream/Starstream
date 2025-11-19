@@ -16,10 +16,14 @@ use starstream_types::{Spanned, Type};
 
 /// Execute a program.
 pub fn exec_program(program: &TypedProgram) {
-    if let Some(function) = program.definitions.iter().find_map(|definition| match definition {
-        TypedDefinition::Function(function) => Some(function),
-        TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => None,
-    }) {
+    if let Some(function) = program
+        .definitions
+        .iter()
+        .find_map(|definition| match definition {
+            TypedDefinition::Function(function) => Some(function),
+            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => None,
+        })
+    {
         eval_function(function);
     }
 }

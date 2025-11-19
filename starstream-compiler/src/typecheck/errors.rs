@@ -72,9 +72,7 @@ impl Diagnostic for TypeError {
             TypeErrorKind::UnknownTypeAnnotation { .. } => {
                 "starstream::type::unknown_type_annotation"
             }
-            TypeErrorKind::TypeAlreadyDefined { .. } => {
-                "starstream::type::type_already_defined"
-            }
+            TypeErrorKind::TypeAlreadyDefined { .. } => "starstream::type::type_already_defined",
             TypeErrorKind::DuplicateStructField { .. } => {
                 "starstream::type::duplicate_struct_field"
             }
@@ -83,31 +81,21 @@ impl Diagnostic for TypeError {
             }
             TypeErrorKind::UnknownStruct { .. } => "starstream::type::unknown_struct",
             TypeErrorKind::UnknownEnum { .. } => "starstream::type::unknown_enum",
-            TypeErrorKind::UnknownStructField { .. } => {
-                "starstream::type::unknown_struct_field"
-            }
+            TypeErrorKind::UnknownStructField { .. } => "starstream::type::unknown_struct_field",
             TypeErrorKind::DuplicateStructLiteralField { .. } => {
                 "starstream::type::duplicate_struct_literal_field"
             }
-            TypeErrorKind::MissingStructField { .. } => {
-                "starstream::type::missing_struct_field"
-            }
+            TypeErrorKind::MissingStructField { .. } => "starstream::type::missing_struct_field",
             TypeErrorKind::FieldAccessNotStruct { .. } => {
                 "starstream::type::field_access_not_struct"
             }
             TypeErrorKind::FieldAccessUnknownField { .. } => {
                 "starstream::type::field_access_unknown_field"
             }
-            TypeErrorKind::UnknownEnumVariant { .. } => {
-                "starstream::type::unknown_enum_variant"
-            }
-            TypeErrorKind::EnumPayloadMismatch { .. } => {
-                "starstream::type::enum_payload_mismatch"
-            }
+            TypeErrorKind::UnknownEnumVariant { .. } => "starstream::type::unknown_enum_variant",
+            TypeErrorKind::EnumPayloadMismatch { .. } => "starstream::type::enum_payload_mismatch",
             TypeErrorKind::MatchNotEnum { .. } => "starstream::type::match_not_enum",
-            TypeErrorKind::PatternEnumMismatch { .. } => {
-                "starstream::type::pattern_enum_mismatch"
-            }
+            TypeErrorKind::PatternEnumMismatch { .. } => "starstream::type::pattern_enum_mismatch",
             TypeErrorKind::UnsupportedTypeFeature { .. } => {
                 "starstream::type::unsupported_type_feature"
             }
@@ -422,10 +410,9 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::FieldAccessNotStruct { found } => {
                 write!(f, "cannot access fields on value of type `{found}`")
             }
-            TypeErrorKind::FieldAccessUnknownField { field_name, ty } => write!(
-                f,
-                "type `{ty}` has no field named `{field_name}`"
-            ),
+            TypeErrorKind::FieldAccessUnknownField { field_name, ty } => {
+                write!(f, "type `{ty}` has no field named `{field_name}`")
+            }
             TypeErrorKind::UnknownEnumVariant {
                 enum_name,
                 variant_name,

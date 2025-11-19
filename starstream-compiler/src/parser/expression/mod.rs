@@ -4,10 +4,10 @@ use starstream_types::ast::{BinaryOp, Expr, Spanned};
 use super::context::Extra;
 use crate::parser::statement;
 
-mod field_access;
 mod additive;
 mod comparison;
 mod equality;
+mod field_access;
 mod logical_and;
 mod logical_or;
 mod multiplicative;
