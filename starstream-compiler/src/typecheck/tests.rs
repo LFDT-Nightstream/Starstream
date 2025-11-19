@@ -152,6 +152,35 @@ fn struct_literals_and_field_access() {
 }
 
 #[test]
+fn enum_struct_pattern_punning() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+        }
+
+        enum Message {
+            Ping,
+            Pong {
+                x: i64,
+            },
+        }
+
+        fn add(a: Point, b: Message) -> i64 {
+            match b {
+                Message::Ping => {
+                    a.x
+                },
+                Message::Pong { x } => {
+                    x + a.x
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
 fn enum_match_inference() {
     assert_typecheck_snapshot!(
         r#"

@@ -366,7 +366,11 @@ fn match_expr_to_doc<'a>(scrutinee: &'a Spanned<Expr>, arms: &'a [MatchArm]) -> 
     if arms.is_empty() {
         doc.append(RcDoc::text("{ }"))
     } else {
-        let items = RcDoc::intersperse(arms.iter().map(match_arm_to_doc), RcDoc::line());
+        let items = RcDoc::intersperse(
+            arms.iter()
+                .map(|arm| match_arm_to_doc(arm).append(RcDoc::text(","))),
+            RcDoc::line(),
+        );
         doc.append(
             RcDoc::text("{")
                 .append(RcDoc::line().append(items).nest(INDENT))
@@ -425,6 +429,11 @@ fn struct_pattern_fields_to_doc<'a>(fields: &'a [StructPatternField]) -> RcDoc<'
     } else {
         let items = RcDoc::intersperse(
             fields.iter().map(|field| {
+                if let Pattern::Binding(binding) = field.pattern.as_ref() {
+                    if binding.name == field.name.name {
+                        return identifier_to_doc(&field.name);
+                    }
+                }
                 identifier_to_doc(&field.name)
                     .append(RcDoc::text(": "))
                     .append(pattern_to_doc(&field.pattern))
@@ -719,6 +728,35 @@ mod tests {
                 Pong {
                     x: i64,
                     y: i64
+                }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn match_arms_with_commas_and_punning() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                x: i64,
+            }
+
+            enum Message {
+                Ping,
+                Pong {
+                    x: i64,
+                },
+            }
+
+            fn add(a: Point, b: Message) -> i64 {
+                match b {
+                    Message::Ping => {
+                        a.x
+                    },
+                    Message::Pong { x } => {
+                        x + a.x
+                    }
                 }
             }
             "#,

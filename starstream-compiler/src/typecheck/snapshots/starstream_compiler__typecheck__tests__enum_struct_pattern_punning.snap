@@ -1,0 +1,43 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+assertion_line: 156
+description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nenum Message {\n    Ping,\n    Pong {\n        x: i64,\n    },\n}\n\nfn add(a: Point, b: Message) -> i64 {\n    match b {\n        Message::Ping => {\n            a.x\n        },\n        Message::Pong { x } => {\n            x + a.x\n        },\n    }\n}\n"
+---
+:  => 
+
+:  => 
+
+T-Fn: add => i64
+  T-ReturnTail: match b {
+    Message::Ping => {
+        a.x
+    },
+    Message::Pong { x } => {
+        x + a.x
+    },
+} => i64
+    T-Match: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }} ⊢ match b {
+    Message::Ping => {
+        a.x
+    },
+    Message::Pong { x } => {
+        x + a.x
+    },
+} ⇒ i64
+      T-Var: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }} ⊢ b ⇒ Message { Ping, Pong { x: i64 } }
+      Unify-Enum: Message { Ping, Pong { x: i64 } } ~ Message { Ping, Pong { x: i64 } } => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: a.x => i64
+        T-FieldAccess: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }} ⊢ a.x ⇒ i64
+          T-Var: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }} ⊢ a ⇒ Point { x: i64 }
+      Unify-Enum: Message { Ping, Pong { x: i64 } } ~ Message { Ping, Pong { x: i64 } } => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: x + a.x => i64
+        T-Bin-Add: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }, x: i64} ⊢ x + a.x ⇒ i64
+          T-Var: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }, x: i64} ⊢ x ⇒ i64
+          T-FieldAccess: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }, x: i64} ⊢ a.x ⇒ i64
+            T-Var: {a: Point { x: i64 }, b: Message { Ping, Pong { x: i64 } }, x: i64} ⊢ a ⇒ Point { x: i64 }
+          Unify-Const: i64 ~ i64 => {}
+          Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 156
+assertion_line: 185
 description: "Source:\n\nenum Message {\n    Ping,\n    Pong(i64),\n}\n\nfn respond(msg: Message) -> i64 {\n    match msg {\n        Message::Ping => {\n            0\n        },\n        Message::Pong(value) => {\n            value\n        },\n    }\n}\n"
 ---
 :  => 
@@ -9,18 +9,18 @@ T-Fn: respond => i64
   T-ReturnTail: match msg {
     Message::Ping => {
         0
-    }
+    },
     Message::Pong(value) => {
         value
-    }
+    },
 } => i64
     T-Match: {msg: Message { Ping, Pong(i64) }} ⊢ match msg {
     Message::Ping => {
         0
-    }
+    },
     Message::Pong(value) => {
         value
-    }
+    },
 } ⇒ i64
       T-Var: {msg: Message { Ping, Pong(i64) }} ⊢ msg ⇒ Message { Ping, Pong(i64) }
       Unify-Enum: Message { Ping, Pong(i64) } ~ Message { Ping, Pong(i64) } => {}

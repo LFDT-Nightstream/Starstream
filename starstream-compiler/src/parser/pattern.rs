@@ -9,11 +9,14 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
 
         let struct_field = identifier
             .clone()
-            .then_ignore(just(':').padded())
-            .then(pattern.clone())
-            .map(|(name, pattern)| StructPatternField {
-                name,
-                pattern: Box::new(pattern),
+            .then(just(':').padded().ignore_then(pattern.clone()).or_not())
+            .map(|(name, pattern)| {
+                let fallback = Pattern::Binding(name.clone());
+
+                StructPatternField {
+                    name,
+                    pattern: Box::new(pattern.unwrap_or(fallback)),
+                }
             });
 
         let tuple_payload = pattern
