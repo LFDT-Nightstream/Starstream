@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let value = 1;\n    let value = 2;\n}\n"
+---
+starstream::type::redeclaration
+
+  x variable `value` is already defined in this scope
+   ,-[test.star:3:9]
+ 1 | fn test() {
+ 2 |     let value = 1;
+   :         ^^|^^
+   :           `-- previously defined here
+ 3 |     let value = 2;
+   :         ^^^^^
+ 4 | }
+   `----

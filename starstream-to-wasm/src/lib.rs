@@ -226,6 +226,8 @@ impl Compiler {
                 ty.defined_type().tuple(children);
                 ComponentValType::Type(idx)
             }
+            Type::Record(_record_field_types) => todo!(),
+            Type::Enum(_enum_variant_types) => todo!(),
         }
     }
 
@@ -255,6 +257,9 @@ impl Compiler {
         for definition in &program.definitions {
             match definition {
                 TypedDefinition::Function(func) => self.visit_function(func),
+                TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {
+                    self.todo("structs and enums are not supported in Wasm yet".into())
+                }
             }
         }
     }
@@ -489,6 +494,7 @@ impl Compiler {
                 func.instructions().i32_const(*b as i32);
                 Intermediate::StackBool
             }
+            TypedExprKind::Literal(Literal::Unit) => Intermediate::Void,
             // Arithmetic operators
             TypedExprKind::Binary {
                 op: BinaryOp::Add,
@@ -812,6 +818,13 @@ impl Compiler {
             },
             // Nesting
             TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
+            TypedExprKind::StructLiteral { .. }
+            | TypedExprKind::FieldAccess { .. }
+            | TypedExprKind::EnumConstructor { .. }
+            | TypedExprKind::Match { .. } => {
+                self.todo("structs and enums are not supported in Wasm yet".to_string());
+                Intermediate::Error
+            }
         }
     }
 
@@ -846,7 +859,6 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
     match ty {
         Type::Var(_) => ok = false,
         Type::Function(_, _) => ok = false,
-
         Type::Int => dest.push(ValType::I64),
         Type::Bool => dest.push(ValType::I32),
         Type::Unit => {}
@@ -855,6 +867,8 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
                 ok = lower_type_to_stack(dest, each) && ok;
             }
         }
+        Type::Record(_record_field_types) => todo!(),
+        Type::Enum(_enum_variant_types) => todo!(),
     }
     ok
 }

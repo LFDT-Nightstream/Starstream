@@ -113,7 +113,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
 fn componentize(wasm: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut encoder = ComponentEncoder::default().validate(true);
-    encoder = encoder.module(&wasm)?;
+    encoder = encoder.module(wasm)?;
     let wasm = encoder.encode()?;
     Ok(wasm)
 }

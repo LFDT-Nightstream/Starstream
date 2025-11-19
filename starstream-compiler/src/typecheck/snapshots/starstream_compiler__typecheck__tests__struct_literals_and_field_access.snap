@@ -1,0 +1,39 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+assertion_line: 135
+description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nfn total(point: Point) -> i64 {\n    let translated = Point {\n        x: point.x + 1,\n        y: point.y + 1,\n    };\n\n    translated.x + translated.y\n}\n"
+---
+:  => 
+
+T-Fn: total => i64
+  T-Let: {point: Point { x: i64, y: i64 }} ⊢ let translated = Point {
+    x: point.x + 1,
+    y: point.y + 1,
+}; ⇒ Point { x: i64, y: i64 }
+    T-StructLit: {point: Point { x: i64, y: i64 }} ⊢ Point {
+    x: point.x + 1,
+    y: point.y + 1,
+} ⇒ Point { x: i64, y: i64 }
+      T-Bin-Add: {point: Point { x: i64, y: i64 }} ⊢ point.x + 1 ⇒ i64
+        T-FieldAccess: {point: Point { x: i64, y: i64 }} ⊢ point.x ⇒ i64
+          T-Var: {point: Point { x: i64, y: i64 }} ⊢ point ⇒ Point { x: i64, y: i64 }
+        T-Int: {point: Point { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+      T-Bin-Add: {point: Point { x: i64, y: i64 }} ⊢ point.y + 1 ⇒ i64
+        T-FieldAccess: {point: Point { x: i64, y: i64 }} ⊢ point.y ⇒ i64
+          T-Var: {point: Point { x: i64, y: i64 }} ⊢ point ⇒ Point { x: i64, y: i64 }
+        T-Int: {point: Point { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+  T-ReturnTail: translated.x + translated.y => i64
+    T-Bin-Add: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.x + translated.y ⇒ i64
+      T-FieldAccess: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.x ⇒ i64
+        T-Var: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated ⇒ Point { x: i64, y: i64 }
+      T-FieldAccess: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.y ⇒ i64
+        T-Var: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated ⇒ Point { x: i64, y: i64 }
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let mut value: i64 = 0;\n    value = true;\n}\n"
+---
+starstream::type::assignment_mismatch
+
+  x cannot assign value of type `bool` to variable `value` of type `i64`
+   ,-[test.star:3:13]
+ 2 |     let mut value: i64 = 0;
+ 3 |     value = true;
+   :     ^^|^^   ^^|^
+   :       |       `-- has type `bool`
+   :       `-- has type `i64`
+ 4 | }
+   `----

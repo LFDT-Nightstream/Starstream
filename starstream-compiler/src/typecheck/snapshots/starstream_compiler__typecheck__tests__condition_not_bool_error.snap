@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    if (1) {\n        ()\n    }\n}\n"
+---
+starstream::type::condition_not_bool
+
+  x the if condition must have type `bool`, found `i64`
+   ,-[test.star:2:9]
+ 1 | fn test() {
+ 2 |     if (1) {
+   :         ^
+ 3 |         ()
+   `----

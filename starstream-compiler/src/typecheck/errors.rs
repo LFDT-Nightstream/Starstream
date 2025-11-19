@@ -72,6 +72,30 @@ impl Diagnostic for TypeError {
             TypeErrorKind::UnknownTypeAnnotation { .. } => {
                 "starstream::type::unknown_type_annotation"
             }
+            TypeErrorKind::TypeAlreadyDefined { .. } => "starstream::type::type_already_defined",
+            TypeErrorKind::DuplicateStructField { .. } => {
+                "starstream::type::duplicate_struct_field"
+            }
+            TypeErrorKind::DuplicateEnumVariant { .. } => {
+                "starstream::type::duplicate_enum_variant"
+            }
+            TypeErrorKind::UnknownStruct { .. } => "starstream::type::unknown_struct",
+            TypeErrorKind::UnknownEnum { .. } => "starstream::type::unknown_enum",
+            TypeErrorKind::UnknownStructField { .. } => "starstream::type::unknown_struct_field",
+            TypeErrorKind::DuplicateStructLiteralField { .. } => {
+                "starstream::type::duplicate_struct_literal_field"
+            }
+            TypeErrorKind::MissingStructField { .. } => "starstream::type::missing_struct_field",
+            TypeErrorKind::FieldAccessNotStruct { .. } => {
+                "starstream::type::field_access_not_struct"
+            }
+            TypeErrorKind::FieldAccessUnknownField { .. } => {
+                "starstream::type::field_access_unknown_field"
+            }
+            TypeErrorKind::UnknownEnumVariant { .. } => "starstream::type::unknown_enum_variant",
+            TypeErrorKind::EnumPayloadMismatch { .. } => "starstream::type::enum_payload_mismatch",
+            TypeErrorKind::MatchNotEnum { .. } => "starstream::type::match_not_enum",
+            TypeErrorKind::PatternEnumMismatch { .. } => "starstream::type::pattern_enum_mismatch",
             TypeErrorKind::UnsupportedTypeFeature { .. } => {
                 "starstream::type::unsupported_type_feature"
             }
@@ -180,6 +204,58 @@ pub enum TypeErrorKind {
     UnknownTypeAnnotation {
         name: String,
     },
+    TypeAlreadyDefined {
+        name: String,
+    },
+    DuplicateStructField {
+        struct_name: String,
+        field_name: String,
+    },
+    DuplicateEnumVariant {
+        enum_name: String,
+        variant_name: String,
+    },
+    UnknownStruct {
+        name: String,
+    },
+    UnknownEnum {
+        name: String,
+    },
+    UnknownStructField {
+        struct_name: String,
+        field_name: String,
+    },
+    DuplicateStructLiteralField {
+        field_name: String,
+    },
+    MissingStructField {
+        struct_name: String,
+        field_name: String,
+    },
+    FieldAccessNotStruct {
+        found: Type,
+    },
+    FieldAccessUnknownField {
+        field_name: String,
+        ty: Type,
+    },
+    UnknownEnumVariant {
+        enum_name: String,
+        variant_name: String,
+    },
+    EnumPayloadMismatch {
+        enum_name: String,
+        variant_name: String,
+        expected: EnumPayloadKind,
+        found: EnumPayloadKind,
+    },
+    MatchNotEnum {
+        found: Type,
+    },
+    PatternEnumMismatch {
+        enum_name: String,
+        found: Type,
+    },
     UnsupportedTypeFeature {
         description: String,
     },
@@ -196,6 +272,49 @@ impl fmt::Display for ConditionContext {
         match self {
             ConditionContext::If => write!(f, "if condition"),
             ConditionContext::While => write!(f, "while condition"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum EnumPayloadKind {
+    Unit,
+    Tuple(usize),
+    Struct(usize),
+}
+
+impl EnumPayloadKind {
+    pub fn unit() -> Self {
+        EnumPayloadKind::Unit
+    }
+
+    pub fn tuple(len: usize) -> Self {
+        EnumPayloadKind::Tuple(len)
+    }
+
+    pub fn struct_payload(len: usize) -> Self {
+        EnumPayloadKind::Struct(len)
+    }
+}
+
+impl fmt::Display for EnumPayloadKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EnumPayloadKind::Unit => write!(f, "no payload"),
+            EnumPayloadKind::Tuple(len) => {
+                if *len == 1 {
+                    write!(f, "a tuple with 1 value")
+                } else {
+                    write!(f, "a tuple with {len} values")
+                }
+            }
+            EnumPayloadKind::Struct(len) => {
+                if *len == 1 {
+                    write!(f, "a struct with 1 field")
+                } else {
+                    write!(f, "a struct with {len} fields")
+                }
+            }
         }
     }
 }
@@ -252,6 +371,71 @@ impl fmt::Display for TypeErrorKind {
             TypeErrorKind::UnknownTypeAnnotation { name } => {
                 write!(f, "unknown type annotation `{name}`")
             }
+            TypeErrorKind::TypeAlreadyDefined { name } => {
+                write!(f, "type `{name}` is already defined in this module")
+            }
+            TypeErrorKind::DuplicateStructField {
+                struct_name,
+                field_name,
+            } => write!(
+                f,
+                "field `{field_name}` appears multiple times in struct `{struct_name}`"
+            ),
+            TypeErrorKind::DuplicateEnumVariant {
+                enum_name,
+                variant_name,
+            } => write!(
+                f,
+                "variant `{variant_name}` appears multiple times in enum `{enum_name}`"
+            ),
+            TypeErrorKind::UnknownStruct { name } => write!(f, "unknown struct `{name}`"),
+            TypeErrorKind::UnknownEnum { name } => write!(f, "unknown enum `{name}`"),
+            TypeErrorKind::UnknownStructField {
+                struct_name,
+                field_name,
+            } => write!(
+                f,
+                "struct `{struct_name}` has no field named `{field_name}`"
+            ),
+            TypeErrorKind::DuplicateStructLiteralField { field_name } => {
+                write!(f, "field `{field_name}` is specified more than once")
+            }
+            TypeErrorKind::MissingStructField {
+                struct_name,
+                field_name,
+            } => write!(
+                f,
+                "struct `{struct_name}` literal is missing field `{field_name}`"
+            ),
+            TypeErrorKind::FieldAccessNotStruct { found } => {
+                write!(f, "cannot access fields on value of type `{found}`")
+            }
+            TypeErrorKind::FieldAccessUnknownField { field_name, ty } => {
+                write!(f, "type `{ty}` has no field named `{field_name}`")
+            }
+            TypeErrorKind::UnknownEnumVariant {
+                enum_name,
+                variant_name,
+            } => write!(
+                f,
+                "enum `{enum_name}` has no variant named `{variant_name}`"
+            ),
+            TypeErrorKind::EnumPayloadMismatch {
+                enum_name,
+                variant_name,
+                expected,
+                found,
+            } => write!(
+                f,
+                "variant `{enum_name}::{variant_name}` expects {expected} but {found} provided"
+            ),
+            TypeErrorKind::MatchNotEnum { found } => {
+                write!(f, "match scrutinee must be an enum, found `{found}`")
+            }
+            TypeErrorKind::PatternEnumMismatch { enum_name, found } => write!(
+                f,
+                "pattern references enum `{enum_name}` but scrutinee has type `{found}`"
+            ),
             TypeErrorKind::UnsupportedTypeFeature { description } => {
                 write!(f, "unsupported type feature: {description}")
             }

@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    Point {\n        x: 1,\n        x: 2,\n    };\n}\n"
+---
+starstream::type::duplicate_struct_literal_field
+
+  x field `x` is specified more than once
+   ,-[test.star:8:9]
+ 6 |     Point {
+ 7 |         x: 1,
+   :         |
+   :         `-- first used here
+ 8 |         x: 2,
+   :         |
+   :         `-- duplicate
+ 9 |     };
+   `----

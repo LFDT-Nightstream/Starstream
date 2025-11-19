@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn compute() -> i64 {\n    return true;\n}\n"
+---
+starstream::type::return_mismatch
+
+  x return type `bool` does not match function signature `i64`
+   ,-[test.star:2:12]
+ 1 | fn compute() -> i64 {
+   :                 ^|^
+   :                  `-- has type `i64`
+ 2 |     return true;
+   :            ^^|^
+   :              `-- has type `bool`
+ 3 | }
+   `----

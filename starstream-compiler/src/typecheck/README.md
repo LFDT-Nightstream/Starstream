@@ -52,6 +52,10 @@ graph LR
     - Parse errors moved to `miette`.
     - Type errors annotate both operands with explicit type messages.
   - `TypecheckSuccess` now collects typed AST + inference trees.
+- **Product & Sum Types**
+  - Struct and enum definitions are registered before inference so annotations and expressions can resolve canonical shapes.
+  - Expressions cover struct literals, field access, enum constructors, and `match` arms, all unified structurally so two types with the same layout interoperate even if they have different names.
+  - Backend stages (Wasm, interpreter) still contain TODOs for the new typed nodes until their representations are finalized.
 
 - **Diagnostics**
   - Introduced `starstream-cli/src/diagnostics.rs` with a shared `print_diagnostic`.

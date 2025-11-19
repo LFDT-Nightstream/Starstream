@@ -18,8 +18,11 @@ pub struct TypedProgram {
 }
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum TypedDefinition {
     Function(TypedFunctionDef),
+    Struct(TypedStructDef),
+    Enum(TypedEnumDef),
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +38,32 @@ pub struct TypedFunctionDef {
 pub struct TypedFunctionParam {
     pub name: Identifier,
     pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedStructDef {
+    pub name: Identifier,
+    pub fields: Vec<TypedStructField>,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedStructField {
+    pub name: Identifier,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedEnumDef {
+    pub name: Identifier,
+    pub variants: Vec<TypedEnumVariant>,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedEnumVariant {
+    pub name: Identifier,
+    pub payload: TypedEnumVariantPayload,
 }
 
 /// Typed statements.
@@ -91,6 +120,76 @@ pub enum TypedExprKind {
         right: Box<Spanned<TypedExpr>>,
     },
     Grouping(Box<Spanned<TypedExpr>>),
+    StructLiteral {
+        name: Identifier,
+        fields: Vec<TypedStructLiteralField>,
+    },
+    FieldAccess {
+        target: Box<Spanned<TypedExpr>>,
+        field: Identifier,
+    },
+    EnumConstructor {
+        enum_name: Identifier,
+        variant: Identifier,
+        payload: TypedEnumConstructorPayload,
+    },
+    Match {
+        scrutinee: Box<Spanned<TypedExpr>>,
+        arms: Vec<TypedMatchArm>,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedStructLiteralField {
+    pub name: Identifier,
+    pub value: Spanned<TypedExpr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedEnumConstructorPayload {
+    Unit,
+    Tuple(Vec<Spanned<TypedExpr>>),
+    Struct(Vec<TypedStructLiteralField>),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedMatchArm {
+    pub pattern: TypedPattern,
+    pub body: TypedBlock,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedPattern {
+    Binding(Identifier),
+    Struct {
+        name: Identifier,
+        fields: Vec<TypedStructPatternField>,
+    },
+    EnumVariant {
+        enum_name: Identifier,
+        variant: Identifier,
+        payload: TypedEnumPatternPayload,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedEnumVariantPayload {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<TypedStructField>),
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedEnumPatternPayload {
+    Unit,
+    Tuple(Vec<TypedPattern>),
+    Struct(Vec<TypedStructPatternField>),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedStructPatternField {
+    pub name: Identifier,
+    pub pattern: Box<TypedPattern>,
 }
 
 impl TypedExpr {

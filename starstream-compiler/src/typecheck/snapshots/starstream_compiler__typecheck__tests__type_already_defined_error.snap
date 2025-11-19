@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nstruct Point {\n    x: i64,\n}\n\nfn noop() { }\n"
+---
+starstream::type::type_already_defined
+
+  x type `Point` is already defined in this module
+   ,-[test.star:1:8]
+ 1 | struct Point {
+   :        ^^|^^
+   :          `-- previously defined here
+ 2 |     x: i64,
+   `----
+   ,-[test.star:5:8]
+ 4 | 
+ 5 | struct Point {
+   :        ^^^^^
+ 6 |     x: i64,
+   `----

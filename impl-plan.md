@@ -52,8 +52,9 @@ Language features:
   - `bool`, (i|u)(8|16|32|64) are aliases
   - `char` is an alias for `UInt<21>`?
   - no floats because of determinism/proving trouble
-- [ ] struct types
+- [x] struct types
   - remember structural typing (see spec)
+  - [ ] codegen/interpreter support for struct values
 - [ ] typedefs
 - [ ] UTXO and token stuff
 - [ ] linear/affine types
@@ -62,15 +63,21 @@ Language features:
 - [ ] builtin container `List<T>` ?
 - [ ] coroutine support (yield/resume)
 - [ ] algebraic effects and effect handlers
-- [ ] enum (tagged union) types
-  - builtin `Option<T>`, `Result<T, E>`
+- [x] enum (tagged union) types
+  - [ ] builtin `Option<T>`, `Result<T, E>`
+  - [ ] support in interpreter/wasm codegen
 - [ ] string type & string literals
-- [ ] patterns and pattern matching
+- [x] patterns and pattern matching
   - exhaustive patterns in arguments?
-  - patterns in `let` LHS?
+  - [ ] support literals in pattern
+  - [ ] patterns in `let` LHS (structs make sense, enums not so much)
+  - [ ] exhaustiveness checking for `match`
+  - [ ] improve diagnostics for pattern/type mismatches
+  - [ ] flag inconsistent `match` arm return values (fallthrough semantics)
 - [ ] fields and foreign field arithmetic (important for interop)
   - `Field<X>`
   - may require targetting Nightstream directly w/o Wasm intermediate
+- [ ] hover/go-to-definition for struct fields, enum variants, pattern bindings
 
 Research:
 

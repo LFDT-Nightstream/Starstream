@@ -2,10 +2,12 @@ use chumsky::{prelude::*, span::SimpleSpan};
 use starstream_types::ast::{BinaryOp, Expr, Spanned};
 
 use super::context::Extra;
+use crate::parser::statement;
 
 mod additive;
 mod comparison;
 mod equality;
+mod field_access;
 mod logical_and;
 mod logical_or;
 mod multiplicative;
@@ -14,8 +16,10 @@ mod unary;
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     recursive(|expression| {
-        let primary = primary::parser(expression).boxed();
-        let unary = unary::parser(primary).boxed();
+        let block_parser = statement::block_parser_with_expr(expression.clone()).boxed();
+        let primary = primary::parser(expression.clone(), block_parser).boxed();
+        let field_access = field_access::parser(primary).boxed();
+        let unary = unary::parser(field_access).boxed();
         let multiplicative = multiplicative::parser(unary).boxed();
         let additive = additive::parser(multiplicative).boxed();
         let comparison = comparison::parser(additive).boxed();
@@ -90,5 +94,43 @@ mod tests {
     #[test]
     fn logical_chaining() {
         assert_expression_snapshot!("(1 < 2) && false || true");
+    }
+
+    #[test]
+    fn struct_literal_expression() {
+        assert_expression_snapshot!(
+            r#"
+            Point {
+                x: 10,
+                y: value + 1,
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn enum_constructor_expression() {
+        assert_expression_snapshot!("Result::Ok(answer)");
+    }
+
+    #[test]
+    fn field_access_chain() {
+        assert_expression_snapshot!("state.position.x");
+    }
+
+    #[test]
+    fn match_expression() {
+        assert_expression_snapshot!(
+            r#"
+            match value {
+                Result::Ok(inner) => {
+                    inner
+                },
+                Result::Err(reason) => {
+                    reason
+                },
+            }
+            "#
+        );
     }
 }

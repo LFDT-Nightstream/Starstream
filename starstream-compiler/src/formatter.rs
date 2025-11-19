@@ -1,7 +1,12 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Identifier,
-    Literal, Program, Spanned, Statement, TypeAnnotation, UnaryOp,
+    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
+    Spanned, Statement, TypeAnnotation, UnaryOp,
+    ast::{
+        EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
+        Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
+        StructPatternField,
+    },
 };
 use std::fmt;
 
@@ -42,6 +47,8 @@ fn program_to_doc(program: &Program) -> RcDoc<'_, ()> {
 fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
     match definition {
         Definition::Function(function) => function_to_doc(function),
+        Definition::Struct(definition) => struct_definition_to_doc(definition),
+        Definition::Enum(definition) => enum_definition_to_doc(definition),
     }
 }
 
@@ -74,6 +81,82 @@ fn function_to_doc(function: &FunctionDef) -> RcDoc<'_, ()> {
 fn function_export_to_doc(export: &FunctionExport) -> RcDoc<'_, ()> {
     match export {
         FunctionExport::Script => RcDoc::text("script"),
+    }
+}
+
+fn struct_definition_to_doc(definition: &StructDef) -> RcDoc<'_, ()> {
+    RcDoc::text("struct")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&definition.name))
+        .append(RcDoc::space())
+        .append(struct_fields_to_doc(&definition.fields))
+}
+
+fn struct_fields_to_doc(fields: &[StructField]) -> RcDoc<'_, ()> {
+    if fields.is_empty() {
+        RcDoc::text("{ }")
+    } else {
+        let entries = RcDoc::intersperse(
+            fields.iter().map(|field| {
+                identifier_to_doc(&field.name)
+                    .append(RcDoc::text(": "))
+                    .append(type_annotation_to_doc(&field.ty))
+                    .append(RcDoc::text(","))
+            }),
+            RcDoc::line(),
+        );
+
+        RcDoc::text("{")
+            .append(RcDoc::line().append(entries).nest(INDENT))
+            .append(RcDoc::line())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn enum_definition_to_doc(definition: &EnumDef) -> RcDoc<'_, ()> {
+    RcDoc::text("enum")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&definition.name))
+        .append(RcDoc::space())
+        .append(enum_variants_to_doc(&definition.variants))
+}
+
+fn enum_variants_to_doc(variants: &[EnumVariant]) -> RcDoc<'_, ()> {
+    if variants.is_empty() {
+        RcDoc::text("{ }")
+    } else {
+        let entries = RcDoc::intersperse(
+            variants
+                .iter()
+                .map(|variant| enum_variant_to_doc(variant).append(RcDoc::text(","))),
+            RcDoc::line(),
+        );
+
+        RcDoc::text("{")
+            .append(RcDoc::line().append(entries).nest(INDENT))
+            .append(RcDoc::line())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn enum_variant_to_doc(variant: &EnumVariant) -> RcDoc<'_, ()> {
+    match &variant.payload {
+        EnumVariantPayload::Unit => identifier_to_doc(&variant.name),
+        EnumVariantPayload::Tuple(types) => {
+            if types.is_empty() {
+                identifier_to_doc(&variant.name).append(RcDoc::text("()"))
+            } else {
+                let payload =
+                    RcDoc::intersperse(types.iter().map(type_annotation_to_doc), RcDoc::text(", "));
+                identifier_to_doc(&variant.name)
+                    .append(RcDoc::text("("))
+                    .append(payload)
+                    .append(RcDoc::text(")"))
+            }
+        }
+        EnumVariantPayload::Struct(fields) => identifier_to_doc(&variant.name)
+            .append(RcDoc::space())
+            .append(struct_fields_to_doc(fields)),
     }
 }
 
@@ -212,6 +295,158 @@ fn type_annotation_to_doc(annotation: &TypeAnnotation) -> RcDoc<'_, ()> {
     doc
 }
 
+fn struct_literal_expr_to_doc<'a>(
+    name: &'a Identifier,
+    fields: &'a [StructLiteralField],
+) -> RcDoc<'a, ()> {
+    identifier_to_doc(name)
+        .append(RcDoc::space())
+        .append(struct_literal_fields_to_doc(fields))
+}
+
+fn struct_literal_fields_to_doc<'a>(fields: &'a [StructLiteralField]) -> RcDoc<'a, ()> {
+    if fields.is_empty() {
+        RcDoc::text("{ }")
+    } else {
+        let body = RcDoc::intersperse(
+            fields.iter().map(|field| {
+                identifier_to_doc(&field.name)
+                    .append(RcDoc::text(": "))
+                    .append(expr_to_doc(&field.value.node))
+                    .append(RcDoc::text(","))
+            }),
+            RcDoc::line(),
+        );
+
+        RcDoc::text("{")
+            .append(RcDoc::line().append(body).nest(INDENT))
+            .append(RcDoc::line())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn enum_constructor_to_doc<'a>(
+    enum_name: &'a Identifier,
+    variant: &'a Identifier,
+    payload: &'a EnumConstructorPayload,
+) -> RcDoc<'a, ()> {
+    let mut doc = identifier_to_doc(enum_name)
+        .append(RcDoc::text("::"))
+        .append(identifier_to_doc(variant));
+
+    doc = match payload {
+        EnumConstructorPayload::Unit => doc,
+        EnumConstructorPayload::Tuple(values) => {
+            if values.is_empty() {
+                doc.append(RcDoc::text("()"))
+            } else {
+                let args = RcDoc::intersperse(
+                    values.iter().map(|expr| expr_to_doc(&expr.node)),
+                    RcDoc::text(", "),
+                );
+                doc.append(RcDoc::text("("))
+                    .append(args)
+                    .append(RcDoc::text(")"))
+            }
+        }
+        EnumConstructorPayload::Struct(fields) => doc
+            .append(RcDoc::space())
+            .append(struct_literal_fields_to_doc(fields)),
+    };
+
+    doc
+}
+
+fn match_expr_to_doc<'a>(scrutinee: &'a Spanned<Expr>, arms: &'a [MatchArm]) -> RcDoc<'a, ()> {
+    let doc = RcDoc::text("match")
+        .append(RcDoc::space())
+        .append(expr_to_doc(&scrutinee.node))
+        .append(RcDoc::space());
+
+    if arms.is_empty() {
+        doc.append(RcDoc::text("{ }"))
+    } else {
+        let items = RcDoc::intersperse(
+            arms.iter()
+                .map(|arm| match_arm_to_doc(arm).append(RcDoc::text(","))),
+            RcDoc::line(),
+        );
+        doc.append(
+            RcDoc::text("{")
+                .append(RcDoc::line().append(items).nest(INDENT))
+                .append(RcDoc::line())
+                .append(RcDoc::text("}")),
+        )
+    }
+}
+
+fn match_arm_to_doc<'a>(arm: &'a MatchArm) -> RcDoc<'a, ()> {
+    pattern_to_doc(&arm.pattern)
+        .append(RcDoc::space())
+        .append(RcDoc::text("=>"))
+        .append(RcDoc::space())
+        .append(block_to_doc(&arm.body))
+}
+
+fn pattern_to_doc<'a>(pattern: &'a Pattern) -> RcDoc<'a, ()> {
+    match pattern {
+        Pattern::Binding(name) => identifier_to_doc(name),
+        Pattern::Struct { name, fields } => identifier_to_doc(name)
+            .append(RcDoc::space())
+            .append(struct_pattern_fields_to_doc(fields)),
+        Pattern::EnumVariant {
+            enum_name,
+            variant,
+            payload,
+        } => {
+            let doc = identifier_to_doc(enum_name)
+                .append(RcDoc::text("::"))
+                .append(identifier_to_doc(variant));
+            match payload {
+                EnumPatternPayload::Unit => doc,
+                EnumPatternPayload::Tuple(items) => {
+                    if items.is_empty() {
+                        doc.append(RcDoc::text("()"))
+                    } else {
+                        let inner =
+                            RcDoc::intersperse(items.iter().map(pattern_to_doc), RcDoc::text(", "));
+                        doc.append(RcDoc::text("("))
+                            .append(inner)
+                            .append(RcDoc::text(")"))
+                    }
+                }
+                EnumPatternPayload::Struct(fields) => doc
+                    .append(RcDoc::space())
+                    .append(struct_pattern_fields_to_doc(fields)),
+            }
+        }
+    }
+}
+
+fn struct_pattern_fields_to_doc<'a>(fields: &'a [StructPatternField]) -> RcDoc<'a, ()> {
+    if fields.is_empty() {
+        RcDoc::text("{ }")
+    } else {
+        let items = RcDoc::intersperse(
+            fields.iter().map(|field| {
+                if let Pattern::Binding(binding) = field.pattern.as_ref() {
+                    if binding.name == field.name.name {
+                        return identifier_to_doc(&field.name);
+                    }
+                }
+                identifier_to_doc(&field.name)
+                    .append(RcDoc::text(": "))
+                    .append(pattern_to_doc(&field.pattern))
+            }),
+            RcDoc::text(", "),
+        );
+        RcDoc::text("{")
+            .append(RcDoc::space())
+            .append(items)
+            .append(RcDoc::space())
+            .append(RcDoc::text("}"))
+    }
+}
 fn expr_to_doc(expr: &Expr) -> RcDoc<'_, ()> {
     expr_with_prec(expr, PREC_LOWEST, ChildPosition::Top)
 }
@@ -242,6 +477,19 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
                         .append(right_doc)
                 }
                 Expr::Grouping(_) => unreachable!(),
+                Expr::StructLiteral { name, fields } => struct_literal_expr_to_doc(name, fields),
+                Expr::FieldAccess { target, field } => {
+                    let receiver = expr_with_prec(&target.node, PREC_PRIMARY, ChildPosition::Top);
+                    receiver
+                        .append(RcDoc::text("."))
+                        .append(identifier_to_doc(field))
+                }
+                Expr::EnumConstructor {
+                    enum_name,
+                    variant,
+                    payload,
+                } => enum_constructor_to_doc(enum_name, variant, payload),
+                Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms),
             };
 
             if needs_parentheses(prec, parent_prec, position) {
@@ -257,6 +505,7 @@ fn literal_to_doc(literal: &Literal) -> RcDoc<'_, ()> {
     match literal {
         Literal::Integer(value) => RcDoc::as_string(*value),
         Literal::Boolean(value) => RcDoc::text(if *value { "true" } else { "false" }),
+        Literal::Unit => RcDoc::text("()"),
     }
 }
 
@@ -287,10 +536,15 @@ fn unary_op_str(op: &UnaryOp) -> &'static str {
 
 fn precedence(expr: &Expr) -> u8 {
     match expr {
-        Expr::Literal(_) | Expr::Identifier(_) => PREC_PRIMARY,
+        Expr::Literal(_)
+        | Expr::Identifier(_)
+        | Expr::StructLiteral { .. }
+        | Expr::EnumConstructor { .. } => PREC_PRIMARY,
         Expr::Grouping(inner) => precedence(&inner.node),
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),
+        Expr::FieldAccess { .. } => PREC_FIELD_ACCESS,
+        Expr::Match { .. } => PREC_LOWEST,
     }
 }
 
@@ -340,6 +594,7 @@ const PREC_ADDITIVE: u8 = 5;
 const PREC_MULTIPLICATIVE: u8 = 6;
 const PREC_UNARY: u8 = 7;
 const PREC_PRIMARY: u8 = 8;
+const PREC_FIELD_ACCESS: u8 = 9;
 const INDENT: isize = 4;
 
 #[cfg(test)]
@@ -420,6 +675,87 @@ mod tests {
                         let mut y = x + 2;
 
                         y = y * (x + y);
+                    }
+                }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn struct_field_access() {
+        assert_format_snapshot!(
+            r#"
+            struct Point { x: i64 }
+
+            fn add(a: Point, b: i64) -> i64 {
+                a.x + b
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn enum_variants_comma_separated() {
+        assert_format_snapshot!(
+            r#"
+            enum Message {
+                Ping,
+                Pong { x: i64     },
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn struct_definition_commas() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                x:   i64,
+                y: i64
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn enum_struct_variant_commas() {
+        assert_format_snapshot!(
+            r#"
+            enum Message {
+                Ping,
+                Pong {
+                    x: i64,
+                    y: i64
+                }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn match_arms_with_commas_and_punning() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                x: i64,
+            }
+
+            enum Message {
+                Ping,
+                Pong {
+                    x: i64,
+                },
+            }
+
+            fn add(a: Point, b: Message) -> i64 {
+                match b {
+                    Message::Ping => {
+                        a.x
+                    },
+                    Message::Pong { x } => {
+                        x + a.x
                     }
                 }
             }

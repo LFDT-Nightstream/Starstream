@@ -12,9 +12,12 @@ pub struct Program {
 }
 
 /// Top-level items.
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Definition {
     Function(FunctionDef),
+    Struct(StructDef),
+    Enum(EnumDef),
 }
 
 /// Statements allowed by the current grammar.
@@ -65,12 +68,30 @@ pub enum Expr {
         right: Box<Spanned<Expr>>,
     },
     Grouping(Box<Spanned<Expr>>),
+    StructLiteral {
+        name: Identifier,
+        fields: Vec<StructLiteralField>,
+    },
+    FieldAccess {
+        target: Box<Spanned<Expr>>,
+        field: Identifier,
+    },
+    EnumConstructor {
+        enum_name: Identifier,
+        variant: Identifier,
+        payload: EnumConstructorPayload,
+    },
+    Match {
+        scrutinee: Box<Spanned<Expr>>,
+        arms: Vec<MatchArm>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Literal {
     Integer(i64),
     Boolean(bool),
+    Unit,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]
@@ -94,6 +115,52 @@ pub enum BinaryOp {
     NotEqual,
     And,
     Or,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StructLiteralField {
+    pub name: Identifier,
+    pub value: Spanned<Expr>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Block,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumConstructorPayload {
+    Unit,
+    Tuple(Vec<Spanned<Expr>>),
+    Struct(Vec<StructLiteralField>),
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum Pattern {
+    Binding(Identifier),
+    Struct {
+        name: Identifier,
+        fields: Vec<StructPatternField>,
+    },
+    EnumVariant {
+        enum_name: Identifier,
+        variant: Identifier,
+        payload: EnumPatternPayload,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StructPatternField {
+    pub name: Identifier,
+    pub pattern: Box<Pattern>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumPatternPayload {
+    Unit,
+    Tuple(Vec<Pattern>),
+    Struct(Vec<StructPatternField>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
@@ -131,6 +198,37 @@ pub enum FunctionExport {
 pub struct FunctionParam {
     pub name: Identifier,
     pub ty: TypeAnnotation,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StructDef {
+    pub name: Identifier,
+    pub fields: Vec<StructField>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StructField {
+    pub name: Identifier,
+    pub ty: TypeAnnotation,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EnumDef {
+    pub name: Identifier,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EnumVariant {
+    pub name: Identifier,
+    pub payload: EnumVariantPayload,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumVariantPayload {
+    Unit,
+    Tuple(Vec<TypeAnnotation>),
+    Struct(Vec<StructField>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

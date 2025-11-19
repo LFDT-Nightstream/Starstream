@@ -21,6 +21,7 @@ pub fn exec_program(program: &TypedProgram) {
         .iter()
         .find_map(|definition| match definition {
             TypedDefinition::Function(function) => Some(function),
+            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => None,
         })
     {
         eval_function(function);
@@ -117,6 +118,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
         // Literals
         TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
+        TypedExprKind::Literal(Literal::Unit) => Value::None,
         // Arithmetic operators
         TypedExprKind::Binary {
             op: BinaryOp::Add,
@@ -215,6 +217,12 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
         }
         // Nesting
         TypedExprKind::Grouping(expr) => eval(&expr.node, locals),
+        TypedExprKind::StructLiteral { .. }
+        | TypedExprKind::FieldAccess { .. }
+        | TypedExprKind::EnumConstructor { .. }
+        | TypedExprKind::Match { .. } => {
+            todo!("structs and enums are not supported in the interpreter yet")
+        }
     }
 }
 

@@ -9,3 +9,21 @@
         (_)*    ; statements / tail expr
         "}" @close)
 ) @item)
+
+((struct_definition
+    "struct" @context
+    (identifier) @name
+    (_)*  ; fields
+    "{" @open
+    (_)*  ; struct field entries
+    "}" @close
+) @item)
+
+((enum_definition
+    "enum" @context
+    (identifier) @name
+    (_)*  ; variants
+    "{" @open
+    (_)*  ; enum variant entries
+    "}" @close
+) @item)

@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn takes(value: Missing) {\n    value;\n}\n"
+---
+starstream::type::unknown_type_annotation
+
+  x unknown type annotation `Missing`
+   ,-[test.star:1:17]
+ 1 | fn takes(value: Missing) {
+   :                 ^^^^^^^
+ 2 |     value;
+   `----

@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+assertion_line: 497
+description: "Source:\n\nenum Message {\n    Ping(i64),\n}\n\nfn test() {\n    Message::Ping();\n}\n"
+---
+starstream::type::enum_payload_mismatch
+
+  x variant `Message::Ping` expects a tuple with 1 value but a tuple with 0 values provided
+   ,-[test.star:6:14]
+ 5 | fn test() {
+ 6 |     Message::Ping();
+   :              ^^^^
+ 7 | }
+   `----

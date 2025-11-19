@@ -1,0 +1,37 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+assertion_line: 113
+description: "Code:\n\nResult::Ok(answer)"
+---
+Spanned {
+    node: EnumConstructor {
+        enum_name: Identifier {
+            name: "Result",
+            span: Some(
+                0..6,
+            ),
+        },
+        variant: Identifier {
+            name: "Ok",
+            span: Some(
+                8..10,
+            ),
+        },
+        payload: Tuple(
+            [
+                Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "answer",
+                            span: Some(
+                                11..17,
+                            ),
+                        },
+                    ),
+                    span: 11..17,
+                },
+            ],
+        ),
+    },
+    span: 0..18,
+}

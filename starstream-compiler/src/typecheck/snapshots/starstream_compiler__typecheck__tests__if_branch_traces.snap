@@ -1,7 +1,6 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 104
-description: "Source:\n\nfn test() {\nlet mut score = 10;\nif (score > 5) {\n    score = score + 1;\n}\n}\n"
+description: "Source:\n\nfn test() {\n    let mut score = 10;\n    if (score > 5) {\n        score = score + 1;\n    }\n}\n"
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let mut score = 10; ⇒ i64
@@ -13,7 +12,7 @@ T-Fn: test => ()
       T-Var: {score: i64} ⊢ score ⇒ i64
       T-Int: {score: i64} ⊢ 5 ⇒ i64
       Check-Compare: i64 vs i64 => ok (int)
-    Unify-Const: bool ~ bool => {}
+    Check-Bool: bool => ok
     T-Assign: {score: i64} ⊢ score = score + 1; ⇒ i64
       T-Bin-Add: {score: i64} ⊢ score + 1 ⇒ i64
         T-Var: {score: i64} ⊢ score ⇒ i64

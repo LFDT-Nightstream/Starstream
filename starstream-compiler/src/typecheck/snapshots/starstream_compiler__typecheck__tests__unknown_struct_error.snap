@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    Missing {\n        value: 1,\n    };\n}\n"
+---
+starstream::type::unknown_struct
+
+  x unknown struct `Missing`
+   ,-[test.star:2:5]
+ 1 | fn test() {
+ 2 |     Missing {
+   :     ^^^^^^^
+ 3 |         value: 1,
+   `----

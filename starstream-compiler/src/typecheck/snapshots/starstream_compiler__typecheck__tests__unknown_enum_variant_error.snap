@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Message {\n    Ping,\n}\n\nfn test() {\n    Message::Pong;\n}\n"
+---
+starstream::type::unknown_enum_variant
+
+  x enum `Message` has no variant named `Pong`
+   ,-[test.star:6:14]
+ 5 | fn test() {
+ 6 |     Message::Pong;
+   :              ^^^^
+ 7 | }
+   `----

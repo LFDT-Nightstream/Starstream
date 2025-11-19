@@ -26,7 +26,7 @@ impl<T: Print> Print for CustomPrinter<T> {
                 .unwrap();
             self.write_str("\n  (@custom \"component-type\"")?;
             for line in wat.split("\n") {
-                if line != "" {
+                if !line.is_empty() {
                     self.write_str("\n    ")?;
                     self.write_str(line)?;
                 }

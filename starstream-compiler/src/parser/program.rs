@@ -62,4 +62,28 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn struct_definition() {
+        assert_program_snapshot!(
+            r#"
+            struct Point {
+                x: i64,
+                y: i64,
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn enum_definition() {
+        assert_program_snapshot!(
+            r#"
+            enum Message {
+                Ping,
+                Pong(i64),
+            }
+            "#
+        );
+    }
 }

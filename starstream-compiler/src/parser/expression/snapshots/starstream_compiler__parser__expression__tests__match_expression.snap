@@ -1,0 +1,111 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+assertion_line: 123
+description: "Code:\n\nmatch value {\n    Result::Ok(inner) => {\n        inner\n    },\n    Result::Err(reason) => {\n        reason\n    },\n}\n"
+---
+Spanned {
+    node: Match {
+        scrutinee: Spanned {
+            node: Identifier(
+                Identifier {
+                    name: "value",
+                    span: Some(
+                        6..11,
+                    ),
+                },
+            ),
+            span: 6..12,
+        },
+        arms: [
+            MatchArm {
+                pattern: EnumVariant {
+                    enum_name: Identifier {
+                        name: "Result",
+                        span: Some(
+                            18..24,
+                        ),
+                    },
+                    variant: Identifier {
+                        name: "Ok",
+                        span: Some(
+                            26..28,
+                        ),
+                    },
+                    payload: Tuple(
+                        [
+                            Binding(
+                                Identifier {
+                                    name: "inner",
+                                    span: Some(
+                                        29..34,
+                                    ),
+                                },
+                            ),
+                        ],
+                    ),
+                },
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Identifier(
+                                Identifier {
+                                    name: "inner",
+                                    span: Some(
+                                        49..54,
+                                    ),
+                                },
+                            ),
+                            span: 49..59,
+                        },
+                    ),
+                },
+            },
+            MatchArm {
+                pattern: EnumVariant {
+                    enum_name: Identifier {
+                        name: "Result",
+                        span: Some(
+                            66..72,
+                        ),
+                    },
+                    variant: Identifier {
+                        name: "Err",
+                        span: Some(
+                            74..77,
+                        ),
+                    },
+                    payload: Tuple(
+                        [
+                            Binding(
+                                Identifier {
+                                    name: "reason",
+                                    span: Some(
+                                        78..84,
+                                    ),
+                                },
+                            ),
+                        ],
+                    ),
+                },
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Identifier(
+                                Identifier {
+                                    name: "reason",
+                                    span: Some(
+                                        99..105,
+                                    ),
+                                },
+                            ),
+                            span: 99..110,
+                        },
+                    ),
+                },
+            },
+        ],
+    },
+    span: 0..115,
+}

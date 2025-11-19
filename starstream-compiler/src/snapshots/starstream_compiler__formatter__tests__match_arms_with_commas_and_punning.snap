@@ -1,0 +1,26 @@
+---
+source: starstream-compiler/src/formatter.rs
+assertion_line: 739
+description: "Code:\n\nstruct Point {\n    x: i64,\n}\n\nenum Message {\n    Ping,\n    Pong {\n        x: i64,\n    },\n}\n\nfn add(a: Point, b: Message) -> i64 {\n    match b {\n        Message::Ping => {\n            a.x\n        },\n        Message::Pong { x } => {\n            x + a.x\n        }\n    }\n}\n"
+---
+struct Point {
+    x: i64,
+}
+
+enum Message {
+    Ping,
+    Pong {
+        x: i64,
+    },
+}
+
+fn add(a: Point, b: Message) -> i64 {
+    match b {
+        Message::Ping => {
+            a.x
+        },
+        Message::Pong { x } => {
+            x + a.x
+        },
+    }
+}
