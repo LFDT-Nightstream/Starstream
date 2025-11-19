@@ -6,11 +6,16 @@ description: "TypedProgram { definitions: [Struct(TypedStructDef { name: Identif
   (type (;0;) (func (param i64 i64) (result i64)))
   (export "total-value" (func 0))
   (func (;0;) (type 0) (param i64 i64) (result i64)
-    (local.get 0)
-    (local.get 0)
+    (local i64)
     (i64.mul
       (local.get 0)
-      (local.get 1))
+      (drop
+        (local.get 1))
+      (drop
+        (local.get 0)
+        (local.set 2
+          (local.get 1)))
+      (local.get 2))
   )
   (@custom "component-type"
     (component

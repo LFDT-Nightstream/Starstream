@@ -206,7 +206,7 @@ impl Compiler {
         (idx, self.world_type.ty())
     }
 
-    fn lower_component_type(&mut self, ty: &Type) -> ComponentValType {
+    fn star_to_component_type(&mut self, ty: &Type) -> ComponentValType {
         if let Some(&cvt) = self.wit_types.get(ty) {
             cvt
         } else {
@@ -224,7 +224,7 @@ impl Compiler {
                 Type::Tuple(items) => {
                     let children: Vec<_> = items
                         .iter()
-                        .map(|ty| self.lower_component_type(ty))
+                        .map(|ty| self.star_to_component_type(ty))
                         .collect();
                     let (idx, ty) = self.add_component_type();
                     ty.defined_type().tuple(children);
@@ -234,7 +234,7 @@ impl Compiler {
                     let fields: Vec<_> = record
                         .fields
                         .iter()
-                        .map(|f| (f.name.as_str(), self.lower_component_type(&f.ty)))
+                        .map(|f| (f.name.as_str(), self.star_to_component_type(&f.ty)))
                         .collect();
                     let (idx, ty) = self.add_component_type();
                     ty.defined_type().record(fields);
@@ -250,13 +250,13 @@ impl Compiler {
     fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
         let mut params = Vec::with_capacity(function.params.len());
         for p in &function.params {
-            params.push((p.name.as_str(), self.lower_component_type(&p.ty)));
+            params.push((p.name.as_str(), self.star_to_component_type(&p.ty)));
         }
 
         let result = match &function.return_type {
             // tuple<> is not a valid return type, so return none
             Type::Unit => None,
-            other => Some(self.lower_component_type(other)),
+            other => Some(self.star_to_component_type(other)),
         };
 
         let (idx, ty) = self.add_component_type();
@@ -286,7 +286,7 @@ impl Compiler {
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
             locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
-            if !lower_type_to_stack(&mut params, &p.ty) {
+            if !star_to_core_types(&mut params, &p.ty) {
                 self.push_error(
                     p.name
                         .span
@@ -296,9 +296,10 @@ impl Compiler {
                 );
             }
         }
+        func.num_locals = params.len() as u32;
 
         let mut results = Vec::with_capacity(1);
-        if !lower_type_to_stack(&mut results, &function.return_type) {
+        if !star_to_core_types(&mut results, &function.return_type) {
             self.push_error(
                 function.name.span.unwrap_or(Span::from(0..0)),
                 format!(
@@ -341,7 +342,7 @@ impl Compiler {
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
         // Export to WIT.
-        let ty = self.lower_component_type(&struct_.ty);
+        let ty = self.star_to_component_type(&struct_.ty);
         let ComponentValType::Type(idx) = ty else {
             unreachable!()
         };
@@ -540,7 +541,9 @@ impl Compiler {
             // Identifiers
             TypedExprKind::Identifier(ident) => {
                 if let Some(local) = locals.get(&ident.name) {
-                    func.instructions().local_get(local);
+                    for i in 0..self.count_type_stack_slots(&expr.ty) {
+                        func.instructions().local_get(local + i);
+                    }
                     Ok(Intermediate::Stack(&expr.ty))
                 } else {
                     Err(self.push_error(
@@ -814,22 +817,60 @@ impl Compiler {
             },
             // Field access
             TypedExprKind::FieldAccess { target, field } => {
-                // TODO: this always fetches to the stack but we don't want that.
+                // Right now intermediates point to the stack only, which is
+                // awkward when we want to access only one field of a local.
+                // This implementation is inefficient but at least it's correct.
                 let lhs = self.visit_expr(func, locals, target.span, &target.node);
                 match lhs? {
                     Intermediate::Stack(Type::Record(record)) => {
                         let mut offset = 0;
+                        let mut total = 0;
                         let mut ty = None;
                         for f in &record.fields {
                             if f.name.as_str() == field.as_str() {
                                 ty = Some(&f.ty);
-                                break;
                             }
-                            offset += self.count_type_stack_slots(&f.ty);
+                            let slots = self.count_type_stack_slots(&f.ty);
+                            total += slots;
+                            if ty.is_none() {
+                                offset += slots;
+                            }
                         }
                         if let Some(ty) = ty {
-                            // TODO: only works on the first parameter right now.
-                            func.instructions().local_get(offset);
+                            let mut new_locals = Vec::new();
+                            star_to_core_types(&mut new_locals, ty);
+
+                            // Drop everything after what we are selecting.
+                            for _ in offset + (new_locals.len() as u32)..total {
+                                func.instructions().drop();
+                            }
+
+                            // If offset != 0, use locals to drop stuff before the offset.
+                            if offset != 0
+                                && let Some((&first, rest)) = new_locals.split_first()
+                            {
+                                // Allocate local slots.
+                                let first_local = func.add_local(first);
+                                for &each in rest {
+                                    func.add_local(each);
+                                }
+
+                                // Store.
+                                for i in (0..new_locals.len()).rev() {
+                                    func.instructions().local_set(first_local + (i as u32));
+                                }
+
+                                // Drop.
+                                for _ in 0..offset {
+                                    func.instructions().drop();
+                                }
+
+                                // Get.
+                                for i in 0..new_locals.len() {
+                                    func.instructions().local_get(first_local + (i as u32));
+                                }
+                            }
+
                             Ok(Intermediate::Stack(ty))
                         } else {
                             Err(self.push_error(
@@ -883,7 +924,7 @@ impl Locals for (&dyn Locals, &HashMap<String, u32>) {
     }
 }
 
-fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
+fn star_to_core_types(dest: &mut Vec<ValType>, ty: &Type) -> bool {
     let mut ok = true;
     match ty {
         Type::Var(_) => ok = false,
@@ -893,12 +934,12 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
         Type::Unit => {}
         Type::Tuple(items) => {
             for each in items {
-                ok = lower_type_to_stack(dest, each) && ok;
+                ok = star_to_core_types(dest, each) && ok;
             }
         }
         Type::Record(record) => {
             for f in &record.fields {
-                ok = lower_type_to_stack(dest, &f.ty) && ok;
+                ok = star_to_core_types(dest, &f.ty) && ok;
             }
         }
         Type::Enum(_enum_variant_types) => ok = false,
