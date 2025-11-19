@@ -15,7 +15,7 @@ use starstream_compiler::{
 };
 use starstream_types::{
     Span, Spanned,
-    ast::Program,
+    ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedBlock, TypedDefinition, TypedEnumDef, TypedExpr, TypedExprKind, TypedFunctionDef,
         TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
@@ -40,6 +40,7 @@ pub struct DocumentState {
     type_definitions: HashMap<String, Span>,
     struct_field_definitions: HashMap<String, HashMap<String, Span>>,
     enum_variant_definitions: HashMap<String, HashMap<String, Span>>,
+    struct_type_index: Vec<StructTypeEntry>,
 }
 
 impl DocumentState {
@@ -57,6 +58,7 @@ impl DocumentState {
             type_definitions: HashMap::new(),
             struct_field_definitions: HashMap::new(),
             enum_variant_definitions: HashMap::new(),
+            struct_type_index: Vec::new(),
         };
 
         state.reanalyse(uri, text);
@@ -119,6 +121,7 @@ impl DocumentState {
         self.type_definitions.clear();
         self.struct_field_definitions.clear();
         self.enum_variant_definitions.clear();
+        self.struct_type_index.clear();
 
         let parse_output = parse_program(text);
 
@@ -131,11 +134,12 @@ impl DocumentState {
         self.program = program;
 
         if let Some(program) = self.program.as_ref() {
-            match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
-                Ok(typed) => {
-                    self.build_indexes(&typed.program);
+                match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
+                    Ok(typed) => {
+                        let program_ast = self.program.clone();
+                        self.build_indexes(&typed.program, program_ast.as_deref());
 
-                    self.typed = Some(typed);
+                        self.typed = Some(typed);
                 }
                 Err(type_errors) => {
                     for error in type_errors {
@@ -209,7 +213,7 @@ impl DocumentState {
         })
     }
 
-    fn build_indexes(&mut self, program: &TypedProgram) {
+    fn build_indexes(&mut self, program: &TypedProgram, ast: Option<&Program>) {
         self.hover_entries.clear();
         self.definition_entries.clear();
         self.type_definitions.clear();
@@ -221,6 +225,10 @@ impl DocumentState {
         }
 
         self.document_symbols = self.collect_document_symbols(program);
+
+        if let Some(program_ast) = ast {
+            self.collect_type_annotations_from_ast(program_ast);
+        }
     }
 
     fn collect_definition(
@@ -246,6 +254,11 @@ impl DocumentState {
                 .insert(definition.name.name.clone(), span);
 
             self.add_hover_span(span, &definition.ty);
+
+            self.struct_type_index.push(StructTypeEntry {
+                name: definition.name.name.clone(),
+                ty: definition.ty.clone(),
+            });
         }
 
         let entry = self
@@ -313,6 +326,7 @@ impl DocumentState {
 
                     self.add_hover_span(span, &param.ty);
                 }
+
             }
         }
 
@@ -330,25 +344,26 @@ impl DocumentState {
             TypedStatement::VariableDeclaration {
                 mutable: _,
                 name,
-                value,
-            } => {
-                self.collect_expr(value, scopes);
+            value,
+        } => {
+            self.collect_expr(value, scopes);
 
-                if let Some(span) = name.span {
-                    self.definition_entries.push(DefinitionEntry {
-                        usage: span,
-                        target: span,
-                    });
+            if let Some(span) = name.span {
+                self.definition_entries.push(DefinitionEntry {
+                    usage: span,
+                    target: span,
+                });
 
-                    if let Some(scope) = scopes.last_mut() {
-                        scope.insert(name.name.clone(), span);
-                    }
-                }
-
-                if let Some(span) = name.span {
-                    self.add_hover_span(span, &value.node.ty);
+                if let Some(scope) = scopes.last_mut() {
+                    scope.insert(name.name.clone(), span);
                 }
             }
+
+            if let Some(span) = name.span {
+                self.add_hover_span(span, &value.node.ty);
+            }
+
+        }
             TypedStatement::Assignment { target, value } => {
                 self.collect_expr(value, scopes);
 
@@ -421,7 +436,10 @@ impl DocumentState {
                     self.collect_struct_literal_field(&name.name, field, scopes);
                 }
             }
-            TypedExprKind::FieldAccess { target, .. } => self.collect_expr(target, scopes),
+            TypedExprKind::FieldAccess { target, field } => {
+                self.collect_expr(target, scopes);
+                self.add_field_access_usage(field.span, &target.node.ty, &field.name);
+            }
             TypedExprKind::EnumConstructor {
                 enum_name,
                 variant,
@@ -563,6 +581,90 @@ impl DocumentState {
                 usage: usage_span,
                 target: *target_span,
             });
+        }
+    }
+
+    fn add_field_access_usage(&mut self, span: Option<Span>, ty: &Type, field_name: &str) {
+        let Some(usage_span) = span else { return };
+        if !matches!(ty, Type::Record(_)) {
+            return;
+        }
+        for entry in &self.struct_type_index {
+            if entry.ty == *ty {
+                if let Some(target_span) = self
+                    .struct_field_definitions
+                    .get(&entry.name)
+                    .and_then(|fields| fields.get(field_name))
+                {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: usage_span,
+                        target: *target_span,
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    fn collect_type_annotations_from_ast(&mut self, program: &Program) {
+        for definition in &program.definitions {
+            match definition {
+                untyped_ast::Definition::Function(function) => {
+                    for param in &function.params {
+                        self.collect_type_annotation_node(&param.ty);
+                    }
+                    if let Some(ret) = &function.return_type {
+                        self.collect_type_annotation_node(ret);
+                    }
+                    self.collect_block_annotations_from_ast(&function.body);
+                }
+                untyped_ast::Definition::Struct(definition) => {
+                    for field in &definition.fields {
+                        self.collect_type_annotation_node(&field.ty);
+                    }
+                }
+                untyped_ast::Definition::Enum(definition) => {
+                    for variant in &definition.variants {
+                        for ty in &variant.payload {
+                            self.collect_type_annotation_node(ty);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_block_annotations_from_ast(&mut self, block: &untyped_ast::Block) {
+        for statement in &block.statements {
+            self.collect_statement_annotations_from_ast(statement);
+        }
+    }
+
+    fn collect_statement_annotations_from_ast(&mut self, statement: &untyped_ast::Statement) {
+        match statement {
+            untyped_ast::Statement::VariableDeclaration { ty: Some(annotation), .. } => {
+                self.collect_type_annotation_node(annotation);
+            }
+            untyped_ast::Statement::If { branches, else_branch } => {
+                for (_, block) in branches {
+                    self.collect_block_annotations_from_ast(block);
+                }
+                if let Some(block) = else_branch {
+                    self.collect_block_annotations_from_ast(block);
+                }
+            }
+            untyped_ast::Statement::While { body, .. } => {
+                self.collect_block_annotations_from_ast(body);
+            }
+            untyped_ast::Statement::Block(block) => self.collect_block_annotations_from_ast(block),
+            _ => {}
+        }
+    }
+
+    fn collect_type_annotation_node(&mut self, annotation: &TypeAnnotation) {
+        self.add_type_usage(annotation.name.span, &annotation.name.name);
+        for generic in &annotation.generics {
+            self.collect_type_annotation_node(generic);
         }
     }
 
@@ -771,4 +873,10 @@ impl DefinitionEntry {
     fn len(&self) -> usize {
         self.usage.end.saturating_sub(self.usage.start)
     }
+}
+
+#[derive(Debug, Clone)]
+struct StructTypeEntry {
+    name: String,
+    ty: Type,
 }
