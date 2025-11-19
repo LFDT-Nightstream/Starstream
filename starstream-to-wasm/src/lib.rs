@@ -350,13 +350,13 @@ impl Compiler {
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(
+    fn visit_block<'i>(
         &mut self,
         func: &mut Function,
         parent: &dyn Locals,
-        block: &TypedBlock,
+        block: &'i TypedBlock,
         return_: &Type,
-    ) -> Intermediate {
+    ) -> Intermediate<'i> {
         let mut locals = HashMap::new();
         for statement in &block.statements {
             match statement {
@@ -372,7 +372,7 @@ impl Compiler {
                     let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                     match value {
                         Intermediate::Error => {}
-                        Intermediate::StackI64 => {
+                        Intermediate::Stack(Type::Int) => {
                             let local = func.add_local(ValType::I64);
                             func.instructions().local_set(local);
                             locals.insert(name.name.clone(), local);
@@ -386,7 +386,7 @@ impl Compiler {
                             self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                         match value {
                             Intermediate::Error => {}
-                            Intermediate::StackI64 => {
+                            Intermediate::Stack(&Type::Int) => {
                                 func.instructions().local_set(local);
                             }
                             value => self.todo(format!("VariableDeclaration({value:?})")),
@@ -418,7 +418,7 @@ impl Compiler {
                             condition.span,
                             &condition.node,
                         );
-                        assert!(matches!(im, Intermediate::StackBool));
+                        assert!(matches!(im, Intermediate::Stack(&Type::Bool)));
                         func.instructions().i32_eqz(); // If condition is false,
                         func.instructions().br_if(0); // then try the next condition.
                         let im = self.visit_block(func, &(parent, &locals), block, return_);
@@ -440,7 +440,7 @@ impl Compiler {
 
                     let im =
                         self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
-                    assert!(matches!(im, Intermediate::StackBool));
+                    assert!(matches!(im, Intermediate::Stack(&Type::Bool)));
                     // if condition == 0, break
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
@@ -465,7 +465,7 @@ impl Compiler {
         if let Some(expr) = &block.tail_expression {
             self.visit_expr(func, &(parent, &locals), expr.span, &expr.node)
         } else {
-            Intermediate::Void
+            Intermediate::Stack(&Type::Unit)
         }
     }
 
@@ -477,16 +477,39 @@ impl Compiler {
         }
     }
 
-    fn count_stack_slots(&mut self, im: &Intermediate) -> usize {
+    fn count_stack_slots(&mut self, im: &Intermediate) -> u32 {
         match im {
-            // 0 stack slots
-            Intermediate::Error | Intermediate::Void => 0,
-            // 1 stack slot
-            Intermediate::StackBool | Intermediate::StackI64 => 1,
-            Intermediate::Stack(ty) => {
-                // ...
-                todo!()
-            }
+            Intermediate::Error => 0,
+            Intermediate::Stack(ty) => self.count_type_stack_slots(ty),
+        }
+    }
+
+    fn count_type_stack_slots(&mut self, ty: &Type) -> u32 {
+        match ty {
+            Type::Var(_) => todo!(),
+            Type::Int => 1,
+            Type::Bool => 1,
+            Type::Unit => 0,
+            Type::Function(_, _) => todo!(),
+            Type::Tuple(items) => items.iter().map(|t| self.count_type_stack_slots(t)).sum(),
+            Type::Record(fields) => fields
+                .iter()
+                .map(|f| self.count_type_stack_slots(&f.ty))
+                .sum(),
+            Type::Enum(_variants) => todo!(),
+        }
+    }
+
+    fn im_to_stack<'i>(&mut self, func: &mut Function, im: Intermediate<'i>) -> Option<&'i Type> {
+        match im {
+            Intermediate::Error => None,
+            // Intermediate::Local { local, ty } => {
+            //     for i in 0..self.count_type_stack_slots(ty) {
+            //         func.instructions().local_get(local + i);
+            //     }
+            //     Some(ty)
+            // }
+            Intermediate::Stack(ty) => Some(ty),
         }
     }
 
@@ -500,19 +523,19 @@ impl Compiler {
 
     /// Compile a single [Expr] into the current function, returning an
     /// [Intermediate] representing that expression's output on the stack.
-    fn visit_expr(
+    fn visit_expr<'i>(
         &mut self,
         func: &mut Function,
         locals: &dyn Locals,
         span: Span,
-        expr: &TypedExpr,
-    ) -> Intermediate {
+        expr: &'i TypedExpr,
+    ) -> Intermediate<'i> {
         match &expr.kind {
             // Identifiers
             TypedExprKind::Identifier(ident) => {
                 if let Some(local) = locals.get(&ident.name) {
                     func.instructions().local_get(local);
-                    Intermediate::StackI64 // TODO: use `expr.ty` here
+                    Intermediate::Stack(&expr.ty)
                 } else {
                     self.push_error(
                         ident.span.unwrap_or(span),
@@ -524,13 +547,13 @@ impl Compiler {
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
                 func.instructions().i64_const(*i);
-                Intermediate::StackI64
+                Intermediate::Stack(&Type::Int)
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
                 func.instructions().i32_const(*b as i32);
-                Intermediate::StackBool
+                Intermediate::Stack(&Type::Bool)
             }
-            TypedExprKind::Literal(Literal::Unit) => Intermediate::Void,
+            TypedExprKind::Literal(Literal::Unit) => Intermediate::Stack(&Type::Unit),
             TypedExprKind::StructLiteral { name, fields } => Intermediate::Error,
             // Arithmetic operators
             TypedExprKind::Binary {
@@ -542,9 +565,9 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_add();
-                        Intermediate::StackI64
+                        Intermediate::Stack(&Type::Int)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Add({lhs:?}, {rhs:?})"));
@@ -561,9 +584,9 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_sub();
-                        Intermediate::StackI64
+                        Intermediate::Stack(&Type::Int)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Subtract({lhs:?}, {rhs:?})"));
@@ -580,9 +603,9 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_mul();
-                        Intermediate::StackI64
+                        Intermediate::Stack(&Type::Int)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Multiply({lhs:?}, {rhs:?})"));
@@ -599,9 +622,9 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_div_s();
-                        Intermediate::StackI64
+                        Intermediate::Stack(&Type::Int)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Divide({lhs:?}, {rhs:?})"));
@@ -618,9 +641,9 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_rem_s();
-                        Intermediate::StackI64
+                        Intermediate::Stack(&Type::Int)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Remainder({lhs:?}, {rhs:?})"));
@@ -636,9 +659,9 @@ impl Compiler {
                 func.instructions().i64_const(0);
                 match self.visit_expr(func, locals, expr.span, &expr.node) {
                     Intermediate::Error => Intermediate::Error,
-                    Intermediate::StackI64 => {
+                    Intermediate::Stack(&Type::Int) => {
                         func.instructions().i64_sub();
-                        Intermediate::StackI64
+                        Intermediate::Stack(&Type::Int)
                     }
                     lhs => {
                         self.todo(format!("Negate({lhs:?})"));
@@ -651,9 +674,9 @@ impl Compiler {
                 expr,
             } => match self.visit_expr(func, locals, expr.span, &expr.node) {
                 Intermediate::Error => Intermediate::Error,
-                Intermediate::StackBool => {
+                Intermediate::Stack(&Type::Bool) => {
                     func.instructions().i32_eqz();
-                    Intermediate::StackBool
+                    Intermediate::Stack(&Type::Bool)
                 }
                 lhs => {
                     self.todo(format!("Not({lhs:?})"));
@@ -670,13 +693,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_eq();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_eq();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Equal({lhs:?}, {rhs:?})"));
@@ -693,13 +716,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_ne();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_ne();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("NotEqual({lhs:?}, {rhs:?})"));
@@ -716,13 +739,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_lt_s();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_lt_u();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Less({lhs:?}, {rhs:?})"));
@@ -739,13 +762,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_gt_s();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_gt_u();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Greater({lhs:?}, {rhs:?})"));
@@ -762,13 +785,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_le_s();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_le_u();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("LessEqual({lhs:?}, {rhs:?})"));
@@ -785,13 +808,13 @@ impl Compiler {
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
                 match (lhs, rhs) {
                     (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_ge_s();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_ge_u();
-                        Intermediate::StackBool
+                        Intermediate::Stack(&Type::Bool)
                     }
                     (lhs, rhs) => {
                         self.todo(format!("Greater({lhs:?}, {rhs:?})"));
@@ -806,13 +829,13 @@ impl Compiler {
                 right,
             } => match self.visit_expr(func, locals, left.span, &left.node) {
                 Intermediate::Error => Intermediate::Error,
-                Intermediate::StackBool => {
+                Intermediate::Stack(&Type::Bool) => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
                     match self.visit_expr(func, locals, right.span, &right.node) {
                         Intermediate::Error => Intermediate::Error,
-                        Intermediate::StackBool => {
+                        Intermediate::Stack(&Type::Bool) => {
                             func.instructions().else_().i32_const(0).end();
-                            Intermediate::StackBool
+                            Intermediate::Stack(&Type::Bool)
                         }
                         right => {
                             self.todo(format!("And({left:?}, {right:?})"));
@@ -831,16 +854,16 @@ impl Compiler {
                 right,
             } => match self.visit_expr(func, locals, left.span, &left.node) {
                 Intermediate::Error => Intermediate::Error,
-                Intermediate::StackBool => {
+                Intermediate::Stack(&Type::Bool) => {
                     func.instructions()
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
                     match self.visit_expr(func, locals, right.span, &right.node) {
                         Intermediate::Error => Intermediate::Error,
-                        Intermediate::StackBool => {
+                        Intermediate::Stack(&Type::Bool) => {
                             func.instructions().end();
-                            Intermediate::StackBool
+                            Intermediate::Stack(&Type::Bool)
                         }
                         right => {
                             self.todo(format!("Or({left:?}, {right:?})"));
@@ -923,18 +946,13 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
 /// the type checker, and stored separately.
 #[derive(Debug, Clone)]
 #[must_use]
-enum Intermediate {
+enum Intermediate<'i> {
     /// An error intermediate. Suppress further typechecking errors.
     Error,
-    /// Nothing! Absolutely nothing!
-    #[allow(dead_code)]
-    Void,
-    /// `(i32)` 0 is false, 1 is true, other values are disallowed.
-    StackBool,
-    /// `(i64)`
-    StackI64,
+    // /// An instance in locals. Local slots determined by ABI lowering.
+    // Local { local: u32, ty: &'i Type },
     /// An instance on the stack. Stack slots determined by ABI lowering.
-    Stack(Type),
+    Stack(&'i Type),
 }
 
 /// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
