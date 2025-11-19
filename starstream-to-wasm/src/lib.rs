@@ -334,15 +334,17 @@ impl Compiler {
 
     fn world_export_fn(&mut self, function: &TypedFunctionDef) {
         let idx = self.add_component_func_type(function);
-        self.world_type
-            .export(&function.name.name, ComponentTypeRef::Func(idx));
+        self.world_type.export(
+            &to_kebab_case(function.name.as_str()),
+            ComponentTypeRef::Func(idx),
+        );
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
         // Export to WIT.
         let idx = self.add_component_struct_type(struct_);
         self.world_type.export(
-            struct_.name.as_str(),
+            &to_kebab_case(struct_.name.as_str()),
             ComponentTypeRef::Type(TypeBounds::Eq(idx)),
         );
     }
@@ -962,4 +964,33 @@ impl wasm_encoder::Encode for Function {
         }
         sink.extend_from_slice(&self.bytes);
     }
+}
+
+fn to_kebab_case(name: &str) -> String {
+    // ^A -> a
+    // AB -> ab
+    // AbC -> ab-c
+    // Ab2 -> ab2
+    let mut out = String::with_capacity(name.len());
+    let mut prev: Option<char> = None;
+    for ch in name.chars() {
+        if ch.is_ascii_uppercase() {
+            if let Some(p) = prev
+                && p.is_ascii_lowercase()
+            {
+                out.push('-');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else if ch == '_' {
+            if let Some(p) = prev
+                && p.is_ascii_lowercase()
+            {
+                out.push('-');
+            }
+        }
+        prev = Some(ch);
+    }
+    out
 }
