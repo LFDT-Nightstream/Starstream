@@ -1,0 +1,34 @@
+---
+source: starstream-to-wasm/tests/baseline.rs
+description: "TypedProgram { definitions: [Struct(TypedStructDef { name: Identifier { name: \"Token\", span: Some(16..21) }, fields: [TypedStructField { name: Identifier { name: \"amount\", span: Some(36..42) }, ty: Int }, TypedStructField { name: Identifier { name: \"price\", span: Some(61..66) }, ty: Int }], ty: Record([RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }]) }), Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"total_value\", span: Some(102..113) }, params: [TypedFunctionParam { name: Identifier { name: \"token\", span: Some(114..119) }, ty: Record([RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }]) }], return_type: Int, body: TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Binary { op: Multiply, left: Spanned { node: TypedExpr { ty: Int, kind: FieldAccess { target: Spanned { node: TypedExpr { ty: Record([RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }]), kind: Identifier(Identifier { name: \"token\", span: Some(149..154) }) }, span: 149..154 }, field: Identifier { name: \"amount\", span: Some(155..161) } } }, span: 149..161 }, right: Spanned { node: TypedExpr { ty: Int, kind: FieldAccess { target: Spanned { node: TypedExpr { ty: Record([RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }]), kind: Identifier(Identifier { name: \"token\", span: Some(164..169) }) }, span: 164..169 }, field: Identifier { name: \"price\", span: Some(170..175) } } }, span: 164..175 } } }, span: 149..175 }) } })] }"
+---
+(module
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (export "total-value" (func 0))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (local.get 0)
+    (local.get 0)
+    (i64.mul
+      (local.get 0)
+      (local.get 1))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (record (field "amount" s64) (field "price" s64)))
+              (import "token" (type (;1;) (eq 0)))
+              (type (;2;) (func (param "token" 1) (result s64)))
+              (export (;0;) "total-value" (func (type 2)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)

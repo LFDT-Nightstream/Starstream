@@ -79,6 +79,7 @@ struct Compiler {
         )
     */
     world_type: ComponentType,
+    wit_types: HashMap<Type, ComponentValType>,
 
     // Diagnostics.
     fatal: bool,
@@ -206,37 +207,43 @@ impl Compiler {
     }
 
     fn lower_component_type(&mut self, ty: &Type) -> ComponentValType {
-        match ty {
-            Type::Var(_) => todo!(),
-            Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
-            Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
-            Type::Unit => {
-                let (idx, ty) = self.add_component_type();
-                ty.defined_type()
-                    .tuple(std::iter::empty::<ComponentValType>());
-                ComponentValType::Type(idx)
-            }
-            Type::Function(_, _) => todo!(),
-            Type::Tuple(items) => {
-                let children: Vec<_> = items
-                    .iter()
-                    .map(|ty| self.lower_component_type(ty))
-                    .collect();
-                let (idx, ty) = self.add_component_type();
-                ty.defined_type().tuple(children);
-                ComponentValType::Type(idx)
-            }
-            Type::Record(record) => {
-                let fields: Vec<_> = record
-                    .fields
-                    .iter()
-                    .map(|f| (f.name.as_str(), self.lower_component_type(&f.ty)))
-                    .collect();
-                let (idx, ty) = self.add_component_type();
-                ty.defined_type().record(fields);
-                ComponentValType::Type(idx)
-            }
-            Type::Enum(_enum_variant_types) => todo!(),
+        if let Some(&cvt) = self.wit_types.get(ty) {
+            cvt
+        } else {
+            let cvt = match ty {
+                Type::Var(_) => todo!(),
+                Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
+                Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
+                Type::Unit => {
+                    let (idx, ty) = self.add_component_type();
+                    ty.defined_type()
+                        .tuple(std::iter::empty::<ComponentValType>());
+                    ComponentValType::Type(idx)
+                }
+                Type::Function(_, _) => todo!(),
+                Type::Tuple(items) => {
+                    let children: Vec<_> = items
+                        .iter()
+                        .map(|ty| self.lower_component_type(ty))
+                        .collect();
+                    let (idx, ty) = self.add_component_type();
+                    ty.defined_type().tuple(children);
+                    ComponentValType::Type(idx)
+                }
+                Type::Record(record) => {
+                    let fields: Vec<_> = record
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.as_str(), self.lower_component_type(&f.ty)))
+                        .collect();
+                    let (idx, ty) = self.add_component_type();
+                    ty.defined_type().record(fields);
+                    ComponentValType::Type(idx)
+                }
+                Type::Enum(_enum_variant_types) => todo!(),
+            };
+            self.wit_types.insert(ty.clone(), cvt);
+            cvt
         }
     }
 
@@ -254,17 +261,6 @@ impl Compiler {
 
         let (idx, ty) = self.add_component_type();
         ty.function().params(params).result(result);
-        idx
-    }
-
-    fn add_component_struct_type(&mut self, struct_: &TypedStructDef) -> u32 {
-        let mut fields = Vec::with_capacity(struct_.fields.len());
-        for f in &struct_.fields {
-            fields.push((f.name.as_str(), self.lower_component_type(&f.ty)));
-        }
-
-        let (idx, ty) = self.add_component_type();
-        ty.defined_type().record(fields);
         idx
     }
 
@@ -324,8 +320,11 @@ impl Compiler {
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.exports
-                    .export(&function.name.name, ExportKind::Func, idx);
+                self.exports.export(
+                    &to_kebab_case(function.name.as_str()),
+                    ExportKind::Func,
+                    idx,
+                );
                 self.world_export_fn(function);
             }
             None => {}
@@ -342,11 +341,19 @@ impl Compiler {
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
         // Export to WIT.
-        let idx = self.add_component_struct_type(struct_);
-        self.world_type.export(
+        let ty = self.lower_component_type(&struct_.ty);
+        let ComponentValType::Type(idx) = ty else {
+            unreachable!()
+        };
+        // "Exporting" a type consists of importing it with an equality constraint.
+        let new_idx = self.world_type.type_count();
+        self.world_type.import(
             &to_kebab_case(struct_.name.as_str()),
             ComponentTypeRef::Type(TypeBounds::Eq(idx)),
         );
+        // Future uses must also refer to the imported version.
+        self.wit_types
+            .insert(struct_.ty.clone(), ComponentValType::Type(new_idx));
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -503,7 +510,8 @@ impl Compiler {
             Type::Unit => 0,
             Type::Function(_, _) => todo!(),
             Type::Tuple(items) => items.iter().map(|t| self.count_type_stack_slots(t)).sum(),
-            Type::Record(fields) => fields
+            Type::Record(record) => record
+                .fields
                 .iter()
                 .map(|f| self.count_type_stack_slots(&f.ty))
                 .sum(),
@@ -809,10 +817,10 @@ impl Compiler {
                 // TODO: this always fetches to the stack but we don't want that.
                 let lhs = self.visit_expr(func, locals, target.span, &target.node);
                 match lhs? {
-                    Intermediate::Stack(Type::Record(fields)) => {
+                    Intermediate::Stack(Type::Record(record)) => {
                         let mut offset = 0;
                         let mut ty = None;
-                        for f in fields {
+                        for f in &record.fields {
                             if f.name.as_str() == field.as_str() {
                                 ty = Some(&f.ty);
                                 break;
@@ -888,8 +896,8 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
                 ok = lower_type_to_stack(dest, each) && ok;
             }
         }
-        Type::Record(fields) => {
-            for f in fields {
+        Type::Record(record) => {
+            for f in &record.fields {
                 ok = lower_type_to_stack(dest, &f.ty) && ok;
             }
         }

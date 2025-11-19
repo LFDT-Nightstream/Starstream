@@ -218,3 +218,19 @@ fn add() {
         "
     ));
 }
+
+#[test]
+fn struct_param() {
+    assert_wat_snapshot!(&from_source(
+        "
+        struct Token {
+            amount: i64,
+            price: i64,
+        }
+
+        script fn total_value(token: Token) -> i64 {
+            token.amount * token.price
+        }
+        "
+    ))
+}
