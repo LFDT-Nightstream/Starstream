@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Message {\n    Ping,\n    Ping,\n}\n"
+---
+starstream::type::duplicate_enum_variant
+
+  x variant `Ping` appears multiple times in enum `Message`
+   ,-[test.star:3:5]
+ 1 | enum Message {
+ 2 |     Ping,
+   :     ^^|^
+   :       `-- first defined here
+ 3 |     Ping,
+   :     ^^|^
+   :       `-- duplicate
+ 4 | }
+   `----

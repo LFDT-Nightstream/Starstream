@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    Missing::Value;\n}\n"
+---
+starstream::type::unknown_enum
+
+  x unknown enum `Missing`
+   ,-[test.star:2:5]
+ 1 | fn test() {
+ 2 |     Missing::Value;
+   :     ^^^^^^^
+ 3 | }
+   `----

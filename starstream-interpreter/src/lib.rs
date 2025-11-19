@@ -114,6 +114,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
         // Literals
         TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
+        TypedExprKind::Literal(Literal::Unit) => Value::None,
         // Arithmetic operators
         TypedExprKind::Binary {
             op: BinaryOp::Add,

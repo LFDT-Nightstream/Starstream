@@ -166,6 +166,7 @@ module.exports = grammar({
     _primary_expression: ($) =>
       choice(
         $.struct_literal,
+        $.unit_literal,
         $.enum_constructor,
         $.integer_literal,
         $.boolean_literal,
@@ -252,5 +253,6 @@ module.exports = grammar({
     integer_literal: ($) => /[0-9]+/,
     boolean_literal: ($) => choice("true", "false"),
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
+    unit_literal: ($) => seq("(", ")"),
   },
 });

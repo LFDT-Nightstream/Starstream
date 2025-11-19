@@ -213,18 +213,26 @@ impl Inferencer {
             );
         }
 
-        let mut seen = HashSet::new();
+        let mut seen = HashMap::new();
         let mut fields = Vec::with_capacity(def.fields.len());
         for field in &def.fields {
-            if !seen.insert(field.name.name.clone()) {
-                return Err(TypeError::new(
-                    TypeErrorKind::DuplicateStructField {
-                        struct_name: def.name.name.clone(),
-                        field_name: field.name.name.clone(),
-                    },
-                    field.name.span.unwrap_or_else(dummy_span),
-                ));
+            if let Some(previous_span) = seen.get(&field.name.name) {
+                return Err(
+                    TypeError::new(
+                        TypeErrorKind::DuplicateStructField {
+                            struct_name: def.name.name.clone(),
+                            field_name: field.name.name.clone(),
+                        },
+                        field.name.span.unwrap_or_else(dummy_span),
+                    )
+                    .with_primary_message("duplicate")
+                    .with_secondary(*previous_span, "first defined here"),
+                );
             }
+            seen.insert(
+                field.name.name.clone(),
+                field.name.span.unwrap_or_else(dummy_span),
+            );
             let ty = self.type_from_annotation(&field.ty)?;
             fields.push(StructFieldInfo {
                 name: field.name.clone(),
@@ -261,18 +269,26 @@ impl Inferencer {
             );
         }
 
-        let mut seen = HashSet::new();
+        let mut seen = HashMap::new();
         let mut variants = Vec::with_capacity(def.variants.len());
         for variant in &def.variants {
-            if !seen.insert(variant.name.name.clone()) {
-                return Err(TypeError::new(
-                    TypeErrorKind::DuplicateEnumVariant {
-                        enum_name: def.name.name.clone(),
-                        variant_name: variant.name.name.clone(),
-                    },
-                    variant.name.span.unwrap_or_else(dummy_span),
-                ));
+            if let Some(previous_span) = seen.get(&variant.name.name) {
+                return Err(
+                    TypeError::new(
+                        TypeErrorKind::DuplicateEnumVariant {
+                            enum_name: def.name.name.clone(),
+                            variant_name: variant.name.name.clone(),
+                        },
+                        variant.name.span.unwrap_or_else(dummy_span),
+                    )
+                    .with_primary_message("duplicate")
+                    .with_secondary(*previous_span, "first defined here"),
+                );
             }
+            seen.insert(
+                variant.name.name.clone(),
+                variant.name.span.unwrap_or_else(dummy_span),
+            );
             let mut payload = Vec::with_capacity(variant.payload.len());
             for ty in &variant.payload {
                 payload.push(self.type_from_annotation(ty)?);
@@ -503,16 +519,21 @@ impl Inferencer {
                     .collect::<HashMap<_, _>>();
 
                 let mut typed_fields = Vec::with_capacity(fields.len());
-                let mut seen = HashSet::new();
+                let mut seen = HashMap::new();
                 for field in fields {
-                    if !seen.insert(field.name.name.clone()) {
-                        return Err(TypeError::new(
-                            TypeErrorKind::DuplicateStructLiteralField {
-                                field_name: field.name.name.clone(),
-                            },
-                            field.name.span.unwrap_or_else(dummy_span),
-                        ));
+                    if let Some(previous_span) = seen.get(&field.name.name) {
+                        return Err(
+                            TypeError::new(
+                                TypeErrorKind::DuplicateStructLiteralField {
+                                    field_name: field.name.name.clone(),
+                                },
+                                field.name.span.unwrap_or_else(dummy_span),
+                            )
+                            .with_primary_message("duplicate")
+                            .with_secondary(*previous_span, "first used here"),
+                        );
                     }
+                    seen.insert(field.name.name.clone(), field.name.span.unwrap_or_else(dummy_span));
 
                     let expected_field = expected_fields
                         .remove(&field.name.name)
@@ -1011,6 +1032,11 @@ impl Inferencer {
                         TypedExprKind::Literal(Literal::Boolean(*value)),
                         "T-Bool",
                     ),
+                    Literal::Unit => (
+                        Type::unit(),
+                        TypedExprKind::Literal(Literal::Unit),
+                        "T-Unit",
+                    ),
                 };
                 let typed = Spanned::new(TypedExpr::new(ty.clone(), kind), expr.span);
                 let result_repr = self.maybe_string(|| self.format_type(&ty));
@@ -1292,17 +1318,22 @@ impl Inferencer {
                     .collect::<HashMap<_, _>>();
                 let mut typed_fields = Vec::with_capacity(fields.len());
                 let mut children = Vec::new();
-                let mut seen = HashSet::new();
+                let mut seen = HashMap::new();
 
                 for field in fields {
-                    if !seen.insert(field.name.name.clone()) {
-                        return Err(TypeError::new(
-                            TypeErrorKind::DuplicateStructLiteralField {
-                                field_name: field.name.name.clone(),
-                            },
-                            field.name.span.unwrap_or_else(dummy_span),
-                        ));
+                    if let Some(previous_span) = seen.get(&field.name.name) {
+                        return Err(
+                            TypeError::new(
+                                TypeErrorKind::DuplicateStructLiteralField {
+                                    field_name: field.name.name.clone(),
+                                },
+                                field.name.span.unwrap_or_else(dummy_span),
+                            )
+                            .with_primary_message("duplicate")
+                            .with_secondary(*previous_span, "first used here"),
+                        );
                     }
+                    seen.insert(field.name.name.clone(), field.name.span.unwrap_or_else(dummy_span));
 
                     let (expected_ty, _) = expected
                         .remove(&field.name.name)
@@ -1601,16 +1632,25 @@ impl Inferencer {
         span: Span,
         context: ConditionContext,
     ) -> Result<InferenceTree, TypeError> {
-        self.require_is(
-            ty,
-            Type::bool(),
-            span,
-            span,
-            TypeErrorKind::ConditionNotBool {
-                context,
-                found: self.apply(ty),
-            },
-        )
+        let applied = self.apply(ty);
+        if matches!(&applied, Type::Bool) {
+            let subject = self.maybe_string(|| self.format_type(&applied));
+            Ok(self.make_trace(
+                "Check-Bool",
+                None,
+                subject,
+                Some("ok".to_string()),
+                Vec::new,
+            ))
+        } else {
+            Err(TypeError::new(
+                TypeErrorKind::ConditionNotBool {
+                    context,
+                    found: applied,
+                },
+                span,
+            ))
+        }
     }
 
     /// Unify two types, capturing the resulting unification step in the trace.

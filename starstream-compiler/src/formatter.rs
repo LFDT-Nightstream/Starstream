@@ -473,6 +473,7 @@ fn literal_to_doc(literal: &Literal) -> RcDoc<'_, ()> {
     match literal {
         Literal::Integer(value) => RcDoc::as_string(*value),
         Literal::Boolean(value) => RcDoc::text(if *value { "true" } else { "false" }),
+        Literal::Unit => RcDoc::text("()"),
     }
 }
 

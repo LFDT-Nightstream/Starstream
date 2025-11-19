@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn compute() -> i64 {\n    let value = 1;\n}\n"
+---
+starstream::type::missing_return
+
+  x missing return of type `i64`
+   ,-[test.star:1:4]
+ 1 | fn compute() -> i64 {
+   :    ^^^^^^^
+ 2 |     let value = 1;
+   `----
+  help: add a `return` or tail expression to satisfy the signature

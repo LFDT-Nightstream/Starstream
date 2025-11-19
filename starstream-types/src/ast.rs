@@ -91,6 +91,7 @@ pub enum Expr {
 pub enum Literal {
     Integer(i64),
     Boolean(bool),
+    Unit,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, PartialEq, Eq)]

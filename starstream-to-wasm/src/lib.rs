@@ -226,6 +226,8 @@ impl Compiler {
                 ty.defined_type().tuple(children);
                 ComponentValType::Type(idx)
             }
+            Type::Record(_record_field_types) => todo!(),
+            Type::Enum(_enum_variant_types) => todo!(),
         }
     }
 
@@ -492,6 +494,7 @@ impl Compiler {
                 func.instructions().i32_const(*b as i32);
                 Intermediate::StackBool
             }
+            TypedExprKind::Literal(Literal::Unit) => Intermediate::Void,
             // Arithmetic operators
             TypedExprKind::Binary {
                 op: BinaryOp::Add,
@@ -856,7 +859,6 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
     match ty {
         Type::Var(_) => ok = false,
         Type::Function(_, _) => ok = false,
-
         Type::Int => dest.push(ValType::I64),
         Type::Bool => dest.push(ValType::I32),
         Type::Unit => {}
@@ -865,6 +867,8 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
                 ok = lower_type_to_stack(dest, each) && ok;
             }
         }
+        Type::Record(_record_field_types) => todo!(),
+        Type::Enum(_enum_variant_types) => todo!(),
     }
     ok
 }

@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    let point = Point {\n        x: 0,\n    };\n\n    point.y;\n}\n"
+---
+starstream::type::field_access_unknown_field
+
+  x type `{ x: i64 }` has no field named `y`
+    ,-[test.star:10:11]
+  9 | 
+ 10 |     point.y;
+    :           ^
+ 11 | }
+    `----

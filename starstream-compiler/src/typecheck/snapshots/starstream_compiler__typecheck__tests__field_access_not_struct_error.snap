@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let value = 5;\n    value.field;\n}\n"
+---
+starstream::type::field_access_not_struct
+
+  x cannot access fields on value of type `i64`
+   ,-[test.star:3:5]
+ 2 |     let value = 5;
+ 3 |     value.field;
+   :     ^^^^^
+ 4 | }
+   `----

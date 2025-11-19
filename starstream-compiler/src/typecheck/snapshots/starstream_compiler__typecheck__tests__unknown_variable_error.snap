@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    missing;\n}\n"
+---
+starstream::type::unknown_variable
+
+  x unknown variable `missing`
+   ,-[test.star:2:5]
+ 1 | fn test() {
+ 2 |     missing;
+   :     ^^^^^^^
+ 3 | }
+   `----

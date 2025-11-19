@@ -224,3 +224,323 @@ fn reports_let_annotation_error() {
         "#
     );
 }
+
+#[test]
+fn unknown_variable_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            missing;
+        }
+        "#
+    );
+}
+
+#[test]
+fn redeclaration_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let value = 1;
+            let value = 2;
+        }
+        "#
+    );
+}
+
+#[test]
+fn assignment_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let mut value: i64 = 0;
+            value = true;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unary_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let bad = -true;
+        }
+        "#
+    );
+}
+
+#[test]
+fn condition_not_bool_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            if (1) {
+                ()
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn return_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn compute() -> i64 {
+            return true;
+        }
+        "#
+    );
+}
+
+#[test]
+fn missing_return_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn compute() -> i64 {
+            let value = 1;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_type_annotation_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn takes(value: Missing) {
+            value;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unsupported_type_feature_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn takes(value: Box<i64>) {
+            value;
+        }
+        "#
+    );
+}
+
+#[test]
+fn type_already_defined_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+        }
+
+        struct Point {
+            x: i64,
+        }
+
+        fn noop() { }
+        "#
+    );
+}
+
+#[test]
+fn duplicate_struct_field_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+            x: i64,
+        }
+        "#
+    );
+}
+
+#[test]
+fn duplicate_enum_variant_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Message {
+            Ping,
+            Ping,
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_struct_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            Missing {
+                value: 1,
+            };
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_enum_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            Missing::Value;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_struct_field_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+        }
+
+        fn test() {
+            Point {
+                x: 1,
+                y: 2,
+            };
+        }
+        "#
+    );
+}
+
+#[test]
+fn duplicate_struct_literal_field_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+        }
+
+        fn test() {
+            Point {
+                x: 1,
+                x: 2,
+            };
+        }
+        "#
+    );
+}
+
+#[test]
+fn struct_literal_field_type_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+        }
+
+        fn test() {
+            Point {
+                x: true,
+            };
+        }
+        "#
+    );
+}
+
+#[test]
+fn field_access_not_struct_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let value = 5;
+            value.field;
+        }
+        "#
+    );
+}
+
+#[test]
+fn field_access_unknown_field_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+        }
+
+        fn test() {
+            let point = Point {
+                x: 0,
+            };
+
+            point.y;
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_enum_variant_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Message {
+            Ping,
+        }
+
+        fn test() {
+            Message::Pong;
+        }
+        "#
+    );
+}
+
+#[test]
+fn enum_payload_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Message {
+            Ping(i64),
+        }
+
+        fn test() {
+            Message::Ping();
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_struct_pattern_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            match 0 {
+                Missing::Value => {
+                    ()
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn pattern_enum_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum First {
+            Alpha,
+        }
+
+        enum Second {
+            Beta,
+        }
+
+        fn test(value: First) {
+            match value {
+                Second::Beta => {
+                    ()
+                },
+            }
+        }
+        "#
+    );
+}

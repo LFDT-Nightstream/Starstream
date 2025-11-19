@@ -19,6 +19,10 @@ pub fn parser<'a>(
             Spanned::new(Expr::Literal(Literal::Boolean(value)), extra.span())
         });
 
+    let unit = just("()")
+        .padded()
+        .map_with(|_, extra| Spanned::new(Expr::Literal(Literal::Unit), extra.span()));
+
     let identifier = primitives::identifier()
         .map_with(|ident, extra| Spanned::new(Expr::Identifier(ident), extra.span()));
 
@@ -92,6 +96,7 @@ pub fn parser<'a>(
         match_expression,
         struct_literal,
         enum_constructor,
+        unit,
         grouping,
         integer,
         boolean,
