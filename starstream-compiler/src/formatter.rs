@@ -154,10 +154,28 @@ fn enum_variant_to_doc(variant: &EnumVariant) -> RcDoc<'_, ()> {
                     .append(RcDoc::text(")"))
             }
         }
-        EnumVariantPayload::Struct(fields) => identifier_to_doc(&variant.name)
-            .append(RcDoc::space())
-            .append(struct_fields_to_doc(fields)),
+        EnumVariantPayload::Struct(fields) => {
+            let body = if fields.len() < 3 {
+                inline_struct_fields_to_doc(fields)
+            } else {
+                struct_fields_to_doc(fields)
+            };
+            identifier_to_doc(&variant.name).append(RcDoc::space()).append(body)
+        }
     }
+}
+
+fn inline_struct_fields_to_doc(fields: &[StructField]) -> RcDoc<'_, ()> {
+    RcDoc::text("{ ")
+        .append(RcDoc::intersperse(
+            fields.iter().map(|field| {
+                identifier_to_doc(&field.name)
+                    .append(RcDoc::text(": "))
+                    .append(type_annotation_to_doc(&field.ty))
+            }),
+            RcDoc::text(", "),
+        ))
+        .append(RcDoc::text(" }"))
 }
 
 fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {
