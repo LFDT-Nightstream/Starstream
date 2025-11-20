@@ -160,7 +160,9 @@ fn enum_variant_to_doc(variant: &EnumVariant) -> RcDoc<'_, ()> {
             } else {
                 struct_fields_to_doc(fields)
             };
-            identifier_to_doc(&variant.name).append(RcDoc::space()).append(body)
+            identifier_to_doc(&variant.name)
+                .append(RcDoc::space())
+                .append(body)
         }
     }
 }
