@@ -1366,6 +1366,7 @@ name = "starstream-types"
 version = "0.0.0"
 dependencies = [
  "chumsky",
+ "pretty",
  "serde",
  "thiserror 2.0.17",
 ]

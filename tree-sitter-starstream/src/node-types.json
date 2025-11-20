@@ -529,6 +529,10 @@
         {
           "type": "pattern",
           "named": true
+        },
+        {
+          "type": "struct_field_pattern_name",
+          "named": true
         }
       ]
     }
@@ -780,6 +784,10 @@
   {
     "type": "struct",
     "named": false
+  },
+  {
+    "type": "struct_field_pattern_name",
+    "named": true
   },
   {
     "type": "true",

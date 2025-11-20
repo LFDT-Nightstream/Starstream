@@ -10,5 +10,6 @@ license.workspace = true
 
 [dependencies]
 chumsky = { workspace = true }
+pretty = "0.12.5"
 serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }

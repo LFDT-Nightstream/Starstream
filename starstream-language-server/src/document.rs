@@ -40,8 +40,13 @@ pub struct DocumentState {
     document_symbols: Vec<DocumentSymbol>,
     type_definitions: HashMap<String, Span>,
     struct_field_definitions: HashMap<String, HashMap<String, Span>>,
+    struct_field_types: HashMap<String, HashMap<String, Type>>,
     enum_variant_definitions: HashMap<String, HashMap<String, Span>>,
+    enum_variant_field_definitions: HashMap<EnumVariantKey, HashMap<String, Span>>,
+    enum_variant_infos: HashMap<EnumVariantKey, EnumVariantPayloadInfo>,
     struct_type_index: Vec<StructTypeEntry>,
+    struct_types: HashMap<String, Type>,
+    enum_types: HashMap<String, Type>,
 }
 
 impl DocumentState {
@@ -58,8 +63,13 @@ impl DocumentState {
             document_symbols: Vec::new(),
             type_definitions: HashMap::new(),
             struct_field_definitions: HashMap::new(),
+            struct_field_types: HashMap::new(),
             enum_variant_definitions: HashMap::new(),
+            enum_variant_field_definitions: HashMap::new(),
+            enum_variant_infos: HashMap::new(),
             struct_type_index: Vec::new(),
+            struct_types: HashMap::new(),
+            enum_types: HashMap::new(),
         };
 
         state.reanalyse(uri, text);
@@ -121,8 +131,13 @@ impl DocumentState {
         self.document_symbols.clear();
         self.type_definitions.clear();
         self.struct_field_definitions.clear();
+        self.struct_field_types.clear();
         self.enum_variant_definitions.clear();
+        self.enum_variant_field_definitions.clear();
+        self.enum_variant_infos.clear();
         self.struct_type_index.clear();
+        self.struct_types.clear();
+        self.enum_types.clear();
 
         let parse_output = parse_program(text);
 
@@ -262,14 +277,29 @@ impl DocumentState {
             });
         }
 
-        let entry = self
-            .struct_field_definitions
-            .entry(definition.name.name.clone())
-            .or_default();
+        self.struct_types
+            .insert(definition.name.name.clone(), definition.ty.clone());
+
+        {
+            let entry = self
+                .struct_field_definitions
+                .entry(definition.name.name.clone())
+                .or_default();
+            let type_entry = self
+                .struct_field_types
+                .entry(definition.name.name.clone())
+                .or_default();
+            for field in &definition.fields {
+                if let Some(span) = field.name.span {
+                    entry.insert(field.name.name.clone(), span);
+                }
+                type_entry.insert(field.name.name.clone(), field.ty.clone());
+            }
+        }
 
         for field in &definition.fields {
             if let Some(span) = field.name.span {
-                entry.insert(field.name.name.clone(), span);
+                self.add_hover_span(span, &field.ty);
             }
         }
     }
@@ -287,14 +317,72 @@ impl DocumentState {
             self.add_hover_span(span, &definition.ty);
         }
 
-        let entry = self
-            .enum_variant_definitions
-            .entry(definition.name.name.clone())
-            .or_default();
+        self.enum_types
+            .insert(definition.name.name.clone(), definition.ty.clone());
+
+        {
+            let entry = self
+                .enum_variant_definitions
+                .entry(definition.name.name.clone())
+                .or_default();
+            entry.clear();
+            for variant in &definition.variants {
+                if let Some(span) = variant.name.span {
+                    entry.insert(variant.name.name.clone(), span);
+                }
+            }
+        }
 
         for variant in &definition.variants {
+            let key = EnumVariantKey::new(&definition.name.name, &variant.name.name);
+            let info = match &variant.payload {
+                TypedEnumVariantPayload::Unit => {
+                    self.enum_variant_field_definitions.remove(&key);
+                    EnumVariantPayloadInfo::Unit
+                }
+                TypedEnumVariantPayload::Tuple(types) => {
+                    self.enum_variant_field_definitions.remove(&key);
+                    EnumVariantPayloadInfo::Tuple(types.clone())
+                }
+                TypedEnumVariantPayload::Struct(fields) => {
+                    let info = EnumVariantPayloadInfo::Struct(
+                        fields
+                            .iter()
+                            .map(|field| (field.name.name.clone(), field.ty.clone()))
+                            .collect(),
+                    );
+                    let mut field_hovers = Vec::new();
+                    {
+                        let def_entry = self
+                            .enum_variant_field_definitions
+                            .entry(key.clone())
+                            .or_default();
+                        def_entry.clear();
+                        for field in fields {
+                            if let Some(span) = field.name.span {
+                                def_entry.insert(field.name.name.clone(), span);
+                                field_hovers.push((span, field.ty.clone()));
+                            }
+                        }
+                    }
+                    for (span, ty) in field_hovers {
+                        self.add_hover_span(span, &ty);
+                    }
+                    info
+                }
+            };
+
+            self.enum_variant_infos.insert(key.clone(), info.clone());
+
             if let Some(span) = variant.name.span {
-                entry.insert(variant.name.name.clone(), span);
+                self.add_hover_label(
+                    span,
+                    format_enum_variant_hover_from_info(
+                        &definition.name.name,
+                        &variant.name.name,
+                        &info,
+                    ),
+                );
             }
         }
     }
@@ -448,6 +536,13 @@ impl DocumentState {
 
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
 
+                if let Some(span) = variant.span
+                    && let Some(label) =
+                        self.enum_variant_label_from_maps(&enum_name.name, &variant.name)
+                {
+                    self.add_hover_label(span, label);
+                }
+
                 match payload {
                     TypedEnumConstructorPayload::Unit => {}
                     TypedEnumConstructorPayload::Tuple(values) => {
@@ -458,6 +553,12 @@ impl DocumentState {
                     TypedEnumConstructorPayload::Struct(fields) => {
                         for field in fields {
                             self.collect_expr(&field.value, scopes);
+                            self.add_enum_variant_field_usage(
+                                field.name.span,
+                                &enum_name.name,
+                                &variant.name,
+                                &field.name.name,
+                            );
                         }
                     }
                 }
@@ -466,23 +567,33 @@ impl DocumentState {
                 self.collect_expr(scrutinee, scopes);
 
                 for arm in arms {
-                    self.collect_match_arm(arm, scopes);
+                    self.collect_match_arm(arm, scopes, scrutinee.node.ty.clone());
                 }
             }
         }
     }
 
-    fn collect_match_arm(&mut self, arm: &TypedMatchArm, scopes: &mut Vec<HashMap<String, Span>>) {
+    fn collect_match_arm(
+        &mut self,
+        arm: &TypedMatchArm,
+        scopes: &mut Vec<HashMap<String, Span>>,
+        scrutinee_ty: Type,
+    ) {
         scopes.push(HashMap::new());
 
-        self.collect_pattern(&arm.pattern, scopes);
+        self.collect_pattern(&arm.pattern, scopes, Some(scrutinee_ty));
 
         self.collect_block(&arm.body, scopes);
 
         scopes.pop();
     }
 
-    fn collect_pattern(&mut self, pattern: &TypedPattern, scopes: &mut Vec<HashMap<String, Span>>) {
+    fn collect_pattern(
+        &mut self,
+        pattern: &TypedPattern,
+        scopes: &mut Vec<HashMap<String, Span>>,
+        expected_ty: Option<Type>,
+    ) {
         match pattern {
             TypedPattern::Binding(identifier) => {
                 if let Some(span) = identifier.span {
@@ -494,6 +605,10 @@ impl DocumentState {
                     if let Some(scope) = scopes.last_mut() {
                         scope.insert(identifier.name.clone(), span);
                     }
+
+                    if let Some(ty) = expected_ty.as_ref() {
+                        self.add_hover_span(span, ty);
+                    }
                 }
             }
             TypedPattern::Struct { name, fields } => {
@@ -502,7 +617,15 @@ impl DocumentState {
                 for field in fields {
                     self.add_struct_field_usage(field.name.span, &name.name, &field.name.name);
 
-                    self.collect_pattern(&field.pattern, scopes);
+                    let field_ty = self.lookup_struct_field_type(&name.name, &field.name.name);
+
+                    if let Some(span) = field.name.span
+                        && let Some(ty) = field_ty.as_ref()
+                    {
+                        self.add_hover_span(span, ty);
+                    }
+
+                    self.collect_pattern(&field.pattern, scopes, field_ty);
                 }
             }
             TypedPattern::EnumVariant {
@@ -512,16 +635,51 @@ impl DocumentState {
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
+
+                if let Some(span) = variant.span
+                    && let Some(label) =
+                        self.enum_variant_label_from_maps(&enum_name.name, &variant.name)
+                {
+                    self.add_hover_label(span, label);
+                }
+
                 match payload {
                     TypedEnumPatternPayload::Unit => {}
                     TypedEnumPatternPayload::Tuple(patterns) => {
-                        for pattern in patterns {
-                            self.collect_pattern(pattern, scopes);
+                        if let Some(types) =
+                            self.lookup_enum_tuple_types(&enum_name.name, &variant.name)
+                        {
+                            for (pattern, ty) in patterns.iter().zip(types.into_iter()) {
+                                self.collect_pattern(pattern, scopes, Some(ty));
+                            }
+                        } else {
+                            for pattern in patterns {
+                                self.collect_pattern(pattern, scopes, None);
+                            }
                         }
                     }
                     TypedEnumPatternPayload::Struct(fields) => {
                         for field in fields {
-                            self.collect_pattern(&field.pattern, scopes);
+                            self.add_enum_variant_field_usage(
+                                field.name.span,
+                                &enum_name.name,
+                                &variant.name,
+                                &field.name.name,
+                            );
+
+                            let field_ty = self.lookup_enum_struct_field_type(
+                                &enum_name.name,
+                                &variant.name,
+                                &field.name.name,
+                            );
+
+                            if let Some(span) = field.name.span
+                                && let Some(ty) = field_ty.as_ref()
+                            {
+                                self.add_hover_span(span, ty);
+                            }
+
+                            self.collect_pattern(&field.pattern, scopes, field_ty);
                         }
                     }
                 }
@@ -548,6 +706,17 @@ impl DocumentState {
         self.hover_entries.push(HoverEntry {
             span,
             label: ty.to_string(),
+        });
+    }
+
+    fn add_hover_label(&mut self, span: Span, label: impl Into<String>) {
+        if span.end <= span.start {
+            return;
+        }
+
+        self.hover_entries.push(HoverEntry {
+            span,
+            label: label.into(),
         });
     }
 
@@ -579,6 +748,28 @@ impl DocumentState {
         if let Some(target_span) = self
             .struct_field_definitions
             .get(struct_name)
+            .and_then(|fields| fields.get(field_name))
+        {
+            self.definition_entries.push(DefinitionEntry {
+                usage: usage_span,
+                target: *target_span,
+            });
+        }
+    }
+
+    fn add_enum_variant_field_usage(
+        &mut self,
+        span: Option<Span>,
+        enum_name: &str,
+        variant_name: &str,
+        field_name: &str,
+    ) {
+        let Some(usage_span) = span else { return };
+
+        let key = EnumVariantKey::new(enum_name, variant_name);
+        if let Some(target_span) = self
+            .enum_variant_field_definitions
+            .get(&key)
             .and_then(|fields| fields.get(field_name))
         {
             self.definition_entries.push(DefinitionEntry {
@@ -624,6 +815,41 @@ impl DocumentState {
 
                 break;
             }
+        }
+    }
+
+    fn lookup_struct_field_type(&self, struct_name: &str, field_name: &str) -> Option<Type> {
+        self.struct_field_types
+            .get(struct_name)
+            .and_then(|fields| fields.get(field_name))
+            .cloned()
+    }
+
+    fn lookup_enum_struct_field_type(
+        &self,
+        enum_name: &str,
+        variant_name: &str,
+        field_name: &str,
+    ) -> Option<Type> {
+        match self
+            .enum_variant_infos
+            .get(&EnumVariantKey::new(enum_name, variant_name))
+        {
+            Some(EnumVariantPayloadInfo::Struct(fields)) => fields
+                .iter()
+                .find(|(name, _)| name == field_name)
+                .map(|(_, ty)| ty.clone()),
+            _ => None,
+        }
+    }
+
+    fn lookup_enum_tuple_types(&self, enum_name: &str, variant_name: &str) -> Option<Vec<Type>> {
+        match self
+            .enum_variant_infos
+            .get(&EnumVariantKey::new(enum_name, variant_name))
+        {
+            Some(EnumVariantPayloadInfo::Tuple(types)) => Some(types.clone()),
+            _ => None,
         }
     }
 
@@ -700,9 +926,35 @@ impl DocumentState {
 
     fn collect_type_annotation_node(&mut self, annotation: &TypeAnnotation) {
         self.add_type_usage(annotation.name.span, &annotation.name.name);
+
+        if let Some(span) = annotation.name.span
+            && let Some(label) = self.type_label_for_name(&annotation.name.name)
+        {
+            self.add_hover_label(span, label);
+        }
+
         for generic in &annotation.generics {
             self.collect_type_annotation_node(generic);
         }
+    }
+
+    fn type_label_for_name(&self, name: &str) -> Option<String> {
+        match name {
+            "i64" => Some(Type::int().to_string()),
+            "bool" => Some(Type::bool().to_string()),
+            "()" => Some(Type::unit().to_string()),
+            _ => self
+                .struct_types
+                .get(name)
+                .or_else(|| self.enum_types.get(name))
+                .map(|ty| ty.to_string()),
+        }
+    }
+
+    fn enum_variant_label_from_maps(&self, enum_name: &str, variant_name: &str) -> Option<String> {
+        self.enum_variant_infos
+            .get(&EnumVariantKey::new(enum_name, variant_name))
+            .map(|info| format_enum_variant_hover_from_info(enum_name, variant_name, info))
     }
 
     fn lookup_definition(&self, name: &str, scopes: &[HashMap<String, Span>]) -> Option<Span> {
@@ -917,6 +1169,86 @@ impl HoverEntry {
 struct DefinitionEntry {
     usage: Span,
     target: Span,
+}
+
+const HOVER_WIDTH: usize = 80;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct EnumVariantKey {
+    enum_name: String,
+    variant_name: String,
+}
+
+impl EnumVariantKey {
+    fn new(enum_name: &str, variant_name: &str) -> Self {
+        Self {
+            enum_name: enum_name.to_string(),
+            variant_name: variant_name.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum EnumVariantPayloadInfo {
+    Unit,
+    Tuple(Vec<Type>),
+    Struct(Vec<(String, Type)>),
+}
+
+fn format_enum_variant_hover_from_info(
+    enum_name: &str,
+    variant_name: &str,
+    info: &EnumVariantPayloadInfo,
+) -> String {
+    match info {
+        EnumVariantPayloadInfo::Unit => format!("{enum_name}::{variant_name}"),
+        EnumVariantPayloadInfo::Tuple(types) => {
+            if types.is_empty() {
+                format!("{enum_name}::{variant_name}()")
+            } else {
+                let payload = types
+                    .iter()
+                    .map(|ty| ty.to_compact_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{enum_name}::{variant_name}({payload})")
+            }
+        }
+        EnumVariantPayloadInfo::Struct(fields) => {
+            let rendered_fields = fields
+                .iter()
+                .map(|(name, ty)| (name.clone(), ty.to_compact_string()))
+                .collect::<Vec<_>>();
+            format_struct_variant_hover(enum_name, variant_name, &rendered_fields)
+        }
+    }
+}
+
+fn format_struct_variant_hover(
+    enum_name: &str,
+    variant_name: &str,
+    fields: &[(String, String)],
+) -> String {
+    if fields.is_empty() {
+        return format!("{enum_name}::{variant_name} {{}}");
+    }
+
+    let inline_body = fields
+        .iter()
+        .map(|(name, ty)| format!("{name}: {ty}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let inline = format!("{enum_name}::{variant_name} {{ {inline_body} }}");
+    if fields.len() < 3 && inline.len() <= HOVER_WIDTH {
+        return inline;
+    }
+
+    let mut out = format!("{enum_name}::{variant_name} {{\n");
+    for (name, ty) in fields {
+        out.push_str(&format!("    {name}: {ty},\n"));
+    }
+    out.push('}');
+    out
 }
 
 impl DefinitionEntry {

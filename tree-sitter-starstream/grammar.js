@@ -264,7 +264,7 @@ module.exports = grammar({
     struct_field_pattern: ($) =>
       choice(
         seq($.identifier, ":", $.pattern),
-        $.identifier,
+        alias($.identifier, $.struct_field_pattern_name),
       ),
 
     enum_variant_pattern: ($) =>

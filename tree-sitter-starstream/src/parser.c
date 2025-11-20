@@ -10,13 +10,13 @@
 #define STATE_COUNT 321
 #define LARGE_STATE_COUNT 2
 #define SYMBOL_COUNT 91
-#define ALIAS_COUNT 0
+#define ALIAS_COUNT 1
 #define TOKEN_COUNT 42
 #define EXTERNAL_TOKEN_COUNT 0
 #define FIELD_COUNT 0
 #define MAX_ALIAS_SEQUENCE_LENGTH 10
 #define MAX_RESERVED_WORD_SET_SIZE 0
-#define PRODUCTION_ID_COUNT 1
+#define PRODUCTION_ID_COUNT 2
 #define SUPERTYPE_COUNT 0
 
 enum ts_symbol_identifiers {
@@ -110,6 +110,7 @@ enum ts_symbol_identifiers {
   aux_sym_match_expression_repeat1 = 88,
   aux_sym_struct_pattern_repeat1 = 89,
   aux_sym_enum_variant_pattern_tuple_payload_repeat1 = 90,
+  alias_sym_struct_field_pattern_name = 91,
 };
 
 static const char * const ts_symbol_names[] = {
@@ -204,6 +205,7 @@ static const char * const ts_symbol_names[] = {
   [aux_sym_match_expression_repeat1] = "match_expression_repeat1",
   [aux_sym_struct_pattern_repeat1] = "struct_pattern_repeat1",
   [aux_sym_enum_variant_pattern_tuple_payload_repeat1] = "enum_variant_pattern_tuple_payload_repeat1",
+  [alias_sym_struct_field_pattern_name] = "struct_field_pattern_name",
 };
 
 static const TSSymbol ts_symbol_map[] = {
@@ -298,6 +300,7 @@ static const TSSymbol ts_symbol_map[] = {
   [aux_sym_match_expression_repeat1] = aux_sym_match_expression_repeat1,
   [aux_sym_struct_pattern_repeat1] = aux_sym_struct_pattern_repeat1,
   [aux_sym_enum_variant_pattern_tuple_payload_repeat1] = aux_sym_enum_variant_pattern_tuple_payload_repeat1,
+  [alias_sym_struct_field_pattern_name] = alias_sym_struct_field_pattern_name,
 };
 
 static const TSSymbolMetadata ts_symbol_metadata[] = {
@@ -665,10 +668,17 @@ static const TSSymbolMetadata ts_symbol_metadata[] = {
     .visible = false,
     .named = false,
   },
+  [alias_sym_struct_field_pattern_name] = {
+    .visible = true,
+    .named = true,
+  },
 };
 
 static const TSSymbol ts_alias_sequences[PRODUCTION_ID_COUNT][MAX_ALIAS_SEQUENCE_LENGTH] = {
   [0] = {0},
+  [1] = {
+    [0] = alias_sym_struct_field_pattern_name,
+  },
 };
 
 static const uint16_t ts_non_terminal_alias_map[] = {
@@ -6808,7 +6818,7 @@ static const TSParseActionEntry ts_parse_actions[] = {
   [558] = {.entry = {.count = 1, .reusable = true}}, SHIFT(25),
   [560] = {.entry = {.count = 1, .reusable = true}}, SHIFT(211),
   [562] = {.entry = {.count = 1, .reusable = true}}, SHIFT(315),
-  [564] = {.entry = {.count = 1, .reusable = true}}, REDUCE(sym_struct_field_pattern, 1, 0, 0),
+  [564] = {.entry = {.count = 1, .reusable = true}}, REDUCE(sym_struct_field_pattern, 1, 0, 1),
   [566] = {.entry = {.count = 1, .reusable = true}}, SHIFT(163),
   [568] = {.entry = {.count = 1, .reusable = true}}, SHIFT(203),
   [570] = {.entry = {.count = 1, .reusable = true}}, SHIFT(173),

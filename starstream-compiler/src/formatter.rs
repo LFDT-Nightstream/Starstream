@@ -429,11 +429,12 @@ fn struct_pattern_fields_to_doc<'a>(fields: &'a [StructPatternField]) -> RcDoc<'
     } else {
         let items = RcDoc::intersperse(
             fields.iter().map(|field| {
-                if let Pattern::Binding(binding) = field.pattern.as_ref() {
-                    if binding.name == field.name.name {
-                        return identifier_to_doc(&field.name);
-                    }
+                if let Pattern::Binding(binding) = field.pattern.as_ref()
+                    && binding.name == field.name.name
+                {
+                    return identifier_to_doc(&field.name);
                 }
+
                 identifier_to_doc(&field.name)
                     .append(RcDoc::text(": "))
                     .append(pattern_to_doc(&field.pattern))
