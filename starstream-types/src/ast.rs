@@ -177,6 +177,10 @@ impl Identifier {
             span,
         }
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
 }
 
 /// Function definition declared at module scope.

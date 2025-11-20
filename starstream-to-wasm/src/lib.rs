@@ -79,6 +79,7 @@ struct Compiler {
         )
     */
     world_type: ComponentType,
+    wit_types: HashMap<Type, ComponentValType>,
 
     // Diagnostics.
     fatal: bool,
@@ -205,42 +206,57 @@ impl Compiler {
         (idx, self.world_type.ty())
     }
 
-    fn lower_component_type(&mut self, ty: &Type) -> ComponentValType {
-        match ty {
-            Type::Var(_) => todo!(),
-            Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
-            Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
-            Type::Unit => {
-                let (idx, ty) = self.add_component_type();
-                ty.defined_type()
-                    .tuple(std::iter::empty::<ComponentValType>());
-                ComponentValType::Type(idx)
-            }
-            Type::Function(_, _) => todo!(),
-            Type::Tuple(items) => {
-                let children: Vec<_> = items
-                    .iter()
-                    .map(|ty| self.lower_component_type(ty))
-                    .collect();
-                let (idx, ty) = self.add_component_type();
-                ty.defined_type().tuple(children);
-                ComponentValType::Type(idx)
-            }
-            Type::Record(_record_field_types) => todo!(),
-            Type::Enum(_enum_variant_types) => todo!(),
+    fn star_to_component_type(&mut self, ty: &Type) -> ComponentValType {
+        if let Some(&cvt) = self.wit_types.get(ty) {
+            cvt
+        } else {
+            let cvt = match ty {
+                Type::Var(_) => todo!(),
+                Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
+                Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
+                Type::Unit => {
+                    let (idx, ty) = self.add_component_type();
+                    ty.defined_type()
+                        .tuple(std::iter::empty::<ComponentValType>());
+                    ComponentValType::Type(idx)
+                }
+                Type::Function(_, _) => todo!(),
+                Type::Tuple(items) => {
+                    let children: Vec<_> = items
+                        .iter()
+                        .map(|ty| self.star_to_component_type(ty))
+                        .collect();
+                    let (idx, ty) = self.add_component_type();
+                    ty.defined_type().tuple(children);
+                    ComponentValType::Type(idx)
+                }
+                Type::Record(record) => {
+                    let fields: Vec<_> = record
+                        .fields
+                        .iter()
+                        .map(|f| (f.name.as_str(), self.star_to_component_type(&f.ty)))
+                        .collect();
+                    let (idx, ty) = self.add_component_type();
+                    ty.defined_type().record(fields);
+                    ComponentValType::Type(idx)
+                }
+                Type::Enum(_enum_variant_types) => todo!(),
+            };
+            self.wit_types.insert(ty.clone(), cvt);
+            cvt
         }
     }
 
     fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
         let mut params = Vec::with_capacity(function.params.len());
         for p in &function.params {
-            params.push((p.name.name.as_str(), self.lower_component_type(&p.ty)));
+            params.push((p.name.as_str(), self.star_to_component_type(&p.ty)));
         }
 
         let result = match &function.return_type {
             // tuple<> is not a valid return type, so return none
             Type::Unit => None,
-            other => Some(self.lower_component_type(other)),
+            other => Some(self.star_to_component_type(other)),
         };
 
         let (idx, ty) = self.add_component_type();
@@ -257,9 +273,8 @@ impl Compiler {
         for definition in &program.definitions {
             match definition {
                 TypedDefinition::Function(func) => self.visit_function(func),
-                TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {
-                    self.todo("structs and enums are not supported in Wasm yet".into())
-                }
+                TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
+                TypedDefinition::Enum(_) => self.todo("enums are not supported in Wasm yet".into()),
             }
         }
     }
@@ -271,7 +286,7 @@ impl Compiler {
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
             locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
-            if !lower_type_to_stack(&mut params, &p.ty) {
+            if !star_to_core_types(&mut params, &p.ty) {
                 self.push_error(
                     p.name
                         .span
@@ -281,9 +296,10 @@ impl Compiler {
                 );
             }
         }
+        func.num_locals = params.len() as u32;
 
         let mut results = Vec::with_capacity(1);
-        if !lower_type_to_stack(&mut results, &function.return_type) {
+        if !star_to_core_types(&mut results, &function.return_type) {
             self.push_error(
                 function.name.span.unwrap_or(Span::from(0..0)),
                 format!(
@@ -305,8 +321,11 @@ impl Compiler {
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.exports
-                    .export(&function.name.name, ExportKind::Func, idx);
+                self.exports.export(
+                    &to_kebab_case(function.name.as_str()),
+                    ExportKind::Func,
+                    idx,
+                );
                 self.world_export_fn(function);
             }
             None => {}
@@ -315,26 +334,45 @@ impl Compiler {
 
     fn world_export_fn(&mut self, function: &TypedFunctionDef) {
         let idx = self.add_component_func_type(function);
-        self.world_type
-            .export(&function.name.name, ComponentTypeRef::Func(idx));
+        self.world_type.export(
+            &to_kebab_case(function.name.as_str()),
+            ComponentTypeRef::Func(idx),
+        );
+    }
+
+    fn visit_struct(&mut self, struct_: &TypedStructDef) {
+        // Export to WIT.
+        let ty = self.star_to_component_type(&struct_.ty);
+        let ComponentValType::Type(idx) = ty else {
+            unreachable!()
+        };
+        // "Exporting" a type consists of importing it with an equality constraint.
+        let new_idx = self.world_type.type_count();
+        self.world_type.import(
+            &to_kebab_case(struct_.name.as_str()),
+            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
+        );
+        // Future uses must also refer to the imported version.
+        self.wit_types
+            .insert(struct_.ty.clone(), ComponentValType::Type(new_idx));
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
-    fn visit_block(
+    fn visit_block<'i>(
         &mut self,
         func: &mut Function,
         parent: &dyn Locals,
-        block: &TypedBlock,
+        block: &'i TypedBlock,
         return_: &Type,
-    ) -> Intermediate {
+    ) -> ImResult<'i> {
         let mut locals = HashMap::new();
         for statement in &block.statements {
             match statement {
                 TypedStatement::Expression(expr) => {
                     let im = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
-                    self.discard(func, im);
+                    self.discard_r(func, im);
                 }
                 TypedStatement::VariableDeclaration {
                     mutable: _,
@@ -343,13 +381,13 @@ impl Compiler {
                 } => {
                     let value = self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                     match value {
-                        Intermediate::Error => {}
-                        Intermediate::StackI64 => {
+                        Err(()) => {}
+                        Ok(Intermediate::Stack(Type::Int)) => {
                             let local = func.add_local(ValType::I64);
                             func.instructions().local_set(local);
                             locals.insert(name.name.clone(), local);
                         }
-                        value => self.todo(format!("VariableDeclaration({value:?})")),
+                        Ok(value) => self.todo(format!("VariableDeclaration({value:?})")),
                     }
                 }
                 TypedStatement::Assignment { target, value } => {
@@ -357,11 +395,11 @@ impl Compiler {
                         let value =
                             self.visit_expr(func, &(parent, &locals), value.span, &value.node);
                         match value {
-                            Intermediate::Error => {}
-                            Intermediate::StackI64 => {
+                            Err(()) => {}
+                            Ok(Intermediate::Stack(&Type::Int)) => {
                                 func.instructions().local_set(local);
                             }
-                            value => self.todo(format!("VariableDeclaration({value:?})")),
+                            Ok(value) => self.todo(format!("VariableDeclaration({value:?})")),
                         }
                     } else {
                         self.push_error(
@@ -373,7 +411,7 @@ impl Compiler {
                 // Recursive
                 TypedStatement::Block(block) => {
                     let im = self.visit_block(func, &(parent, &locals), block, return_);
-                    self.discard(func, im);
+                    self.discard_r(func, im);
                 }
                 TypedStatement::If {
                     branches,
@@ -390,18 +428,20 @@ impl Compiler {
                             condition.span,
                             &condition.node,
                         );
-                        assert!(matches!(im, Intermediate::StackBool));
+                        if let Ok(im) = im {
+                            assert!(matches!(im, Intermediate::Stack(&Type::Bool)));
+                        }
                         func.instructions().i32_eqz(); // If condition is false,
                         func.instructions().br_if(0); // then try the next condition.
                         let im = self.visit_block(func, &(parent, &locals), block, return_);
-                        self.discard(func, im);
+                        self.discard_r(func, im);
                         func.instructions().br(1); // Go past end.
                         func.instructions().end();
                     }
                     // Final `else` branch is just inline.
                     if let Some(else_branch) = else_branch {
                         let im = self.visit_block(func, &(parent, &locals), else_branch, return_);
-                        self.discard(func, im);
+                        self.discard_r(func, im);
                     }
                     // End.
                     func.instructions().end();
@@ -412,13 +452,15 @@ impl Compiler {
 
                     let im =
                         self.visit_expr(func, &(parent, &locals), condition.span, &condition.node);
-                    assert!(matches!(im, Intermediate::StackBool));
+                    if let Ok(im) = im {
+                        assert!(matches!(im, Intermediate::Stack(&Type::Bool)));
+                    }
                     // if condition == 0, break
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
                     let im = self.visit_block(func, &(parent, &locals), body, return_);
-                    self.discard(func, im);
+                    self.discard_r(func, im);
                     // continue
                     func.instructions().br(0).end().end();
                 }
@@ -437,20 +479,44 @@ impl Compiler {
         if let Some(expr) = &block.tail_expression {
             self.visit_expr(func, &(parent, &locals), expr.span, &expr.node)
         } else {
-            Intermediate::Void
+            Ok(Intermediate::Stack(&Type::Unit))
         }
     }
 
     /// Insert bytecode to discard the given [Intermediate], such as during
     /// statement expressions.
     fn discard(&mut self, func: &mut Function, im: Intermediate) {
+        for _ in 0..self.count_stack_slots(&im) {
+            func.instructions().drop();
+        }
+    }
+
+    fn discard_r(&mut self, func: &mut Function, im: ImResult) {
+        if let Ok(im) = im {
+            self.discard(func, im);
+        }
+    }
+
+    fn count_stack_slots(&mut self, im: &Intermediate) -> u32 {
         match im {
-            // 0 stack slots
-            Intermediate::Error | Intermediate::Void => {}
-            // 1 stack slot
-            Intermediate::StackBool | Intermediate::StackI64 => {
-                func.instructions().drop();
-            }
+            Intermediate::Stack(ty) => self.count_type_stack_slots(ty),
+        }
+    }
+
+    fn count_type_stack_slots(&mut self, ty: &Type) -> u32 {
+        match ty {
+            Type::Var(_) => todo!(),
+            Type::Int => 1,
+            Type::Bool => 1,
+            Type::Unit => 0,
+            Type::Function(_, _) => todo!(),
+            Type::Tuple(items) => items.iter().map(|t| self.count_type_stack_slots(t)).sum(),
+            Type::Record(record) => record
+                .fields
+                .iter()
+                .map(|f| self.count_type_stack_slots(&f.ty))
+                .sum(),
+            Type::Enum(_variants) => todo!(),
         }
     }
 
@@ -464,37 +530,38 @@ impl Compiler {
 
     /// Compile a single [Expr] into the current function, returning an
     /// [Intermediate] representing that expression's output on the stack.
-    fn visit_expr(
+    fn visit_expr<'i>(
         &mut self,
         func: &mut Function,
         locals: &dyn Locals,
         span: Span,
-        expr: &TypedExpr,
-    ) -> Intermediate {
+        expr: &'i TypedExpr,
+    ) -> ImResult<'i> {
         match &expr.kind {
             // Identifiers
             TypedExprKind::Identifier(ident) => {
                 if let Some(local) = locals.get(&ident.name) {
-                    func.instructions().local_get(local);
-                    Intermediate::StackI64 // TODO: use `expr.ty` here
+                    for i in 0..self.count_type_stack_slots(&expr.ty) {
+                        func.instructions().local_get(local + i);
+                    }
+                    Ok(Intermediate::Stack(&expr.ty))
                 } else {
-                    self.push_error(
+                    Err(self.push_error(
                         ident.span.unwrap_or(span),
                         format!("unknown name {:?}", &ident.name),
-                    );
-                    Intermediate::Error
+                    ))
                 }
             }
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
                 func.instructions().i64_const(*i);
-                Intermediate::StackI64
+                Ok(Intermediate::Stack(&Type::Int))
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
                 func.instructions().i32_const(*b as i32);
-                Intermediate::StackBool
+                Ok(Intermediate::Stack(&Type::Bool))
             }
-            TypedExprKind::Literal(Literal::Unit) => Intermediate::Void,
+            TypedExprKind::Literal(Literal::Unit) => Ok(Intermediate::Stack(&Type::Unit)),
             // Arithmetic operators
             TypedExprKind::Binary {
                 op: BinaryOp::Add,
@@ -503,16 +570,12 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_add();
-                        Intermediate::StackI64
+                        Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Add({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Add({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -522,16 +585,12 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_sub();
-                        Intermediate::StackI64
+                        Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Subtract({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -541,16 +600,12 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_mul();
-                        Intermediate::StackI64
+                        Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Multiply({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -560,16 +615,12 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_div_s();
-                        Intermediate::StackI64
+                        Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Divide({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Divide({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -579,16 +630,12 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_rem_s();
-                        Intermediate::StackI64
+                        Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Remainder({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Remainder({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Unary {
@@ -597,31 +644,23 @@ impl Compiler {
             } => {
                 // `-x` compiles to `0 - x`.
                 func.instructions().i64_const(0);
-                match self.visit_expr(func, locals, expr.span, &expr.node) {
-                    Intermediate::Error => Intermediate::Error,
-                    Intermediate::StackI64 => {
+                match self.visit_expr(func, locals, expr.span, &expr.node)? {
+                    Intermediate::Stack(&Type::Int) => {
                         func.instructions().i64_sub();
-                        Intermediate::StackI64
+                        Ok(Intermediate::Stack(&Type::Int))
                     }
-                    lhs => {
-                        self.todo(format!("Negate({lhs:?})"));
-                        Intermediate::Error
-                    }
+                    lhs => Err(self.todo(format!("Negate({lhs:?})"))),
                 }
             }
             TypedExprKind::Unary {
                 op: UnaryOp::Not,
                 expr,
-            } => match self.visit_expr(func, locals, expr.span, &expr.node) {
-                Intermediate::Error => Intermediate::Error,
-                Intermediate::StackBool => {
+            } => match self.visit_expr(func, locals, expr.span, &expr.node)? {
+                Intermediate::Stack(&Type::Bool) => {
                     func.instructions().i32_eqz();
-                    Intermediate::StackBool
+                    Ok(Intermediate::Stack(&Type::Bool))
                 }
-                lhs => {
-                    self.todo(format!("Not({lhs:?})"));
-                    Intermediate::Error
-                }
+                lhs => Err(self.todo(format!("Not({lhs:?})"))),
             },
             // Comparison operators
             TypedExprKind::Binary {
@@ -631,20 +670,16 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_eq();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_eq();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Equal({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Equal({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -654,20 +689,16 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_ne();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_ne();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("NotEqual({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("NotEqual({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -677,20 +708,16 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_lt_s();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_lt_u();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Less({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Less({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -700,20 +727,16 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_gt_s();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_gt_u();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Greater({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -723,20 +746,16 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_le_s();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_le_u();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("LessEqual({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("LessEqual({lhs:?}, {rhs:?})"))),
                 }
             }
             TypedExprKind::Binary {
@@ -746,20 +765,16 @@ impl Compiler {
             } => {
                 let lhs = self.visit_expr(func, locals, left.span, &left.node);
                 let rhs = self.visit_expr(func, locals, right.span, &right.node);
-                match (lhs, rhs) {
-                    (Intermediate::Error, _) | (_, Intermediate::Error) => Intermediate::Error,
-                    (Intermediate::StackI64, Intermediate::StackI64) => {
+                match (lhs?, rhs?) {
+                    (Intermediate::Stack(&Type::Int), Intermediate::Stack(&Type::Int)) => {
                         func.instructions().i64_ge_s();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (Intermediate::StackBool, Intermediate::StackBool) => {
+                    (Intermediate::Stack(&Type::Bool), Intermediate::Stack(&Type::Bool)) => {
                         func.instructions().i32_ge_u();
-                        Intermediate::StackBool
+                        Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => {
-                        self.todo(format!("Greater({lhs:?}, {rhs:?})"));
-                        Intermediate::Error
-                    }
+                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
                 }
             }
             // Short-circuiting operators
@@ -767,64 +782,119 @@ impl Compiler {
                 op: BinaryOp::And,
                 left,
                 right,
-            } => match self.visit_expr(func, locals, left.span, &left.node) {
-                Intermediate::Error => Intermediate::Error,
-                Intermediate::StackBool => {
+            } => match self.visit_expr(func, locals, left.span, &left.node)? {
+                Intermediate::Stack(&Type::Bool) => {
                     func.instructions().if_(BlockType::Result(ValType::I32));
-                    match self.visit_expr(func, locals, right.span, &right.node) {
-                        Intermediate::Error => Intermediate::Error,
-                        Intermediate::StackBool => {
+                    match self.visit_expr(func, locals, right.span, &right.node)? {
+                        Intermediate::Stack(&Type::Bool) => {
                             func.instructions().else_().i32_const(0).end();
-                            Intermediate::StackBool
+                            Ok(Intermediate::Stack(&Type::Bool))
                         }
-                        right => {
-                            self.todo(format!("And({left:?}, {right:?})"));
-                            Intermediate::Error
-                        }
+                        right => Err(self.todo(format!("And({left:?}, {right:?})"))),
                     }
                 }
-                left => {
-                    self.todo(format!("And({left:?}, {right:?})"));
-                    Intermediate::Error
-                }
+                left => Err(self.todo(format!("And({left:?}, {right:?})"))),
             },
             TypedExprKind::Binary {
                 op: BinaryOp::Or,
                 left,
                 right,
-            } => match self.visit_expr(func, locals, left.span, &left.node) {
-                Intermediate::Error => Intermediate::Error,
-                Intermediate::StackBool => {
+            } => match self.visit_expr(func, locals, left.span, &left.node)? {
+                Intermediate::Stack(&Type::Bool) => {
                     func.instructions()
                         .if_(BlockType::Result(ValType::I32))
                         .i32_const(1)
                         .else_();
-                    match self.visit_expr(func, locals, right.span, &right.node) {
-                        Intermediate::Error => Intermediate::Error,
-                        Intermediate::StackBool => {
+                    match self.visit_expr(func, locals, right.span, &right.node)? {
+                        Intermediate::Stack(&Type::Bool) => {
                             func.instructions().end();
-                            Intermediate::StackBool
+                            Ok(Intermediate::Stack(&Type::Bool))
                         }
-                        right => {
-                            self.todo(format!("Or({left:?}, {right:?})"));
-                            Intermediate::Error
-                        }
+                        right => Err(self.todo(format!("Or({left:?}, {right:?})"))),
                     }
                 }
-                left => {
-                    self.todo(format!("Or({left:?}, {right:?})"));
-                    Intermediate::Error
-                }
+                left => Err(self.todo(format!("Or({left:?}, {right:?})"))),
             },
+            // Field access
+            TypedExprKind::FieldAccess { target, field } => {
+                // Right now intermediates point to the stack only, which is
+                // awkward when we want to access only one field of a local.
+                // This implementation is inefficient but at least it's correct.
+                let lhs = self.visit_expr(func, locals, target.span, &target.node);
+                match lhs? {
+                    Intermediate::Stack(Type::Record(record)) => {
+                        let mut offset = 0;
+                        let mut total = 0;
+                        let mut ty = None;
+                        for f in &record.fields {
+                            if f.name.as_str() == field.as_str() {
+                                ty = Some(&f.ty);
+                            }
+                            let slots = self.count_type_stack_slots(&f.ty);
+                            total += slots;
+                            if ty.is_none() {
+                                offset += slots;
+                            }
+                        }
+                        if let Some(ty) = ty {
+                            let mut new_locals = Vec::new();
+                            star_to_core_types(&mut new_locals, ty);
+
+                            // Drop everything after what we are selecting.
+                            for _ in offset + (new_locals.len() as u32)..total {
+                                func.instructions().drop();
+                            }
+
+                            // If offset != 0, use locals to drop stuff before the offset.
+                            if offset != 0
+                                && let Some((&first, rest)) = new_locals.split_first()
+                            {
+                                // Allocate local slots.
+                                let first_local = func.add_local(first);
+                                for &each in rest {
+                                    func.add_local(each);
+                                }
+
+                                // Store.
+                                for i in (0..new_locals.len()).rev() {
+                                    func.instructions().local_set(first_local + (i as u32));
+                                }
+
+                                // Drop.
+                                for _ in 0..offset {
+                                    func.instructions().drop();
+                                }
+
+                                // Get.
+                                for i in 0..new_locals.len() {
+                                    func.instructions().local_get(first_local + (i as u32));
+                                }
+                            }
+
+                            Ok(Intermediate::Stack(ty))
+                        } else {
+                            Err(self.push_error(
+                                field.span.unwrap_or(target.span),
+                                format!(
+                                    "no field {:?} on type {:?}",
+                                    field.as_str(),
+                                    target.node.ty
+                                ),
+                            ))
+                        }
+                    }
+                    other => Err(self.push_error(
+                        field.span.unwrap_or(target.span),
+                        format!("field access is only valid on structs, not {:?}", other),
+                    )),
+                }
+            }
             // Nesting
             TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
+            // Todo
             TypedExprKind::StructLiteral { .. }
-            | TypedExprKind::FieldAccess { .. }
             | TypedExprKind::EnumConstructor { .. }
-            | TypedExprKind::Match { .. } => {
-                self.todo("structs and enums are not supported in Wasm yet".to_string());
-                Intermediate::Error
-            }
+            | TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
         }
     }
 
@@ -854,7 +924,7 @@ impl Locals for (&dyn Locals, &HashMap<String, u32>) {
     }
 }
 
-fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
+fn star_to_core_types(dest: &mut Vec<ValType>, ty: &Type) -> bool {
     let mut ok = true;
     match ty {
         Type::Var(_) => ok = false,
@@ -864,11 +934,15 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
         Type::Unit => {}
         Type::Tuple(items) => {
             for each in items {
-                ok = lower_type_to_stack(dest, each) && ok;
+                ok = star_to_core_types(dest, each) && ok;
             }
         }
-        Type::Record(_record_field_types) => todo!(),
-        Type::Enum(_enum_variant_types) => todo!(),
+        Type::Record(record) => {
+            for f in &record.fields {
+                ok = star_to_core_types(dest, &f.ty) && ok;
+            }
+        }
+        Type::Enum(_enum_variant_types) => ok = false,
     }
     ok
 }
@@ -883,17 +957,14 @@ fn lower_type_to_stack(dest: &mut Vec<ValType>, ty: &Type) -> bool {
 /// the type checker, and stored separately.
 #[derive(Debug, Clone)]
 #[must_use]
-enum Intermediate {
-    /// An error intermediate. Suppress further typechecking errors.
-    Error,
-    /// Nothing! Absolutely nothing!
-    #[allow(dead_code)]
-    Void,
-    /// `(i32)` 0 is false, 1 is true, other values are disallowed.
-    StackBool,
-    /// `(i64)`
-    StackI64,
+enum Intermediate<'i> {
+    /// An instance on the stack. Stack slots determined by ABI lowering.
+    Stack(&'i Type),
+    // /// An instance in locals. Local slots determined by ABI lowering.
+    // Local { local: u32, ty: &'i Type },
 }
+
+type ImResult<'i> = std::result::Result<Intermediate<'i>, ()>;
 
 /// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
 ///
@@ -942,4 +1013,41 @@ impl wasm_encoder::Encode for Function {
         }
         sink.extend_from_slice(&self.bytes);
     }
+}
+
+fn to_kebab_case(name: &str) -> String {
+    // ^A -> a
+    // AB -> ab
+    // AbC -> ab-c
+    // Ab2 -> ab2
+    let mut out = String::with_capacity(name.len());
+    let mut prev: Option<char> = None;
+    for ch in name.chars() {
+        if ch.is_ascii_uppercase() {
+            if let Some(p) = prev
+                && p.is_ascii_lowercase()
+            {
+                out.push('-');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else if ch.is_ascii_alphanumeric() {
+            if ch.is_numeric() {
+                // WIT doesn't permit segments to start with numbers.
+                out.truncate(out.trim_end_matches('-').len());
+                if out.is_empty() {
+                    out.push('x');
+                }
+            }
+            out.push(ch);
+        } else if ch == '_' {
+            if let Some(p) = prev
+                && p != '_'
+            {
+                out.push('-');
+            }
+        }
+        prev = Some(ch);
+    }
+    out.truncate(out.trim_end_matches('-').len());
+    out
 }

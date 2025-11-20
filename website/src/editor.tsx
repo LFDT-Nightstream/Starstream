@@ -6,8 +6,13 @@ import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFacto
 import "./starstream.vsix";
 
 const code = `\
-script fn add(x: i64, y: i64) -> i64 {
-    x + y
+struct Token {
+    amount: i64,
+    price: i64,
+}
+
+script fn total_value(token: Token) -> i64 {
+    token.amount * token.price
 }
 `;
 

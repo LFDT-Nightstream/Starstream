@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "docusaurus": "docusaurus",
+    "prestart": "npm run build-vsix && npm run build-sandbox",
     "start": "docusaurus start",
     "build": "npm run build-vsix && npm run build-sandbox && docusaurus build",
     "build-vsix": "cd ../vscode-starstream && npm i && npx vsce package -o starstream.vsix",
