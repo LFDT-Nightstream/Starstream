@@ -39,10 +39,6 @@
           "named": true
         },
         {
-          "type": "if_statement",
-          "named": true
-        },
-        {
           "type": "return_statement",
           "named": true
         },
@@ -265,6 +261,10 @@
           "named": true
         },
         {
+          "type": "if_expression",
+          "named": true
+        },
+        {
           "type": "integer_literal",
           "named": true
         },
@@ -320,7 +320,7 @@
     "fields": {}
   },
   {
-    "type": "if_statement",
+    "type": "if_expression",
     "named": true,
     "fields": {},
     "children": {

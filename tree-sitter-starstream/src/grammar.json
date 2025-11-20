@@ -537,10 +537,6 @@
         },
         {
           "type": "SYMBOL",
-          "name": "if_statement"
-        },
-        {
-          "type": "SYMBOL",
           "name": "while_statement"
         },
         {
@@ -632,84 +628,6 @@
         }
       ]
     },
-    "if_statement": {
-      "type": "SEQ",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "if"
-        },
-        {
-          "type": "STRING",
-          "value": "("
-        },
-        {
-          "type": "SYMBOL",
-          "name": "expression"
-        },
-        {
-          "type": "STRING",
-          "value": ")"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "block"
-        },
-        {
-          "type": "REPEAT",
-          "content": {
-            "type": "SEQ",
-            "members": [
-              {
-                "type": "STRING",
-                "value": "else"
-              },
-              {
-                "type": "STRING",
-                "value": "if"
-              },
-              {
-                "type": "STRING",
-                "value": "("
-              },
-              {
-                "type": "SYMBOL",
-                "name": "expression"
-              },
-              {
-                "type": "STRING",
-                "value": ")"
-              },
-              {
-                "type": "SYMBOL",
-                "name": "block"
-              }
-            ]
-          }
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SEQ",
-              "members": [
-                {
-                  "type": "STRING",
-                  "value": "else"
-                },
-                {
-                  "type": "SYMBOL",
-                  "name": "block"
-                }
-              ]
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        }
-      ]
-    },
     "while_statement": {
       "type": "SEQ",
       "members": [
@@ -783,6 +701,10 @@
         {
           "type": "SYMBOL",
           "name": "_primary_expression"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "if_expression"
         },
         {
           "type": "PREC_LEFT",
@@ -1111,6 +1033,84 @@
               }
             ]
           }
+        }
+      ]
+    },
+    "if_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "if"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "SYMBOL",
+          "name": "expression"
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "block"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SEQ",
+            "members": [
+              {
+                "type": "STRING",
+                "value": "else"
+              },
+              {
+                "type": "STRING",
+                "value": "if"
+              },
+              {
+                "type": "STRING",
+                "value": "("
+              },
+              {
+                "type": "SYMBOL",
+                "name": "expression"
+              },
+              {
+                "type": "STRING",
+                "value": ")"
+              },
+              {
+                "type": "SYMBOL",
+                "name": "block"
+              }
+            ]
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "else"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "block"
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     },

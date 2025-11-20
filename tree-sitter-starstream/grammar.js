@@ -100,7 +100,6 @@ module.exports = grammar({
         $.block,
         $.variable_declaration,
         $.assignment,
-        $.if_statement,
         $.while_statement,
         $.return_statement,
         $._expression_statement,
@@ -119,20 +118,6 @@ module.exports = grammar({
 
     assignment: ($) => seq($.identifier, "=", $.expression, ";"),
 
-    if_statement: ($) =>
-      seq(
-        // First `if` branch.
-        "if",
-        "(",
-        $.expression,
-        ")",
-        $.block,
-        // Subsequent `else if` branches.
-        repeat(seq("else", "if", "(", $.expression, ")", $.block)),
-        // Final `else` branch.
-        optional(seq("else", $.block)),
-      ),
-
     while_statement: ($) => seq("while", "(", $.expression, ")", $.block),
 
     return_statement: ($) => seq("return", optional($.expression), ";"),
@@ -145,6 +130,8 @@ module.exports = grammar({
       choice(
         $.match_expression,
         $._primary_expression,
+        $.if_expression,
+
         prec.left(8, seq($.expression, ".", $.identifier)),
 
         prec.left(7, seq("!", $.expression)),
@@ -168,6 +155,20 @@ module.exports = grammar({
         prec.left(2, seq($.expression, "&&", $.expression)),
 
         prec.left(1, seq($.expression, "||", $.expression)),
+      ),
+
+    if_expression: ($) =>
+      seq(
+        // First `if` branch.
+        "if",
+        "(",
+        $.expression,
+        ")",
+        $.block,
+        // Subsequent `else if` branches.
+        repeat(seq("else", "if", "(", $.expression, ")", $.block)),
+        // Final `else` branch.
+        optional(seq("else", $.block)),
       ),
 
     _primary_expression: ($) =>

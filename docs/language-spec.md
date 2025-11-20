@@ -67,7 +67,6 @@ statement ::=
   | block
   | variable_declaration
   | assignment
-  | if_statement
   | while_statement
   | return_statement
   | expression_statement
@@ -75,8 +74,6 @@ statement ::=
 variable_declaration ::= "let" ("mut")? identifier (":" type_annotation)? "=" expression ";"
 
 assignment ::= identifier "=" expression ";"
-
-if_statement ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* ( "else" block )?
 
 while_statement ::= "while" "(" expression ")" block
 
@@ -88,6 +85,7 @@ expression_statement ::= expression ";"
 
 expression ::=
   | primary_expression
+  | if_expression
   (* High to low precedence *)
   | unary_expression
   | multiplicative_expression
@@ -128,6 +126,8 @@ pattern ::=
   | identifier "(" ( pattern ( "," pattern )* )? ")"
 
 struct_field_pattern ::= identifier ":" pattern
+
+if_expression ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* ( "else" block )?
 
 unary_expression ::= ("-" | "!") expression
 
