@@ -634,6 +634,16 @@ impl DocumentState {
                 payload,
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
+
+                if let Some(span) = enum_name.span
+                    && let Some(ty) = expected_ty
+                        .as_ref()
+                        .cloned()
+                        .or_else(|| self.enum_types.get(&enum_name.name).cloned())
+                {
+                    self.add_hover_span(span, &ty);
+                }
+
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
 
                 if let Some(span) = variant.span
