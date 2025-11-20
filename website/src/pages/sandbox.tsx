@@ -114,6 +114,7 @@ export function Sandbox() {
   const [outputTab, setOutputTab] = useState("");
   const [busy, setBusy] = useState(false);
   const [wat, setWat] = useState("");
+  const [wit, setWit] = useState("");
 
   const [coreWasm, setCoreWasm] = useState<Uint8Array<ArrayBuffer>>();
   const [componentWasm, setComponentWasm] = useState<Uint8Array<ArrayBuffer>>();
@@ -150,6 +151,9 @@ export function Sandbox() {
     } else if (response.type == "core_wasm") {
       setCoreWasm(response.bytes);
       setComponentWasm(undefined); // In case of error.
+      setWit("");
+    } else if (response.type == "wit") {
+      setWit(response.wit);
     } else if (response.type == "component_wasm") {
       setComponentWasm(response.bytes);
     } else {
@@ -207,14 +211,14 @@ export function Sandbox() {
                     {[
                       ...(coreWasmUrl
                         ? [
-                            <a href={coreWasmUrl} download>
+                            <a href={coreWasmUrl} download key="core">
                               Download core .wasm
                             </a>,
                           ]
                         : []),
                       ...(componentWasmUrl
                         ? [
-                            <a href={componentWasmUrl} download>
+                            <a href={componentWasmUrl} download key="component">
                               Download component .wasm
                             </a>,
                           ]
@@ -227,6 +231,7 @@ export function Sandbox() {
                   <pre>
                     <AnsiHtml text={wat} />
                   </pre>
+                  {wit ? <pre>{wit}</pre> : null}
                 </div>
               ),
             },

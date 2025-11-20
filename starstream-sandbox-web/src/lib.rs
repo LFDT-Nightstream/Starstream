@@ -2,7 +2,7 @@
 use std::panic;
 
 use log::error;
-use wit_component::ComponentEncoder;
+use wit_component::{ComponentEncoder, DecodedWasm};
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
@@ -17,6 +17,7 @@ unsafe extern "C" {
     );
     unsafe fn set_wat(ptr: *const u8, len: usize);
     unsafe fn set_core_wasm(ptr: *const u8, len: usize);
+    unsafe fn set_wit(ptr: *const u8, len: usize);
     unsafe fn set_component_wasm(ptr: *const u8, len: usize);
 }
 
@@ -83,14 +84,27 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     unsafe { set_core_wasm(wasm.as_ptr(), wasm.len()) };
 
+    // WITify core version if we can.
+    match print_wit(&wasm, true) {
+        Ok(wit) => unsafe { set_wit(wit.as_ptr(), wit.len()) },
+        Err(error) => error!("print_wit(core): {}", error),
+    }
+
     // Componentize.
     let wasm = match componentize(&wasm) {
         Ok(wasm) => {
             unsafe { set_component_wasm(wasm.as_ptr(), wasm.len()) };
+
+            // WITify component version (it'll be more compact).
+            match print_wit(&wasm, false) {
+                Ok(wit) => unsafe { set_wit(wit.as_ptr(), wit.len()) },
+                Err(error) => error!("print_wit(component): {}", error),
+            }
+
             wasm
         }
         Err(error) => {
-            error!("{}", error);
+            error!("componentize: {}", error);
             wasm
         }
     };
@@ -109,6 +123,19 @@ pub unsafe extern "C" fn run(input_len: usize) {
             unsafe { set_wat(wat_err.as_ptr(), wat_err.len()) };
         }
     }
+}
+
+fn print_wit(wasm: &[u8], is_core: bool) -> Result<String, Box<dyn std::error::Error>> {
+    let decoded = if is_core {
+        let (_, bindgen) = wit_component::metadata::decode(wasm)?;
+        DecodedWasm::Component(bindgen.resolve, bindgen.world)
+    } else {
+        wit_component::decode(wasm)?
+    };
+
+    let mut printer = wit_component::WitPrinter::default();
+    printer.print(decoded.resolve(), decoded.package(), &[])?;
+    Ok(printer.output.to_string())
 }
 
 fn componentize(wasm: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
