@@ -7,6 +7,7 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -129,6 +130,8 @@ export function Sandbox() {
     "starstream_sandbox.component.wasm",
     "application/wasm",
   );
+  const witBlob = useMemo(() => new TextEncoder().encode(wit), [wit]);
+  const witUrl = useBlobUrl(witBlob, "starstream_sandbox.wit", "text/plain");
 
   const request_id = useRef(0);
   const worker = useSandboxWorker((response) => {
@@ -207,31 +210,35 @@ export function Sandbox() {
               key: "Wasm",
               body: (
                 <div className="margin--sm">
-                  <div>
+                  <div style={{ marginBottom: 8 }}>
                     {[
-                      ...(coreWasmUrl
-                        ? [
-                            <a href={coreWasmUrl} download key="core">
-                              Download core .wasm
-                            </a>,
-                          ]
-                        : []),
-                      ...(componentWasmUrl
-                        ? [
-                            <a href={componentWasmUrl} download key="component">
-                              Download component .wasm
-                            </a>,
-                          ]
-                        : []),
-                    ].reduce(
-                      (prev, cur) => (prev ? [prev, " - ", cur] : cur),
-                      null,
-                    )}
+                      coreWasmUrl ? (
+                        <a href={coreWasmUrl} download key="core">
+                          Download core .wasm
+                        </a>
+                      ) : null,
+                      componentWasmUrl ? (
+                        <a href={componentWasmUrl} download key="component">
+                          Download component .wasm
+                        </a>
+                      ) : null,
+                      witUrl ? (
+                        <a href={witUrl} download key="wit">
+                          Download .wit
+                        </a>
+                      ) : null,
+                    ]
+                      .filter((x) => x)
+                      .reduce(
+                        (prev, cur) =>
+                          prev ? [prev, <> &ndash; </>, cur] : cur,
+                        null,
+                      )}
                   </div>
+                  {wit ? <pre>{wit}</pre> : null}
                   <pre>
                     <AnsiHtml text={wat} />
                   </pre>
-                  {wit ? <pre>{wit}</pre> : null}
                 </div>
               ),
             },
