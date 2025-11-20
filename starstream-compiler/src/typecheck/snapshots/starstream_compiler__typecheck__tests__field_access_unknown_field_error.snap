@@ -5,9 +5,7 @@ description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    let 
 ---
 starstream::type::field_access_unknown_field
 
-  x type `struct Point {
-  |     x: i64,
-  | }` has no field named `y`
+  x struct `Point` has no field named `y`
     ,-[test.star:10:11]
   9 | 
  10 |     point.y;

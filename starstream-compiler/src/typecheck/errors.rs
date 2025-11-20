@@ -411,7 +411,11 @@ impl fmt::Display for TypeErrorKind {
                 write!(f, "cannot access fields on value of type `{found}`")
             }
             TypeErrorKind::FieldAccessUnknownField { field_name, ty } => {
-                write!(f, "type `{ty}` has no field named `{field_name}`")
+                write!(
+                    f,
+                    "{} has no field named `{field_name}`",
+                    field_owner_label(ty)
+                )
             }
             TypeErrorKind::UnknownEnumVariant {
                 enum_name,
@@ -465,5 +469,13 @@ fn display_unary_op(op: UnaryOp) -> &'static str {
     match op {
         UnaryOp::Negate => "-",
         UnaryOp::Not => "!",
+    }
+}
+
+fn field_owner_label(ty: &Type) -> String {
+    match ty {
+        Type::Record(record) => format!("struct `{}`", record.name),
+        Type::Enum(enum_type) => format!("enum `{}`", enum_type.name),
+        _ => format!("type `{}`", ty),
     }
 }
