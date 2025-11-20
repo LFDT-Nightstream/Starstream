@@ -1860,7 +1860,7 @@ checksum = "685a9ac4b61f4e728e1d2c6a7844609c16527aeb5e6c865915c08e619c16410f"
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -1880,7 +1880,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -1901,7 +1901,7 @@ dependencies = [
 [[package]]
 name = "neo-fold"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "bincode",
  "blake3",
@@ -1926,7 +1926,7 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -1941,7 +1941,7 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
@@ -1950,7 +1950,7 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "bincode",
  "blake3",
@@ -1974,7 +1974,7 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=cb16b3f4d08d0bed4c0701aec51a26f8ffe38721#cb16b3f4d08d0bed4c0701aec51a26f8ffe38721"
+source = "git+https://github.com/nicarq/Nightstream.git?rev=5af5fce2058917ac9f3518e1c689ae1d81656790#5af5fce2058917ac9f3518e1c689ae1d81656790"
 dependencies = [
  "neo-ccs",
  "neo-math",
