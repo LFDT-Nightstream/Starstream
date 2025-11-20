@@ -71,11 +71,45 @@
       "required": true,
       "types": [
         {
-          "type": "expression",
+          "type": "enum_constructor_struct_payload",
+          "named": true
+        },
+        {
+          "type": "enum_constructor_tuple_payload",
           "named": true
         },
         {
           "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_constructor_struct_payload",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "struct_field_initializer",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_constructor_tuple_payload",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "expression",
           "named": true
         }
       ]
@@ -109,11 +143,15 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "enum_variant_struct_payload",
           "named": true
         },
         {
-          "type": "type_annotation",
+          "type": "enum_variant_tuple_payload",
+          "named": true
+        },
+        {
+          "type": "identifier",
           "named": true
         }
       ]
@@ -128,11 +166,75 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "enum_variant_pattern_struct_payload",
           "named": true
         },
         {
+          "type": "enum_variant_pattern_tuple_payload",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_variant_pattern_struct_payload",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "struct_field_pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_variant_pattern_tuple_payload",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
           "type": "pattern",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_variant_struct_payload",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "struct_field",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "enum_variant_tuple_payload",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "type_annotation",
           "named": true
         }
       ]

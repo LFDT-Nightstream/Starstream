@@ -62,16 +62,23 @@ module.exports = grammar({
     enum_variant: ($) =>
       seq(
         $.identifier,
-        optional(
-          seq(
-            "(",
-            optional(
-              seq($.type_annotation, repeat(seq(",", $.type_annotation))),
-            ),
-            optional(","),
-            ")",
-          ),
-        ),
+        optional(choice($.enum_variant_tuple_payload, $.enum_variant_struct_payload)),
+      ),
+
+    enum_variant_tuple_payload: ($) =>
+      seq(
+        "(",
+        optional(seq($.type_annotation, repeat(seq(",", $.type_annotation)))),
+        optional(","),
+        ")",
+      ),
+
+    enum_variant_struct_payload: ($) =>
+      seq(
+        "{",
+        optional(seq($.struct_field, repeat(seq(",", $.struct_field)))),
+        optional(","),
+        "}",
       ),
 
     // Type syntax
@@ -198,13 +205,32 @@ module.exports = grammar({
         "::",
         $.identifier,
         optional(
-          seq(
-            "(",
-            optional(seq($.expression, repeat(seq(",", $.expression)))),
-            optional(","),
-            ")",
+          choice(
+            $.enum_constructor_tuple_payload,
+            $.enum_constructor_struct_payload,
           ),
         ),
+      ),
+
+    enum_constructor_tuple_payload: ($) =>
+      seq(
+        "(",
+        optional(seq($.expression, repeat(seq(",", $.expression)))),
+        optional(","),
+        ")",
+      ),
+
+    enum_constructor_struct_payload: ($) =>
+      seq(
+        "{",
+        optional(
+          seq(
+            $.struct_field_initializer,
+            repeat(seq(",", $.struct_field_initializer)),
+          ),
+        ),
+        optional(","),
+        "}",
       ),
 
     match_expression: ($) =>
@@ -235,7 +261,11 @@ module.exports = grammar({
         "}",
       ),
 
-    struct_field_pattern: ($) => seq($.identifier, ":", $.pattern),
+    struct_field_pattern: ($) =>
+      choice(
+        seq($.identifier, ":", $.pattern),
+        $.identifier,
+      ),
 
     enum_variant_pattern: ($) =>
       seq(
@@ -243,13 +273,29 @@ module.exports = grammar({
         "::",
         $.identifier,
         optional(
-          seq(
-            "(",
-            optional(seq($.pattern, repeat(seq(",", $.pattern)))),
-            optional(","),
-            ")",
+          choice(
+            $.enum_variant_pattern_tuple_payload,
+            $.enum_variant_pattern_struct_payload,
           ),
         ),
+      ),
+
+    enum_variant_pattern_tuple_payload: ($) =>
+      seq(
+        "(",
+        optional(seq($.pattern, repeat(seq(",", $.pattern)))),
+        optional(","),
+        ")",
+      ),
+
+    enum_variant_pattern_struct_payload: ($) =>
+      seq(
+        "{",
+        optional(
+          seq($.struct_field_pattern, repeat(seq(",", $.struct_field_pattern))),
+        ),
+        optional(","),
+        "}",
       ),
 
     // Literals and other terminals
@@ -259,4 +305,7 @@ module.exports = grammar({
     identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
     unit_literal: ($) => seq("(", ")"),
   },
+  conflicts: ($) => [
+    [$.enum_constructor],
+  ],
 });
