@@ -579,7 +579,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Add({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -597,7 +597,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Subtract({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -615,7 +615,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Multiply({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -633,7 +633,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Divide({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -651,7 +651,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Remainder({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Unary {
@@ -668,7 +668,7 @@ impl Compiler {
                     lhs => {
                         self.todo(format!("Negate({lhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Unary {
@@ -682,7 +682,7 @@ impl Compiler {
                 lhs => {
                     self.todo(format!("Not({lhs:?})"));
                     Err(())
-                },
+                }
             },
             // Comparison operators
             TypedExprKind::Binary {
@@ -704,7 +704,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Equal({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -726,7 +726,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("NotEqual({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -748,7 +748,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Less({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -770,7 +770,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Greater({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -792,7 +792,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("LessEqual({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -814,7 +814,7 @@ impl Compiler {
                     (lhs, rhs) => {
                         self.todo(format!("Greater({lhs:?}, {rhs:?})"));
                         Err(())
-                    },
+                    }
                 }
             }
             // Short-circuiting operators
@@ -833,13 +833,13 @@ impl Compiler {
                         right => {
                             self.todo(format!("And({left:?}, {right:?})"));
                             Err(())
-                        },
+                        }
                     }
                 }
                 left => {
                     self.todo(format!("And({left:?}, {right:?})"));
                     Err(())
-                },
+                }
             },
             TypedExprKind::Binary {
                 op: BinaryOp::Or,
@@ -859,13 +859,13 @@ impl Compiler {
                         right => {
                             self.todo(format!("Or({left:?}, {right:?})"));
                             Err(())
-                        },
+                        }
                     }
                 }
                 left => {
                     self.todo(format!("Or({left:?}, {right:?})"));
                     Err(())
-                },
+                }
             },
             // Field access
             TypedExprKind::FieldAccess { target, field } => {
@@ -942,7 +942,7 @@ impl Compiler {
                             format!("field access is only valid on structs, not {:?}", other),
                         );
                         Err(())
-                    },
+                    }
                 }
             }
             // Nesting
@@ -953,7 +953,7 @@ impl Compiler {
             | TypedExprKind::Match { .. } => {
                 self.todo(format!("{:?}", expr.kind));
                 Err(())
-            },
+            }
         }
     }
 
@@ -1100,10 +1100,10 @@ fn to_kebab_case(name: &str) -> String {
             out.push(ch);
         } else if ch == '_'
             && let Some(p) = prev
-                && p != '_'
-            {
-                out.push('-');
-            }
+            && p != '_'
+        {
+            out.push('-');
+        }
         prev = Some(ch);
     }
     out.truncate(out.trim_end_matches('-').len());
