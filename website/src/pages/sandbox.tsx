@@ -7,6 +7,7 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -114,6 +115,7 @@ export function Sandbox() {
   const [outputTab, setOutputTab] = useState("");
   const [busy, setBusy] = useState(false);
   const [wat, setWat] = useState("");
+  const [wit, setWit] = useState("");
 
   const [coreWasm, setCoreWasm] = useState<Uint8Array<ArrayBuffer>>();
   const [componentWasm, setComponentWasm] = useState<Uint8Array<ArrayBuffer>>();
@@ -128,6 +130,8 @@ export function Sandbox() {
     "starstream_sandbox.component.wasm",
     "application/wasm",
   );
+  const witBlob = useMemo(() => new TextEncoder().encode(wit), [wit]);
+  const witUrl = useBlobUrl(witBlob, "starstream_sandbox.wit", "text/plain");
 
   const request_id = useRef(0);
   const worker = useSandboxWorker((response) => {
@@ -150,6 +154,9 @@ export function Sandbox() {
     } else if (response.type == "core_wasm") {
       setCoreWasm(response.bytes);
       setComponentWasm(undefined); // In case of error.
+      setWit("");
+    } else if (response.type == "wit") {
+      setWit(response.wit);
     } else if (response.type == "component_wasm") {
       setComponentWasm(response.bytes);
     } else {
@@ -203,27 +210,32 @@ export function Sandbox() {
               key: "Wasm",
               body: (
                 <div className="margin--sm">
-                  <div>
+                  <div style={{ marginBottom: 8 }}>
                     {[
-                      ...(coreWasmUrl
-                        ? [
-                            <a href={coreWasmUrl} download>
-                              Download core .wasm
-                            </a>,
-                          ]
-                        : []),
-                      ...(componentWasmUrl
-                        ? [
-                            <a href={componentWasmUrl} download>
-                              Download component .wasm
-                            </a>,
-                          ]
-                        : []),
-                    ].reduce(
-                      (prev, cur) => (prev ? [prev, " - ", cur] : cur),
-                      null,
-                    )}
+                      coreWasmUrl ? (
+                        <a href={coreWasmUrl} download key="core">
+                          Download core .wasm
+                        </a>
+                      ) : null,
+                      componentWasmUrl ? (
+                        <a href={componentWasmUrl} download key="component">
+                          Download component .wasm
+                        </a>
+                      ) : null,
+                      witUrl ? (
+                        <a href={witUrl} download key="wit">
+                          Download .wit
+                        </a>
+                      ) : null,
+                    ]
+                      .filter((x) => x)
+                      .reduce(
+                        (prev, cur) =>
+                          prev ? [prev, <> &ndash; </>, cur] : cur,
+                        null,
+                      )}
                   </div>
+                  {wit ? <pre>{wit}</pre> : null}
                   <pre>
                     <AnsiHtml text={wat} />
                   </pre>

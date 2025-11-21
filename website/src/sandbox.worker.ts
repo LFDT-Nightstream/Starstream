@@ -27,6 +27,10 @@ export type SandboxWorkerResponse = {
       bytes: Uint8Array<ArrayBuffer>;
     }
   | {
+      type: "wit";
+      wit: string;
+    }
+  | {
       type: "component_wasm";
       bytes: Uint8Array<ArrayBuffer>;
     }
@@ -50,6 +54,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   ): void;
   set_wat(ptr: number, len: number): void;
   set_core_wasm(ptr: number, len: number): void;
+  set_wit(ptr: number, len: number): void;
   set_component_wasm(ptr: number, len: number): void;
 }
 
@@ -118,6 +123,13 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         request_id,
         type: "core_wasm",
         bytes: new Uint8Array(wasm.memory.buffer, ptr, len),
+      });
+    },
+    set_wit(ptr, len) {
+      send({
+        request_id,
+        type: "wit",
+        wit: utf8(wasm, ptr, len),
       });
     },
     set_component_wasm(ptr, len) {

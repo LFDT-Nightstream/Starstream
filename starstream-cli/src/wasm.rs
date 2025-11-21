@@ -11,13 +11,18 @@ pub struct Wasm {
     /// The Starstream source file to compile.
     #[arg(short = 'c')]
     compile_file: PathBuf,
-    /// The Wasm output file.
-    #[arg(short = 'o')]
-    output_file: Option<PathBuf>,
 
-    /// If set, the output will be a component instead of a core Wasm module.
+    /// Output core Wasm to this file.
+    #[arg(long, short = 'o')]
+    output_core: Option<PathBuf>,
+
+    /// Output component Wasm to this file.
     #[arg(long)]
-    component: bool,
+    output_component: Option<PathBuf>,
+
+    /// Output component WIT text to this file.
+    #[arg(long)]
+    output_wit: Option<PathBuf>,
 }
 
 impl Wasm {
@@ -50,19 +55,33 @@ impl Wasm {
         for error in errors {
             print_diagnostic(named.clone(), error)?;
         }
-        let Some(mut wasm) = wasm else {
+        let Some(wasm) = wasm else {
             std::process::exit(1);
         };
-
-        // Componentize
-        if self.component {
-            let mut encoder = ComponentEncoder::default().validate(true);
-            encoder = encoder.module(&wasm).unwrap();
-            wasm = encoder.encode().unwrap();
+        if let Some(output_core) = &self.output_core {
+            std::fs::write(output_core, &wasm).expect("Error writing Wasm output");
         }
 
-        if let Some(output_file) = &self.output_file {
-            std::fs::write(output_file, &wasm).expect("Error writing Wasm output");
+        // Componentize
+        if self.output_component.is_some() || self.output_wit.is_some() {
+            let mut encoder = ComponentEncoder::default().validate(true);
+            // TODO: less .unwrap()
+            encoder = encoder.module(&wasm).unwrap();
+            let wasm = encoder.encode().unwrap();
+
+            if let Some(output_component) = &self.output_component {
+                std::fs::write(output_component, &wasm).expect("Error writing Wasm output");
+            }
+
+            if let Some(output_wit) = &self.output_wit {
+                let decoded = wit_component::decode(&wasm).unwrap();
+                let mut printer = wit_component::WitPrinter::default();
+                printer
+                    .print(decoded.resolve(), decoded.package(), &[])
+                    .unwrap();
+                let output = printer.output.to_string();
+                std::fs::write(output_wit, output.as_bytes()).expect("Error writing WIT output");
+            }
         }
 
         Ok(())
