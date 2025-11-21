@@ -228,41 +228,11 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
             .append(RcDoc::space())
             .append(expr_to_doc(&value.node))
             .append(RcDoc::text(";")),
-        Statement::If {
-            branches,
-            else_branch,
-        } => {
-            let mut out = RcDoc::nil();
-            for (i, (condition, block)) in branches.iter().enumerate() {
-                if i > 0 {
-                    out = out
-                        .append(RcDoc::space())
-                        .append("else")
-                        .append(RcDoc::space());
-                }
-                out = out
-                    .append("if")
-                    .append(RcDoc::space())
-                    .append(parened_expr(condition))
-                    .append(RcDoc::space())
-                    .append(block_to_doc(block));
-            }
-
-            if let Some(else_branch) = else_branch {
-                out.append(RcDoc::space())
-                    .append(RcDoc::text("else"))
-                    .append(RcDoc::space())
-                    .append(block_to_doc(else_branch))
-            } else {
-                out
-            }
-        }
         Statement::While { condition, body } => RcDoc::text("while")
             .append(RcDoc::space())
             .append(parened_expr(condition))
             .append(RcDoc::space())
             .append(block_to_doc(body)),
-        Statement::Block(block) => block_to_doc(block),
         Statement::Expression(expr) => expr_to_doc(&expr.node).append(RcDoc::text(";")),
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
@@ -510,6 +480,36 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
                     variant,
                     payload,
                 } => enum_constructor_to_doc(enum_name, variant, payload),
+                Expr::Block(block) => block_to_doc(block),
+                Expr::If {
+                    branches,
+                    else_branch,
+                } => {
+                    let mut out = RcDoc::nil();
+                    for (i, (condition, block)) in branches.iter().enumerate() {
+                        if i > 0 {
+                            out = out
+                                .append(RcDoc::space())
+                                .append("else")
+                                .append(RcDoc::space());
+                        }
+                        out = out
+                            .append("if")
+                            .append(RcDoc::space())
+                            .append(parened_expr(condition))
+                            .append(RcDoc::space())
+                            .append(block_to_doc(block));
+                    }
+
+                    if let Some(else_branch) = else_branch {
+                        out.append(RcDoc::space())
+                            .append(RcDoc::text("else"))
+                            .append(RcDoc::space())
+                            .append(block_to_doc(else_branch))
+                    } else {
+                        out
+                    }
+                }
                 Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms),
             };
 
@@ -565,7 +565,7 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),
         Expr::FieldAccess { .. } => PREC_FIELD_ACCESS,
-        Expr::Match { .. } => PREC_LOWEST,
+        Expr::If { .. } | Expr::Block { .. } | Expr::Match { .. } => PREC_LOWEST,
     }
 }
 
