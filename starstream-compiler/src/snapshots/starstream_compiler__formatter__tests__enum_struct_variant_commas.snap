@@ -1,12 +1,9 @@
 ---
 source: starstream-compiler/src/formatter.rs
-assertion_line: 715
+assertion_line: 743
 description: "Code:\n\nenum Message {\n    Ping,\n    Pong {\n        x: i64,\n        y: i64\n    }\n}\n"
 ---
 enum Message {
     Ping,
-    Pong {
-        x: i64,
-        y: i64,
-    },
+    Pong { x: i64, y: i64 },
 }

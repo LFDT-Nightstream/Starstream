@@ -5,10 +5,13 @@
 //! features like generics, traits, linear resources, and effect sets without
 //! discarding the API surface introduced here.
 
+use pretty::RcDoc;
 use std::{
     fmt,
     hash::{Hash, Hasher},
 };
+
+const TYPE_FORMAT_WIDTH: usize = 80;
 
 /// Identifier for a type variable.
 ///
@@ -137,76 +140,182 @@ impl Hash for Type {
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_doc_mode(TypeDocMode::Expanded)
+            .render_fmt(TYPE_FORMAT_WIDTH, f)
+    }
+}
+
+impl Type {
+    pub fn to_compact_string(&self) -> String {
+        render_doc(self.to_doc_mode(TypeDocMode::Compact))
+    }
+
+    fn to_doc_mode(&self, mode: TypeDocMode) -> RcDoc<'static, ()> {
         match self {
-            Type::Var(id) => write!(f, "{}", id.as_str()),
-            Type::Int => write!(f, "i64"),
-            Type::Bool => write!(f, "bool"),
-            Type::Unit => write!(f, "()"),
+            Type::Var(id) => RcDoc::text(id.as_str()),
+            Type::Int => RcDoc::text("i64"),
+            Type::Bool => RcDoc::text("bool"),
+            Type::Unit => RcDoc::text("()"),
             Type::Function(params, result) => {
-                if params.is_empty() {
-                    write!(f, "fn() -> {result}")
+                let params_doc = if params.is_empty() {
+                    RcDoc::text("()")
                 } else {
-                    let params = params
-                        .iter()
-                        .map(|ty| ty.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    write!(f, "fn({params}) -> {result}")
-                }
+                    RcDoc::text("(")
+                        .append(comma_separated_docs(
+                            params.iter().map(|ty| ty.to_doc_mode(TypeDocMode::Compact)),
+                        ))
+                        .append(RcDoc::text(")"))
+                };
+
+                RcDoc::text("fn")
+                    .append(params_doc)
+                    .append(RcDoc::text(" -> "))
+                    .append(result.to_doc_mode(TypeDocMode::Compact))
             }
-            Type::Tuple(types) => {
-                let contents = types
-                    .iter()
-                    .map(|ty| ty.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "({contents})")
-            }
-            Type::Record(record) => {
-                let fields = record
-                    .fields
-                    .iter()
-                    .map(|field| format!("{}: {}", field.name, field.ty))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                if fields.is_empty() {
-                    write!(f, "{}", record.name)
-                } else {
-                    write!(f, "{} {{ {fields} }}", record.name)
-                }
-            }
-            Type::Enum(enum_type) => {
-                if enum_type.variants.is_empty() {
-                    write!(f, "enum {} {{}}", enum_type.name)
-                } else {
-                    let contents = enum_type
-                        .variants
-                        .iter()
-                        .map(|variant| match &variant.kind {
-                            EnumVariantKind::Unit => variant.name.clone(),
-                            EnumVariantKind::Tuple(payload) => {
-                                let payload = payload
-                                    .iter()
-                                    .map(|ty| ty.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                format!("{}({})", variant.name, payload)
-                            }
-                            EnumVariantKind::Struct(fields) => {
-                                let contents = fields
-                                    .iter()
-                                    .map(|field| format!("{}: {}", field.name, field.ty))
-                                    .collect::<Vec<_>>()
-                                    .join(", ");
-                                format!("{} {{ {contents} }}", variant.name)
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    write!(f, "{} {{ {contents} }}", enum_type.name)
-                }
-            }
+            Type::Tuple(items) => RcDoc::text("(")
+                .append(comma_separated_docs(
+                    items.iter().map(|ty| ty.to_doc_mode(TypeDocMode::Compact)),
+                ))
+                .append(RcDoc::text(")")),
+            Type::Record(record) => match mode {
+                TypeDocMode::Compact => RcDoc::text(record.name.clone()),
+                TypeDocMode::Expanded => record_doc(record),
+            },
+            Type::Enum(enum_type) => match mode {
+                TypeDocMode::Compact => RcDoc::text(enum_type.name.clone()),
+                TypeDocMode::Expanded => enum_doc(enum_type),
+            },
         }
+    }
+}
+
+fn render_doc(doc: RcDoc<'static, ()>) -> String {
+    let mut out = String::new();
+    doc.render_fmt(TYPE_FORMAT_WIDTH, &mut out)
+        .expect("render type doc");
+    out
+}
+
+#[derive(Clone, Copy)]
+enum TypeDocMode {
+    Expanded,
+    Compact,
+}
+
+fn comma_separated_docs<I>(docs: I) -> RcDoc<'static, ()>
+where
+    I: IntoIterator<Item = RcDoc<'static, ()>>,
+{
+    RcDoc::intersperse(docs, RcDoc::text(", "))
+}
+
+fn record_doc(record: &RecordType) -> RcDoc<'static, ()> {
+    if record.fields.is_empty() {
+        RcDoc::text("struct ").append(RcDoc::text(record.name.clone()))
+    } else {
+        let fields = RcDoc::intersperse(
+            record.fields.iter().map(|field| {
+                RcDoc::text(field.name.clone())
+                    .append(RcDoc::text(": "))
+                    .append(field.ty.to_doc_mode(TypeDocMode::Compact))
+                    .append(RcDoc::text(","))
+            }),
+            RcDoc::hardline(),
+        );
+
+        RcDoc::text("struct ")
+            .append(RcDoc::text(record.name.clone()))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{"))
+            .append(RcDoc::hardline().append(fields).nest(4))
+            .append(RcDoc::hardline())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn enum_doc(enum_type: &EnumType) -> RcDoc<'static, ()> {
+    if enum_type.variants.is_empty() {
+        RcDoc::text("enum ")
+            .append(RcDoc::text(enum_type.name.clone()))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{}"))
+    } else {
+        let variants = RcDoc::intersperse(
+            enum_type
+                .variants
+                .iter()
+                .map(|variant| match &variant.kind {
+                    EnumVariantKind::Unit => {
+                        RcDoc::text(variant.name.clone()).append(RcDoc::text(","))
+                    }
+                    EnumVariantKind::Tuple(payload) => RcDoc::text(variant.name.clone())
+                        .append(RcDoc::text("("))
+                        .append(comma_separated_docs(
+                            payload
+                                .iter()
+                                .map(|ty| ty.to_doc_mode(TypeDocMode::Compact)),
+                        ))
+                        .append(RcDoc::text("),")),
+                    EnumVariantKind::Struct(fields) => {
+                        enum_variant_struct_doc(&variant.name, fields)
+                    }
+                }),
+            RcDoc::hardline(),
+        );
+
+        RcDoc::text("enum ")
+            .append(RcDoc::text(enum_type.name.clone()))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{"))
+            .append(RcDoc::hardline().append(variants).nest(4))
+            .append(RcDoc::hardline())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn enum_variant_struct_doc(variant_name: &str, fields: &[RecordFieldType]) -> RcDoc<'static, ()> {
+    if fields.is_empty() {
+        return RcDoc::text(format!("{variant_name} {{}},"));
+    }
+
+    if let Some(inline) = inline_struct_variant(variant_name, fields) {
+        RcDoc::text(inline).append(RcDoc::text(","))
+    } else {
+        let body = RcDoc::intersperse(
+            fields.iter().map(|field| {
+                RcDoc::text(field.name.clone())
+                    .append(RcDoc::text(": "))
+                    .append(field.ty.to_doc_mode(TypeDocMode::Compact))
+                    .append(RcDoc::text(","))
+            }),
+            RcDoc::hardline(),
+        );
+
+        RcDoc::text(variant_name.to_string())
+            .append(RcDoc::space())
+            .append(RcDoc::text("{"))
+            .append(RcDoc::hardline().append(body).nest(4))
+            .append(RcDoc::hardline())
+            .append(RcDoc::text("},"))
+    }
+}
+
+fn inline_struct_variant(variant_name: &str, fields: &[RecordFieldType]) -> Option<String> {
+    if fields.len() >= 3 {
+        return None;
+    }
+
+    let contents = fields
+        .iter()
+        .map(|field| format!("{}: {}", field.name, field.ty.to_compact_string()))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let inline = format!("{variant_name} {{ {contents} }}");
+    if inline.len() <= TYPE_FORMAT_WIDTH {
+        Some(inline)
+    } else {
+        None
     }
 }
 

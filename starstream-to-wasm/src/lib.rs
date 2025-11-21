@@ -546,10 +546,11 @@ impl Compiler {
                     }
                     Ok(Intermediate::Stack(&expr.ty))
                 } else {
-                    Err(self.push_error(
+                    self.push_error(
                         ident.span.unwrap_or(span),
                         format!("unknown name {:?}", &ident.name),
-                    ))
+                    );
+                    Err(())
                 }
             }
             // Literals
@@ -575,7 +576,10 @@ impl Compiler {
                         func.instructions().i64_add();
                         Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Add({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Add({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -590,7 +594,10 @@ impl Compiler {
                         func.instructions().i64_sub();
                         Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Subtract({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -605,7 +612,10 @@ impl Compiler {
                         func.instructions().i64_mul();
                         Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Multiply({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -620,7 +630,10 @@ impl Compiler {
                         func.instructions().i64_div_s();
                         Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Divide({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Divide({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -635,7 +648,10 @@ impl Compiler {
                         func.instructions().i64_rem_s();
                         Ok(Intermediate::Stack(&Type::Int))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Remainder({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Remainder({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Unary {
@@ -649,7 +665,10 @@ impl Compiler {
                         func.instructions().i64_sub();
                         Ok(Intermediate::Stack(&Type::Int))
                     }
-                    lhs => Err(self.todo(format!("Negate({lhs:?})"))),
+                    lhs => {
+                        self.todo(format!("Negate({lhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Unary {
@@ -660,7 +679,10 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     Ok(Intermediate::Stack(&Type::Bool))
                 }
-                lhs => Err(self.todo(format!("Not({lhs:?})"))),
+                lhs => {
+                    self.todo(format!("Not({lhs:?})"));
+                    Err(())
+                }
             },
             // Comparison operators
             TypedExprKind::Binary {
@@ -679,7 +701,10 @@ impl Compiler {
                         func.instructions().i32_eq();
                         Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Equal({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Equal({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -698,7 +723,10 @@ impl Compiler {
                         func.instructions().i32_ne();
                         Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("NotEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("NotEqual({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -717,7 +745,10 @@ impl Compiler {
                         func.instructions().i32_lt_u();
                         Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Less({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Less({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -736,7 +767,10 @@ impl Compiler {
                         func.instructions().i32_gt_u();
                         Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Greater({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -755,7 +789,10 @@ impl Compiler {
                         func.instructions().i32_le_u();
                         Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("LessEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("LessEqual({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -774,7 +811,10 @@ impl Compiler {
                         func.instructions().i32_ge_u();
                         Ok(Intermediate::Stack(&Type::Bool))
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        self.todo(format!("Greater({lhs:?}, {rhs:?})"));
+                        Err(())
+                    }
                 }
             }
             // Short-circuiting operators
@@ -790,10 +830,16 @@ impl Compiler {
                             func.instructions().else_().i32_const(0).end();
                             Ok(Intermediate::Stack(&Type::Bool))
                         }
-                        right => Err(self.todo(format!("And({left:?}, {right:?})"))),
+                        right => {
+                            self.todo(format!("And({left:?}, {right:?})"));
+                            Err(())
+                        }
                     }
                 }
-                left => Err(self.todo(format!("And({left:?}, {right:?})"))),
+                left => {
+                    self.todo(format!("And({left:?}, {right:?})"));
+                    Err(())
+                }
             },
             TypedExprKind::Binary {
                 op: BinaryOp::Or,
@@ -810,10 +856,16 @@ impl Compiler {
                             func.instructions().end();
                             Ok(Intermediate::Stack(&Type::Bool))
                         }
-                        right => Err(self.todo(format!("Or({left:?}, {right:?})"))),
+                        right => {
+                            self.todo(format!("Or({left:?}, {right:?})"));
+                            Err(())
+                        }
                     }
                 }
-                left => Err(self.todo(format!("Or({left:?}, {right:?})"))),
+                left => {
+                    self.todo(format!("Or({left:?}, {right:?})"));
+                    Err(())
+                }
             },
             // Field access
             TypedExprKind::FieldAccess { target, field } => {
@@ -873,20 +925,24 @@ impl Compiler {
 
                             Ok(Intermediate::Stack(ty))
                         } else {
-                            Err(self.push_error(
+                            self.push_error(
                                 field.span.unwrap_or(target.span),
                                 format!(
                                     "no field {:?} on type {:?}",
                                     field.as_str(),
                                     target.node.ty
                                 ),
-                            ))
+                            );
+                            Err(())
                         }
                     }
-                    other => Err(self.push_error(
-                        field.span.unwrap_or(target.span),
-                        format!("field access is only valid on structs, not {:?}", other),
-                    )),
+                    other => {
+                        self.push_error(
+                            field.span.unwrap_or(target.span),
+                            format!("field access is only valid on structs, not {:?}", other),
+                        );
+                        Err(())
+                    }
                 }
             }
             // Nesting
@@ -894,7 +950,10 @@ impl Compiler {
             // Todo
             TypedExprKind::StructLiteral { .. }
             | TypedExprKind::EnumConstructor { .. }
-            | TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
+            | TypedExprKind::Match { .. } => {
+                self.todo(format!("{:?}", expr.kind));
+                Err(())
+            }
         }
     }
 
@@ -1039,12 +1098,11 @@ fn to_kebab_case(name: &str) -> String {
                 }
             }
             out.push(ch);
-        } else if ch == '_' {
-            if let Some(p) = prev
-                && p != '_'
-            {
-                out.push('-');
-            }
+        } else if ch == '_'
+            && let Some(p) = prev
+            && p != '_'
+        {
+            out.push('-');
         }
         prev = Some(ch);
     }

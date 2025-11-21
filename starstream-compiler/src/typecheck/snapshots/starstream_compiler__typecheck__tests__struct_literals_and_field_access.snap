@@ -6,34 +6,112 @@ description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nfn total
 :  => 
 
 T-Fn: total => i64
-  T-Let: {point: Point { x: i64, y: i64 }} ⊢ let translated = Point {
+  T-Let: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ let translated = Point {
     x: point.x + 1,
     y: point.y + 1,
-}; ⇒ Point { x: i64, y: i64 }
-    T-StructLit: {point: Point { x: i64, y: i64 }} ⊢ Point {
+}; ⇒ struct Point {
+    x: i64,
+    y: i64,
+}
+    T-StructLit: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ Point {
     x: point.x + 1,
     y: point.y + 1,
-} ⇒ Point { x: i64, y: i64 }
-      T-Bin-Add: {point: Point { x: i64, y: i64 }} ⊢ point.x + 1 ⇒ i64
-        T-FieldAccess: {point: Point { x: i64, y: i64 }} ⊢ point.x ⇒ i64
-          T-Var: {point: Point { x: i64, y: i64 }} ⊢ point ⇒ Point { x: i64, y: i64 }
-        T-Int: {point: Point { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+} ⇒ struct Point {
+    x: i64,
+    y: i64,
+}
+      T-Bin-Add: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ point.x + 1 ⇒ i64
+        T-FieldAccess: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ point.x ⇒ i64
+          T-Var: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ point ⇒ struct Point {
+    x: i64,
+    y: i64,
+}
+        T-Int: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ 1 ⇒ i64
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
-      T-Bin-Add: {point: Point { x: i64, y: i64 }} ⊢ point.y + 1 ⇒ i64
-        T-FieldAccess: {point: Point { x: i64, y: i64 }} ⊢ point.y ⇒ i64
-          T-Var: {point: Point { x: i64, y: i64 }} ⊢ point ⇒ Point { x: i64, y: i64 }
-        T-Int: {point: Point { x: i64, y: i64 }} ⊢ 1 ⇒ i64
+      T-Bin-Add: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ point.y + 1 ⇒ i64
+        T-FieldAccess: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ point.y ⇒ i64
+          T-Var: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ point ⇒ struct Point {
+    x: i64,
+    y: i64,
+}
+        T-Int: {point: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ 1 ⇒ i64
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
   T-ReturnTail: translated.x + translated.y => i64
-    T-Bin-Add: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.x + translated.y ⇒ i64
-      T-FieldAccess: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.x ⇒ i64
-        T-Var: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated ⇒ Point { x: i64, y: i64 }
-      T-FieldAccess: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated.y ⇒ i64
-        T-Var: {point: Point { x: i64, y: i64 }, translated: Point { x: i64, y: i64 }} ⊢ translated ⇒ Point { x: i64, y: i64 }
+    T-Bin-Add: {point: struct Point {
+    x: i64,
+    y: i64,
+}, translated: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ translated.x + translated.y ⇒ i64
+      T-FieldAccess: {point: struct Point {
+    x: i64,
+    y: i64,
+}, translated: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ translated.x ⇒ i64
+        T-Var: {point: struct Point {
+    x: i64,
+    y: i64,
+}, translated: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ translated ⇒ struct Point {
+    x: i64,
+    y: i64,
+}
+      T-FieldAccess: {point: struct Point {
+    x: i64,
+    y: i64,
+}, translated: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ translated.y ⇒ i64
+        T-Var: {point: struct Point {
+    x: i64,
+    y: i64,
+}, translated: struct Point {
+    x: i64,
+    y: i64,
+}} ⊢ translated ⇒ struct Point {
+    x: i64,
+    y: i64,
+}
       Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
