@@ -1,12 +1,27 @@
 ---
-source: starstream-to-wasm/tests/baseline.rs
-description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"main\", span: Some(10..14) }, params: [], return_type: Unit, body: TypedBlock { statements: [], tail_expression: None } })] }"
-input_file: starstream-to-wasm/tests/inputs/empty.star
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/while_simple.star
 ---
 (module
   (type (;0;) (func))
   (export "main" (func 0))
-  (func (;0;) (type 0))
+  (func (;0;) (type 0)
+    (local i64)
+    (local.set 0
+      (i64.const 0))
+    (block ;; label = @1
+      (loop ;; label = @2
+        (br_if 1 (;@1;)
+          (i32.eqz
+            (i64.lt_s
+              (local.get 0)
+              (i64.const 10))))
+        (local.set 0
+          (i64.add
+            (local.get 0)
+            (i64.const 1)))
+        (br 0 (;@2;))))
+  )
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
