@@ -169,6 +169,23 @@ fn if_elseif_else() {
 }
 
 #[test]
+fn if_expression() {
+    assert_wat_snapshot!(&from_source(
+        "
+        script fn main() -> i64 {
+            if (false) {
+                1
+            } else if (true) {
+                2
+            } else {
+                3
+            }
+        }
+        "
+    ));
+}
+
+#[test]
 fn add() {
     assert_wat_snapshot!(&from_source(
         "

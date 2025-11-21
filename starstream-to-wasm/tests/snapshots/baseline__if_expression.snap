@@ -1,0 +1,46 @@
+---
+source: starstream-to-wasm/tests/baseline.rs
+description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"main\", span: Some(19..23) }, params: [], return_type: Int, body: TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: If { branches: [(Spanned { node: TypedExpr { ty: Bool, kind: Literal(Boolean(false)) }, span: 51..56 }, TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(1)) }, span: 76..77 }) }), (Spanned { node: TypedExpr { ty: Bool, kind: Literal(Boolean(true)) }, span: 101..105 }, TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(2)) }, span: 125..126 }) })], else_branch: Some(TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(3)) }, span: 164..165 }) }) } }, span: 47..188 }) } })] }"
+---
+(module
+  (type (;0;) (func (result i64)))
+  (export "main" (func 0))
+  (func (;0;) (type 0) (result i64)
+    (local i64)
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.eqz
+            (i32.const 0)))
+        (local.set 0
+          (i64.const 1))
+        (br 1 (;@1;)))
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.eqz
+            (i32.const 1)))
+        (local.set 0
+          (i64.const 2))
+        (br 1 (;@1;)))
+      (local.set 0
+        (i64.const 3)))
+    (local.get 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func (result s64)))
+              (export (;0;) "main" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
