@@ -1,10 +1,13 @@
 //! State tracking for an open text document.
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use ropey::Rope;
 use tower_lsp_server::lsp_types::{
     DocumentSymbol, DocumentSymbolResponse, Hover, HoverContents, Location, MarkupContent,
-    MarkupKind, Position, Range, SymbolKind, Uri,
+    MarkupKind, Position, Range, SymbolKind, TextEdit, Uri,
 };
 
 use starstream_compiler::{
@@ -229,6 +232,33 @@ impl DocumentState {
         })
     }
 
+    /// Produce text edits for renaming the symbol at the given position.
+    pub fn rename_edits(&self, position: Position, new_name: &str) -> Option<Vec<TextEdit>> {
+        let offset = self.position_to_offset(position)?;
+
+        let base_entry = self
+            .definition_entries
+            .iter()
+            .filter(|entry| entry.contains(offset))
+            .min_by_key(|entry| (entry.len(), entry.usage.start))?;
+
+        let target = base_entry.target;
+
+        let mut seen = HashSet::new();
+        let mut edits = Vec::new();
+
+        for entry in &self.definition_entries {
+            if entry.target == target && seen.insert((entry.usage.start, entry.usage.end)) {
+                edits.push(TextEdit {
+                    range: self.span_to_range(entry.usage),
+                    new_text: new_name.to_string(),
+                });
+            }
+        }
+
+        if edits.is_empty() { None } else { Some(edits) }
+    }
+
     fn build_indexes(&mut self, program: &TypedProgram, ast: Option<&Program>) {
         self.hover_entries.clear();
         self.definition_entries.clear();
@@ -325,9 +355,16 @@ impl DocumentState {
                 .enum_variant_definitions
                 .entry(definition.name.name.clone())
                 .or_default();
+
             entry.clear();
+
             for variant in &definition.variants {
                 if let Some(span) = variant.name.span {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: span,
+                        target: span,
+                    });
+
                     entry.insert(variant.name.name.clone(), span);
                 }
             }
