@@ -6,6 +6,7 @@ use capabilities::capabilities;
 use document::DocumentState;
 
 use dashmap::{DashMap, mapref::entry::Entry};
+use std::collections::HashMap;
 use tower_lsp_server::{
     Client, ClientSocket, LanguageServer, LspService,
     jsonrpc::{self, Error, Result},
@@ -252,6 +253,48 @@ impl LanguageServer for Server {
             .and_then(|document| document.hover(position));
 
         Ok(hover)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let RenameParams {
+            text_document_position,
+            new_name,
+            ..
+        } = params;
+
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = text_document_position;
+
+        let uri = text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Rename request: {}", uri.as_str()),
+            )
+            .await;
+
+        let edits = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.rename_edits(position, &new_name));
+
+        if let Some(edits) = edits {
+            // no clue what else to do tbh, sorry clippy
+            #[allow(clippy::mutable_key_type)]
+            let mut changes = HashMap::new();
+
+            changes.insert(uri.clone(), edits);
+
+            Ok(Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..WorkspaceEdit::default()
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn document_symbol(

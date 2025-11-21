@@ -80,7 +80,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         document_on_type_formatting_provider: None,
 
         // The server provides rename support.
-        rename_provider: None,
+        rename_provider: Some(OneOf::Left(true)),
 
         // The server provides document link support.
         document_link_provider: None,
