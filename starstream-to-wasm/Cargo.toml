@@ -14,6 +14,6 @@ thiserror.workspace = true
 wasm-encoder = { workspace = true, features = ["component-model"] }
 
 [dev-dependencies]
-insta.workspace = true
+insta = { workspace = true, features = ["glob"] }
 starstream-compiler.workspace = true
 wasmprinter = { workspace = true, features = ["component-model"] }
