@@ -82,7 +82,7 @@ fn check_file(path: &Path) -> miette::Result<CheckResult> {
         }
     }
 
-    let Some(program) = parse_output.into_program() else {
+    let Ok(program) = parse_output.into_program() else {
         return Ok(CheckResult { errors });
     };
 

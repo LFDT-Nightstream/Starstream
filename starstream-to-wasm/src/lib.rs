@@ -309,12 +309,7 @@ impl Compiler {
             );
         }
 
-        let _ = self.visit_block(
-            &mut func,
-            &(&() as &dyn Locals, &locals),
-            &function.body,
-            &function.return_type,
-        );
+        let _ = self.visit_block(&mut func, &(&() as &dyn Locals, &locals), &function.body);
         func.instructions().end();
 
         let idx = self.add_function(FuncType::new(params, results), func);
@@ -365,7 +360,6 @@ impl Compiler {
         func: &mut Function,
         parent: &dyn Locals,
         block: &'i TypedBlock,
-        return_: &Type,
     ) -> ImResult<'i> {
         let mut locals = HashMap::new();
         for statement in &block.statements {
@@ -409,43 +403,6 @@ impl Compiler {
                     }
                 }
                 // Recursive
-                TypedStatement::Block(block) => {
-                    let im = self.visit_block(func, &(parent, &locals), block, return_);
-                    self.discard_r(func, im);
-                }
-                TypedStatement::If {
-                    branches,
-                    else_branch,
-                } => {
-                    // Emit basic double-block and trust the optimizer.
-                    func.instructions().block(BlockType::Empty);
-                    for (condition, block) in branches {
-                        // Inner block for each condition.
-                        func.instructions().block(BlockType::Empty);
-                        let im = self.visit_expr(
-                            func,
-                            &(parent, &locals),
-                            condition.span,
-                            &condition.node,
-                        );
-                        if let Ok(im) = im {
-                            assert!(matches!(im, Intermediate::Stack(&Type::Bool)));
-                        }
-                        func.instructions().i32_eqz(); // If condition is false,
-                        func.instructions().br_if(0); // then try the next condition.
-                        let im = self.visit_block(func, &(parent, &locals), block, return_);
-                        self.discard_r(func, im);
-                        func.instructions().br(1); // Go past end.
-                        func.instructions().end();
-                    }
-                    // Final `else` branch is just inline.
-                    if let Some(else_branch) = else_branch {
-                        let im = self.visit_block(func, &(parent, &locals), else_branch, return_);
-                        self.discard_r(func, im);
-                    }
-                    // End.
-                    func.instructions().end();
-                }
                 TypedStatement::While { condition, body } => {
                     func.instructions().block(BlockType::Empty); // br(1) is break
                     func.instructions().loop_(BlockType::Empty); // br(0) is continue
@@ -459,18 +416,16 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
-                    let im = self.visit_block(func, &(parent, &locals), body, return_);
+                    let im = self.visit_block(func, &(parent, &locals), body);
                     self.discard_r(func, im);
                     // continue
                     func.instructions().br(0).end().end();
                 }
                 TypedStatement::Return(Some(expr)) => {
-                    assert_eq!(&expr.node.ty, return_); // Should be enforced by typechecker.
                     let _ = self.visit_expr(func, &(parent, &locals), expr.span, &expr.node);
                     func.instructions().return_();
                 }
                 TypedStatement::Return(None) => {
-                    assert_eq!(return_, &Type::Unit); // Should be enforced by typechecker.
                     func.instructions().return_();
                 }
             }
@@ -898,14 +853,9 @@ impl Compiler {
                             }
 
                             // If offset != 0, use locals to drop stuff before the offset.
-                            if offset != 0
-                                && let Some((&first, rest)) = new_locals.split_first()
-                            {
+                            if offset != 0 && !new_locals.is_empty() {
                                 // Allocate local slots.
-                                let first_local = func.add_local(first);
-                                for &each in rest {
-                                    func.add_local(each);
-                                }
+                                let first_local = func.add_locals(new_locals.iter().copied());
 
                                 // Store.
                                 for i in (0..new_locals.len()).rev() {
@@ -947,6 +897,52 @@ impl Compiler {
             }
             // Nesting
             TypedExprKind::Grouping(expr) => self.visit_expr(func, locals, expr.span, &expr.node),
+            TypedExprKind::Block(block) => self.visit_block(func, locals, block),
+            TypedExprKind::If {
+                branches,
+                else_branch,
+            } => {
+                // Create locals to store expression result.
+                let mut new_locals = Vec::new();
+                assert!(star_to_core_types(&mut new_locals, &expr.ty));
+                let first_local = func.add_locals(new_locals.iter().copied());
+
+                // Emit basic double-block and trust the optimizer.
+                func.instructions().block(BlockType::Empty);
+                for (condition, block) in branches {
+                    // Inner block for each condition.
+                    func.instructions().block(BlockType::Empty);
+                    let im = self.visit_expr(func, locals, condition.span, &condition.node);
+                    if let Ok(im) = im {
+                        assert!(matches!(im, Intermediate::Stack(&Type::Bool)));
+                    }
+                    func.instructions().i32_eqz(); // If condition is false,
+                    func.instructions().br_if(0); // then try the next condition.
+                    let im = self.visit_block(func, locals, block)?;
+                    assert_eq!(self.count_stack_slots(&im) as usize, new_locals.len());
+                    for i in (0..new_locals.len()).rev() {
+                        func.instructions().local_set(first_local + (i as u32));
+                    }
+                    func.instructions().br(1); // Go past end.
+                    func.instructions().end();
+                }
+                // Final `else` branch is just inline.
+                if let Some(else_branch) = else_branch {
+                    let im = self.visit_block(func, locals, else_branch)?;
+                    assert_eq!(self.count_stack_slots(&im) as usize, new_locals.len());
+                    for i in (0..new_locals.len()).rev() {
+                        func.instructions().local_set(first_local + (i as u32));
+                    }
+                }
+                // End.
+                func.instructions().end();
+
+                // Read locals back onto stack.
+                for i in 0..new_locals.len() {
+                    func.instructions().local_get(first_local + (i as u32));
+                }
+                Ok(Intermediate::Stack(&expr.ty))
+            }
             // Todo
             TypedExprKind::StructLiteral { .. }
             | TypedExprKind::EnumConstructor { .. }
@@ -1055,6 +1051,21 @@ impl Function {
             return id;
         }
         self.locals.push((1, ty));
+        id
+    }
+
+    fn add_locals(&mut self, types: impl IntoIterator<Item = ValType>) -> u32 {
+        let id = self.num_locals;
+        for ty in types {
+            self.num_locals += 1;
+            if let Some((last_count, last_type)) = self.locals.last_mut()
+                && ty == *last_type
+            {
+                *last_count += 1;
+                return id;
+            }
+            self.locals.push((1, ty));
+        }
         id
     }
 

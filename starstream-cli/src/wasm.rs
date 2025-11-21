@@ -36,7 +36,7 @@ impl Wasm {
             print_diagnostic(named.clone(), error)?;
         }
 
-        let Some(program) = parse_output.into_program() else {
+        let Ok(program) = parse_output.into_program() else {
             std::process::exit(1);
         };
 
