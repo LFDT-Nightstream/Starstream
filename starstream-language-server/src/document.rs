@@ -355,9 +355,16 @@ impl DocumentState {
                 .enum_variant_definitions
                 .entry(definition.name.name.clone())
                 .or_default();
+
             entry.clear();
+
             for variant in &definition.variants {
                 if let Some(span) = variant.name.span {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: span,
+                        target: span,
+                    });
+
                     entry.insert(variant.name.name.clone(), span);
                 }
             }
