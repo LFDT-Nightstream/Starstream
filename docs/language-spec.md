@@ -64,7 +64,6 @@ type_annotation ::= identifier ( "<" type_annotation ( "," type_annotation )* ">
 block ::= "{" statement* ( expression )? "}"
 
 statement ::=
-  | block
   | variable_declaration
   | assignment
   | while_statement
@@ -85,7 +84,6 @@ expression_statement ::= expression ";"
 
 expression ::=
   | primary_expression
-  | if_expression
   (* High to low precedence *)
   | unary_expression
   | multiplicative_expression
@@ -95,17 +93,18 @@ expression ::=
   | logical_and_expression
   | logical_or_expression
   | field_access_expression
-  | struct_literal
-  | enum_construction
-  | match_expression
 
-primary_expresion ::=
+(* Primary expressions are those outside the precedence table *)
+primary_expression ::=
+  | "(" expression ")"
+  | identifier
   | integer_literal
   | boolean_literal
-  | identifier
-  | "(" expression ")"
+  | unit_literal
   | struct_literal
   | enum_construction
+  | block
+  | if_expression
   | match_expression
 
 struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
@@ -145,11 +144,13 @@ logical_or_expression ::= expression "||" expression
 
 (* Literals and other terminals *)
 
+identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
+
 integer_literal ::= [0-9]+
 
 boolean_literal ::= "true" | "false"
 
-identifier ::= [a-zA-Z_][a-zA-Z0-9_]*
+unit_literal ::= "(" ")"
 ```
 
 Definitions live exclusively at the program (module) scope. Statements appear inside blocks (function bodies, control-flow branches, etc.) and cannot occur at the top level.

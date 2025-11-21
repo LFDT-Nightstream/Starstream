@@ -31,10 +31,6 @@
           "named": true
         },
         {
-          "type": "block",
-          "named": true
-        },
-        {
           "type": "expression",
           "named": true
         },
@@ -244,6 +240,10 @@
       "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "block",
+          "named": true
+        },
         {
           "type": "boolean_literal",
           "named": true
