@@ -36,7 +36,8 @@ Language features:
 - [x] `else if`
 - [x] functions
 - [ ] function call expressions
-- [ ] if expressions
+- [x] if expressions
+- [x] block expressions
 - [x] make `let` const and add `let mut`
 - [x] type annotations on `let` bindings
 - [x] coordination script exports

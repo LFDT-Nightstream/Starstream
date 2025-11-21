@@ -97,10 +97,8 @@ module.exports = grammar({
 
     _statement: ($) =>
       choice(
-        $.block,
         $.variable_declaration,
         $.assignment,
-        $.if_statement,
         $.while_statement,
         $.return_statement,
         $._expression_statement,
@@ -119,20 +117,6 @@ module.exports = grammar({
 
     assignment: ($) => seq($.identifier, "=", $.expression, ";"),
 
-    if_statement: ($) =>
-      seq(
-        // First `if` branch.
-        "if",
-        "(",
-        $.expression,
-        ")",
-        $.block,
-        // Subsequent `else if` branches.
-        repeat(seq("else", "if", "(", $.expression, ")", $.block)),
-        // Final `else` branch.
-        optional(seq("else", $.block)),
-      ),
-
     while_statement: ($) => seq("while", "(", $.expression, ")", $.block),
 
     return_statement: ($) => seq("return", optional($.expression), ";"),
@@ -143,8 +127,8 @@ module.exports = grammar({
 
     expression: ($) =>
       choice(
-        $.match_expression,
         $._primary_expression,
+
         prec.left(8, seq($.expression, ".", $.identifier)),
 
         prec.left(7, seq("!", $.expression)),
@@ -170,17 +154,37 @@ module.exports = grammar({
         prec.left(1, seq($.expression, "||", $.expression)),
       ),
 
+    if_expression: ($) =>
+      seq(
+        // First `if` branch.
+        "if",
+        "(",
+        $.expression,
+        ")",
+        $.block,
+        // Subsequent `else if` branches.
+        repeat(seq("else", "if", "(", $.expression, ")", $.block)),
+        // Final `else` branch.
+        optional(seq("else", $.block)),
+      ),
+
     _primary_expression: ($) =>
       choice(
-        $.struct_literal,
-        $.unit_literal,
-        $.enum_constructor,
-        $.integer_literal,
-        $.boolean_literal,
+        seq("(", $.expression, ")"),
+
         // Ambiguity: `match foo { patterns }` vs `match foo { struct fields } { patterns }`.
         // In this case, identifier has priority. Use parens to get struct literal.
         prec(1, $.identifier),
-        seq("(", $.expression, ")"),
+
+        $.integer_literal,
+        $.boolean_literal,
+        $.unit_literal,
+        $.struct_literal,
+        $.enum_constructor,
+
+        $.block,
+        $.if_expression,
+        $.match_expression,
       ),
 
     struct_literal: ($) =>
@@ -300,9 +304,9 @@ module.exports = grammar({
 
     // Literals and other terminals
 
+    identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
     integer_literal: ($) => /[0-9]+/,
     boolean_literal: ($) => choice("true", "false"),
-    identifier: ($) => /[a-zA-Z_][a-zA-Z0-9_]*/,
     unit_literal: ($) => seq("(", ")"),
   },
   conflicts: ($) => [

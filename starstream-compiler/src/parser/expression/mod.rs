@@ -119,6 +119,24 @@ mod tests {
     }
 
     #[test]
+    fn block() {
+        assert_expression_snapshot!(
+            r#"
+            { let mut a = 1; a = a + 1; }
+            "#
+        );
+    }
+
+    #[test]
+    fn if_else() {
+        assert_expression_snapshot!(
+            r#"
+            if (flag) { let a = 1; } else { value = value + 1; }
+            "#
+        );
+    }
+
+    #[test]
     fn match_expression() {
         assert_expression_snapshot!(
             r#"

@@ -7,21 +7,21 @@ use crate::parser::{context::Extra, pattern, primitives};
 
 pub fn parser<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-    block_parser: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
+    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    let integer = text::int(10).map_with(|digits: &str, extra| {
+    let integer_literal = text::int(10).map_with(|digits: &str, extra| {
         let value = digits.parse::<i64>().expect("integer literal");
 
         Spanned::new(Expr::Literal(Literal::Integer(value)), extra.span())
     });
 
-    let boolean = choice((just("true").to(true), just("false").to(false)))
+    let boolean_literal = choice((just("true").to(true), just("false").to(false)))
         .padded()
         .map_with(|value, extra| {
             Spanned::new(Expr::Literal(Literal::Boolean(value)), extra.span())
         });
 
-    let unit = just("()")
+    let unit_literal = just("()")
         .padded()
         .map_with(|_, extra| Spanned::new(Expr::Literal(Literal::Unit), extra.span()));
 
@@ -79,10 +79,46 @@ pub fn parser<'a>(
             )
         });
 
+    let if_expression = just("if")
+        .padded()
+        .ignore_then(
+            expression
+                .clone()
+                .delimited_by(just('(').padded(), just(')').padded()),
+        )
+        .then(block.clone())
+        .then(
+            just("else")
+                .padded()
+                .then(just("if"))
+                .padded()
+                .ignore_then(
+                    expression
+                        .clone()
+                        .delimited_by(just('(').padded(), just(')').padded()),
+                )
+                .then(block.clone())
+                .repeated()
+                .collect::<Vec<_>>(),
+        )
+        .then(just("else").padded().ignore_then(block.clone()).or_not())
+        .map_with(|((first, mut rest), else_branch), extra| {
+            Spanned::new(
+                Expr::If {
+                    branches: {
+                        rest.insert(0, first);
+                        rest
+                    },
+                    else_branch: else_branch.map(Box::new),
+                },
+                extra.span(),
+            )
+        });
+
     let pattern_parser = pattern::parser();
     let match_arm = pattern_parser
         .then_ignore(just("=>").padded())
-        .then(block_parser)
+        .then(block.clone())
         .map(|(pattern, body)| MatchArm { pattern, body });
 
     let match_expression = just("match")
@@ -105,14 +141,21 @@ pub fn parser<'a>(
             )
         });
 
+    let block =
+        block.map_with(|block, extra| Spanned::new(Expr::Block(Box::new(block)), extra.span()));
+
     choice((
-        match_expression,
+        grouping,
+        integer_literal,
+        boolean_literal,
+        unit_literal,
         struct_literal,
         enum_constructor,
-        unit,
-        grouping,
-        integer,
-        boolean,
+        block,
+        if_expression,
+        match_expression,
+        // Identifier last to prefer struct literals if possible?
+        // TODO: `match x {` ambiguity resolution might not be what we want.
         identifier,
     ))
 }

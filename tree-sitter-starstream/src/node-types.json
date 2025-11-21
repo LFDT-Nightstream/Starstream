@@ -31,15 +31,7 @@
           "named": true
         },
         {
-          "type": "block",
-          "named": true
-        },
-        {
           "type": "expression",
-          "named": true
-        },
-        {
-          "type": "if_statement",
           "named": true
         },
         {
@@ -249,6 +241,10 @@
       "required": true,
       "types": [
         {
+          "type": "block",
+          "named": true
+        },
+        {
           "type": "boolean_literal",
           "named": true
         },
@@ -262,6 +258,10 @@
         },
         {
           "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "if_expression",
           "named": true
         },
         {
@@ -320,7 +320,7 @@
     "fields": {}
   },
   {
-    "type": "if_statement",
+    "type": "if_expression",
     "named": true,
     "fields": {},
     "children": {

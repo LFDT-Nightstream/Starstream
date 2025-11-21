@@ -497,25 +497,11 @@ impl DocumentState {
                     self.add_hover_span(span, &value.node.ty);
                 }
             }
-            TypedStatement::If {
-                branches,
-                else_branch,
-            } => {
-                for (condition, then_branch) in branches {
-                    self.collect_expr(condition, scopes);
-                    self.collect_block(then_branch, scopes);
-                }
-
-                if let Some(block) = else_branch {
-                    self.collect_block(block, scopes);
-                }
-            }
             TypedStatement::While { condition, body } => {
                 self.collect_expr(condition, scopes);
 
                 self.collect_block(body, scopes);
             }
-            TypedStatement::Block(block) => self.collect_block(block, scopes),
             TypedStatement::Expression(expr) => self.collect_expr(expr, scopes),
             TypedStatement::Return(Some(expr)) => self.collect_expr(expr, scopes),
             TypedStatement::Return(None) => {}
@@ -598,6 +584,20 @@ impl DocumentState {
                             );
                         }
                     }
+                }
+            }
+            TypedExprKind::Block(block) => self.collect_block(block, scopes),
+            TypedExprKind::If {
+                branches,
+                else_branch,
+            } => {
+                for (condition, then_branch) in branches {
+                    self.collect_expr(condition, scopes);
+                    self.collect_block(then_branch, scopes);
+                }
+
+                if let Some(block) = else_branch {
+                    self.collect_block(block, scopes);
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {
@@ -946,13 +946,32 @@ impl DocumentState {
 
     fn collect_statement_annotations_from_ast(&mut self, statement: &untyped_ast::Statement) {
         match statement {
-            untyped_ast::Statement::VariableDeclaration {
-                ty: Some(annotation),
-                ..
-            } => {
-                self.collect_type_annotation_node(annotation);
+            untyped_ast::Statement::VariableDeclaration { ty, value, .. } => {
+                if let Some(ty) = ty {
+                    self.collect_type_annotation_node(ty);
+                }
+                self.collect_expr_annotations_from_ast(&value.node);
             }
-            untyped_ast::Statement::If {
+            untyped_ast::Statement::While { body, .. } => {
+                self.collect_block_annotations_from_ast(body);
+            }
+            untyped_ast::Statement::Expression(expr) => {
+                self.collect_expr_annotations_from_ast(&expr.node);
+            }
+            untyped_ast::Statement::Return(Some(expr)) => {
+                self.collect_expr_annotations_from_ast(&expr.node);
+            }
+            untyped_ast::Statement::Return(None) => {}
+            untyped_ast::Statement::Assignment { target: _, value } => {
+                self.collect_expr_annotations_from_ast(&value.node);
+            }
+        }
+    }
+
+    fn collect_expr_annotations_from_ast(&mut self, expr: &untyped_ast::Expr) {
+        match expr {
+            untyped_ast::Expr::Block(block) => self.collect_block_annotations_from_ast(block),
+            untyped_ast::Expr::If {
                 branches,
                 else_branch,
             } => {
@@ -963,10 +982,12 @@ impl DocumentState {
                     self.collect_block_annotations_from_ast(block);
                 }
             }
-            untyped_ast::Statement::While { body, .. } => {
-                self.collect_block_annotations_from_ast(body);
+            untyped_ast::Expr::Match { scrutinee, arms } => {
+                self.collect_expr_annotations_from_ast(&scrutinee.node);
+                for arm in arms {
+                    self.collect_block_annotations_from_ast(&arm.body);
+                }
             }
-            untyped_ast::Statement::Block(block) => self.collect_block_annotations_from_ast(block),
             _ => {}
         }
     }

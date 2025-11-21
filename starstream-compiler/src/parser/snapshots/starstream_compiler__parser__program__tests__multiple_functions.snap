@@ -35,20 +35,34 @@ Program {
                                 span: 27..31,
                             },
                         },
-                        If {
-                            branches: [
-                                (
-                                    Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "flag",
-                                                span: Some(
-                                                    41..45,
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: If {
+                                branches: [
+                                    (
+                                        Spanned {
+                                            node: Identifier(
+                                                Identifier {
+                                                    name: "flag",
+                                                    span: Some(
+                                                        41..45,
+                                                    ),
+                                                },
+                                            ),
+                                            span: 41..45,
+                                        },
+                                        Block {
+                                            statements: [
+                                                Return(
+                                                    None,
                                                 ),
-                                            },
-                                        ),
-                                        span: 41..45,
-                                    },
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                ],
+                                else_branch: Some(
                                     Block {
                                         statements: [
                                             Return(
@@ -58,20 +72,10 @@ Program {
                                         tail_expression: None,
                                     },
                                 ),
-                            ],
-                            else_branch: Some(
-                                Block {
-                                    statements: [
-                                        Return(
-                                            None,
-                                        ),
-                                    ],
-                                    tail_expression: None,
-                                },
-                            ),
+                            },
+                            span: 37..76,
                         },
-                    ],
-                    tail_expression: None,
+                    ),
                 },
             },
         ),
