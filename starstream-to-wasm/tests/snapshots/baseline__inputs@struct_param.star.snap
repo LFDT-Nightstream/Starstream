@@ -1,0 +1,40 @@
+---
+source: starstream-to-wasm/tests/baseline.rs
+description: "TypedProgram { definitions: [Struct(TypedStructDef { name: Identifier { name: \"Token\", span: Some(7..12) }, fields: [TypedStructField { name: Identifier { name: \"amount\", span: Some(19..25) }, ty: Int }, TypedStructField { name: Identifier { name: \"price\", span: Some(36..41) }, ty: Int }], ty: Record(RecordType { name: \"Token\", fields: [RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }] }) }), Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"total_value\", span: Some(61..72) }, params: [TypedFunctionParam { name: Identifier { name: \"token\", span: Some(73..78) }, ty: Record(RecordType { name: \"Token\", fields: [RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }] }) }], return_type: Int, body: TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Binary { op: Multiply, left: Spanned { node: TypedExpr { ty: Int, kind: FieldAccess { target: Spanned { node: TypedExpr { ty: Record(RecordType { name: \"Token\", fields: [RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }] }), kind: Identifier(Identifier { name: \"token\", span: Some(100..105) }) }, span: 100..105 }, field: Identifier { name: \"amount\", span: Some(106..112) } } }, span: 100..112 }, right: Spanned { node: TypedExpr { ty: Int, kind: FieldAccess { target: Spanned { node: TypedExpr { ty: Record(RecordType { name: \"Token\", fields: [RecordFieldType { name: \"amount\", ty: Int }, RecordFieldType { name: \"price\", ty: Int }] }), kind: Identifier(Identifier { name: \"token\", span: Some(115..120) }) }, span: 115..120 }, field: Identifier { name: \"price\", span: Some(121..126) } } }, span: 115..126 } } }, span: 100..126 }) } })] }"
+input_file: starstream-to-wasm/tests/inputs/struct_param.star
+---
+(module
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (export "total-value" (func 0))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (local i64)
+    (i64.mul
+      (local.get 0)
+      (drop
+        (local.get 1))
+      (drop
+        (local.get 0)
+        (local.set 2
+          (local.get 1)))
+      (local.get 2))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (record (field "amount" s64) (field "price" s64)))
+              (import "token" (type (;1;) (eq 0)))
+              (type (;2;) (func (param "token" 1) (result s64)))
+              (export (;0;) "total-value" (func (type 2)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)

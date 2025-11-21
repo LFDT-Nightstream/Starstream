@@ -1,0 +1,31 @@
+---
+source: starstream-to-wasm/tests/baseline.rs
+description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"add\", span: Some(10..13) }, params: [TypedFunctionParam { name: Identifier { name: \"x\", span: Some(14..15) }, ty: Int }, TypedFunctionParam { name: Identifier { name: \"y\", span: Some(22..23) }, ty: Int }], return_type: Int, body: TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Binary { op: Add, left: Spanned { node: TypedExpr { ty: Int, kind: Identifier(Identifier { name: \"x\", span: Some(43..44) }) }, span: 43..45 }, right: Spanned { node: TypedExpr { ty: Int, kind: Identifier(Identifier { name: \"y\", span: Some(47..48) }) }, span: 47..49 } } }, span: 43..49 }) } })] }"
+input_file: starstream-to-wasm/tests/inputs/add.star
+---
+(module
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (export "add" (func 0))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (i64.add
+      (local.get 0)
+      (local.get 1))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func (param "x" s64) (param "y" s64) (result s64)))
+              (export (;0;) "add" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)

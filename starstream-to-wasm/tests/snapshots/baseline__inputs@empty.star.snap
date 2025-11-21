@@ -1,6 +1,7 @@
 ---
 source: starstream-to-wasm/tests/baseline.rs
-description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"main\", span: None }, params: [], return_type: Unit, body: TypedBlock { statements: [], tail_expression: None } })] }"
+description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"main\", span: Some(10..14) }, params: [], return_type: Unit, body: TypedBlock { statements: [], tail_expression: None } })] }"
+input_file: starstream-to-wasm/tests/inputs/empty.star
 ---
 (module
   (type (;0;) (func))

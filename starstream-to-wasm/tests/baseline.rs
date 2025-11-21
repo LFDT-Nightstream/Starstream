@@ -1,3 +1,5 @@
+use std::fs;
+
 use starstream_to_wasm::compile;
 use starstream_types::{
     BinaryOp, FunctionExport, Identifier, Literal, Spanned, Type, TypedBlock, TypedDefinition,
@@ -71,143 +73,9 @@ macro_rules! assert_wat_snapshot {
 }
 
 #[test]
-fn empty() {
-    let program = TypedProgram {
-        definitions: vec![TypedDefinition::Function(TypedFunctionDef {
-            export: Some(FunctionExport::Script),
-            name: Identifier::new("main", None),
-            params: Vec::new(),
-            return_type: Type::Unit,
-            body: TypedBlock {
-                statements: vec![],
-                tail_expression: None,
-            },
-        })],
-    };
-
-    assert_wat_snapshot!(&program);
-}
-
-#[test]
-fn simple_while_loop() {
-    let program = TypedProgram {
-        definitions: vec![TypedDefinition::Function(TypedFunctionDef {
-            export: Some(FunctionExport::Script),
-            name: Identifier::new("main", None),
-            params: Vec::new(),
-            return_type: Type::Unit,
-            body: TypedBlock {
-                statements: vec![
-                    TypedStatement::VariableDeclaration {
-                        mutable: false,
-                        name: Identifier::new("foo", None),
-                        value: Spanned::none(TypedExpr::new(
-                            Type::Int,
-                            TypedExprKind::Literal(Literal::Integer(0)),
-                        )),
-                    },
-                    TypedStatement::While {
-                        condition: Spanned::none(TypedExpr::new(
-                            Type::Bool,
-                            TypedExprKind::Binary {
-                                op: BinaryOp::Less,
-                                left: Box::new(Spanned::none(TypedExpr::new(
-                                    Type::Int,
-                                    TypedExprKind::Identifier(Identifier::new("foo", None)),
-                                ))),
-                                right: Box::new(Spanned::none(TypedExpr::new(
-                                    Type::Int,
-                                    TypedExprKind::Literal(Literal::Integer(10)),
-                                ))),
-                            },
-                        )),
-                        body: TypedBlock {
-                            statements: vec![TypedStatement::Assignment {
-                                target: Identifier::new("foo", None),
-                                value: Spanned::none(TypedExpr::new(
-                                    Type::Int,
-                                    TypedExprKind::Binary {
-                                        op: BinaryOp::Add,
-                                        left: Box::new(Spanned::none(TypedExpr::new(
-                                            Type::Int,
-                                            TypedExprKind::Identifier(Identifier::new("foo", None)),
-                                        ))),
-                                        right: Box::new(Spanned::none(TypedExpr::new(
-                                            Type::Int,
-                                            TypedExprKind::Literal(Literal::Integer(1)),
-                                        ))),
-                                    },
-                                )),
-                            }],
-                            tail_expression: None,
-                        },
-                    },
-                ],
-                tail_expression: None,
-            },
-        })],
-    };
-
-    assert_wat_snapshot!(&program);
-}
-
-#[test]
-fn if_elseif_else() {
-    assert_wat_snapshot!(&from_source(
-        "
-        script fn main() {
-            if (false) {
-                1;
-            } else if (true) {
-                2;
-            } else {
-                3;
-            }
-        }
-        "
-    ));
-}
-
-#[test]
-fn if_expression() {
-    assert_wat_snapshot!(&from_source(
-        "
-        script fn main() -> i64 {
-            if (false) {
-                1
-            } else if (true) {
-                2
-            } else {
-                3
-            }
-        }
-        "
-    ));
-}
-
-#[test]
-fn add() {
-    assert_wat_snapshot!(&from_source(
-        "
-        script fn add(x: i64, y: i64) -> i64 {
-            x + y
-        }
-        "
-    ));
-}
-
-#[test]
-fn struct_param() {
-    assert_wat_snapshot!(&from_source(
-        "
-        struct Token {
-            amount: i64,
-            price: i64,
-        }
-
-        script fn total_value(token: Token) -> i64 {
-            token.amount * token.price
-        }
-        "
-    ))
+fn inputs() {
+    insta::glob!("inputs/*.star", |path| {
+        let input = fs::read_to_string(path).unwrap();
+        assert_wat_snapshot!(&from_source(&input));
+    });
 }
