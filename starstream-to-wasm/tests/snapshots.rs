@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 
+use miette::{GraphicalReportHandler, GraphicalTheme, Report};
 use wasmprinter::Print;
 
 /// [Print] impl that expands contents of `component-type` custom sections.
@@ -42,24 +43,43 @@ fn inputs() {
         let mut output = String::new();
 
         let source = fs::read_to_string(path).unwrap();
-        let program = starstream_compiler::parse_program(&source)
-            .into_program()
-            .expect("from_source failed to parse");
-
-        let program = starstream_compiler::typecheck_program(&program, Default::default())
-            .unwrap()
-            .program;
-
-        let (wasm, errors) = starstream_to_wasm::compile(&program);
-        assert!(errors.is_empty(), "{:?}", errors);
-        let wasm = wasm.unwrap();
-        wasmprinter::Config::new()
-            .fold_instructions(true)
-            .print(
-                &wasm,
-                &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut output)),
-            )
-            .unwrap();
+        let (program, errors) = starstream_compiler::parse_program(&source).into_output_errors();
+        for error in errors {
+            let report = Report::new(error).with_source_code(source.clone());
+            GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                .render_report(&mut output, report.as_ref())
+                .expect("failed to render diagnostic");
+        }
+        if let Some(program) = program {
+            match starstream_compiler::typecheck_program(&program, Default::default()) {
+                Err(errors) => {
+                    for error in errors {
+                        let report = Report::new(error).with_source_code(source.clone());
+                        GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                            .render_report(&mut output, report.as_ref())
+                            .expect("failed to render diagnostic");
+                    }
+                }
+                Ok(success) => {
+                    let (wasm, errors) = starstream_to_wasm::compile(&success.program);
+                    for error in errors {
+                        let report = Report::new(error).with_source_code(source.clone());
+                        GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                            .render_report(&mut output, report.as_ref())
+                            .expect("failed to render diagnostic");
+                    }
+                    if let Some(wasm) = wasm {
+                        wasmprinter::Config::new()
+                            .fold_instructions(true)
+                            .print(
+                                &wasm,
+                                &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut output)),
+                            )
+                            .unwrap();
+                    }
+                }
+            }
+        }
 
         insta::with_settings!({
             omit_expression => true,
