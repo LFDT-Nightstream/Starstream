@@ -1,0 +1,30 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/add.star
+---
+(module
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (export "add" (func 0))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (i64.add
+      (local.get 0)
+      (local.get 1))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func (param "x" s64) (param "y" s64) (result s64)))
+              (export (;0;) "add" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)

@@ -1,6 +1,5 @@
 ---
-source: starstream-to-wasm/tests/baseline.rs
-description: "TypedProgram { definitions: [Function(TypedFunctionDef { export: Some(Script), name: Identifier { name: \"main\", span: Some(10..14) }, params: [], return_type: Int, body: TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: If { branches: [(Spanned { node: TypedExpr { ty: Bool, kind: Literal(Boolean(false)) }, span: 34..39 }, TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(1)) }, span: 51..52 }) }), (Spanned { node: TypedExpr { ty: Bool, kind: Literal(Boolean(true)) }, span: 68..72 }, TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(2)) }, span: 84..85 }) })], else_branch: Some(TypedBlock { statements: [], tail_expression: Some(Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(3)) }, span: 107..108 }) }) } }, span: 30..115 }) } })] }"
+source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/if_expression.star
 ---
 (module
