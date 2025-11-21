@@ -42,7 +42,7 @@ impl<T: Print> Print for CustomPrinter<T> {
 fn from_source(source: &str) -> TypedProgram {
     let program = starstream_compiler::parse_program(source)
         .into_program()
-        .expect("from_source failed to parse");
+        .unwrap();
 
     starstream_compiler::typecheck_program(&program, Default::default())
         .unwrap()

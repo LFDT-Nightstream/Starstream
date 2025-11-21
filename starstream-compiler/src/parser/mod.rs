@@ -26,8 +26,8 @@ impl ParseOutput {
         &self.errors
     }
 
-    pub fn into_program(self) -> Result<Program, Vec<ParseError>> {
-        self.program.ok_or(self.errors)
+    pub fn into_program(self) -> Option<Program> {
+        self.program
     }
 
     pub fn program(&self) -> Option<&Program> {
