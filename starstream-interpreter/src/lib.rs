@@ -1,6 +1,6 @@
 //! Tree-walking interpreter for the Starstream DSL.
 
-use std::ops::{Add, Div, Mul, Neg, Not, Rem, Sub};
+use std::ops::{Add, ControlFlow, Div, Mul, Neg, Not, Rem, Sub};
 use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
 use starstream_types::{
@@ -32,7 +32,7 @@ fn eval_function(function: &TypedFunctionDef) {
     let _ = eval_block(&function.body, &Default::default());
 }
 
-fn eval_block(block: &TypedBlock, locals: &Locals) -> (Locals, bool) {
+fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> {
     let mut locals = locals.clone();
     for statement in &block.statements {
         match statement {
@@ -41,118 +41,82 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> (Locals, bool) {
                 name,
                 value,
             } => {
-                let value = eval(&value.node, &locals);
+                let value = eval(&value.node, &locals)?;
                 locals
                     .vars
                     .insert(name.name.clone(), Rc::new(Cell::new(value)));
             }
             TypedStatement::Assignment { target, value } => {
-                let value = eval(&value.node, &locals);
+                let value = eval(&value.node, &locals)?;
                 locals.set(&target.name, value);
             }
             TypedStatement::Expression(expr) => {
-                eval(&expr.node, &locals);
-            }
-            TypedStatement::Block(block) => {
-                let (new_locals, returned) = eval_block(block, &locals);
-                locals = new_locals;
-                if returned {
-                    return (locals, true);
-                }
-            }
-            TypedStatement::If {
-                branches,
-                else_branch,
-            } => {
-                let mut else_ = true;
-                for (condition, block) in branches {
-                    if eval(&condition.node, &locals).to_bool() {
-                        let (new_locals, returned) = eval_block(block, &locals);
-                        locals = new_locals;
-                        if returned {
-                            return (locals, true);
-                        }
-                        else_ = false;
-                        break;
-                    }
-                }
-                if else_ && let Some(else_branch) = else_branch {
-                    let (new_locals, returned) = eval_block(else_branch, &locals);
-                    locals = new_locals;
-                    if returned {
-                        return (locals, true);
-                    }
-                }
+                let _: Value = eval(&expr.node, &locals)?;
             }
             TypedStatement::While { condition, body } => {
-                while eval(&condition.node, &locals).to_bool() {
-                    let (new_locals, returned) = eval_block(body, &locals);
-                    locals = new_locals;
-                    if returned {
-                        return (locals, true);
-                    }
+                while eval(&condition.node, &locals)?.to_bool() {
+                    let _: Value = eval_block(body, &locals)?;
                 }
             }
             TypedStatement::Return(Some(expr)) => {
-                eval(&expr.node, &locals);
-                return (locals, true);
+                return ControlFlow::Break(eval(&expr.node, &locals)?);
             }
             TypedStatement::Return(None) => {
-                return (locals, true);
+                return ControlFlow::Break(Value::Unit);
             }
         }
     }
 
     if let Some(expr) = &block.tail_expression {
-        eval(&expr.node, &locals);
+        ControlFlow::Continue(eval(&expr.node, &locals)?)
+    } else {
+        ControlFlow::Continue(Value::Unit)
     }
-
-    (locals, false)
 }
 
 /// Evaluate an expression.
-pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
-    match &expr.kind {
+pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
+    ControlFlow::Continue(match &expr.kind {
         // Identifiers
         TypedExprKind::Identifier(Identifier { name, .. }) => locals.get(name),
         // Literals
         TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
-        TypedExprKind::Literal(Literal::Unit) => Value::None,
+        TypedExprKind::Literal(Literal::Unit) => Value::Unit,
         // Arithmetic operators
         TypedExprKind::Binary {
             op: BinaryOp::Add,
             left,
             right,
-        } => eval(&left.node, locals) + eval(&right.node, locals),
+        } => eval(&left.node, locals)? + eval(&right.node, locals)?,
         TypedExprKind::Binary {
             op: BinaryOp::Subtract,
             left,
             right,
-        } => eval(&left.node, locals) - eval(&right.node, locals),
+        } => eval(&left.node, locals)? - eval(&right.node, locals)?,
         TypedExprKind::Binary {
             op: BinaryOp::Multiply,
             left,
             right,
-        } => eval(&left.node, locals) * eval(&right.node, locals),
+        } => eval(&left.node, locals)? * eval(&right.node, locals)?,
         TypedExprKind::Binary {
             op: BinaryOp::Divide,
             left,
             right,
-        } => eval(&left.node, locals) / eval(&right.node, locals),
+        } => eval(&left.node, locals)? / eval(&right.node, locals)?,
         TypedExprKind::Binary {
             op: BinaryOp::Remainder,
             left,
             right,
-        } => eval(&left.node, locals) % eval(&right.node, locals),
+        } => eval(&left.node, locals)? % eval(&right.node, locals)?,
         TypedExprKind::Unary {
             op: UnaryOp::Negate,
             expr,
-        } => -eval(&expr.node, locals),
+        } => -eval(&expr.node, locals)?,
         TypedExprKind::Unary {
             op: UnaryOp::Not,
             expr,
-        } => !eval(&expr.node, locals),
+        } => !eval(&expr.node, locals)?,
         // TypedExprKind::BitNot(lhs) => eval(&lhs.node, locals).bitnot(),
         // TypedExprKind::BitAnd(lhs, rhs) => eval(&lhs.node, locals) & eval(&rhs.node, locals),
         // TypedExprKind::BitOr(lhs, rhs) => eval(&lhs.node, locals) | eval(&rhs.node, locals),
@@ -164,41 +128,41 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
             op: BinaryOp::Equal,
             left,
             right,
-        } => Value::from(eval(&left.node, locals) == eval(&right.node, locals)),
+        } => Value::from(eval(&left.node, locals)? == eval(&right.node, locals)?),
         TypedExprKind::Binary {
             op: BinaryOp::NotEqual,
             left,
             right,
-        } => Value::from(eval(&left.node, locals) != eval(&right.node, locals)),
+        } => Value::from(eval(&left.node, locals)? != eval(&right.node, locals)?),
         TypedExprKind::Binary {
             op: BinaryOp::Less,
             left,
             right,
-        } => Value::from(eval(&left.node, locals) < eval(&right.node, locals)),
+        } => Value::from(eval(&left.node, locals)? < eval(&right.node, locals)?),
         TypedExprKind::Binary {
             op: BinaryOp::Greater,
             left,
             right,
-        } => Value::from(eval(&left.node, locals) > eval(&right.node, locals)),
+        } => Value::from(eval(&left.node, locals)? > eval(&right.node, locals)?),
         TypedExprKind::Binary {
             op: BinaryOp::LessEqual,
             left,
             right,
-        } => Value::from(eval(&left.node, locals) <= eval(&right.node, locals)),
+        } => Value::from(eval(&left.node, locals)? <= eval(&right.node, locals)?),
         TypedExprKind::Binary {
             op: BinaryOp::GreaterEqual,
             left,
             right,
-        } => Value::from(eval(&left.node, locals) >= eval(&right.node, locals)),
+        } => Value::from(eval(&left.node, locals)? >= eval(&right.node, locals)?),
         // Short-circuiting operators
         TypedExprKind::Binary {
             op: BinaryOp::And,
             left,
             right,
         } => {
-            let left = eval(&left.node, locals);
+            let left = eval(&left.node, locals)?;
             if left.to_bool() {
-                eval(&right.node, locals)
+                eval(&right.node, locals)?
             } else {
                 left
             }
@@ -208,22 +172,38 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> Value {
             left,
             right,
         } => {
-            let left = eval(&left.node, locals);
+            let left = eval(&left.node, locals)?;
             if left.to_bool() {
                 left
             } else {
-                eval(&right.node, locals)
+                eval(&right.node, locals)?
             }
         }
         // Nesting
-        TypedExprKind::Grouping(expr) => eval(&expr.node, locals),
+        TypedExprKind::Grouping(expr) => eval(&expr.node, locals)?,
+        TypedExprKind::Block(block) => eval_block(block, locals)?,
+        TypedExprKind::If {
+            branches,
+            else_branch,
+        } => {
+            for (condition, block) in branches {
+                if eval(&condition.node, &locals)?.to_bool() {
+                    return eval_block(block, &locals);
+                }
+            }
+            if let Some(else_branch) = else_branch {
+                eval_block(else_branch, &locals)?
+            } else {
+                Value::Unit
+            }
+        }
         TypedExprKind::StructLiteral { .. }
         | TypedExprKind::FieldAccess { .. }
         | TypedExprKind::EnumConstructor { .. }
         | TypedExprKind::Match { .. } => {
             todo!("structs and enums are not supported in the interpreter yet")
         }
-    }
+    })
 }
 
 #[test]
@@ -246,7 +226,7 @@ fn eval_math() {
             ),
             &Default::default()
         ),
-        Value::Number(50)
+        ControlFlow::Continue(Value::Number(50))
     );
 }
 
@@ -279,11 +259,25 @@ fn eval_locals() {
                     },
                 )),
             },
+            TypedStatement::Assignment {
+                target: Identifier::new("bar", None),
+                value: Spanned::none(TypedExpr::new(
+                    Type::Int,
+                    TypedExprKind::Identifier(Identifier::new("foo", None)),
+                )),
+            },
         ],
         tail_expression: None,
     };
-    let (locals, _) = eval_block(&block, &Default::default());
-    assert_eq!(locals.get("foo"), Value::Number(18));
+    let mut locals = Locals::default();
+    locals
+        .vars
+        .insert("bar".to_owned(), Rc::new(Cell::new(Value::Unit)));
+    assert_eq!(
+        eval_block(&block, &locals),
+        ControlFlow::Continue(Value::Unit),
+    );
+    assert_eq!(locals.get("bar"), Value::Number(18));
 }
 
 // ----------------------------------------------------------------------------
@@ -317,7 +311,7 @@ impl Locals {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Value {
-    None,
+    Unit,
     // Primitive values
     Number(i64),
     Boolean(bool),
@@ -502,7 +496,7 @@ impl Shr for Value {
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Value::None, Value::None) => true,
+            (Value::Unit, Value::Unit) => true,
             (Value::Number(lhs), Self::Number(rhs)) => lhs == rhs,
             (Value::Boolean(lhs), Self::Boolean(rhs)) => lhs == rhs,
             _ => false,

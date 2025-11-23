@@ -33,15 +33,10 @@ pub enum Statement {
         target: Identifier,
         value: Spanned<Expr>,
     },
-    If {
-        branches: Vec<(Spanned<Expr>, Block)>,
-        else_branch: Option<Block>,
-    },
     While {
         condition: Spanned<Expr>,
         body: Block,
     },
-    Block(Block),
     Expression(Spanned<Expr>),
     Return(Option<Spanned<Expr>>),
 }
@@ -80,6 +75,11 @@ pub enum Expr {
         enum_name: Identifier,
         variant: Identifier,
         payload: EnumConstructorPayload,
+    },
+    Block(Box<Block>),
+    If {
+        branches: Vec<(Spanned<Expr>, Block)>,
+        else_branch: Option<Box<Block>>,
     },
     Match {
         scrutinee: Box<Spanned<Expr>>,

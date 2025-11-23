@@ -153,59 +153,36 @@ fn simple_while_loop() {
 
 #[test]
 fn if_elseif_else() {
-    let program = TypedProgram {
-        definitions: vec![TypedDefinition::Function(TypedFunctionDef {
-            export: Some(FunctionExport::Script),
-            name: Identifier::new("main", None),
-            params: Vec::new(),
-            return_type: Type::Unit,
-            body: TypedBlock {
-                statements: vec![TypedStatement::If {
-                    branches: vec![
-                        (
-                            Spanned::none(TypedExpr::new(
-                                Type::Bool,
-                                TypedExprKind::Literal(Literal::Boolean(false)),
-                            )),
-                            TypedBlock {
-                                statements: vec![TypedStatement::Expression(Spanned::none(
-                                    TypedExpr::new(
-                                        Type::Int,
-                                        TypedExprKind::Literal(Literal::Integer(1)),
-                                    ),
-                                ))],
-                                tail_expression: None,
-                            },
-                        ),
-                        (
-                            Spanned::none(TypedExpr::new(
-                                Type::Bool,
-                                TypedExprKind::Literal(Literal::Boolean(true)),
-                            )),
-                            TypedBlock {
-                                statements: vec![TypedStatement::Expression(Spanned::none(
-                                    TypedExpr::new(
-                                        Type::Int,
-                                        TypedExprKind::Literal(Literal::Integer(2)),
-                                    ),
-                                ))],
-                                tail_expression: None,
-                            },
-                        ),
-                    ],
-                    else_branch: Some(TypedBlock {
-                        statements: vec![TypedStatement::Expression(Spanned::none(
-                            TypedExpr::new(Type::Int, TypedExprKind::Literal(Literal::Integer(3))),
-                        ))],
-                        tail_expression: None,
-                    }),
-                }],
-                tail_expression: None,
-            },
-        })],
-    };
+    assert_wat_snapshot!(&from_source(
+        "
+        script fn main() {
+            if (false) {
+                1;
+            } else if (true) {
+                2;
+            } else {
+                3;
+            }
+        }
+        "
+    ));
+}
 
-    assert_wat_snapshot!(&program);
+#[test]
+fn if_expression() {
+    assert_wat_snapshot!(&from_source(
+        "
+        script fn main() -> i64 {
+            if (false) {
+                1
+            } else if (true) {
+                2
+            } else {
+                3
+            }
+        }
+        "
+    ));
 }
 
 #[test]

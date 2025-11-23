@@ -56,40 +56,6 @@ pub(super) fn parser_with_block<'a>(
         .then_ignore(just(';').padded())
         .map(|(target, value)| Statement::Assignment { target, value });
 
-    let if_statement = just("if")
-        .padded()
-        .ignore_then(
-            expr.clone()
-                .delimited_by(just('(').padded(), just(')').padded()),
-        )
-        .then(block_parser.clone())
-        .then(
-            just("else")
-                .padded()
-                .then(just("if"))
-                .padded()
-                .ignore_then(
-                    expr.clone()
-                        .delimited_by(just('(').padded(), just(')').padded()),
-                )
-                .then(block_parser.clone())
-                .repeated()
-                .collect::<Vec<_>>(),
-        )
-        .then(
-            just("else")
-                .padded()
-                .ignore_then(block_parser.clone())
-                .or_not(),
-        )
-        .map(|((first, mut rest), else_branch)| Statement::If {
-            branches: {
-                rest.insert(0, first);
-                rest
-            },
-            else_branch,
-        });
-
     let while_statement = just("while")
         .padded()
         .ignore_then(
@@ -98,8 +64,6 @@ pub(super) fn parser_with_block<'a>(
         )
         .then(block_parser.clone())
         .map(|(condition, body)| Statement::While { condition, body });
-
-    let block_statement = block_parser.clone().map(Statement::Block).padded();
 
     let return_statement = just("return")
         .padded()
@@ -118,9 +82,7 @@ pub(super) fn parser_with_block<'a>(
     choice((
         variable_declaration,
         assignment,
-        if_statement,
         while_statement,
-        block_statement,
         return_statement,
         expression_statement,
     ))
@@ -192,28 +154,10 @@ mod tests {
     }
 
     #[test]
-    fn if_else() {
-        assert_statement_snapshot!(
-            r#"
-            if (flag) { let a = 1; } else { value = value + 1; }
-            "#
-        );
-    }
-
-    #[test]
     fn while_loop() {
         assert_statement_snapshot!(
             r#"
             while (count < 10) { count = count + 1; }
-            "#
-        );
-    }
-
-    #[test]
-    fn block() {
-        assert_statement_snapshot!(
-            r#"
-            { let mut a = 1; a = a + 1; }
             "#
         );
     }

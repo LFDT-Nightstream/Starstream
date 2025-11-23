@@ -78,15 +78,10 @@ pub enum TypedStatement {
         target: Identifier,
         value: Spanned<TypedExpr>,
     },
-    If {
-        branches: Vec<(Spanned<TypedExpr>, TypedBlock)>,
-        else_branch: Option<TypedBlock>,
-    },
     While {
         condition: Spanned<TypedExpr>,
         body: TypedBlock,
     },
-    Block(TypedBlock),
     Expression(Spanned<TypedExpr>),
     Return(Option<Spanned<TypedExpr>>),
 }
@@ -132,6 +127,11 @@ pub enum TypedExprKind {
         enum_name: Identifier,
         variant: Identifier,
         payload: TypedEnumConstructorPayload,
+    },
+    Block(Box<TypedBlock>),
+    If {
+        branches: Vec<(Spanned<TypedExpr>, TypedBlock)>,
+        else_branch: Option<Box<TypedBlock>>,
     },
     Match {
         scrutinee: Box<Spanned<TypedExpr>>,

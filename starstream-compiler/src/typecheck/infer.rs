@@ -997,55 +997,6 @@ impl Inferencer {
                     }
                 }
             }
-            Statement::If {
-                branches,
-                else_branch,
-            } => {
-                let mut children = Vec::new();
-
-                let mut typed_branches = Vec::with_capacity(branches.len());
-                for (condition, then_branch) in branches {
-                    let (typed_condition, cond_trace) = self.infer_expr(env, condition, ctx)?;
-                    children.push(cond_trace);
-                    let bool_check = self.require_bool(
-                        &typed_condition.node.ty,
-                        condition.span,
-                        ConditionContext::If,
-                    )?;
-                    children.push(bool_check);
-
-                    let (typed_then, then_traces) =
-                        self.infer_block(env, then_branch, ctx, false)?;
-                    children.extend(then_traces);
-
-                    typed_branches.push((typed_condition, typed_then));
-                }
-
-                let typed_else_block = if let Some(block) = else_branch {
-                    let (typed_block, else_traces) = self.infer_block(env, block, ctx, false)?;
-                    children.extend(else_traces);
-                    Some(typed_block)
-                } else {
-                    None
-                };
-
-                let unit_result = self.maybe_string(|| "()".to_string());
-                let tree = self.make_trace(
-                    "T-If",
-                    env_context.clone(),
-                    stmt_repr.clone(),
-                    unit_result,
-                    || children,
-                );
-
-                Ok((
-                    TypedStatement::If {
-                        branches: typed_branches,
-                        else_branch: typed_else_block,
-                    },
-                    tree,
-                ))
-            }
             Statement::While { condition, body } => {
                 let (typed_condition, cond_trace) = self.infer_expr(env, condition, ctx)?;
                 let bool_check = self.require_bool(
@@ -1075,18 +1026,6 @@ impl Inferencer {
                     },
                     tree,
                 ))
-            }
-            Statement::Block(block) => {
-                let (typed_block, block_traces) = self.infer_block(env, block, ctx, false)?;
-                let unit_result = self.maybe_string(|| "()".to_string());
-                let tree = self.make_trace(
-                    "T-Block",
-                    env_context.clone(),
-                    stmt_repr.clone(),
-                    unit_result,
-                    || block_traces,
-                );
-                Ok((TypedStatement::Block(typed_block), tree))
             }
             Statement::Expression(expr) => {
                 let (typed_expr, expr_trace) = self.infer_expr(env, expr, ctx)?;
@@ -1753,6 +1692,135 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
+            Expr::Block(block) => {
+                let (typed_block, block_traces) = self.infer_block(env, block, ctx, false)?;
+                let unit_result = self.maybe_string(|| "()".to_string());
+                let tree = self.make_trace(
+                    "T-Block",
+                    env_context.clone(),
+                    subject_repr.clone(),
+                    unit_result,
+                    || block_traces,
+                );
+                let ty = typed_block
+                    .tail_expression
+                    .as_ref()
+                    .map_or(Type::Unit, |tail| tail.node.ty.clone());
+                Ok((
+                    Spanned::new(
+                        TypedExpr::new(ty, TypedExprKind::Block(Box::new(typed_block))),
+                        expr.span,
+                    ),
+                    tree,
+                ))
+            }
+            Expr::If {
+                branches,
+                else_branch,
+            } => {
+                let mut children = Vec::new();
+                let mut typed_branches = Vec::with_capacity(branches.len());
+                let mut result_ty: Option<Type> = None;
+
+                for (condition, then_branch) in branches {
+                    let (typed_condition, cond_trace) = self.infer_expr(env, condition, ctx)?;
+                    children.push(cond_trace);
+                    let bool_check = self.require_bool(
+                        &typed_condition.node.ty,
+                        condition.span,
+                        ConditionContext::If,
+                    )?;
+                    children.push(bool_check);
+
+                    let (typed_then, then_traces) =
+                        self.infer_block(env, then_branch, ctx, false)?;
+                    children.extend(then_traces);
+
+                    let then_ty = typed_then
+                        .tail_expression
+                        .as_ref()
+                        .map_or(Type::Unit, |tail| tail.node.ty.clone());
+
+                    result_ty = if let Some(current) = result_ty {
+                        let (merged, unify_trace) = self.unify(
+                            current.clone(),
+                            then_ty.clone(),
+                            typed_then
+                                .tail_expression
+                                .as_ref()
+                                .map(|expr| expr.span)
+                                .unwrap_or(expr.span),
+                            expr.span,
+                            TypeErrorKind::GeneralMismatch {
+                                expected: current,
+                                found: self.apply(&then_ty),
+                            },
+                        )?;
+                        children.push(unify_trace);
+                        Some(merged)
+                    } else {
+                        Some(then_ty)
+                    };
+
+                    typed_branches.push((typed_condition, typed_then));
+                }
+
+                let typed_else_block = if let Some(block) = else_branch {
+                    let (typed_block, else_traces) = self.infer_block(env, block, ctx, false)?;
+                    children.extend(else_traces);
+                    Some(typed_block)
+                } else {
+                    None
+                };
+
+                let (else_ty, else_span) = typed_else_block
+                    .as_ref()
+                    .and_then(|b| {
+                        b.tail_expression
+                            .as_ref()
+                            .map(|tail| (tail.node.ty.clone(), tail.span))
+                    })
+                    .unwrap_or((Type::Unit, expr.span));
+                let result_ty = if let Some(current) = result_ty {
+                    let (merged, unify_trace) = self.unify(
+                        current.clone(),
+                        else_ty.clone(),
+                        else_span,
+                        expr.span,
+                        TypeErrorKind::GeneralMismatch {
+                            expected: current,
+                            found: self.apply(&else_ty),
+                        },
+                    )?;
+                    children.push(unify_trace);
+                    merged
+                } else {
+                    else_ty
+                };
+
+                let unit_result = self.maybe_string(|| "()".to_string());
+                let tree = self.make_trace(
+                    "T-If",
+                    env_context.clone(),
+                    subject_repr.clone(),
+                    unit_result,
+                    || children,
+                );
+
+                Ok((
+                    Spanned::new(
+                        TypedExpr {
+                            ty: result_ty,
+                            kind: TypedExprKind::If {
+                                branches: typed_branches,
+                                else_branch: typed_else_block.map(Box::new),
+                            },
+                        },
+                        expr.span,
+                    ),
+                    tree,
+                ))
+            }
             Expr::Match { scrutinee, arms } => {
                 let (typed_scrutinee, scrutinee_trace) = self.infer_expr(env, scrutinee, ctx)?;
                 let mut children = vec![scrutinee_trace];
@@ -2071,23 +2139,10 @@ impl Inferencer {
             TypedStatement::Assignment { value, .. } => {
                 self.apply_expr(value);
             }
-            TypedStatement::If {
-                branches,
-                else_branch,
-            } => {
-                for (condition, then_branch) in branches {
-                    self.apply_expr(condition);
-                    self.apply_block(then_branch);
-                }
-                if let Some(block) = else_branch {
-                    self.apply_block(block);
-                }
-            }
             TypedStatement::While { condition, body } => {
                 self.apply_expr(condition);
                 self.apply_block(body);
             }
-            TypedStatement::Block(block) => self.apply_block(block),
             TypedStatement::Expression(expr) => self.apply_expr(expr),
             TypedStatement::Return(Some(expr)) => self.apply_expr(expr),
             TypedStatement::Return(None) => {}
@@ -2134,6 +2189,19 @@ impl Inferencer {
                     }
                 }
             },
+            TypedExprKind::Block(block) => self.apply_block(block),
+            TypedExprKind::If {
+                branches,
+                else_branch,
+            } => {
+                for (condition, then_branch) in branches {
+                    self.apply_expr(condition);
+                    self.apply_block(then_branch);
+                }
+                if let Some(block) = else_branch {
+                    self.apply_block(block);
+                }
+            }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.apply_expr(scrutinee);
                 for arm in arms {
