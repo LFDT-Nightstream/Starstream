@@ -68,18 +68,16 @@ impl Type {
         Type::Int
     }
 
-    /// Canonical record type helper that sorts fields by name.
-    pub fn record(name: impl Into<String>, mut fields: Vec<RecordFieldType>) -> Self {
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    /// Canonical record type helper.
+    pub fn record(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
         Type::Record(RecordType {
             name: name.into(),
             fields,
         })
     }
 
-    /// Canonical enum type helper that sorts variants by name.
-    pub fn enum_type(name: impl Into<String>, mut variants: Vec<EnumVariantType>) -> Self {
-        variants.sort_by(|a, b| a.name.cmp(&b.name));
+    /// Canonical enum type helper.
+    pub fn enum_type(name: impl Into<String>, variants: Vec<EnumVariantType>) -> Self {
         Type::Enum(EnumType {
             name: name.into(),
             variants,
@@ -98,8 +96,20 @@ impl PartialEq for Type {
                 a_params == b_params && a_result == b_result
             }
             (Type::Tuple(a), Type::Tuple(b)) => a == b,
-            (Type::Record(a), Type::Record(b)) => a.fields == b.fields,
-            (Type::Enum(a), Type::Enum(b)) => a.variants == b.variants,
+            (Type::Record(a), Type::Record(b)) => {
+                let mut a_fields = a.fields.clone();
+                let mut b_fields = b.fields.clone();
+                a_fields.sort_by(|x, y| x.name.cmp(&y.name));
+                b_fields.sort_by(|x, y| x.name.cmp(&y.name));
+                a_fields == b_fields
+            }
+            (Type::Enum(a), Type::Enum(b)) => {
+                let mut a_variants = a.variants.clone();
+                let mut b_variants = b.variants.clone();
+                a_variants.sort_by(|x, y| x.name.cmp(&y.name));
+                b_variants.sort_by(|x, y| x.name.cmp(&y.name));
+                a_variants == b_variants
+            }
             _ => false,
         }
     }
@@ -128,11 +138,15 @@ impl Hash for Type {
             }
             Type::Record(record) => {
                 6u8.hash(state);
-                record.fields.hash(state);
+                let mut fields = record.fields.clone();
+                fields.sort_by(|a, b| a.name.cmp(&b.name));
+                fields.hash(state);
             }
             Type::Enum(enum_type) => {
                 7u8.hash(state);
-                enum_type.variants.hash(state);
+                let mut variants = enum_type.variants.clone();
+                variants.sort_by(|a, b| a.name.cmp(&b.name));
+                variants.hash(state);
             }
         }
     }
@@ -374,8 +388,7 @@ impl EnumVariantType {
         }
     }
 
-    pub fn struct_variant(name: impl Into<String>, mut fields: Vec<RecordFieldType>) -> Self {
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    pub fn struct_variant(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
         Self {
             name: name.into(),
             kind: EnumVariantKind::Struct(fields),
