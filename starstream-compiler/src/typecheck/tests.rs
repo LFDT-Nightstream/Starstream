@@ -573,3 +573,33 @@ fn pattern_enum_mismatch_error() {
         "#
     );
 }
+
+#[test]
+fn struct_field_order_preserved() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct User {
+            name: i64,
+            age: i64,
+            email: i64,
+        }
+
+        struct ZOrder {
+            z: i64,
+            a: i64,
+        }
+
+        fn test() {
+            let u = User {
+                name: 1,
+                age: 2,
+                email: 3,
+            };
+            let z = ZOrder {
+                z: 1,
+                a: 2,
+            };
+        }
+        "#
+    );
+}

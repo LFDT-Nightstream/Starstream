@@ -6,10 +6,7 @@
 //! discarding the API surface introduced here.
 
 use pretty::RcDoc;
-use std::{
-    fmt,
-    hash::{Hash, Hasher},
-};
+use std::fmt;
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
@@ -30,7 +27,7 @@ impl TypeVarId {
 }
 
 /// Starstream type.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     /// An unknown type represented by a type variable.
     Var(TypeVarId),
@@ -68,73 +65,20 @@ impl Type {
         Type::Int
     }
 
-    /// Canonical record type helper that sorts fields by name.
-    pub fn record(name: impl Into<String>, mut fields: Vec<RecordFieldType>) -> Self {
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    /// Canonical record type helper.
+    pub fn record(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
         Type::Record(RecordType {
             name: name.into(),
             fields,
         })
     }
 
-    /// Canonical enum type helper that sorts variants by name.
-    pub fn enum_type(name: impl Into<String>, mut variants: Vec<EnumVariantType>) -> Self {
-        variants.sort_by(|a, b| a.name.cmp(&b.name));
+    /// Canonical enum type helper.
+    pub fn enum_type(name: impl Into<String>, variants: Vec<EnumVariantType>) -> Self {
         Type::Enum(EnumType {
             name: name.into(),
             variants,
         })
-    }
-}
-
-impl PartialEq for Type {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Type::Var(a), Type::Var(b)) => a == b,
-            (Type::Int, Type::Int) => true,
-            (Type::Bool, Type::Bool) => true,
-            (Type::Unit, Type::Unit) => true,
-            (Type::Function(a_params, a_result), Type::Function(b_params, b_result)) => {
-                a_params == b_params && a_result == b_result
-            }
-            (Type::Tuple(a), Type::Tuple(b)) => a == b,
-            (Type::Record(a), Type::Record(b)) => a.fields == b.fields,
-            (Type::Enum(a), Type::Enum(b)) => a.variants == b.variants,
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Type {}
-
-impl Hash for Type {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Type::Var(id) => {
-                0u8.hash(state);
-                id.hash(state);
-            }
-            Type::Int => 1u8.hash(state),
-            Type::Bool => 2u8.hash(state),
-            Type::Unit => 3u8.hash(state),
-            Type::Function(params, result) => {
-                4u8.hash(state);
-                params.hash(state);
-                result.hash(state);
-            }
-            Type::Tuple(items) => {
-                5u8.hash(state);
-                items.hash(state);
-            }
-            Type::Record(record) => {
-                6u8.hash(state);
-                record.fields.hash(state);
-            }
-            Type::Enum(enum_type) => {
-                7u8.hash(state);
-                enum_type.variants.hash(state);
-            }
-        }
     }
 }
 
@@ -319,7 +263,7 @@ fn inline_struct_variant(variant_name: &str, fields: &[RecordFieldType]) -> Opti
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordType {
     pub name: String,
     pub fields: Vec<RecordFieldType>,
@@ -340,7 +284,7 @@ impl RecordFieldType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EnumType {
     pub name: String,
     pub variants: Vec<EnumVariantType>,
@@ -374,8 +318,7 @@ impl EnumVariantType {
         }
     }
 
-    pub fn struct_variant(name: impl Into<String>, mut fields: Vec<RecordFieldType>) -> Self {
-        fields.sort_by(|a, b| a.name.cmp(&b.name));
+    pub fn struct_variant(name: impl Into<String>, fields: Vec<RecordFieldType>) -> Self {
         Self {
             name: name.into(),
             kind: EnumVariantKind::Struct(fields),

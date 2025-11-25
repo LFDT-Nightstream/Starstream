@@ -1,0 +1,67 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct User {\n    name: i64,\n    age: i64,\n    email: i64,\n}\n\nstruct ZOrder {\n    z: i64,\n    a: i64,\n}\n\nfn test() {\n    let u = User {\n        name: 1,\n        age: 2,\n        email: 3,\n    };\n    let z = ZOrder {\n        z: 1,\n        a: 2,\n    };\n}\n"
+---
+:  => 
+
+:  => 
+
+T-Fn: test => ()
+  T-Let: {} ⊢ let u = User {
+    name: 1,
+    age: 2,
+    email: 3,
+}; ⇒ struct User {
+    name: i64,
+    age: i64,
+    email: i64,
+}
+    T-StructLit: {} ⊢ User {
+    name: 1,
+    age: 2,
+    email: 3,
+} ⇒ struct User {
+    name: i64,
+    age: i64,
+    email: i64,
+}
+      T-Int: {} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Int: {} ⊢ 2 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Int: {} ⊢ 3 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+  T-Let: {u: struct User {
+    name: i64,
+    age: i64,
+    email: i64,
+}} ⊢ let z = ZOrder {
+    z: 1,
+    a: 2,
+}; ⇒ struct ZOrder {
+    z: i64,
+    a: i64,
+}
+    T-StructLit: {u: struct User {
+    name: i64,
+    age: i64,
+    email: i64,
+}} ⊢ ZOrder {
+    z: 1,
+    a: 2,
+} ⇒ struct ZOrder {
+    z: i64,
+    a: i64,
+}
+      T-Int: {u: struct User {
+    name: i64,
+    age: i64,
+    email: i64,
+}} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Int: {u: struct User {
+    name: i64,
+    age: i64,
+    email: i64,
+}} ⊢ 2 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
