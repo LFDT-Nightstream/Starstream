@@ -6,10 +6,7 @@
 //! discarding the API surface introduced here.
 
 use pretty::RcDoc;
-use std::{
-    fmt,
-    hash::{Hash, Hasher},
-};
+use std::fmt;
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
@@ -30,7 +27,7 @@ impl TypeVarId {
 }
 
 /// Starstream type.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
     /// An unknown type represented by a type variable.
     Var(TypeVarId),
@@ -82,73 +79,6 @@ impl Type {
             name: name.into(),
             variants,
         })
-    }
-}
-
-impl PartialEq for Type {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Type::Var(a), Type::Var(b)) => a == b,
-            (Type::Int, Type::Int) => true,
-            (Type::Bool, Type::Bool) => true,
-            (Type::Unit, Type::Unit) => true,
-            (Type::Function(a_params, a_result), Type::Function(b_params, b_result)) => {
-                a_params == b_params && a_result == b_result
-            }
-            (Type::Tuple(a), Type::Tuple(b)) => a == b,
-            (Type::Record(a), Type::Record(b)) => {
-                let mut a_fields = a.fields.clone();
-                let mut b_fields = b.fields.clone();
-                a_fields.sort_by(|x, y| x.name.cmp(&y.name));
-                b_fields.sort_by(|x, y| x.name.cmp(&y.name));
-                a_fields == b_fields
-            }
-            (Type::Enum(a), Type::Enum(b)) => {
-                let mut a_variants = a.variants.clone();
-                let mut b_variants = b.variants.clone();
-                a_variants.sort_by(|x, y| x.name.cmp(&y.name));
-                b_variants.sort_by(|x, y| x.name.cmp(&y.name));
-                a_variants == b_variants
-            }
-            _ => false,
-        }
-    }
-}
-
-impl Eq for Type {}
-
-impl Hash for Type {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Type::Var(id) => {
-                0u8.hash(state);
-                id.hash(state);
-            }
-            Type::Int => 1u8.hash(state),
-            Type::Bool => 2u8.hash(state),
-            Type::Unit => 3u8.hash(state),
-            Type::Function(params, result) => {
-                4u8.hash(state);
-                params.hash(state);
-                result.hash(state);
-            }
-            Type::Tuple(items) => {
-                5u8.hash(state);
-                items.hash(state);
-            }
-            Type::Record(record) => {
-                6u8.hash(state);
-                let mut fields = record.fields.clone();
-                fields.sort_by(|a, b| a.name.cmp(&b.name));
-                fields.hash(state);
-            }
-            Type::Enum(enum_type) => {
-                7u8.hash(state);
-                let mut variants = enum_type.variants.clone();
-                variants.sort_by(|a, b| a.name.cmp(&b.name));
-                variants.hash(state);
-            }
-        }
     }
 }
 
@@ -333,7 +263,7 @@ fn inline_struct_variant(variant_name: &str, fields: &[RecordFieldType]) -> Opti
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct RecordType {
     pub name: String,
     pub fields: Vec<RecordFieldType>,
@@ -354,7 +284,7 @@ impl RecordFieldType {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EnumType {
     pub name: String,
     pub variants: Vec<EnumVariantType>,
