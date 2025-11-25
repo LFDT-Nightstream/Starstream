@@ -18,6 +18,12 @@ pub enum Definition {
     Function(FunctionDef),
     Struct(StructDef),
     Enum(EnumDef),
+    Contract(ContractDef),
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ContractDef {
+    pub definitions: Vec<Definition>,
 }
 
 /// Statements allowed by the current grammar.

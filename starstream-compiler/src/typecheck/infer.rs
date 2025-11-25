@@ -5,9 +5,9 @@ use std::collections::{HashMap, HashSet};
 use starstream_types::{
     Scheme, Span, Spanned, Type, TypeVarId,
     ast::{
-        BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
-        EnumVariantPayload, Expr, FunctionDef, Identifier, Literal, Pattern, Program, Statement,
-        StructDef, TypeAnnotation, UnaryOp,
+        BinaryOp, Block, ContractDef, Definition, EnumConstructorPayload, EnumDef,
+        EnumPatternPayload, EnumVariantPayload, Expr, FunctionDef, Identifier, Literal, Pattern,
+        Program, Statement, StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
         TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef,
@@ -143,9 +143,11 @@ pub fn typecheck_program(
 
     for definition in &program.definitions {
         match inferencer.infer_definition(definition) {
-            Ok((typed_definition, trace)) => {
-                typed_definitions.push(typed_definition);
-                definition_traces.push(trace);
+            Ok(results) => {
+                for (typed_definition, trace) in results {
+                    typed_definitions.push(typed_definition);
+                    definition_traces.push(trace);
+                }
             }
             Err(error) => {
                 errors.push(error);
@@ -204,6 +206,7 @@ impl Inferencer {
             match definition {
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
+                Definition::Contract(def) => self.register_type_definitions(&def.definitions)?,
                 Definition::Function(_) => {}
             }
         }
@@ -723,19 +726,32 @@ impl Inferencer {
     fn infer_definition(
         &mut self,
         definition: &Definition,
-    ) -> Result<(TypedDefinition, InferenceTree), TypeError> {
+    ) -> Result<Vec<(TypedDefinition, InferenceTree)>, TypeError> {
         match definition {
             Definition::Function(function) => {
                 let (typed_function, trace) = self.infer_function(function)?;
-                Ok((TypedDefinition::Function(typed_function), trace))
+                Ok(vec![(TypedDefinition::Function(typed_function), trace)])
             }
             Definition::Struct(def) => {
                 let typed = self.build_typed_struct(def)?;
-                Ok((TypedDefinition::Struct(typed), InferenceTree::default()))
+                Ok(vec![(
+                    TypedDefinition::Struct(typed),
+                    InferenceTree::default(),
+                )])
             }
             Definition::Enum(def) => {
                 let typed = self.build_typed_enum(def)?;
-                Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
+                Ok(vec![(
+                    TypedDefinition::Enum(typed),
+                    InferenceTree::default(),
+                )])
+            }
+            Definition::Contract(ContractDef { definitions }) => {
+                let mut results = Vec::new();
+                for def in definitions {
+                    results.extend(self.infer_definition(def)?);
+                }
+                Ok(results)
             }
         }
     }

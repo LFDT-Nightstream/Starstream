@@ -3,9 +3,9 @@ use starstream_types::{
     BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
     Spanned, Statement, TypeAnnotation, UnaryOp,
     ast::{
-        EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
-        Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
-        StructPatternField,
+        ContractDef, EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant,
+        EnumVariantPayload, Identifier, MatchArm, Pattern, Program, StructDef, StructField,
+        StructLiteralField, StructPatternField,
     },
 };
 use std::fmt;
@@ -49,6 +49,22 @@ fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
         Definition::Function(function) => function_to_doc(function),
         Definition::Struct(definition) => struct_definition_to_doc(definition),
         Definition::Enum(definition) => enum_definition_to_doc(definition),
+        Definition::Contract(definition) => contract_to_doc(definition),
+    }
+}
+
+fn contract_to_doc(contract: &ContractDef) -> RcDoc<'_, ()> {
+    if contract.definitions.is_empty() {
+        RcDoc::text("contract { }")
+    } else {
+        let defs = contract.definitions.iter().map(definition_to_doc);
+        RcDoc::text("contract {")
+            .append(RcDoc::line())
+            .append(
+                RcDoc::intersperse(defs, RcDoc::hardline().append(RcDoc::hardline())).nest(INDENT),
+            )
+            .append(RcDoc::line())
+            .append(RcDoc::text("}"))
     }
 }
 
