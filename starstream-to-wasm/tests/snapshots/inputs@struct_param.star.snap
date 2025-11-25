@@ -1,0 +1,39 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/struct_param.star
+---
+(module
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (export "total-value" (func 0))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (local i64)
+    (i64.mul
+      (local.get 0)
+      (drop
+        (local.get 1))
+      (drop
+        (local.get 0)
+        (local.set 2
+          (local.get 1)))
+      (local.get 2))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (record (field "amount" s64) (field "price" s64)))
+              (import "token" (type (;1;) (eq 0)))
+              (type (;2;) (func (param "token" 1) (result s64)))
+              (export (;0;) "total-value" (func (type 2)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
