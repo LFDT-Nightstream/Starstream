@@ -934,6 +934,7 @@ impl DocumentState {
                         }
                     }
                 }
+                untyped_ast::Definition::Contract(_) => {}
             }
         }
     }
