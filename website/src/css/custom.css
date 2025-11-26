@@ -147,7 +147,9 @@
   border: 1px solid var(--ifm-color-emphasis-200);
   border-left-width: 4px;
   cursor: pointer;
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
 }
 
 .sandbox-diagnostics__item:hover {
