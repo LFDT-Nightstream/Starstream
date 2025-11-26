@@ -8,4 +8,4 @@ This website is built using [Docusaurus](https://docusaurus.io/).
 
 Structure:
 
-* `docs`: High-level documentation.
+- `docs`: High-level documentation.
