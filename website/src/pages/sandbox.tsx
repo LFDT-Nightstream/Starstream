@@ -2,6 +2,7 @@ import Layout from "@theme/Layout";
 import { AnsiHtml } from "fancy-ansi/react";
 import {
   ComponentProps,
+  CSSProperties,
   Dispatch,
   ReactNode,
   SetStateAction,
@@ -16,33 +17,33 @@ import type {
   SandboxWorkerResponse,
 } from "../sandbox.worker";
 import { useBlobUrl } from "../hooks";
+import { MarkerSeverity } from "monaco-editor";
 import type * as monaco from "monaco-editor";
 
 function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   request(r: SandboxWorkerRequest): void;
-  restart(): void;
 } {
-  const worker = useRef<Worker>(null);
+  const worker = useRef<Worker | null>(null);
+
   useEffect(() => {
     worker.current = new Worker(new URL("../sandbox.worker", import.meta.url));
-    return () => worker.current!.terminate();
+    return () => worker.current?.terminate();
   }, []);
+
   useEffect(() => {
+    const current = worker.current;
+    if (!current) return;
+
     function onMessage({ data }: { data: SandboxWorkerResponse }) {
       onResponse(data);
     }
-    worker.current!.addEventListener("message", onMessage);
-    return () => worker.current!.removeEventListener("message", onMessage);
+    current.addEventListener("message", onMessage);
+    return () => current.removeEventListener("message", onMessage);
   }, [onResponse]);
+
   return {
     request(r) {
-      worker.current!.postMessage(r);
-    },
-    restart() {
-      worker.current!.terminate();
-      worker.current = new Worker(
-        new URL("../sandbox.worker", import.meta.url),
-      );
+      worker.current?.postMessage(r);
     },
   };
 }
@@ -61,20 +62,20 @@ function Tabs(props: {
   current: string;
   setCurrent: Dispatch<SetStateAction<string>>;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
   tabs: { key: string; title?: ReactNode; body?: ReactNode }[];
   after?: ReactNode;
   right?: ReactNode;
 }) {
-  const { current, setCurrent } = props;
+  const { current, setCurrent, tabs } = props;
   useEffect(() => {
-    setCurrent((current) => {
-      if (!props.tabs.some((tab) => current === tab.key)) {
-        current = props.tabs[0].key;
+    setCurrent((prev) => {
+      if (!tabs.some((tab) => tab.key === prev)) {
+        return tabs[0]?.key ?? prev;
       }
-      return current;
+      return prev;
     });
-  }, [current, JSON.stringify(props.tabs.map((tab) => tab.key))]);
+  }, [tabs, setCurrent]);
   return (
     <div
       className={`flex--grow flex--column sandbox-tabs ${
@@ -140,27 +141,31 @@ function DiagnosticsList({
 
   return (
     <div className="padding--md sandbox-diagnostics">
-      {markers.map((marker, i) => (
-        <div
-          key={i}
-          onClick={() => onDiagnosticClick(marker)}
-          className={`sandbox-diagnostics__item ${
-            marker.severity === 8
-              ? "sandbox-diagnostics__item--error"
-              : "sandbox-diagnostics__item--warning"
-          }`}
-        >
-          <div className="sandbox-diagnostics__header">
-            <span style={{ fontWeight: "bold", textTransform: "uppercase" }}>
-              {marker.severity === 8 ? "Error" : "Warning"}
-            </span>
-            <span style={{ fontFamily: "monospace" }}>
-              Ln {marker.startLineNumber}, Col {marker.startColumn}
-            </span>
+      {markers.map((marker) => {
+        const key = `${marker.startLineNumber}:${marker.startColumn}:${marker.message}`;
+        const isError = marker.severity === MarkerSeverity.Error;
+        return (
+          <div
+            key={key}
+            onClick={() => onDiagnosticClick(marker)}
+            className={`sandbox-diagnostics__item ${
+              isError
+                ? "sandbox-diagnostics__item--error"
+                : "sandbox-diagnostics__item--warning"
+            }`}
+          >
+            <div className="sandbox-diagnostics__header">
+              <span style={{ fontWeight: "bold", textTransform: "uppercase" }}>
+                {isError ? "Error" : "Warning"}
+              </span>
+              <span style={{ fontFamily: "monospace" }}>
+                Ln {marker.startLineNumber}, Col {marker.startColumn}
+              </span>
+            </div>
+            <div className="sandbox-diagnostics__message">{marker.message}</div>
           </div>
-          <div className="sandbox-diagnostics__message">{marker.message}</div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -169,15 +174,14 @@ export function Sandbox() {
   const [inputTab, setInputTab] = useState("Editor");
   const [outputTab, setOutputTab] = useState("Diagnostics");
 
-  const [busy, setBusy] = useState(false);
   const [wat, setWat] = useState("");
   const [wit, setWit] = useState("");
   const [markers, setMarkers] = useState<monaco.editor.IMarker[]>([]);
   const [editorInstance, setEditorInstance] =
     useState<monaco.editor.ICodeEditor | null>(null);
 
-  const [coreWasm, setCoreWasm] = useState<Uint8Array<ArrayBuffer>>();
-  const [componentWasm, setComponentWasm] = useState<Uint8Array<ArrayBuffer>>();
+  const [coreWasm, setCoreWasm] = useState<Uint8Array>();
+  const [componentWasm, setComponentWasm] = useState<Uint8Array>();
 
   const coreWasmUrl = useBlobUrl(
     coreWasm,
@@ -200,7 +204,7 @@ export function Sandbox() {
     }
 
     if (response.type == "idle") {
-      setBusy(false);
+      // Idle response received
     } else if (response.type == "log") {
       // Ignored in favor of LSP diagnostics
     } else if (response.type == "wat") {

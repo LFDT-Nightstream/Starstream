@@ -3,6 +3,7 @@ import * as monaco from "monaco-editor";
 import { EditorAppConfig } from "monaco-languageclient/editorApp";
 import type { MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
 import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFactory";
+import { useEffect, useRef } from "react";
 import "./starstream.vsix";
 
 const code = `\
@@ -47,56 +48,58 @@ export function Editor(props: {
   onMarkersChange?: (markers: monaco.editor.IMarker[]) => void;
   onMount?: (editor: monaco.editor.ICodeEditor) => void;
 }) {
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
+
   return (
     <MonacoEditorReactComp
       style={{ width: "100%", height: "100%" }}
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
       onTextChanged={(contents) =>
-        props.onTextChanged
-          ? props.onTextChanged(contents.modified ?? "")
-          : null
+        props.onTextChanged?.(contents.modified ?? "")
       }
-      onVscodeApiInitDone={(api) => {
-        startWatchingTheme();
+      onVscodeApiInitDone={() => {
+        const disconnectTheme = startWatchingTheme();
+
+        let disposeMarkers: monaco.IDisposable | undefined;
         if (props.onMarkersChange) {
           const updateMarkers = () => {
-            // Get all markers. Since this is a sandbox, we don't need to filter strictly.
-            // This avoids issues where the URI scheme might differ (e.g. file:// vs inmemory://).
             const markers = monaco.editor.getModelMarkers({});
             props.onMarkersChange?.(markers);
           };
-          // Initial check
           updateMarkers();
-          // Watch for changes
-          monaco.editor.onDidChangeMarkers(() => {
-            updateMarkers();
-          });
+          disposeMarkers = monaco.editor.onDidChangeMarkers(updateMarkers);
         }
 
-        // We need to get the editor instance.
-        // MonacoEditorReactComp doesn't seem to expose onMount directly in the types used here?
-        // But usually it does. Let's try to find the editor.
-        // Since we are using monaco-languageclient wrapper, it might be different.
-        // However, we can use monaco.editor.getEditors()[0] as a fallback if needed,
-        // but let's try to see if we can grab it.
-        // Actually, looking at the code, we don't have a direct ref.
-        // Let's use a small timeout to grab the focused editor or just the first one.
+        let timeoutId: number | undefined;
         if (props.onMount) {
-          // Wait for editor to be created
-          setTimeout(() => {
+          timeoutId = window.setTimeout(() => {
             const editors = monaco.editor.getEditors();
             if (editors.length > 0) {
               props.onMount?.(editors[0]);
             }
           }, 100);
         }
+
+        cleanupRef.current = () => {
+          disconnectTheme();
+          disposeMarkers?.dispose();
+          if (timeoutId !== undefined) {
+            window.clearTimeout(timeoutId);
+          }
+        };
       }}
     />
   );
 }
 
-function startWatchingTheme() {
+function startWatchingTheme(): () => void {
   const mo = new MutationObserver((records) => {
     for (const each of records) {
       if (
@@ -108,7 +111,12 @@ function startWatchingTheme() {
       }
     }
   });
-  mo.observe(document.documentElement, { attributes: true });
+  mo.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+  monaco.editor.setTheme(theme());
+  return () => mo.disconnect();
 }
 
 function theme() {
