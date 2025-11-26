@@ -42,7 +42,11 @@ const editorAppConfig: EditorAppConfig = {
   },
 };
 
-export function Editor(props: { onTextChanged?: (text: string) => void }) {
+export function Editor(props: {
+  onTextChanged?: (text: string) => void;
+  onMarkersChange?: (markers: monaco.editor.IMarker[]) => void;
+  onMount?: (editor: monaco.editor.ICodeEditor) => void;
+}) {
   return (
     <MonacoEditorReactComp
       style={{ width: "100%", height: "100%" }}
@@ -55,6 +59,38 @@ export function Editor(props: { onTextChanged?: (text: string) => void }) {
       }
       onVscodeApiInitDone={(api) => {
         startWatchingTheme();
+        if (props.onMarkersChange) {
+          const updateMarkers = () => {
+            // Get all markers. Since this is a sandbox, we don't need to filter strictly.
+            // This avoids issues where the URI scheme might differ (e.g. file:// vs inmemory://).
+            const markers = monaco.editor.getModelMarkers({});
+            props.onMarkersChange?.(markers);
+          };
+          // Initial check
+          updateMarkers();
+          // Watch for changes
+          monaco.editor.onDidChangeMarkers(() => {
+            updateMarkers();
+          });
+        }
+
+        // We need to get the editor instance.
+        // MonacoEditorReactComp doesn't seem to expose onMount directly in the types used here?
+        // But usually it does. Let's try to find the editor.
+        // Since we are using monaco-languageclient wrapper, it might be different.
+        // However, we can use monaco.editor.getEditors()[0] as a fallback if needed,
+        // but let's try to see if we can grab it.
+        // Actually, looking at the code, we don't have a direct ref.
+        // Let's use a small timeout to grab the focused editor or just the first one.
+        if (props.onMount) {
+          // Wait for editor to be created
+          setTimeout(() => {
+            const editors = monaco.editor.getEditors();
+            if (editors.length > 0) {
+              props.onMount?.(editors[0]);
+            }
+          }, 100);
+        }
       }}
     />
   );
