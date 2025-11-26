@@ -17,8 +17,9 @@ import type {
   SandboxWorkerResponse,
 } from "../sandbox.worker";
 import { useBlobUrl } from "../hooks";
-import { MarkerSeverity } from "monaco-editor";
 import type * as monaco from "monaco-editor";
+
+const MARKER_SEVERITY_ERROR = 8;
 
 function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   request(r: SandboxWorkerRequest): void;
@@ -143,7 +144,7 @@ function DiagnosticsList({
     <div className="padding--md sandbox-diagnostics">
       {markers.map((marker) => {
         const key = `${marker.startLineNumber}:${marker.startColumn}:${marker.message}`;
-        const isError = marker.severity === MarkerSeverity.Error;
+        const isError = marker.severity === MARKER_SEVERITY_ERROR;
         return (
           <div
             key={key}
