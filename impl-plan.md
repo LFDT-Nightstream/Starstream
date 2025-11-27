@@ -41,6 +41,18 @@ Language features:
 - [x] make `let` const and add `let mut`
 - [x] type annotations on `let` bindings
 - [x] coordination script exports
+- [ ] `storage` blocks to declare UTXO state (globals or linear memory)
+- [ ] mock ledger
+  - [ ] sandbox shows current "input" ledger state (starts empty)
+  - [ ] sandbox allows calling coordination scripts with arguments, can pass existing UTXOs as input (JS console?)
+  - [ ] sandbox shows "output" ledger state after running, with "save" button that copies it to the "input"
+- [ ] "event" support
+  - WASI? or custom component imports?
+  - [ ] visible on sandbox a tab
+- [ ] Base-level ABI stuff
+  - [ ] underlying callable ABI
+- [ ] `abi` interface exports for utxo
+  - errors, effects, methods, tokens
 - [ ] variable privacy
   - [ ] `disclose` builtin
   - [ ] check that `if` conditions are disclosed
@@ -59,8 +71,6 @@ Language features:
 - [ ] typedefs
 - [ ] UTXO and token stuff
 - [ ] linear/affine types
-- [ ] `abi` interface exports for utxo
-  - errors, effects, methods, tokens
 - [ ] builtin container `List<T>` ?
 - [ ] coroutine support (yield/resume)
 - [ ] algebraic effects and effect handlers
