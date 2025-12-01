@@ -201,13 +201,18 @@ export function Sandbox() {
   const worker = useSandboxWorker((response) => {
     if (response.request_id !== request_id.current) {
       console.log("discarding response for old request", response);
+
       return;
     }
 
     if (response.type == "idle") {
       // Idle response received
     } else if (response.type == "log") {
-      // Ignored in favor of LSP diagnostics
+      console.log(
+        ["", "Error", "Warn", "Info", "Debug", "Trace"][response.level],
+        `[${response.target}]`,
+        response.body,
+      );
     } else if (response.type == "wat") {
       setWat(response.wat);
     } else if (response.type == "core_wasm") {
