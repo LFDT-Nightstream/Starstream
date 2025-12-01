@@ -117,7 +117,6 @@
 .sandbox-tabs__btn--active {
   border-bottom: 2px solid var(--ifm-color-primary);
   color: var(--ifm-color-primary);
-  font-weight: bold;
 }
 
 .sandbox-tabs__content {
