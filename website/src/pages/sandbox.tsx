@@ -69,6 +69,7 @@ function Tabs(props: {
   right?: ReactNode;
 }) {
   const { current, setCurrent, tabs } = props;
+
   useEffect(() => {
     setCurrent((prev) => {
       if (!tabs.some((tab) => tab.key === prev)) {
@@ -77,6 +78,7 @@ function Tabs(props: {
       return prev;
     });
   }, [tabs, setCurrent]);
+
   return (
     <div
       className={`flex--grow flex--column sandbox-tabs ${
@@ -173,7 +175,7 @@ function DiagnosticsList({
 
 export function Sandbox() {
   const [inputTab, setInputTab] = useState("Editor");
-  const [outputTab, setOutputTab] = useState("Diagnostics");
+  const [outputTab, setOutputTab] = useState("About");
 
   const [wat, setWat] = useState("");
   const [wit, setWit] = useState("");
@@ -282,6 +284,28 @@ export function Sandbox() {
           style={{ height: "100%" }}
           tabs={[
             {
+              key: "About",
+              body: (
+                <div className="padding--md">
+                  <h1>Starstream Sandbox</h1>
+                  <p>Tabs:</p>
+                  <ul>
+                    <li>
+                      Diagnostics: Compiler errors and warnings from the editor.
+                    </li>
+                    <li>
+                      Wasm: The output of the Starstream compiler targeting
+                      WebAssembly. Updates live.
+                    </li>
+                  </ul>
+                  <p>Keyboard shortcuts:</p>
+                  <ul>
+                    <li>Ctrl+S to format</li>
+                  </ul>
+                </div>
+              ),
+            },
+            {
               key: "Diagnostics",
               body: (
                 <DiagnosticsList
@@ -363,28 +387,6 @@ export function Sandbox() {
                   {!coreWasmUrl && !componentWasmUrl && !witUrl && (
                     <p>Compile the code to see download options.</p>
                   )}
-                </div>
-              ),
-            },
-            {
-              key: "About",
-              body: (
-                <div className="padding--md">
-                  <h1>Starstream Sandbox</h1>
-                  <p>Tabs:</p>
-                  <ul>
-                    <li>
-                      Diagnostics: Compiler errors and warnings from the editor.
-                    </li>
-                    <li>
-                      Wasm: The output of the Starstream compiler targeting
-                      WebAssembly. Updates live.
-                    </li>
-                  </ul>
-                  <p>Keyboard shortcuts:</p>
-                  <ul>
-                    <li>Ctrl+S to format</li>
-                  </ul>
                 </div>
               ),
             },
