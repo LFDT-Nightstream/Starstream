@@ -3,7 +3,67 @@
 use chumsky::span::SimpleSpan;
 use serde::Serialize;
 
+// ----------------------------------------------------------------------------
+// Basics
+
 pub type Span = SimpleSpan;
+
+/// AST node with a source span attached.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Spanned<T> {
+    pub node: T,
+    #[serde(skip)]
+    pub span: Span,
+}
+
+impl<T> Spanned<T> {
+    pub fn new(node: T, span: Span) -> Self {
+        Self { node, span }
+    }
+
+    /// Map the contained value while keeping the original span.
+    pub fn map<U>(self, map: impl FnOnce(T) -> U) -> Spanned<U> {
+        Spanned {
+            node: map(self.node),
+            span: self.span,
+        }
+    }
+
+    pub fn none(node: T) -> Spanned<T> {
+        Spanned {
+            node,
+            span: Span {
+                start: 0,
+                end: 0,
+                context: (),
+            },
+        }
+    }
+}
+
+/// Identifier text with a source span attached.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
+pub struct Identifier {
+    pub name: String,
+    #[serde(skip)]
+    pub span: Option<Span>,
+}
+
+impl Identifier {
+    pub fn new(name: impl Into<String>, span: Option<Span>) -> Self {
+        Self {
+            name: name.into(),
+            span,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.name
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Top-level definitions
 
 /// Entire program: a sequence of definitions.
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -11,7 +71,7 @@ pub struct Program {
     pub definitions: Vec<Definition>,
 }
 
-/// Top-level items.
+/// Top-level definition items.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Definition {
@@ -20,7 +80,80 @@ pub enum Definition {
     Enum(EnumDef),
 }
 
-/// Statements allowed by the current grammar.
+/// `fn` definition.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct FunctionDef {
+    pub export: Option<FunctionExport>,
+    pub name: Identifier,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Option<TypeAnnotation>,
+    pub body: Block,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum FunctionExport {
+    Script,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct FunctionParam {
+    pub name: Identifier,
+    pub ty: TypeAnnotation,
+}
+
+/// `struct` definition.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StructDef {
+    pub name: Identifier,
+    pub fields: Vec<StructField>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct StructField {
+    pub name: Identifier,
+    pub ty: TypeAnnotation,
+}
+
+/// `enum` definition.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EnumDef {
+    pub name: Identifier,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EnumVariant {
+    pub name: Identifier,
+    pub payload: EnumVariantPayload,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum EnumVariantPayload {
+    Unit,
+    Tuple(Vec<TypeAnnotation>),
+    Struct(Vec<StructField>),
+}
+
+// ----------------------------------------------------------------------------
+// Type syntax
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct TypeAnnotation {
+    pub name: Identifier,
+    pub generics: Vec<TypeAnnotation>,
+}
+
+// ----------------------------------------------------------------------------
+// Statements
+
+/// A new scope containing a group of statements and an optional trailing expression.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Block {
+    pub statements: Vec<Statement>,
+    pub tail_expression: Option<Spanned<Expr>>,
+}
+
+/// A statement that produces no value.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Statement {
     VariableDeclaration {
@@ -41,14 +174,10 @@ pub enum Statement {
     Return(Option<Spanned<Expr>>),
 }
 
-/// `{ statement* }`
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct Block {
-    pub statements: Vec<Statement>,
-    pub tail_expression: Option<Spanned<Expr>>,
-}
+// ----------------------------------------------------------------------------
+// Expressions
 
-/// Expressions with precedence encoded via parser, not the AST shape.
+/// An expression that evaluates to a value of a particular type.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Expr {
     Literal(Literal),
@@ -124,16 +253,16 @@ pub struct StructLiteralField {
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct MatchArm {
-    pub pattern: Pattern,
-    pub body: Block,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum EnumConstructorPayload {
     Unit,
     Tuple(Vec<Spanned<Expr>>),
     Struct(Vec<StructLiteralField>),
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Block,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -161,115 +290,4 @@ pub enum EnumPatternPayload {
     Unit,
     Tuple(Vec<Pattern>),
     Struct(Vec<StructPatternField>),
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
-pub struct Identifier {
-    pub name: String,
-    #[serde(skip)]
-    pub span: Option<Span>,
-}
-
-impl Identifier {
-    pub fn new(name: impl Into<String>, span: Option<Span>) -> Self {
-        Self {
-            name: name.into(),
-            span,
-        }
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.name
-    }
-}
-
-/// Function definition declared at module scope.
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct FunctionDef {
-    pub export: Option<FunctionExport>,
-    pub name: Identifier,
-    pub params: Vec<FunctionParam>,
-    pub return_type: Option<TypeAnnotation>,
-    pub body: Block,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum FunctionExport {
-    Script,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct FunctionParam {
-    pub name: Identifier,
-    pub ty: TypeAnnotation,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct StructDef {
-    pub name: Identifier,
-    pub fields: Vec<StructField>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct StructField {
-    pub name: Identifier,
-    pub ty: TypeAnnotation,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct EnumDef {
-    pub name: Identifier,
-    pub variants: Vec<EnumVariant>,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct EnumVariant {
-    pub name: Identifier,
-    pub payload: EnumVariantPayload,
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum EnumVariantPayload {
-    Unit,
-    Tuple(Vec<TypeAnnotation>),
-    Struct(Vec<StructField>),
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct TypeAnnotation {
-    pub name: Identifier,
-    pub generics: Vec<TypeAnnotation>,
-}
-
-/// Helper for attaching source spans to AST nodes.
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct Spanned<T> {
-    pub node: T,
-    #[serde(skip)]
-    pub span: Span,
-}
-
-impl<T> Spanned<T> {
-    pub fn new(node: T, span: Span) -> Self {
-        Self { node, span }
-    }
-
-    /// Map the contained value while keeping the original span.
-    pub fn map<U>(self, map: impl FnOnce(T) -> U) -> Spanned<U> {
-        Spanned {
-            node: map(self.node),
-            span: self.span,
-        }
-    }
-
-    pub fn none(node: T) -> Spanned<T> {
-        Spanned {
-            node,
-            span: Span {
-                start: 0,
-                end: 0,
-                context: (),
-            },
-        }
-    }
 }
