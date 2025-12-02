@@ -33,7 +33,7 @@ export function useDocusaurusTheme(): string {
 }
 
 export function useBlobUrl(
-  array: Uint8Array<ArrayBuffer> | undefined,
+  array: Uint8Array | undefined,
   filename: string,
   type: string,
 ): string | undefined {

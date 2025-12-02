@@ -24,7 +24,7 @@ export type SandboxWorkerResponse = {
     }
   | {
       type: "core_wasm";
-      bytes: Uint8Array<ArrayBuffer>;
+      bytes: Uint8Array;
     }
   | {
       type: "wit";
@@ -32,7 +32,7 @@ export type SandboxWorkerResponse = {
     }
   | {
       type: "component_wasm";
-      bytes: Uint8Array<ArrayBuffer>;
+      bytes: Uint8Array;
     }
 );
 
