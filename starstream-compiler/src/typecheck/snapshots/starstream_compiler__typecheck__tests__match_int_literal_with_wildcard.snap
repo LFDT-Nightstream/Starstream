@@ -1,0 +1,39 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(n: i64) -> i64 {\n    match n {\n        0 => {\n            100\n        },\n        1 => {\n            200\n        },\n        _ => {\n            0\n        },\n    }\n}\n"
+---
+T-Fn: test => i64
+  T-ReturnTail: match n {
+    0 => {
+        100
+    },
+    1 => {
+        200
+    },
+    _ => {
+        0
+    },
+} => i64
+    T-Match: {n: i64} ⊢ match n {
+    0 => {
+        100
+    },
+    1 => {
+        200
+    },
+    _ => {
+        0
+    },
+} ⇒ i64
+      T-Var: {n: i64} ⊢ n ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Tail: 100 => i64
+        T-Int: {n: i64} ⊢ 100 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Tail: 200 => i64
+        T-Int: {n: i64} ⊢ 200 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Tail: 0 => i64
+        T-Int: {n: i64} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

@@ -1,0 +1,23 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Color {\n    Red,\n    Green,\n    Blue,\n    Yellow(i64, i64),\n}\n\nfn test(c: Color) {\n    match c {\n        Color::Red => {\n            0\n        },\n        Color::Green => {\n            1\n        },\n    }\n}\n"
+---
+starstream::type::non_exhaustive_match
+
+  x non-exhaustive match
+    ,-[test.star:9:5]
+  8 |     fn test(c: Color) {
+  9 | ,->     match c {
+ 10 | |           Color::Red => {
+ 11 | |               0
+ 12 | |           },
+ 13 | |           Color::Green => {
+ 14 | |               1
+ 15 | |           },
+ 16 | `->     }
+ 17 |     }
+    `----
+  help: missing patterns:
+        - `Blue`
+        - `Yellow(_, _)`
+        ensure all cases are covered or add a wildcard `_` pattern

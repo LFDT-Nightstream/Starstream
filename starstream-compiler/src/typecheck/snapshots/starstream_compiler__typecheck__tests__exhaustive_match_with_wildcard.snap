@@ -1,0 +1,59 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Color {\n    Red,\n    Green,\n    Blue,\n}\n\nfn test(c: Color) -> i64 {\n    match c {\n        Color::Red => {\n            0\n        },\n        _ => {\n            1\n        },\n    }\n}\n"
+---
+:  => 
+
+T-Fn: test => i64
+  T-ReturnTail: match c {
+    Color::Red => {
+        0
+    },
+    _ => {
+        1
+    },
+} => i64
+    T-Match: {c: enum Color {
+    Red,
+    Green,
+    Blue,
+}} ⊢ match c {
+    Color::Red => {
+        0
+    },
+    _ => {
+        1
+    },
+} ⇒ i64
+      T-Var: {c: enum Color {
+    Red,
+    Green,
+    Blue,
+}} ⊢ c ⇒ enum Color {
+    Red,
+    Green,
+    Blue,
+}
+      Unify-Enum: enum Color {
+    Red,
+    Green,
+    Blue,
+} ~ enum Color {
+    Red,
+    Green,
+    Blue,
+} => {}
+      T-Tail: 0 => i64
+        T-Int: {c: enum Color {
+    Red,
+    Green,
+    Blue,
+}} ⊢ 0 ⇒ i64
+      T-Tail: 1 => i64
+        T-Int: {c: enum Color {
+    Red,
+    Green,
+    Blue,
+}} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

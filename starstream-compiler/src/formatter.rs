@@ -381,6 +381,8 @@ fn match_arm_to_doc<'a>(arm: &'a MatchArm) -> RcDoc<'a, ()> {
 fn pattern_to_doc<'a>(pattern: &'a Pattern) -> RcDoc<'a, ()> {
     match pattern {
         Pattern::Binding(name) => identifier_to_doc(name),
+        Pattern::Wildcard { .. } => RcDoc::text("_"),
+        Pattern::Literal { value, .. } => literal_to_doc(value),
         Pattern::Struct { name, fields } => identifier_to_doc(name)
             .append(RcDoc::space())
             .append(struct_pattern_fields_to_doc(fields)),

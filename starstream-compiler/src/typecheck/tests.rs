@@ -603,3 +603,198 @@ fn struct_field_order_preserved() {
         "#
     );
 }
+
+#[test]
+fn non_exhaustive_match_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Color {
+            Red,
+            Green,
+            Blue,
+            Yellow(i64, i64),
+        }
+
+        fn test(c: Color) {
+            match c {
+                Color::Red => {
+                    0
+                },
+                Color::Green => {
+                    1
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn exhaustive_match_with_wildcard() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Color {
+            Red,
+            Green,
+            Blue,
+        }
+
+        fn test(c: Color) -> i64 {
+            match c {
+                Color::Red => {
+                    0
+                },
+                _ => {
+                    1
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn unreachable_pattern_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Option {
+            None,
+            Some(i64),
+        }
+
+        fn test(o: Option) -> i64 {
+            match o {
+                _ => {
+                    0
+                },
+                Option::None => {
+                    1
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn exhaustive_match_all_variants() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Result {
+            Ok(i64),
+            Err(i64),
+        }
+
+        fn test(r: Result) -> i64 {
+            match r {
+                Result::Ok(value) => {
+                    value
+                },
+                Result::Err(code) => {
+                    0 - code
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn exhaustive_match_with_struct_payload() {
+    assert_typecheck_snapshot!(
+        r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+
+        enum Shape {
+            Circle(i64),
+            Rectangle { width: i64, height: i64 },
+        }
+
+        fn test(s: Shape) -> i64 {
+            match s {
+                Shape::Circle(radius) => {
+                    radius
+                },
+                Shape::Rectangle { width, height } => {
+                    width + height
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_bool_literal_exhaustive() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(b: bool) -> i64 {
+            match b {
+                true => {
+                    1
+                },
+                false => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_bool_literal_non_exhaustive() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(b: bool) -> i64 {
+            match b {
+                true => {
+                    1
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_int_literal_needs_wildcard() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(n: i64) -> i64 {
+            match n {
+                0 => {
+                    100
+                },
+                1 => {
+                    200
+                },
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn match_int_literal_with_wildcard() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(n: i64) -> i64 {
+            match n {
+                0 => {
+                    100
+                },
+                1 => {
+                    200
+                },
+                _ => {
+                    0
+                },
+            }
+        }
+        "#
+    );
+}
