@@ -438,6 +438,10 @@
         {
           "type": "struct_definition",
           "named": true
+        },
+        {
+          "type": "utxo_definition",
+          "named": true
         }
       ]
     }
@@ -452,6 +456,21 @@
       "types": [
         {
           "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "storage_utxo_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "variable_declaration",
           "named": true
         }
       ]
@@ -598,6 +617,25 @@
     "type": "unit_literal",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "utxo_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "storage_utxo_part",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "variable_declaration",
@@ -782,6 +820,10 @@
     "named": false
   },
   {
+    "type": "storage",
+    "named": false
+  },
+  {
     "type": "struct",
     "named": false
   },
@@ -791,6 +833,10 @@
   },
   {
     "type": "true",
+    "named": false
+  },
+  {
+    "type": "utxo",
     "named": false
   },
   {

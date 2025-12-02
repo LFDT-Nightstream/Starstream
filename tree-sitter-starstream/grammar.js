@@ -19,7 +19,12 @@ module.exports = grammar({
     // Definitions
 
     _definition: ($) =>
-      choice($.function_definition, $.struct_definition, $.enum_definition),
+      choice(
+        $.function_definition,
+        $.struct_definition,
+        $.enum_definition,
+        $.utxo_definition,
+      ),
 
     function_definition: ($) =>
       seq(
@@ -62,7 +67,9 @@ module.exports = grammar({
     enum_variant: ($) =>
       seq(
         $.identifier,
-        optional(choice($.enum_variant_tuple_payload, $.enum_variant_struct_payload)),
+        optional(
+          choice($.enum_variant_tuple_payload, $.enum_variant_struct_payload),
+        ),
       ),
 
     enum_variant_tuple_payload: ($) =>
@@ -80,6 +87,14 @@ module.exports = grammar({
         optional(","),
         "}",
       ),
+
+    utxo_definition: ($) =>
+      seq("utxo", $.identifier, "{", repeat($._utxo_part), "}"),
+
+    _utxo_part: ($) => choice($.storage_utxo_part),
+
+    storage_utxo_part: ($) =>
+      seq("storage", "{", repeat($.variable_declaration), "}"),
 
     // Type syntax
 
@@ -309,7 +324,5 @@ module.exports = grammar({
     boolean_literal: ($) => choice("true", "false"),
     unit_literal: ($) => seq("(", ")"),
   },
-  conflicts: ($) => [
-    [$.enum_constructor],
-  ],
+  conflicts: ($) => [[$.enum_constructor]],
 });
