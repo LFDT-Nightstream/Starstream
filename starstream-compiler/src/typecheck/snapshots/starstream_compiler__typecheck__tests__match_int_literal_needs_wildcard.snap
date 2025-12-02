@@ -17,6 +17,4 @@ starstream::type::non_exhaustive_match
   9 | `->     }
  10 |     }
     `----
-  help: missing patterns:
-        - `_`
-        ensure all cases are covered or add a wildcard `_` pattern
+  help: add a wildcard `_` pattern to cover remaining cases

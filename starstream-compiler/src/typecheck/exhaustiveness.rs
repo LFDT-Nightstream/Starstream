@@ -746,11 +746,17 @@ pub fn check_match(
             .collect();
 
         // Format help message with missing patterns as a list
-        let mut help = String::from("missing patterns:\n");
-        for pattern in &missing_patterns {
-            help.push_str(&format!("- `{}`\n", pattern));
-        }
-        help.push_str("ensure all cases are covered or add a wildcard `_` pattern");
+        // Special case: if the only missing pattern is a wildcard, simplify the message
+        let help = if missing_patterns.len() == 1 && missing_patterns[0] == "_" {
+            "add a wildcard `_` pattern to cover remaining cases".to_string()
+        } else {
+            let mut help = String::from("missing patterns:\n");
+            for pattern in &missing_patterns {
+                help.push_str(&format!("- `{}`\n", pattern));
+            }
+            help.push_str("ensure all cases are covered or add a wildcard `_` pattern");
+            help
+        };
 
         errors.push(
             TypeError::new(
