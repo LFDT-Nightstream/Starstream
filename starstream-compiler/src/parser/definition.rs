@@ -1,11 +1,13 @@
 use chumsky::prelude::*;
 use starstream_types::{
-    FunctionExport,
+    FunctionExport, UtxoDef, UtxoPart, VariableDeclaration,
     ast::{
         Definition, EnumDef, EnumVariant, EnumVariantPayload, FunctionDef, FunctionParam,
         StructDef, StructField,
     },
 };
+
+use crate::parser::expression;
 
 use super::{context::Extra, primitives, statement, type_annotation};
 
@@ -14,6 +16,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
         function_definition().map(Definition::Function),
         struct_definition().map(Definition::Struct),
         enum_definition().map(Definition::Enum),
+        utxo_definition().map(Definition::Utxo),
     ))
 }
 
@@ -117,4 +120,40 @@ fn enum_definition<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
         .map(|(name, variants)| EnumDef { name, variants })
+}
+
+fn utxo_definition<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
+    let variable_declaration = just("let")
+        .padded()
+        .ignore_then(just("mut").padded().or_not())
+        .then(primitives::identifier())
+        .then(just(":").ignore_then(type_annotation::parser()).or_not())
+        .then_ignore(just('=').padded())
+        .then(expression())
+        .then_ignore(just(';').padded())
+        .map(|(((mutable, name), ty), value)| VariableDeclaration {
+            mutable: mutable.is_some(),
+            name,
+            ty,
+            value,
+        });
+
+    let part = variable_declaration
+        .repeated()
+        .collect::<Vec<_>>()
+        .delimited_by(
+            just("storage").padded().then(just('{')).padded(),
+            just('}').padded(),
+        )
+        .map(|vars| UtxoPart::Storage(vars));
+
+    just("utxo")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            part.repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|(name, parts)| UtxoDef { name, parts })
 }

@@ -205,6 +205,7 @@ impl Inferencer {
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
+                Definition::Utxo(_) => {}
             }
         }
         Ok(())
@@ -737,6 +738,7 @@ impl Inferencer {
                 let typed = self.build_typed_enum(def)?;
                 Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
             }
+            Definition::Utxo(_) => todo!(),
         }
     }
 

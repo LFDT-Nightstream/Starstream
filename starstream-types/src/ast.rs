@@ -78,6 +78,7 @@ pub enum Definition {
     Function(FunctionDef),
     Struct(StructDef),
     Enum(EnumDef),
+    Utxo(UtxoDef),
 }
 
 /// `fn` definition.
@@ -132,6 +133,26 @@ pub enum EnumVariantPayload {
     Unit,
     Tuple(Vec<TypeAnnotation>),
     Struct(Vec<StructField>),
+}
+
+/// `utxo` definition.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct UtxoDef {
+    pub name: Identifier,
+    pub parts: Vec<UtxoPart>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum UtxoPart {
+    Storage(Vec<VariableDeclaration>),
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct VariableDeclaration {
+    pub mutable: bool,
+    pub name: Identifier,
+    pub ty: Option<TypeAnnotation>,
+    pub value: Spanned<Expr>,
 }
 
 // ----------------------------------------------------------------------------

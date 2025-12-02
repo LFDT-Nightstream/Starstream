@@ -934,6 +934,19 @@ impl DocumentState {
                         }
                     }
                 }
+                untyped_ast::Definition::Utxo(definition) => {
+                    for part in &definition.parts {
+                        match part {
+                            untyped_ast::UtxoPart::Storage(vars) => {
+                                for var in vars {
+                                    if let Some(ty) = &var.ty {
+                                        self.collect_type_annotation_node(ty);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

@@ -1,7 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
     BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
-    Spanned, Statement, TypeAnnotation, UnaryOp,
+    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoPart, VariableDeclaration,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -49,6 +49,7 @@ fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
         Definition::Function(function) => function_to_doc(function),
         Definition::Struct(definition) => struct_definition_to_doc(definition),
         Definition::Enum(definition) => enum_definition_to_doc(definition),
+        Definition::Utxo(definition) => utxo_definition_to_doc(definition),
     }
 }
 
@@ -193,6 +194,52 @@ fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {
             RcDoc::text(", "),
         )
     }
+}
+
+fn utxo_definition_to_doc(definition: &UtxoDef) -> RcDoc<'_, ()> {
+    RcDoc::text("utxo")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&definition.name))
+        .append(RcDoc::space())
+        .append("{")
+        .append(RcDoc::intersperse(
+            definition.parts.iter().map(utxo_part_to_doc),
+            RcDoc::line(),
+        ))
+        .append("}")
+}
+
+fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
+    match part {
+        UtxoPart::Storage(vars) => RcDoc::text("storage")
+            .append(RcDoc::space())
+            .append("{")
+            .append(RcDoc::concat(vars.iter().map(variable_declaration_to_doc)))
+            .append("}"),
+    }
+}
+
+fn variable_declaration_to_doc(decl: &VariableDeclaration) -> RcDoc<'_, ()> {
+    RcDoc::text("let")
+        .append(RcDoc::space())
+        .append(if decl.mutable {
+            RcDoc::text("mut").append(RcDoc::space())
+        } else {
+            RcDoc::nil()
+        })
+        .append(identifier_to_doc(&decl.name))
+        .append(if let Some(ty) = &decl.ty {
+            RcDoc::text(":")
+                .append(RcDoc::space())
+                .append(type_annotation_to_doc(ty))
+        } else {
+            RcDoc::nil()
+        })
+        .append(RcDoc::space())
+        .append(RcDoc::text("="))
+        .append(RcDoc::space())
+        .append(expr_to_doc(&decl.value.node))
+        .append(RcDoc::text(";"))
 }
 
 fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {

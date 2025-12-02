@@ -1,0 +1,52 @@
+---
+source: starstream-compiler/src/parser/program.rs
+description: "Code:\n\nutxo MyUtxo {\n    storage {\n        let data: i64 = 0;\n    }\n}\n"
+---
+Program {
+    definitions: [
+        Utxo(
+            UtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: Some(
+                        5..11,
+                    ),
+                },
+                parts: [
+                    Storage(
+                        [
+                            VariableDeclaration {
+                                mutable: false,
+                                name: Identifier {
+                                    name: "data",
+                                    span: Some(
+                                        40..44,
+                                    ),
+                                },
+                                ty: Some(
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                46..49,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ),
+                                value: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            0,
+                                        ),
+                                    ),
+                                    span: 52..53,
+                                },
+                            },
+                        ],
+                    ),
+                ],
+            },
+        ),
+    ],
+}
