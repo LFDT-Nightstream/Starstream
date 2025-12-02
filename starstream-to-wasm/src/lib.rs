@@ -357,6 +357,7 @@ impl Compiler {
             match definition {
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
+                TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
                 TypedDefinition::Enum(_) => {
                     self.todo("enums are not supported in Wasm yet".into());
                 }
@@ -427,6 +428,20 @@ impl Compiler {
         // Future uses must also refer to the imported version.
         self.wit_types
             .insert(struct_.ty.clone(), ComponentValType::Type(new_idx));
+    }
+
+    fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        // TODO: use the utxo name to declare the type, etc.
+        for part in &utxo.parts {
+            match part {
+                TypedUtxoPart::Storage(vars) => {
+                    for var in vars {
+                        // TODO: treat these vars as scoped only to this UTXO, rather than true globals
+                        // ...
+                    }
+                }
+            }
+        }
     }
 
     /// Start a new identifier scope and generate bytecode for the statements

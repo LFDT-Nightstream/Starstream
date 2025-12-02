@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use starstream_types::{
-    Scheme, Span, Spanned, Type, TypeVarId,
+    Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, Literal, Pattern, Program, Statement,
@@ -435,6 +436,39 @@ impl Inferencer {
         })
     }
 
+    fn infer_utxo(&mut self, def: &UtxoDef) -> Result<(TypedUtxoDef, InferenceTree), TypeError> {
+        let parts = def
+            .parts
+            .iter()
+            .map(|part| -> Result<TypedUtxoPart, TypeError> {
+                Ok(match part {
+                    UtxoPart::Storage(vars) => TypedUtxoPart::Storage(
+                        vars.iter()
+                            .map(|var| self.infer_utxo_global(var))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((
+            TypedUtxoDef {
+                name: def.name.clone(),
+                parts,
+            },
+            // ... is this needed?
+            InferenceTree::default(),
+        ))
+    }
+
+    fn infer_utxo_global(&mut self, var: &UtxoGlobal) -> Result<TypedUtxoGlobal, TypeError> {
+        let ty = self.type_from_annotation(&var.ty)?;
+        Ok(TypedUtxoGlobal {
+            name: var.name.clone(),
+            ty,
+        })
+    }
+
     fn lookup_struct_info(&self, name: &Identifier) -> Result<StructInfo, TypeError> {
         self.types.struct_info(&name.name).ok_or_else(|| {
             TypeError::new(
@@ -738,7 +772,10 @@ impl Inferencer {
                 let typed = self.build_typed_enum(def)?;
                 Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
             }
-            Definition::Utxo(_) => todo!(),
+            Definition::Utxo(def) => {
+                let (utxo, trace) = self.infer_utxo(def)?;
+                Ok((TypedDefinition::Utxo(utxo), trace))
+            }
         }
     }
 
@@ -2120,7 +2157,20 @@ impl Inferencer {
     fn apply_definition(&self, definition: &mut TypedDefinition) {
         match definition {
             TypedDefinition::Function(function) => self.apply_function(function),
+            TypedDefinition::Utxo(utxo) => self.apply_utxo(utxo),
             TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {}
+        }
+    }
+
+    fn apply_utxo(&self, utxo: &mut TypedUtxoDef) {
+        for part in &mut utxo.parts {
+            match part {
+                TypedUtxoPart::Storage(vars) => {
+                    for var in vars {
+                        var.ty = self.apply(&var.ty);
+                    }
+                }
+            }
         }
     }
 
