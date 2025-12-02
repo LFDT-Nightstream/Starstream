@@ -470,7 +470,7 @@
       "required": false,
       "types": [
         {
-          "type": "variable_declaration",
+          "type": "utxo_global",
           "named": true
         }
       ]
@@ -632,6 +632,25 @@
         },
         {
           "type": "storage_utxo_part",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "utxo_global",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
           "named": true
         }
       ]

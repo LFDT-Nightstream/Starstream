@@ -144,15 +144,13 @@ pub struct UtxoDef {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum UtxoPart {
-    Storage(Vec<VariableDeclaration>),
+    Storage(Vec<UtxoGlobal>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct VariableDeclaration {
-    pub mutable: bool,
+pub struct UtxoGlobal {
     pub name: Identifier,
-    pub ty: Option<TypeAnnotation>,
-    pub value: Spanned<Expr>,
+    pub ty: TypeAnnotation,
 }
 
 // ----------------------------------------------------------------------------

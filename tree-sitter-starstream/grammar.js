@@ -94,7 +94,9 @@ module.exports = grammar({
     _utxo_part: ($) => choice($.storage_utxo_part),
 
     storage_utxo_part: ($) =>
-      seq("storage", "{", repeat($.variable_declaration), "}"),
+      seq("storage", "{", repeat($.utxo_global), "}"),
+
+    utxo_global: $ => seq("let", $.identifier, ":", $.type_annotation, ";"),
 
     // Type syntax
 

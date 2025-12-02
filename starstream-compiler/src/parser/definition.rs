@@ -1,13 +1,11 @@
 use chumsky::prelude::*;
 use starstream_types::{
-    FunctionExport, UtxoDef, UtxoPart, VariableDeclaration,
+    FunctionExport, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         Definition, EnumDef, EnumVariant, EnumVariantPayload, FunctionDef, FunctionParam,
         StructDef, StructField,
     },
 };
-
-use crate::parser::expression;
 
 use super::{context::Extra, primitives, statement, type_annotation};
 
@@ -123,22 +121,14 @@ fn enum_definition<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
 }
 
 fn utxo_definition<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
-    let variable_declaration = just("let")
+    let utxo_global = just("let")
         .padded()
-        .ignore_then(just("mut").padded().or_not())
-        .then(primitives::identifier())
-        .then(just(":").ignore_then(type_annotation::parser()).or_not())
-        .then_ignore(just('=').padded())
-        .then(expression())
+        .ignore_then(primitives::identifier())
+        .then(just(":").ignore_then(type_annotation::parser()))
         .then_ignore(just(';').padded())
-        .map(|(((mutable, name), ty), value)| VariableDeclaration {
-            mutable: mutable.is_some(),
-            name,
-            ty,
-            value,
-        });
+        .map(|(name, ty)| UtxoGlobal { name, ty });
 
-    let part = variable_declaration
+    let part = utxo_global
         .repeated()
         .collect::<Vec<_>>()
         .delimited_by(

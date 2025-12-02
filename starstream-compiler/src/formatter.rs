@@ -1,7 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
     BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
-    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoPart, VariableDeclaration,
+    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -214,31 +214,18 @@ fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
         UtxoPart::Storage(vars) => RcDoc::text("storage")
             .append(RcDoc::space())
             .append("{")
-            .append(RcDoc::concat(vars.iter().map(variable_declaration_to_doc)))
+            .append(RcDoc::concat(vars.iter().map(utxo_global_to_doc)))
             .append("}"),
     }
 }
 
-fn variable_declaration_to_doc(decl: &VariableDeclaration) -> RcDoc<'_, ()> {
+fn utxo_global_to_doc(decl: &UtxoGlobal) -> RcDoc<'_, ()> {
     RcDoc::text("let")
         .append(RcDoc::space())
-        .append(if decl.mutable {
-            RcDoc::text("mut").append(RcDoc::space())
-        } else {
-            RcDoc::nil()
-        })
         .append(identifier_to_doc(&decl.name))
-        .append(if let Some(ty) = &decl.ty {
-            RcDoc::text(":")
-                .append(RcDoc::space())
-                .append(type_annotation_to_doc(ty))
-        } else {
-            RcDoc::nil()
-        })
+        .append(":")
         .append(RcDoc::space())
-        .append(RcDoc::text("="))
-        .append(RcDoc::space())
-        .append(expr_to_doc(&decl.value.node))
+        .append(type_annotation_to_doc(&decl.ty))
         .append(RcDoc::text(";"))
 }
 

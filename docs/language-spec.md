@@ -62,7 +62,9 @@ utxo_definition ::=
 utxo_part ::=
   | storage_utxo_part
 
-storage_utxo_part ::= "storage" "{" variable_declaration* "}"
+storage_utxo_part ::= "storage" "{" utxo_global* "}"
+
+utxo_global ::= "let" identifier ":" type_annotation ";"
 
 (* Type syntax *)
 
