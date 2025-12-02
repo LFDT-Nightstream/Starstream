@@ -30,12 +30,10 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
             });
 
         // Unit literal pattern: `()`
-        let unit_literal = just("()")
-            .padded()
-            .map_with(|_, extra| Pattern::Literal {
-                value: Literal::Unit,
-                span: extra.span(),
-            });
+        let unit_literal = just("()").padded().map_with(|_, extra| Pattern::Literal {
+            value: Literal::Unit,
+            span: extra.span(),
+        });
 
         let struct_field = identifier
             .clone()
