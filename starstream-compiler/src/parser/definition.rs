@@ -123,6 +123,8 @@ fn enum_definition<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
 fn utxo_definition<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
     let utxo_global = just("let")
         .padded()
+        .then(just("mut"))
+        .padded()
         .ignore_then(primitives::identifier())
         .then(just(":").ignore_then(type_annotation::parser()))
         .then_ignore(just(';').padded())

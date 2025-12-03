@@ -93,7 +93,7 @@ mod tests {
             r#"
             utxo MyUtxo {
                 storage {
-                    let data: i64;
+                    let mut data: i64;
                 }
             }
             "#

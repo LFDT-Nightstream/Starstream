@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/parser/program.rs
-description: "Code:\n\nutxo MyUtxo {\n    storage {\n        let data: i64;\n    }\n}\n"
+description: "Code:\n\nutxo MyUtxo {\n    storage {\n        let mut data: i64;\n    }\n}\n"
 ---
 Program {
     definitions: [
@@ -19,14 +19,14 @@ Program {
                                 name: Identifier {
                                     name: "data",
                                     span: Some(
-                                        40..44,
+                                        44..48,
                                     ),
                                 },
                                 ty: TypeAnnotation {
                                     name: Identifier {
                                         name: "i64",
                                         span: Some(
-                                            46..49,
+                                            50..53,
                                         ),
                                     },
                                     generics: [],

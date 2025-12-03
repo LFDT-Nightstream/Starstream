@@ -64,7 +64,7 @@ utxo_part ::=
 
 storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
-utxo_global ::= "let" identifier ":" type_annotation ";"
+utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
 
 (* Type syntax *)
 
