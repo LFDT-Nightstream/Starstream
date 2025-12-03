@@ -17,7 +17,7 @@ use starstream_compiler::{
     typecheck::{TypeError, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    Span, Spanned,
+    Span, Spanned, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef,
@@ -286,6 +286,7 @@ impl DocumentState {
             TypedDefinition::Function(function) => self.collect_function(function, scopes),
             TypedDefinition::Struct(definition) => self.collect_struct(definition),
             TypedDefinition::Enum(definition) => self.collect_enum(definition),
+            TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
         }
     }
 
@@ -420,6 +421,26 @@ impl DocumentState {
                         &info,
                     ),
                 );
+            }
+        }
+    }
+
+    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut Vec<HashMap<String, Span>>) {
+        for part in &definition.parts {
+            match part {
+                TypedUtxoPart::Storage(vars) => {
+                    let global = scopes.first_mut().unwrap();
+                    for var in vars {
+                        if let Some(span) = var.name.span {
+                            global.insert(var.name.name.clone(), span);
+                            self.definition_entries.push(DefinitionEntry {
+                                usage: span,
+                                target: span,
+                            });
+                            self.add_hover_span(span, &var.ty);
+                        }
+                    }
+                }
             }
         }
     }
@@ -939,9 +960,7 @@ impl DocumentState {
                         match part {
                             untyped_ast::UtxoPart::Storage(vars) => {
                                 for var in vars {
-                                    if let Some(ty) = &var.ty {
-                                        self.collect_type_annotation_node(ty);
-                                    }
+                                    self.collect_type_annotation_node(&var.ty);
                                 }
                             }
                         }
@@ -1100,6 +1119,7 @@ impl DocumentState {
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),
+                TypedDefinition::Utxo(definition) => self.utxo_symbol(definition),
             })
             .collect()
     }
@@ -1215,6 +1235,51 @@ impl DocumentState {
             name: definition.name.name.clone(),
             detail: Some(definition.ty.to_string()),
             kind: SymbolKind::ENUM,
+            tags: None,
+            deprecated: None,
+            range: self.span_to_range(name_span),
+            selection_range: self.span_to_range(name_span),
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
+        };
+
+        Some(symbol)
+    }
+
+    fn utxo_symbol(&self, definition: &TypedUtxoDef) -> Option<DocumentSymbol> {
+        let name_span = definition.name.span?;
+        let mut children = Vec::new();
+        for part in &definition.parts {
+            match part {
+                TypedUtxoPart::Storage(vars) => {
+                    for var in vars {
+                        if let Some(span) = var.name.span {
+                            #[allow(deprecated)]
+                            let child = DocumentSymbol {
+                                name: var.name.name.clone(),
+                                detail: Some(var.ty.to_string()),
+                                kind: SymbolKind::ENUM_MEMBER,
+                                tags: None,
+                                deprecated: None,
+                                range: self.span_to_range(span),
+                                selection_range: self.span_to_range(span),
+                                children: None,
+                            };
+                            children.push(child);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[allow(deprecated)]
+        let symbol = DocumentSymbol {
+            name: definition.name.name.clone(),
+            detail: None,
+            kind: SymbolKind::CLASS,
             tags: None,
             deprecated: None,
             range: self.span_to_range(name_span),
