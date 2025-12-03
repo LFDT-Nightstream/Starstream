@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/parser/program.rs
-description: "Code:\n\nutxo MyUtxo {\n    storage {\n        let data: i64 = 0;\n    }\n}\n"
+description: "Code:\n\nutxo MyUtxo {\n    storage {\n        let data: i64;\n    }\n}\n"
 ---
 Program {
     definitions: [
@@ -15,32 +15,21 @@ Program {
                 parts: [
                     Storage(
                         [
-                            VariableDeclaration {
-                                mutable: false,
+                            UtxoGlobal {
                                 name: Identifier {
                                     name: "data",
                                     span: Some(
                                         40..44,
                                     ),
                                 },
-                                ty: Some(
-                                    TypeAnnotation {
-                                        name: Identifier {
-                                            name: "i64",
-                                            span: Some(
-                                                46..49,
-                                            ),
-                                        },
-                                        generics: [],
-                                    },
-                                ),
-                                value: Spanned {
-                                    node: Literal(
-                                        Integer(
-                                            0,
+                                ty: TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            46..49,
                                         ),
-                                    ),
-                                    span: 52..53,
+                                    },
+                                    generics: [],
                                 },
                             },
                         ],
