@@ -1,0 +1,33 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_storage.star
+---
+(module
+  (type (;0;) (func (result i64)))
+  (global (;0;) (mut i64) (i64.const 0))
+  (export "increment" (func 0))
+  (func (;0;) (type 0) (result i64)
+    (global.set 0
+      (i64.add
+        (global.get 0)
+        (i64.const 1)))
+    (global.get 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func (result s64)))
+              (export (;0;) "increment" (func (type 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
