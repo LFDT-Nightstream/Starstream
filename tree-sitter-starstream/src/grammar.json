@@ -511,6 +511,10 @@
           "value": "let"
         },
         {
+          "type": "STRING",
+          "value": "mut"
+        },
+        {
           "type": "SYMBOL",
           "name": "identifier"
         },
