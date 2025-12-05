@@ -21,7 +21,7 @@ pub fn exec_program(program: &TypedProgram) {
         .iter()
         .find_map(|definition| match definition {
             TypedDefinition::Function(function) => Some(function),
-            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => None,
+            _ => None,
         })
     {
         eval_function(function);

@@ -3,7 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use starstream_types::{
-    Scheme, Span, Spanned, Type, TypeVarId,
+    Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, Literal, Pattern, Program, Statement,
@@ -141,8 +142,9 @@ pub fn typecheck_program(
     let mut definition_traces = Vec::with_capacity(program.definitions.len());
     let mut errors = Vec::new();
 
+    let mut env = TypeEnv::new();
     for definition in &program.definitions {
-        match inferencer.infer_definition(definition) {
+        match inferencer.infer_definition(&mut env, definition) {
             Ok((typed_definition, trace)) => {
                 typed_definitions.push(typed_definition);
                 definition_traces.push(trace);
@@ -205,6 +207,7 @@ impl Inferencer {
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
+                Definition::Utxo(_) => {}
             }
         }
         Ok(())
@@ -431,6 +434,55 @@ impl Inferencer {
             name: def.name.clone(),
             variants,
             ty: info.ty,
+        })
+    }
+
+    fn infer_utxo(
+        &mut self,
+        env: &mut TypeEnv,
+        def: &UtxoDef,
+    ) -> Result<(TypedUtxoDef, InferenceTree), TypeError> {
+        let parts = def
+            .parts
+            .iter()
+            .map(|part| -> Result<TypedUtxoPart, TypeError> {
+                Ok(match part {
+                    UtxoPart::Storage(vars) => TypedUtxoPart::Storage(
+                        vars.iter()
+                            .map(|var| self.infer_utxo_global(env, var))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    ),
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((
+            TypedUtxoDef {
+                name: def.name.clone(),
+                parts,
+            },
+            // ... is this needed?
+            InferenceTree::default(),
+        ))
+    }
+
+    fn infer_utxo_global(
+        &mut self,
+        env: &mut TypeEnv,
+        var: &UtxoGlobal,
+    ) -> Result<TypedUtxoGlobal, TypeError> {
+        let ty = self.type_from_annotation(&var.ty)?;
+        env.insert(
+            var.name.name.clone(),
+            Binding {
+                decl_span: var.name.span.unwrap_or_else(dummy_span),
+                mutable: true,
+                scheme: Scheme::monomorphic(ty.clone()),
+            },
+        );
+        Ok(TypedUtxoGlobal {
+            name: var.name.clone(),
+            ty,
         })
     }
 
@@ -745,11 +797,12 @@ impl Inferencer {
     /// Type-check a top-level definition.
     fn infer_definition(
         &mut self,
+        env: &mut TypeEnv,
         definition: &Definition,
     ) -> Result<(TypedDefinition, InferenceTree), TypeError> {
         match definition {
             Definition::Function(function) => {
-                let (typed_function, trace) = self.infer_function(function)?;
+                let (typed_function, trace) = self.infer_function(env, function)?;
                 Ok((TypedDefinition::Function(typed_function), trace))
             }
             Definition::Struct(def) => {
@@ -760,14 +813,19 @@ impl Inferencer {
                 let typed = self.build_typed_enum(def)?;
                 Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
             }
+            Definition::Utxo(def) => {
+                let (utxo, trace) = self.infer_utxo(env, def)?;
+                Ok((TypedDefinition::Utxo(utxo), trace))
+            }
         }
     }
 
     fn infer_function(
         &mut self,
+        env: &mut TypeEnv,
         function: &FunctionDef,
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
-        let mut env = TypeEnv::new();
+        env.push_scope();
         let mut typed_params = Vec::with_capacity(function.params.len());
         for param in &function.params {
             let ty = self.type_from_annotation(&param.ty)?;
@@ -807,8 +865,9 @@ impl Inferencer {
             saw_return: false,
         };
 
-        let (typed_body, body_traces) =
-            self.infer_block(&mut env, &function.body, &mut ctx, true)?;
+        let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
+
+        env.pop_scope();
 
         if expected_return != Type::unit()
             && !ctx.saw_return
@@ -2150,7 +2209,20 @@ impl Inferencer {
     fn apply_definition(&self, definition: &mut TypedDefinition) {
         match definition {
             TypedDefinition::Function(function) => self.apply_function(function),
+            TypedDefinition::Utxo(utxo) => self.apply_utxo(utxo),
             TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {}
+        }
+    }
+
+    fn apply_utxo(&self, utxo: &mut TypedUtxoDef) {
+        for part in &mut utxo.parts {
+            match part {
+                TypedUtxoPart::Storage(vars) => {
+                    for var in vars {
+                        var.ty = self.apply(&var.ty);
+                    }
+                }
+            }
         }
     }
 

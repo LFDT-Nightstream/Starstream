@@ -72,3 +72,5 @@
 (enum_constructor "::" @operator)
 (match_expression "match" @keyword)
 (match_arm "=>" @operator)
+(utxo_definition "utxo" @keyword)
+(storage_utxo_part "storage" @keyword)

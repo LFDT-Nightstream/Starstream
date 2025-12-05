@@ -1,7 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
     BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
-    Spanned, Statement, TypeAnnotation, UnaryOp,
+    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -49,6 +49,7 @@ fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
         Definition::Function(function) => function_to_doc(function),
         Definition::Struct(definition) => struct_definition_to_doc(definition),
         Definition::Enum(definition) => enum_definition_to_doc(definition),
+        Definition::Utxo(definition) => utxo_definition_to_doc(definition),
     }
 }
 
@@ -193,6 +194,54 @@ fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {
             RcDoc::text(", "),
         )
     }
+}
+
+fn utxo_definition_to_doc(definition: &UtxoDef) -> RcDoc<'_, ()> {
+    RcDoc::text("utxo")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&definition.name))
+        .append(RcDoc::space())
+        .append("{")
+        .append(
+            RcDoc::line()
+                .append(RcDoc::intersperse(
+                    definition.parts.iter().map(utxo_part_to_doc),
+                    RcDoc::line(),
+                ))
+                .nest(INDENT),
+        )
+        .append(RcDoc::line())
+        .append("}")
+}
+
+fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
+    match part {
+        UtxoPart::Storage(vars) => RcDoc::text("storage")
+            .append(RcDoc::space())
+            .append("{")
+            .append(
+                RcDoc::line()
+                    .append(RcDoc::intersperse(
+                        vars.iter().map(utxo_global_to_doc),
+                        RcDoc::line(),
+                    ))
+                    .nest(INDENT),
+            )
+            .append(RcDoc::line())
+            .append("}"),
+    }
+}
+
+fn utxo_global_to_doc(decl: &UtxoGlobal) -> RcDoc<'_, ()> {
+    RcDoc::text("let")
+        .append(RcDoc::space())
+        .append("mut")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&decl.name))
+        .append(":")
+        .append(RcDoc::space())
+        .append(type_annotation_to_doc(&decl.ty))
+        .append(RcDoc::text(";"))
 }
 
 fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {

@@ -41,7 +41,8 @@ Language features:
 - [x] make `let` const and add `let mut`
 - [x] type annotations on `let` bindings
 - [x] coordination script exports
-- [ ] `storage` blocks to declare UTXO state (globals or linear memory)
+- [x] `storage` blocks to declare UTXO state (Wasm globals)
+  - [ ] scope to only the `utxo` block rather than whole program
 - [ ] mock ledger
   - [ ] sandbox shows current "input" ledger state (starts empty)
   - [ ] sandbox allows calling coordination scripts with arguments, can pass existing UTXOs as input (JS console?)

@@ -102,6 +102,7 @@ struct Compiler {
 
     // Function building.
     raw_func_type_cache: HashMap<FuncType, u32>,
+    global_vars: HashMap<String, u32>,
 }
 
 impl Compiler {
@@ -228,6 +229,21 @@ impl Compiler {
         self.code.raw(&vec);
 
         func_index
+    }
+
+    fn add_globals(&mut self, types: impl IntoIterator<Item = ValType>) -> u32 {
+        let idx = self.globals.len();
+        for ty in types {
+            self.globals.global(
+                GlobalType {
+                    val_type: ty,
+                    mutable: true,
+                    shared: false,
+                },
+                &ConstExpr::i64_const(0),
+            );
+        }
+        idx
     }
 
     // ------------------------------------------------------------------------
@@ -357,6 +373,7 @@ impl Compiler {
             match definition {
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
+                TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
                 TypedDefinition::Enum(_) => {
                     self.todo("enums are not supported in Wasm yet".into());
                 }
@@ -429,6 +446,23 @@ impl Compiler {
             .insert(struct_.ty.clone(), ComponentValType::Type(new_idx));
     }
 
+    fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        // TODO: use the utxo name to declare the type, etc.
+        for part in &utxo.parts {
+            match part {
+                TypedUtxoPart::Storage(vars) => {
+                    for var in vars {
+                        let mut types = Vec::new();
+                        self.star_to_core_types(&mut types, &var.ty);
+                        let idx = self.add_globals(types.iter().copied());
+                        // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
+                        self.global_vars.insert(var.name.name.clone(), idx);
+                    }
+                }
+            }
+        }
+    }
+
     /// Start a new identifier scope and generate bytecode for the statements
     /// of the block in sequence. Only creates a Wasm `block` when specifically
     /// needed for control flow reasons.
@@ -477,6 +511,19 @@ impl Compiler {
                             // Pop from stack to set locals in reverse order.
                             for i in (0..local_types.len()).rev() {
                                 func.instructions().local_set(local + (i as u32));
+                            }
+                        }
+                    } else if let Some(global) = self.global_vars.get(&target.name).copied() {
+                        if self
+                            .visit_expr_stack(func, &(parent, &locals), value.span, &value.node)
+                            .is_ok()
+                        {
+                            let mut types = Vec::new();
+                            self.star_to_core_types(&mut types, &value.node.ty);
+
+                            // Pop from stack to set locals in reverse order.
+                            for i in (0..types.len()).rev() {
+                                func.instructions().global_set(global + (i as u32));
                             }
                         }
                     } else {
@@ -669,6 +716,11 @@ impl Compiler {
                 if let Some(local) = locals.get(&ident.name) {
                     for i in 0..self.star_count_core_types(&expr.ty) {
                         func.instructions().local_get(local + i);
+                    }
+                    Ok(())
+                } else if let Some(global) = self.global_vars.get(&ident.name).copied() {
+                    for i in 0..self.star_count_core_types(&expr.ty) {
+                        func.instructions().global_get(global + i);
                     }
                     Ok(())
                 } else {

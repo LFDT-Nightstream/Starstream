@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 use starstream_types::{
-    FunctionExport,
+    FunctionExport, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         Definition, EnumDef, EnumVariant, EnumVariantPayload, FunctionDef, FunctionParam,
         StructDef, StructField,
@@ -14,6 +14,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
         function_definition().map(Definition::Function),
         struct_definition().map(Definition::Struct),
         enum_definition().map(Definition::Enum),
+        utxo_definition().map(Definition::Utxo),
     ))
 }
 
@@ -117,4 +118,34 @@ fn enum_definition<'a>() -> impl Parser<'a, &'a str, EnumDef, Extra<'a>> {
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
         .map(|(name, variants)| EnumDef { name, variants })
+}
+
+fn utxo_definition<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
+    let utxo_global = just("let")
+        .padded()
+        .then(just("mut"))
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(just(":").ignore_then(type_annotation::parser()))
+        .then_ignore(just(';').padded())
+        .map(|(name, ty)| UtxoGlobal { name, ty });
+
+    let part = utxo_global
+        .repeated()
+        .collect::<Vec<_>>()
+        .delimited_by(
+            just("storage").padded().then(just('{')).padded(),
+            just('}').padded(),
+        )
+        .map(|vars| UtxoPart::Storage(vars));
+
+    just("utxo")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            part.repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|(name, parts)| UtxoDef { name, parts })
 }

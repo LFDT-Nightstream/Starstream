@@ -23,6 +23,7 @@ pub enum TypedDefinition {
     Function(TypedFunctionDef),
     Struct(TypedStructDef),
     Enum(TypedEnumDef),
+    Utxo(TypedUtxoDef),
 }
 
 #[derive(Clone, Debug)]
@@ -64,6 +65,23 @@ pub struct TypedEnumDef {
 pub struct TypedEnumVariant {
     pub name: Identifier,
     pub payload: TypedEnumVariantPayload,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedUtxoDef {
+    pub name: Identifier,
+    pub parts: Vec<TypedUtxoPart>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedUtxoPart {
+    Storage(Vec<TypedUtxoGlobal>),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedUtxoGlobal {
+    pub name: Identifier,
+    pub ty: Type,
 }
 
 /// Typed statements.

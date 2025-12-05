@@ -32,6 +32,7 @@ definition ::=
   | function_definition
   | struct_definition
   | enum_definition
+  | utxo_definition
 
 function_definition ::=
   ( function_export )?
@@ -40,20 +41,30 @@ function_definition ::=
   ( "->" type_annotation )?
   block
 
-struct_definition ::=
-  "struct" identifier "{" ( struct_field ( "," struct_field )* )? "}"
-
-enum_definition ::=
-  "enum" identifier "{" ( enum_variant ( "," enum_variant )* )? "}"
-
 function_export ::=
   | "script"
 
 parameter ::= identifier ":" type_annotation
 
+struct_definition ::=
+  "struct" identifier "{" ( struct_field ( "," struct_field )* )? "}"
+
 struct_field ::= identifier ":" type_annotation
 
+enum_definition ::=
+  "enum" identifier "{" ( enum_variant ( "," enum_variant )* )? "}"
+
 enum_variant ::= identifier ( "(" ( type_annotation ( "," type_annotation )* )? ")" )?
+
+utxo_definition ::=
+  "utxo" identifier "{" utxo_part* "}"
+
+utxo_part ::=
+  | storage_utxo_part
+
+storage_utxo_part ::= "storage" "{" utxo_global* "}"
+
+utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
 
 (* Type syntax *)
 

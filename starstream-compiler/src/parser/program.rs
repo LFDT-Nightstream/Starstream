@@ -86,4 +86,17 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn utxo_storage() {
+        assert_program_snapshot!(
+            r#"
+            utxo MyUtxo {
+                storage {
+                    let mut data: i64;
+                }
+            }
+            "#
+        );
+    }
 }
