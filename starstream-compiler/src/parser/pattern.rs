@@ -1,5 +1,5 @@
 use chumsky::{prelude::*, recursive::recursive};
-use starstream_types::ast::{EnumPatternPayload, Literal, Pattern, StructPatternField};
+use starstream_types::ast::{EnumPatternPayload, Pattern, StructPatternField};
 
 use super::{context::Extra, primitives};
 
@@ -12,26 +12,20 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
             .map_with(|_, extra| Pattern::Wildcard { span: extra.span() })
             .padded();
 
-        // Integer literal pattern: `0`, `42`, etc.
-        let integer_literal = text::int(10).map_with(|digits: &str, extra| {
-            let value = digits.parse::<i64>().expect("integer literal");
-            Pattern::Literal {
-                value: Literal::Integer(value),
-                span: extra.span(),
-            }
-        });
-
-        // Boolean literal pattern: `true`, `false`
-        let boolean_literal = choice((just("true").to(true), just("false").to(false)))
-            .padded()
-            .map_with(|value, extra| Pattern::Literal {
-                value: Literal::Boolean(value),
+        let integer_literal =
+            primitives::integer_literal().map_with(|value, extra| Pattern::Literal {
+                value,
                 span: extra.span(),
             });
 
-        // Unit literal pattern: `()`
-        let unit_literal = just("()").padded().map_with(|_, extra| Pattern::Literal {
-            value: Literal::Unit,
+        let boolean_literal =
+            primitives::boolean_literal().map_with(|value, extra| Pattern::Literal {
+                value,
+                span: extra.span(),
+            });
+
+        let unit_literal = primitives::unit_literal().map_with(|value, extra| Pattern::Literal {
+            value,
             span: extra.span(),
         });
 
