@@ -1,0 +1,35 @@
+[package]
+name = "starstream-node-server"
+version = "0.1.0"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+clap = { workspace = true, features = [
+    "color",
+    "derive",
+    "error-context",
+    "help",
+    "std",
+    "suggestions",
+    "usage",
+] }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "signal", "net"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["ansi", "fmt"] }
+wasmtime = { workspace = true }
+p3-poseidon2 = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-symmetric = { workspace = true }
+p3-field = { workspace = true }
+wit-bindgen-wrpc = { workspace = true }
+wrpc-transport = { workspace = true, features = ["net"] }
+rand = { workspace = true, features = ["std_rng"] }
+hex = { workspace = true }
