@@ -220,3 +220,10 @@ TypedProgram {
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  export add: func(x: s64, y: s64) -> s64;
+}

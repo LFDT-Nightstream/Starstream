@@ -102,6 +102,23 @@ fn inputs() {
                                 &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut output)),
                             )
                             .unwrap();
+                        writeln!(output).unwrap();
+
+                        // Componentize and then extract WIT from the final component.
+                        // Not printing component Wasm because it's mostly core Wasm but inside-out.
+                        writeln!(output, "==== WIT ====").unwrap();
+                        let component_wasm = wit_component::ComponentEncoder::default()
+                            .validate(true)
+                            .module(&wasm)
+                            .expect("ComponentEncoder::module failed")
+                            .encode()
+                            .expect("ComponentEncoder::encode failed");
+                        let decoded = wit_component::decode(&component_wasm).unwrap();
+                        let mut printer = wit_component::WitPrinter::default();
+                        printer
+                            .print(decoded.resolve(), decoded.package(), &[])
+                            .unwrap();
+                        writeln!(output, "{}\n", printer.output).unwrap();
                     }
                 }
             }

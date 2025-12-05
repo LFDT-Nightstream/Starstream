@@ -269,3 +269,10 @@ TypedProgram {
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  export increment: func() -> s64;
+}

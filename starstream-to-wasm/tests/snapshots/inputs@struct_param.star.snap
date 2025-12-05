@@ -411,3 +411,15 @@ TypedProgram {
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  record token {
+    amount: s64,
+    price: s64,
+  }
+
+  export total-value: func(token: token) -> s64;
+}

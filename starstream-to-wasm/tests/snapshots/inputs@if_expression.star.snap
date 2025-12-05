@@ -291,3 +291,10 @@ TypedProgram {
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  export main: func() -> s64;
+}
