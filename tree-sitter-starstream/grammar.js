@@ -269,7 +269,18 @@ module.exports = grammar({
     // Patterns
 
     pattern: ($) =>
-      choice($.struct_pattern, $.enum_variant_pattern, $.identifier),
+      choice(
+        $.wildcard_pattern,
+        $.literal_pattern,
+        $.struct_pattern,
+        $.enum_variant_pattern,
+        $.identifier,
+      ),
+
+    wildcard_pattern: ($) => "_",
+
+    literal_pattern: ($) =>
+      choice($.integer_literal, $.boolean_literal, $.unit_literal),
 
     struct_pattern: ($) =>
       seq(

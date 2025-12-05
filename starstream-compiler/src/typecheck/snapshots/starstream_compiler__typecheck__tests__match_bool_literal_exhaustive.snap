@@ -1,0 +1,30 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(b: bool) -> i64 {\n    match b {\n        true => {\n            1\n        },\n        false => {\n            0\n        },\n    }\n}\n"
+---
+T-Fn: test => i64
+  T-ReturnTail: match b {
+    true => {
+        1
+    },
+    false => {
+        0
+    },
+} => i64
+    T-Match: {b: bool} ⊢ match b {
+    true => {
+        1
+    },
+    false => {
+        0
+    },
+} ⇒ i64
+      T-Var: {b: bool} ⊢ b ⇒ bool
+      Unify-Const: bool ~ bool => {}
+      T-Tail: 1 => i64
+        T-Int: {b: bool} ⊢ 1 ⇒ i64
+      Unify-Const: bool ~ bool => {}
+      T-Tail: 0 => i64
+        T-Int: {b: bool} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

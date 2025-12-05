@@ -7,6 +7,28 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
     recursive(|pattern| {
         let identifier = primitives::identifier().boxed();
 
+        // Wildcard pattern: `_`
+        let wildcard = just('_')
+            .map_with(|_, extra| Pattern::Wildcard { span: extra.span() })
+            .padded();
+
+        let integer_literal =
+            primitives::integer_literal().map_with(|value, extra| Pattern::Literal {
+                value,
+                span: extra.span(),
+            });
+
+        let boolean_literal =
+            primitives::boolean_literal().map_with(|value, extra| Pattern::Literal {
+                value,
+                span: extra.span(),
+            });
+
+        let unit_literal = primitives::unit_literal().map_with(|value, extra| Pattern::Literal {
+            value,
+            span: extra.span(),
+        });
+
         let struct_field = identifier
             .clone()
             .then(just(':').padded().ignore_then(pattern.clone()).or_not())
@@ -63,6 +85,15 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Pattern, Extra<'a>> {
 
         let binding = identifier.map(Pattern::Binding);
 
-        choice((enum_variant, struct_pattern, binding)).padded()
+        choice((
+            wildcard,
+            integer_literal,
+            boolean_literal,
+            unit_literal,
+            enum_variant,
+            struct_pattern,
+            binding,
+        ))
+        .padded()
     })
 }

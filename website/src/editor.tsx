@@ -3,6 +3,7 @@ import * as monaco from "monaco-editor";
 import { EditorAppConfig } from "monaco-languageclient/editorApp";
 import type { MonacoVscodeApiConfig } from "monaco-languageclient/vscodeApiWrapper";
 import { configureDefaultWorkerFactory } from "monaco-languageclient/workerFactory";
+import { useEffect, useRef } from "react";
 import "./starstream.vsix";
 
 const code = `\
@@ -42,25 +43,63 @@ const editorAppConfig: EditorAppConfig = {
   },
 };
 
-export function Editor(props: { onTextChanged?: (text: string) => void }) {
+export function Editor(props: {
+  onTextChanged?: (text: string) => void;
+  onMarkersChange?: (markers: monaco.editor.IMarker[]) => void;
+  onMount?: (editor: monaco.editor.ICodeEditor) => void;
+}) {
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      cleanupRef.current?.();
+    };
+  }, []);
+
   return (
     <MonacoEditorReactComp
       style={{ width: "100%", height: "100%" }}
       vscodeApiConfig={vscodeApiConfig}
       editorAppConfig={editorAppConfig}
       onTextChanged={(contents) =>
-        props.onTextChanged
-          ? props.onTextChanged(contents.modified ?? "")
-          : null
+        props.onTextChanged?.(contents.modified ?? "")
       }
-      onVscodeApiInitDone={(api) => {
-        startWatchingTheme();
+      onVscodeApiInitDone={() => {
+        const disconnectTheme = startWatchingTheme();
+
+        let disposeMarkers: monaco.IDisposable | undefined;
+        if (props.onMarkersChange) {
+          const updateMarkers = () => {
+            const markers = monaco.editor.getModelMarkers({});
+            props.onMarkersChange?.(markers);
+          };
+          updateMarkers();
+          disposeMarkers = monaco.editor.onDidChangeMarkers(updateMarkers);
+        }
+
+        let timeoutId: number | undefined;
+        if (props.onMount) {
+          timeoutId = window.setTimeout(() => {
+            const editors = monaco.editor.getEditors();
+            if (editors.length > 0) {
+              props.onMount?.(editors[0]);
+            }
+          }, 100);
+        }
+
+        cleanupRef.current = () => {
+          disconnectTheme();
+          disposeMarkers?.dispose();
+          if (timeoutId !== undefined) {
+            window.clearTimeout(timeoutId);
+          }
+        };
       }}
     />
   );
 }
 
-function startWatchingTheme() {
+function startWatchingTheme(): () => void {
   const mo = new MutationObserver((records) => {
     for (const each of records) {
       if (
@@ -72,7 +111,12 @@ function startWatchingTheme() {
       }
     }
   });
-  mo.observe(document.documentElement, { attributes: true });
+  mo.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+  monaco.editor.setTheme(theme());
+  return () => mo.disconnect();
 }
 
 function theme() {

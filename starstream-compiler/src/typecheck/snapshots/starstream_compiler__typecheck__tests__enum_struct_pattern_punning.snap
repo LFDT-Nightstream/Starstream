@@ -1,12 +1,7 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 156
 description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nenum Message {\n    Ping,\n    Pong {\n        x: i64,\n    },\n}\n\nfn add(a: Point, b: Message) -> i64 {\n    match b {\n        Message::Ping => {\n            a.x\n        },\n        Message::Pong { x } => {\n            x + a.x\n        },\n    }\n}\n"
 ---
-:  => 
-
-:  => 
-
 T-Fn: add => i64
   T-ReturnTail: match b {
     Message::Ping => {

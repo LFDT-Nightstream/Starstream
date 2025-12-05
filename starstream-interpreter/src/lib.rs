@@ -187,12 +187,12 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
             else_branch,
         } => {
             for (condition, block) in branches {
-                if eval(&condition.node, &locals)?.to_bool() {
-                    return eval_block(block, &locals);
+                if eval(&condition.node, locals)?.to_bool() {
+                    return eval_block(block, locals);
                 }
             }
             if let Some(else_branch) = else_branch {
-                eval_block(else_branch, &locals)?
+                eval_block(else_branch, locals)?
             } else {
                 Value::Unit
             }

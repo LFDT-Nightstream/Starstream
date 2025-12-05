@@ -1,5 +1,5 @@
 use chumsky::{error::Rich, prelude::*};
-use starstream_types::ast::Identifier;
+use starstream_types::ast::{Identifier, Literal};
 
 use super::context::Extra;
 
@@ -20,4 +20,24 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
             }
         })
         .padded()
+}
+
+pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
+    text::int(10)
+        .map(|digits: &str| {
+            let value = digits.parse::<i64>().expect("integer literal");
+            Literal::Integer(value)
+        })
+        .boxed()
+}
+
+pub fn boolean_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
+    choice((just("true").to(true), just("false").to(false)))
+        .padded()
+        .map(Literal::Boolean)
+        .boxed()
+}
+
+pub fn unit_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
+    just("()").padded().to(Literal::Unit).boxed()
 }
