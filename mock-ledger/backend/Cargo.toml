@@ -1,0 +1,31 @@
+[workspace.package]
+authors = ["Sebastien Guillemot <sebastien.guillemot@midnight.foundation>"]
+categories = ["wasm"]
+edition = "2024"
+homepage = "https://github.com/LFDT-Nightstream/Starstream"
+license = "Apache-2.0"
+repository = "https://github.com/LFDT-Nightstream/Starstream"
+
+[workspace]
+members = [
+    "node-server",
+    "node-client",
+]
+
+[workspace.dependencies]
+anyhow = { version = "1", default-features = false }
+bytes = { version = "1", default-features = false }
+clap = { version = "4", default-features = false }
+futures = { version = "0.3", default-features = false }
+tokio = { version = "1", default-features = false }
+tracing = { version = "0.1", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false }
+wit-bindgen-wrpc = { version = "0.10", default-features = false }
+wrpc-transport = { version = "0.28.3", default-features = false }
+wasmtime = { version = "39.0", default-features = false, features = ["cranelift", "runtime", "component-model"] }
+p3-poseidon2 = { version = "0.3", default-features = false }
+p3-goldilocks = { version = "0.3", default-features = false }
+p3-symmetric = { version = "0.3", default-features = false }
+p3-field = { version = "0.3", default-features = false }
+rand = { version = "0.9", default-features = false }
+hex = { version = "0.4", default-features = false }
