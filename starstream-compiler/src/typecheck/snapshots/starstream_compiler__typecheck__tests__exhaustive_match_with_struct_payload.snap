@@ -2,10 +2,6 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nenum Shape {\n    Circle(i64),\n    Rectangle { width: i64, height: i64 },\n}\n\nfn test(s: Shape) -> i64 {\n    match s {\n        Shape::Circle(radius) => {\n            radius\n        },\n        Shape::Rectangle { width, height } => {\n            width + height\n        },\n    }\n}\n"
 ---
-:  => 
-
-:  => 
-
 T-Fn: test => i64
   T-ReturnTail: match s {
     Shape::Circle(radius) => {

@@ -2,8 +2,6 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Result {\n    Ok(i64),\n    Err(i64),\n}\n\nfn test(r: Result) -> i64 {\n    match r {\n        Result::Ok(value) => {\n            value\n        },\n        Result::Err(code) => {\n            0 - code\n        },\n    }\n}\n"
 ---
-:  => 
-
 T-Fn: test => i64
   T-ReturnTail: match r {
     Result::Ok(value) => {

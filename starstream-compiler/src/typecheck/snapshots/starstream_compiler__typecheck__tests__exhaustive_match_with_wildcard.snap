@@ -2,8 +2,6 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Color {\n    Red,\n    Green,\n    Blue,\n}\n\nfn test(c: Color) -> i64 {\n    match c {\n        Color::Red => {\n            0\n        },\n        _ => {\n            1\n        },\n    }\n}\n"
 ---
-:  => 
-
 T-Fn: test => i64
   T-ReturnTail: match c {
     Color::Red => {

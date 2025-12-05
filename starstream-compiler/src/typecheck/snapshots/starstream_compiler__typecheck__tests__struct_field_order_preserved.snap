@@ -2,10 +2,6 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct User {\n    name: i64,\n    age: i64,\n    email: i64,\n}\n\nstruct ZOrder {\n    z: i64,\n    a: i64,\n}\n\nfn test() {\n    let u = User {\n        name: 1,\n        age: 2,\n        email: 3,\n    };\n    let z = ZOrder {\n        z: 1,\n        a: 2,\n    };\n}\n"
 ---
-:  => 
-
-:  => 
-
 T-Fn: test => ()
   T-Let: {} ⊢ let u = User {
     name: 1,
