@@ -202,10 +202,15 @@ fn utxo_definition_to_doc(definition: &UtxoDef) -> RcDoc<'_, ()> {
         .append(identifier_to_doc(&definition.name))
         .append(RcDoc::space())
         .append("{")
-        .append(RcDoc::intersperse(
-            definition.parts.iter().map(utxo_part_to_doc),
-            RcDoc::line(),
-        ))
+        .append(
+            RcDoc::line()
+                .append(RcDoc::intersperse(
+                    definition.parts.iter().map(utxo_part_to_doc),
+                    RcDoc::line(),
+                ))
+                .nest(INDENT),
+        )
+        .append(RcDoc::line())
         .append("}")
 }
 
@@ -214,13 +219,23 @@ fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
         UtxoPart::Storage(vars) => RcDoc::text("storage")
             .append(RcDoc::space())
             .append("{")
-            .append(RcDoc::concat(vars.iter().map(utxo_global_to_doc)))
+            .append(
+                RcDoc::line()
+                    .append(RcDoc::intersperse(
+                        vars.iter().map(utxo_global_to_doc),
+                        RcDoc::line(),
+                    ))
+                    .nest(INDENT),
+            )
+            .append(RcDoc::line())
             .append("}"),
     }
 }
 
 fn utxo_global_to_doc(decl: &UtxoGlobal) -> RcDoc<'_, ()> {
     RcDoc::text("let")
+        .append(RcDoc::space())
+        .append("mut")
         .append(RcDoc::space())
         .append(identifier_to_doc(&decl.name))
         .append(":")
