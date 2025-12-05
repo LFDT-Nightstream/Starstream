@@ -2,6 +2,60 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/empty.star
 ---
+==== AST ====
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        10..14,
+                    ),
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+T-Fn: main => ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        10..14,
+                    ),
+                },
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
 (module
   (type (;0;) (func))
   (export "main" (func 0))

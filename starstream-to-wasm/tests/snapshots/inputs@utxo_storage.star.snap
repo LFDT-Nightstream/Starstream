@@ -2,6 +2,244 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/utxo_storage.star
 ---
+==== AST ====
+Program {
+    definitions: [
+        Utxo(
+            UtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: Some(
+                        5..11,
+                    ),
+                },
+                parts: [
+                    Storage(
+                        [
+                            UtxoGlobal {
+                                name: Identifier {
+                                    name: "counter",
+                                    span: Some(
+                                        44..51,
+                                    ),
+                                },
+                                ty: TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            53..56,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                            },
+                        ],
+                    ),
+                ],
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "increment",
+                    span: Some(
+                        77..86,
+                    ),
+                },
+                params: [],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                92..95,
+                            ),
+                        },
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [
+                        Assignment {
+                            target: Identifier {
+                                name: "counter",
+                                span: Some(
+                                    102..109,
+                                ),
+                            },
+                            value: Spanned {
+                                node: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "counter",
+                                                span: Some(
+                                                    112..119,
+                                                ),
+                                            },
+                                        ),
+                                        span: 112..120,
+                                    },
+                                    right: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                1,
+                                            ),
+                                        ),
+                                        span: 122..123,
+                                    },
+                                },
+                                span: 112..123,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Identifier(
+                                Identifier {
+                                    name: "counter",
+                                    span: Some(
+                                        129..136,
+                                    ),
+                                },
+                            ),
+                            span: 129..137,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+:  => 
+
+T-Fn: increment => i64
+  T-Assign: {counter: i64} ⊢ counter = counter + 1; ⇒ i64
+    T-Bin-Add: {counter: i64} ⊢ counter + 1 ⇒ i64
+      T-Var: {counter: i64} ⊢ counter ⇒ i64
+      T-Int: {counter: i64} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+  T-ReturnTail: counter => i64
+    T-Var: {counter: i64} ⊢ counter ⇒ i64
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: Some(
+                        5..11,
+                    ),
+                },
+                parts: [
+                    Storage(
+                        [
+                            TypedUtxoGlobal {
+                                name: Identifier {
+                                    name: "counter",
+                                    span: Some(
+                                        44..51,
+                                    ),
+                                },
+                                ty: Int,
+                            },
+                        ],
+                    ),
+                ],
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "increment",
+                    span: Some(
+                        77..86,
+                    ),
+                },
+                params: [],
+                return_type: Int,
+                body: TypedBlock {
+                    statements: [
+                        Assignment {
+                            target: Identifier {
+                                name: "counter",
+                                span: Some(
+                                    102..109,
+                                ),
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Binary {
+                                        op: Add,
+                                        left: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "counter",
+                                                        span: Some(
+                                                            112..119,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 112..120,
+                                        },
+                                        right: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Literal(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                            },
+                                            span: 122..123,
+                                        },
+                                    },
+                                },
+                                span: 112..123,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Identifier(
+                                    Identifier {
+                                        name: "counter",
+                                        span: Some(
+                                            129..136,
+                                        ),
+                                    },
+                                ),
+                            },
+                            span: 129..137,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
 (module
   (type (;0;) (func (result i64)))
   (global (;0;) (mut i64) (i64.const 0))

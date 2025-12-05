@@ -1,6 +1,8 @@
+use std::fmt::Write;
 use std::{fs, path::Path};
 
 use miette::{GraphicalReportHandler, GraphicalTheme, Report};
+use starstream_compiler::TypecheckOptions;
 use wasmprinter::Print;
 
 /// [Print] impl that expands contents of `component-type` custom sections.
@@ -44,6 +46,7 @@ fn inputs() {
 
         let source = fs::read_to_string(path).unwrap();
         let (program, errors) = starstream_compiler::parse_program(&source).into_output_errors();
+        writeln!(output, "==== AST ====").unwrap();
         for error in errors {
             let report = Report::new(error).with_source_code(source.clone());
             GraphicalReportHandler::new_themed(GraphicalTheme::none())
@@ -51,8 +54,15 @@ fn inputs() {
                 .expect("failed to render diagnostic");
         }
         if let Some(program) = program {
-            match starstream_compiler::typecheck_program(&program, Default::default()) {
+            writeln!(output, "{:#?}\n", program).unwrap();
+            match starstream_compiler::typecheck_program(
+                &program,
+                TypecheckOptions {
+                    capture_traces: true,
+                },
+            ) {
                 Err(errors) => {
+                    writeln!(output, "==== Type error ====").unwrap();
                     for error in errors {
                         let report = Report::new(error).with_source_code(source.clone());
                         GraphicalReportHandler::new_themed(GraphicalTheme::none())
@@ -61,7 +71,15 @@ fn inputs() {
                     }
                 }
                 Ok(success) => {
+                    writeln!(
+                        output,
+                        "==== Inference trace ====\n{}",
+                        success.display_traces()
+                    )
+                    .unwrap();
+                    writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
                     let (wasm, errors) = starstream_to_wasm::compile(&success.program);
+                    writeln!(output, "==== Core WebAssembly ====").unwrap();
                     for error in errors {
                         let report = Report::new(error).with_source_code(source.clone());
                         GraphicalReportHandler::new_themed(GraphicalTheme::none())

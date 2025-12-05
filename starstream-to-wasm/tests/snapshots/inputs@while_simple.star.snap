@@ -2,6 +2,265 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/while_simple.star
 ---
+==== AST ====
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        10..14,
+                    ),
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [
+                        VariableDeclaration {
+                            mutable: true,
+                            name: Identifier {
+                                name: "foo",
+                                span: Some(
+                                    31..34,
+                                ),
+                            },
+                            ty: None,
+                            value: Spanned {
+                                node: Literal(
+                                    Integer(
+                                        0,
+                                    ),
+                                ),
+                                span: 37..38,
+                            },
+                        },
+                        While {
+                            condition: Spanned {
+                                node: Binary {
+                                    op: Less,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "foo",
+                                                span: Some(
+                                                    51..54,
+                                                ),
+                                            },
+                                        ),
+                                        span: 51..55,
+                                    },
+                                    right: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                10,
+                                            ),
+                                        ),
+                                        span: 57..59,
+                                    },
+                                },
+                                span: 51..59,
+                            },
+                            body: Block {
+                                statements: [
+                                    Assignment {
+                                        target: Identifier {
+                                            name: "foo",
+                                            span: Some(
+                                                71..74,
+                                            ),
+                                        },
+                                        value: Spanned {
+                                            node: Binary {
+                                                op: Add,
+                                                left: Spanned {
+                                                    node: Identifier(
+                                                        Identifier {
+                                                            name: "foo",
+                                                            span: Some(
+                                                                77..80,
+                                                            ),
+                                                        },
+                                                    ),
+                                                    span: 77..81,
+                                                },
+                                                right: Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            1,
+                                                        ),
+                                                    ),
+                                                    span: 83..84,
+                                                },
+                                            },
+                                            span: 77..84,
+                                        },
+                                    },
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+T-Fn: main => ()
+  T-Let: {} ⊢ let mut foo = 0; ⇒ i64
+    T-Int: {} ⊢ 0 ⇒ i64
+  T-While: {foo: i64} ⊢ while (foo < 10) {
+    foo = foo + 1;
+} ⇒ ()
+    T-Bin-Lt: {foo: i64} ⊢ foo < 10 ⇒ bool
+      T-Var: {foo: i64} ⊢ foo ⇒ i64
+      T-Int: {foo: i64} ⊢ 10 ⇒ i64
+      Check-Compare: i64 vs i64 => ok (int)
+    Check-Bool: bool => ok
+    T-Assign: {foo: i64} ⊢ foo = foo + 1; ⇒ i64
+      T-Bin-Add: {foo: i64} ⊢ foo + 1 ⇒ i64
+        T-Var: {foo: i64} ⊢ foo ⇒ i64
+        T-Int: {foo: i64} ⊢ 1 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        10..14,
+                    ),
+                },
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [
+                        VariableDeclaration {
+                            mutable: true,
+                            name: Identifier {
+                                name: "foo",
+                                span: Some(
+                                    31..34,
+                                ),
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Literal(
+                                        Integer(
+                                            0,
+                                        ),
+                                    ),
+                                },
+                                span: 37..38,
+                            },
+                        },
+                        While {
+                            condition: Spanned {
+                                node: TypedExpr {
+                                    ty: Bool,
+                                    kind: Binary {
+                                        op: Less,
+                                        left: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "foo",
+                                                        span: Some(
+                                                            51..54,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 51..55,
+                                        },
+                                        right: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Literal(
+                                                    Integer(
+                                                        10,
+                                                    ),
+                                                ),
+                                            },
+                                            span: 57..59,
+                                        },
+                                    },
+                                },
+                                span: 51..59,
+                            },
+                            body: TypedBlock {
+                                statements: [
+                                    Assignment {
+                                        target: Identifier {
+                                            name: "foo",
+                                            span: Some(
+                                                71..74,
+                                            ),
+                                        },
+                                        value: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Binary {
+                                                    op: Add,
+                                                    left: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "foo",
+                                                                    span: Some(
+                                                                        77..80,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 77..81,
+                                                    },
+                                                    right: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 83..84,
+                                                    },
+                                                },
+                                            },
+                                            span: 77..84,
+                                        },
+                                    },
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
 (module
   (type (;0;) (func))
   (export "main" (func 0))
