@@ -1,6 +1,7 @@
 use super::{TypecheckOptions, typecheck_program};
 use indoc::indoc;
 use miette::{GraphicalReportHandler, GraphicalTheme, NamedSource, Report};
+use std::fmt::Write;
 
 /// Parse the provided snippet, run type-checking, and snapshot the rendered
 /// diagnostics or inference trees for regression testing.
@@ -25,16 +26,7 @@ macro_rules! assert_typecheck_snapshot {
 
                 match typecheck_program(&program, TypecheckOptions { capture_traces: true }) {
                     Ok(success) => {
-                        for (index, tree) in success.traces.into_iter().enumerate() {
-                            if index > 0 {
-                                rendered.push('\n');
-                            }
-                            let tree_str = tree.to_string();
-                            rendered.push_str(&tree_str);
-                            if !tree_str.ends_with('\n') {
-                                rendered.push('\n');
-                            }
-                        }
+                        write!(rendered, "{}", success.display_traces()).unwrap();
                     }
                     Err(errors) => {
                         for error in errors {
