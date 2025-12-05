@@ -120,6 +120,10 @@ match_expression ::= "match" expression "{" ( match_arm ( "," match_arm )* )? "}
 match_arm ::= pattern "=>" block
 
 pattern ::=
+  | "_"
+  | integer_literal
+  | boolean_literal
+  | unit_literal
   | identifier
   | identifier "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
   | identifier "(" ( pattern ( "," pattern )* )? ")"
@@ -220,7 +224,7 @@ visibility modifier:
 - Struct literals `TypeName { field: expr, ... }` evaluate each field expression once and produce a record value. Field names must be unique; order is irrelevant.
 - Enum constructors use `TypeName::Variant` with a previously declared enum name. Tuple-style payloads evaluate left-to-right and are stored without reordering.
 - Field accesses evaluate the receiver, ensure it is a struct value, then project the requested field. Accessing a missing field is a type error.
-- `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Exhaustiveness checks and unreachable-arm diagnostics are future work.
+- `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Pattern matching is exhaustive: all possible cases must be covered, and unreachable patterns are reported as errors. The wildcard pattern `_` matches any value without introducing a binding.
 - Variable names refer to a `let` declaration earlier in the current scope or
   one of its parents, but not child scopes.
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual

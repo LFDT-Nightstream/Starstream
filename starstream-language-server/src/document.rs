@@ -648,6 +648,12 @@ impl DocumentState {
                     }
                 }
             }
+            TypedPattern::Wildcard => {
+                // Wildcard patterns don't introduce bindings or references
+            }
+            TypedPattern::Literal(_) => {
+                // Literal patterns don't introduce bindings or references
+            }
             TypedPattern::Struct { name, fields } => {
                 self.add_type_usage(name.span, &name.name);
 

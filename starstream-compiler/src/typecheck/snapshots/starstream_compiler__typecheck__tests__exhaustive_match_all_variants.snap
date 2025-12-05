@@ -1,0 +1,71 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Result {\n    Ok(i64),\n    Err(i64),\n}\n\nfn test(r: Result) -> i64 {\n    match r {\n        Result::Ok(value) => {\n            value\n        },\n        Result::Err(code) => {\n            0 - code\n        },\n    }\n}\n"
+---
+T-Fn: test => i64
+  T-ReturnTail: match r {
+    Result::Ok(value) => {
+        value
+    },
+    Result::Err(code) => {
+        0 - code
+    },
+} => i64
+    T-Match: {r: enum Result {
+    Ok(i64),
+    Err(i64),
+}} ⊢ match r {
+    Result::Ok(value) => {
+        value
+    },
+    Result::Err(code) => {
+        0 - code
+    },
+} ⇒ i64
+      T-Var: {r: enum Result {
+    Ok(i64),
+    Err(i64),
+}} ⊢ r ⇒ enum Result {
+    Ok(i64),
+    Err(i64),
+}
+      Unify-Enum: enum Result {
+    Ok(i64),
+    Err(i64),
+} ~ enum Result {
+    Ok(i64),
+    Err(i64),
+} => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: value => i64
+        T-Var: {r: enum Result {
+    Ok(i64),
+    Err(i64),
+}, value: i64} ⊢ value ⇒ i64
+      Unify-Enum: enum Result {
+    Ok(i64),
+    Err(i64),
+} ~ enum Result {
+    Ok(i64),
+    Err(i64),
+} => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: 0 - code => i64
+        T-Bin-Sub: {code: i64, r: enum Result {
+    Ok(i64),
+    Err(i64),
+}} ⊢ 0 - code ⇒ i64
+          T-Int: {code: i64, r: enum Result {
+    Ok(i64),
+    Err(i64),
+}} ⊢ 0 ⇒ i64
+          T-Var: {code: i64, r: enum Result {
+    Ok(i64),
+    Err(i64),
+}} ⊢ code ⇒ i64
+          Unify-Const: i64 ~ i64 => {}
+          Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

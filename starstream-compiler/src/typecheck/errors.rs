@@ -99,6 +99,8 @@ impl Diagnostic for TypeError {
             TypeErrorKind::UnsupportedTypeFeature { .. } => {
                 "starstream::type::unsupported_type_feature"
             }
+            TypeErrorKind::NonExhaustiveMatch { .. } => "starstream::type::non_exhaustive_match",
+            TypeErrorKind::UnreachablePattern => "starstream::type::unreachable_pattern",
         };
         Some(Box::new(code))
     }
@@ -259,6 +261,12 @@ pub enum TypeErrorKind {
     UnsupportedTypeFeature {
         description: String,
     },
+    /// Pattern matching is not exhaustive; some cases are not covered.
+    NonExhaustiveMatch {
+        missing_patterns: Vec<String>,
+    },
+    /// A pattern in a match is unreachable because previous patterns already cover all its cases.
+    UnreachablePattern,
 }
 
 #[derive(Debug, Clone)]
@@ -442,6 +450,12 @@ impl fmt::Display for TypeErrorKind {
             ),
             TypeErrorKind::UnsupportedTypeFeature { description } => {
                 write!(f, "unsupported type feature: {description}")
+            }
+            TypeErrorKind::NonExhaustiveMatch { .. } => {
+                write!(f, "non-exhaustive match")
+            }
+            TypeErrorKind::UnreachablePattern => {
+                write!(f, "unreachable pattern")
             }
         }
     }

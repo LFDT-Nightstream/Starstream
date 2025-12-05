@@ -494,6 +494,29 @@ impl Inferencer {
                 self.bind_pattern_identifier(env, ident, expected_ty.clone())?;
                 Ok((TypedPattern::Binding(ident.clone()), Vec::new()))
             }
+            Pattern::Wildcard { .. } => {
+                // Wildcard matches anything but doesn't introduce a binding
+                Ok((TypedPattern::Wildcard, Vec::new()))
+            }
+            Pattern::Literal { value, span } => {
+                // Literal patterns must match the expected type
+                let literal_ty = match value {
+                    Literal::Integer(_) => Type::Int,
+                    Literal::Boolean(_) => Type::Bool,
+                    Literal::Unit => Type::Unit,
+                };
+                let (.., unify_trace) = self.unify(
+                    expected_ty.clone(),
+                    literal_ty.clone(),
+                    value_span,
+                    *span,
+                    TypeErrorKind::GeneralMismatch {
+                        expected: self.apply(&expected_ty),
+                        found: literal_ty.clone(),
+                    },
+                )?;
+                Ok((TypedPattern::Literal(value.clone()), vec![unify_trace]))
+            }
             Pattern::EnumVariant {
                 enum_name,
                 variant,
@@ -1873,6 +1896,15 @@ impl Inferencer {
                         pattern: typed_pattern,
                         body: typed_block,
                     });
+                }
+
+                // Check exhaustiveness and redundancy
+                let scrutinee_ty = self.apply(&typed_scrutinee.node.ty);
+                if let Err(exhaustiveness_errors) =
+                    super::exhaustiveness::check_match(&scrutinee_ty, &typed_arms, expr.span)
+                {
+                    // Return the first exhaustiveness error
+                    return Err(exhaustiveness_errors.into_iter().next().unwrap());
                 }
 
                 let expr_type = result_ty.unwrap_or_else(Type::unit);

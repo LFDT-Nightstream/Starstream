@@ -138,7 +138,19 @@ pub enum EnumConstructorPayload {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Pattern {
+    /// A binding pattern that captures the matched value (e.g., `x`).
     Binding(Identifier),
+    /// A wildcard pattern that matches anything but doesn't bind (e.g., `_`).
+    Wildcard {
+        #[serde(skip)]
+        span: Span,
+    },
+    /// A literal pattern that matches a specific value (e.g., `0`, `true`).
+    Literal {
+        value: Literal,
+        #[serde(skip)]
+        span: Span,
+    },
     Struct {
         name: Identifier,
         fields: Vec<StructPatternField>,

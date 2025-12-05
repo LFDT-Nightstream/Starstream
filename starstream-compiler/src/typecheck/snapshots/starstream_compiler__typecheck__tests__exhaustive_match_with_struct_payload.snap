@@ -1,0 +1,73 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nenum Shape {\n    Circle(i64),\n    Rectangle { width: i64, height: i64 },\n}\n\nfn test(s: Shape) -> i64 {\n    match s {\n        Shape::Circle(radius) => {\n            radius\n        },\n        Shape::Rectangle { width, height } => {\n            width + height\n        },\n    }\n}\n"
+---
+T-Fn: test => i64
+  T-ReturnTail: match s {
+    Shape::Circle(radius) => {
+        radius
+    },
+    Shape::Rectangle { width, height } => {
+        width + height
+    },
+} => i64
+    T-Match: {s: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}} ⊢ match s {
+    Shape::Circle(radius) => {
+        radius
+    },
+    Shape::Rectangle { width, height } => {
+        width + height
+    },
+} ⇒ i64
+      T-Var: {s: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}} ⊢ s ⇒ enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}
+      Unify-Enum: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+} ~ enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+} => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: radius => i64
+        T-Var: {radius: i64, s: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}} ⊢ radius ⇒ i64
+      Unify-Enum: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+} ~ enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+} => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: width + height => i64
+        T-Bin-Add: {height: i64, s: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}, width: i64} ⊢ width + height ⇒ i64
+          T-Var: {height: i64, s: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}, width: i64} ⊢ width ⇒ i64
+          T-Var: {height: i64, s: enum Shape {
+    Circle(i64),
+    Rectangle { width: i64, height: i64 },
+}, width: i64} ⊢ height ⇒ i64
+          Unify-Const: i64 ~ i64 => {}
+          Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}

@@ -160,7 +160,12 @@ pub struct TypedMatchArm {
 
 #[derive(Clone, Debug)]
 pub enum TypedPattern {
+    /// A binding pattern that captures the matched value.
     Binding(Identifier),
+    /// A wildcard pattern that matches anything but doesn't bind.
+    Wildcard,
+    /// A literal pattern that matches a specific value.
+    Literal(Literal),
     Struct {
         name: Identifier,
         fields: Vec<TypedStructPatternField>,

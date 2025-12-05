@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{
-    Block, EnumConstructorPayload, Expr, Literal, MatchArm, Spanned, StructLiteralField,
+    Block, EnumConstructorPayload, Expr, MatchArm, Spanned, StructLiteralField,
 };
 
 use crate::parser::{context::Extra, pattern, primitives};
@@ -9,21 +9,14 @@ pub fn parser<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    let integer_literal = text::int(10).map_with(|digits: &str, extra| {
-        let value = digits.parse::<i64>().expect("integer literal");
+    let integer_literal = primitives::integer_literal()
+        .map_with(|lit, extra| Spanned::new(Expr::Literal(lit), extra.span()));
 
-        Spanned::new(Expr::Literal(Literal::Integer(value)), extra.span())
-    });
+    let boolean_literal = primitives::boolean_literal()
+        .map_with(|lit, extra| Spanned::new(Expr::Literal(lit), extra.span()));
 
-    let boolean_literal = choice((just("true").to(true), just("false").to(false)))
-        .padded()
-        .map_with(|value, extra| {
-            Spanned::new(Expr::Literal(Literal::Boolean(value)), extra.span())
-        });
-
-    let unit_literal = just("()")
-        .padded()
-        .map_with(|_, extra| Spanned::new(Expr::Literal(Literal::Unit), extra.span()));
+    let unit_literal = primitives::unit_literal()
+        .map_with(|lit, extra| Spanned::new(Expr::Literal(lit), extra.span()));
 
     let identifier = primitives::identifier()
         .map_with(|ident, extra| Spanned::new(Expr::Identifier(ident), extra.span()));

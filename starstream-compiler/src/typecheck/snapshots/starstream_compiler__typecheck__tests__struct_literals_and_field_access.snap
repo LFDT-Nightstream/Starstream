@@ -1,10 +1,7 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 135
 description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nfn total(point: Point) -> i64 {\n    let translated = Point {\n        x: point.x + 1,\n        y: point.y + 1,\n    };\n\n    translated.x + translated.y\n}\n"
 ---
-:  => 
-
 T-Fn: total => i64
   T-Let: {point: struct Point {
     x: i64,

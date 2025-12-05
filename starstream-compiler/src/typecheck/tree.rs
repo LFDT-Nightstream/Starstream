@@ -49,6 +49,11 @@ impl fmt::Display for InferenceTree {
 
 impl InferenceTree {
     fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
+        // Skip empty/default trees (e.g., from struct/enum definitions)
+        if self.rule.is_empty() && self.subject.is_empty() && self.result.is_empty() {
+            return Ok(());
+        }
+
         let prefix = "  ".repeat(indent);
 
         if self.has_context() {

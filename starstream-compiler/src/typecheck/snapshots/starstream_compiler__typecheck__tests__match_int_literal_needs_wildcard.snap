@@ -1,0 +1,20 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(n: i64) -> i64 {\n    match n {\n        0 => {\n            100\n        },\n        1 => {\n            200\n        },\n    }\n}\n"
+---
+starstream::type::non_exhaustive_match
+
+  x non-exhaustive match
+    ,-[test.star:2:5]
+  1 |     fn test(n: i64) -> i64 {
+  2 | ,->     match n {
+  3 | |           0 => {
+  4 | |               100
+  5 | |           },
+  6 | |           1 => {
+  7 | |               200
+  8 | |           },
+  9 | `->     }
+ 10 |     }
+    `----
+  help: add a wildcard `_` pattern to cover remaining cases
