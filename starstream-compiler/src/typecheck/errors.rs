@@ -88,7 +88,10 @@ impl Diagnostic for TypeError {
         } = &self.kind
         {
             labels.push(LabeledSpan::new_with_span(
-                Some(format!("parameter expects `{}`", expected.to_compact_string())),
+                Some(format!(
+                    "parameter expects `{}`",
+                    expected.to_compact_string()
+                )),
                 to_source_span(*span),
             ));
         }
@@ -422,7 +425,11 @@ impl fmt::Display for TypeErrorKind {
                 )
             }
             TypeErrorKind::MissingReturn { expected } => {
-                write!(f, "missing return of type `{}`", expected.to_compact_string())
+                write!(
+                    f,
+                    "missing return of type `{}`",
+                    expected.to_compact_string()
+                )
             }
             TypeErrorKind::UnknownTypeAnnotation { name } => {
                 write!(f, "unknown type annotation `{name}`")
