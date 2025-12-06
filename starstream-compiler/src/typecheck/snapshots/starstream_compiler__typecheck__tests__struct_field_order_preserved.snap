@@ -7,20 +7,12 @@ T-Fn: test => ()
     name: 1,
     age: 2,
     email: 3,
-}; ⇒ struct User {
-    name: i64,
-    age: i64,
-    email: i64,
-}
+}; ⇒ User
     T-StructLit: {} ⊢ User {
     name: 1,
     age: 2,
     email: 3,
-} ⇒ struct User {
-    name: i64,
-    age: i64,
-    email: i64,
-}
+} ⇒ User
       T-Int: {} ⊢ 1 ⇒ i64
       Unify-Const: i64 ~ i64 => {}
       T-Int: {} ⊢ 2 ⇒ i64
@@ -34,10 +26,7 @@ T-Fn: test => ()
 }} ⊢ let z = ZOrder {
     z: 1,
     a: 2,
-}; ⇒ struct ZOrder {
-    z: i64,
-    a: i64,
-}
+}; ⇒ ZOrder
     T-StructLit: {u: struct User {
     name: i64,
     age: i64,
@@ -45,10 +34,7 @@ T-Fn: test => ()
 }} ⊢ ZOrder {
     z: 1,
     a: 2,
-} ⇒ struct ZOrder {
-    z: i64,
-    a: i64,
-}
+} ⇒ ZOrder
       T-Int: {u: struct User {
     name: i64,
     age: i64,

@@ -7,10 +7,10 @@ use crate::parser::statement;
 mod additive;
 mod comparison;
 mod equality;
-mod field_access;
 mod logical_and;
 mod logical_or;
 mod multiplicative;
+mod postfix;
 mod primary;
 mod unary;
 
@@ -18,8 +18,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     recursive(|expression| {
         let block_parser = statement::block_parser_with_expr(expression.clone()).boxed();
         let primary = primary::parser(expression.clone(), block_parser).boxed();
-        let field_access = field_access::parser(primary).boxed();
-        let unary = unary::parser(field_access).boxed();
+        let postfix = postfix::parser(primary, expression.clone()).boxed();
+        let unary = unary::parser(postfix).boxed();
         let multiplicative = multiplicative::parser(unary).boxed();
         let additive = additive::parser(multiplicative).boxed();
         let comparison = comparison::parser(additive).boxed();
@@ -150,5 +150,25 @@ mod tests {
             }
             "#
         );
+    }
+
+    #[test]
+    fn function_call_no_args() {
+        assert_expression_snapshot!("foo()");
+    }
+
+    #[test]
+    fn function_call_with_args() {
+        assert_expression_snapshot!("add(1, 2)");
+    }
+
+    #[test]
+    fn function_call_chained_with_field() {
+        assert_expression_snapshot!("foo().bar");
+    }
+
+    #[test]
+    fn field_access_then_call() {
+        assert_expression_snapshot!("obj.method(x)");
     }
 }

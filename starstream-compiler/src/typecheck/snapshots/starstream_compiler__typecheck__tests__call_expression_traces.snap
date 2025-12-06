@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\nfn test() {\n    let result = add(1, 2);\n}\n"
+---
+T-Fn: add => i64
+  T-ReturnTail: a + b => i64
+    T-Bin-Add: {a: i64, b: i64} ⊢ a + b ⇒ i64
+      T-Var: {a: i64, b: i64} ⊢ a ⇒ i64
+      T-Var: {a: i64, b: i64} ⊢ b ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: test => ()
+  T-Let: {} ⊢ let result = add(1, 2); ⇒ i64
+    T-Call: {} ⊢ add(1, 2) ⇒ i64
+      T-Var: {} ⊢ add ⇒ fn(i64, i64) -> i64
+      T-Int: {} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Int: {} ⊢ 2 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}

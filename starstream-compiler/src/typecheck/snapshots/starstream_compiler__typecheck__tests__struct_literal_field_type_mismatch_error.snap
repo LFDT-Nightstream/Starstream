@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    Point {\n        x: true,\n    };\n}\n"
 ---
-starstream::type::mismatch
+E0008 (https://starstream.nightstream.dev/errors/E0008)
 
   x expected type `i64`, found `bool`
    ,-[test.star:7:12]

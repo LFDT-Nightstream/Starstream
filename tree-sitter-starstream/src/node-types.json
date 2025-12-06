@@ -55,6 +55,21 @@
     "fields": {}
   },
   {
+    "type": "call_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expression",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "enum_constructor",
     "named": true,
     "fields": {},
@@ -246,6 +261,10 @@
         },
         {
           "type": "boolean_literal",
+          "named": true
+        },
+        {
+          "type": "call_expression",
           "named": true
         },
         {

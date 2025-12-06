@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nstruct Point {\n    x: i64,\n}\n\nfn noop() { }\n"
 ---
-starstream::type::type_already_defined
+E0012 (https://starstream.nightstream.dev/errors/E0012)
 
   x type `Point` is already defined in this module
    ,-[test.star:1:8]

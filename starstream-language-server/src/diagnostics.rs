@@ -4,8 +4,8 @@ use std::fmt::Display;
 use miette::{Diagnostic, LabeledSpan, Severity};
 use ropey::Rope;
 use tower_lsp_server::lsp_types::{
-    DiagnosticRelatedInformation, DiagnosticSeverity, Location, NumberOrString, Position, Range,
-    Uri,
+    CodeDescription, DiagnosticRelatedInformation, DiagnosticSeverity, Location, NumberOrString,
+    Position, Range, Uri,
 };
 
 /// Transform a `miette::Diagnostic` into a single `lsp_types::Diagnostic`.
@@ -68,9 +68,13 @@ where
             .or(Some(DiagnosticSeverity::ERROR)),
         code: diagnostic
             .code()
-            .map(|code| NumberOrString::String(code.to_string())),
-        code_description: None,
-        source: Some("starstream".to_string()),
+            .map(|code| NumberOrString::String(format!("star-{}", code))),
+        code_description: diagnostic.code().and_then(|code| {
+            let code_str = code.to_string();
+            let url_str = format!("https://starstream.nightstream.dev/errors/{code_str}");
+            url_str.parse().ok().map(|href| CodeDescription { href })
+        }),
+        source: None,
         message,
         related_information: if related_information.is_empty() {
             None

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn compute() -> i64 {\n    return true;\n}\n"
 ---
-starstream::type::return_mismatch
+E0009 (https://starstream.nightstream.dev/errors/E0009)
 
   x return type `bool` does not match function signature `i64`
    ,-[test.star:2:12]

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    match 0 {\n        Missing::Value => {\n            ()\n        },\n    }\n}\n"
 ---
-starstream::type::unknown_enum
+E0017 (https://starstream.nightstream.dev/errors/E0017)
 
   x unknown enum `Missing`
    ,-[test.star:3:9]

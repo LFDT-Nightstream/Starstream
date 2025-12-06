@@ -41,7 +41,7 @@ impl ParseError {
 
 impl Diagnostic for ParseError {
     fn code(&self) -> Option<Box<dyn std::fmt::Display + '_>> {
-        Some(Box::new("starstream::parse"))
+        Some(Box::new("parser"))
     }
 
     fn help(&self) -> Option<Box<dyn std::fmt::Display + '_>> {

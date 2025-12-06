@@ -27,20 +27,8 @@ T-Fn: test => i64
     Red,
     Green,
     Blue,
-}} ⊢ c ⇒ enum Color {
-    Red,
-    Green,
-    Blue,
-}
-      Unify-Enum: enum Color {
-    Red,
-    Green,
-    Blue,
-} ~ enum Color {
-    Red,
-    Green,
-    Blue,
-} => {}
+}} ⊢ c ⇒ Color
+      Unify-Enum: Color ~ Color => {}
       T-Tail: 0 => i64
         T-Int: {c: enum Color {
     Red,
@@ -53,5 +41,5 @@ T-Fn: test => i64
     Green,
     Blue,
 }} ⊢ 1 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

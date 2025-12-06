@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nfn bad() {\n    let value = Point { x: 1 };\n}\n"
 ---
-starstream::type::missing_struct_field
+E0020 (https://starstream.nightstream.dev/errors/E0020)
 
   x struct `Point` literal is missing field `y`
    ,-[test.star:7:17]

@@ -147,6 +147,7 @@ module.exports = grammar({
         $._primary_expression,
 
         prec.left(8, seq($.expression, ".", $.identifier)),
+        prec.left(8, $.call_expression),
 
         prec.left(7, seq("!", $.expression)),
         prec.left(7, seq("-", $.expression)),
@@ -202,6 +203,15 @@ module.exports = grammar({
         $.block,
         $.if_expression,
         $.match_expression,
+      ),
+
+    call_expression: ($) =>
+      seq(
+        $.expression,
+        "(",
+        optional(seq($.expression, repeat(seq(",", $.expression)))),
+        optional(","),
+        ")",
       ),
 
     struct_literal: ($) =>

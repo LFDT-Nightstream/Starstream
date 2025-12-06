@@ -425,7 +425,7 @@ impl DocumentState {
         }
     }
 
-    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut Vec<HashMap<String, Span>>) {
+    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut [HashMap<String, Span>]) {
         for part in &definition.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
@@ -626,6 +626,13 @@ impl DocumentState {
 
                 for arm in arms {
                     self.collect_match_arm(arm, scopes, scrutinee.node.ty.clone());
+                }
+            }
+            TypedExprKind::Call { callee, args } => {
+                self.collect_expr(callee, scopes);
+
+                for arg in args {
+                    self.collect_expr(arg, scopes);
                 }
             }
         }

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let value = 1;\n    let value = 2;\n}\n"
 ---
-starstream::type::redeclaration
+E0002 (https://starstream.nightstream.dev/errors/E0002)
 
   x variable `value` is already defined in this scope
    ,-[test.star:3:9]
