@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn greet() -> i64 {\n    42\n}\n\nfn main() {\n    let value = greet();\n}\n"
+---
+fn greet() -> i64 {
+    42
+}
+
+fn main() {
+    let value = greet();
+}

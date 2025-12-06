@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let flag = true;\n    flag = false;\n}\n"
 ---
-starstream::type::assignment_to_immutable
+]8;;https://starstream.nightstream.dev/errors/E0004\E0004 (link)]8;;\
 
   x cannot assign to immutable variable `flag`
    ,-[test.star:3:5]

@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nfoo()"
+---
+Spanned {
+    node: Call {
+        callee: Spanned {
+            node: Identifier(
+                Identifier {
+                    name: "foo",
+                    span: Some(
+                        0..3,
+                    ),
+                },
+            ),
+            span: 0..3,
+        },
+        args: [],
+    },
+    span: 0..5,
+}

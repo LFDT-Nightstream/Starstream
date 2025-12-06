@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let wrong: bool = 1;\n}\n"
 ---
-starstream::type::assignment_mismatch
+]8;;https://starstream.nightstream.dev/errors/E0003\E0003 (link)]8;;\
 
   x cannot assign value of type `i64` to variable `wrong` of type `bool`
    ,-[test.star:2:9]

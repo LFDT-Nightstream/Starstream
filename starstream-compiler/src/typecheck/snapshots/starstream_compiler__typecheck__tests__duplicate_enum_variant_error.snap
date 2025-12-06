@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Message {\n    Ping,\n    Ping,\n}\n"
 ---
-starstream::type::duplicate_enum_variant
+]8;;https://starstream.nightstream.dev/errors/E0015\E0015 (link)]8;;\
 
   x variant `Ping` appears multiple times in enum `Message`
    ,-[test.star:3:5]

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    Point {\n        x: 1,\n        y: 2,\n    };\n}\n"
 ---
-starstream::type::unknown_struct_field
+]8;;https://starstream.nightstream.dev/errors/E0018\E0018 (link)]8;;\
 
   x struct `Point` has no field named `y`
    ,-[test.star:8:9]

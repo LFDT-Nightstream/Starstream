@@ -628,6 +628,13 @@ impl DocumentState {
                     self.collect_match_arm(arm, scopes, scrutinee.node.ty.clone());
                 }
             }
+            TypedExprKind::Call { callee, args } => {
+                self.collect_expr(callee, scopes);
+
+                for arg in args {
+                    self.collect_expr(arg, scopes);
+                }
+            }
         }
     }
 

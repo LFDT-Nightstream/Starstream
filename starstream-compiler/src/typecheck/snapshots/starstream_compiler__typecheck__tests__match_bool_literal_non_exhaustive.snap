@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test(b: bool) -> i64 {\n    match b {\n        true => {\n            1\n        },\n    }\n}\n"
 ---
-starstream::type::non_exhaustive_match
+]8;;https://starstream.nightstream.dev/errors/E0028\E0028 (link)]8;;\
 
   x non-exhaustive match
    ,-[test.star:2:5]

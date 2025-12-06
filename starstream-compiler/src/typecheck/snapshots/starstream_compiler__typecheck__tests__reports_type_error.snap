@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let flag = true;\n    let x = flag + 1;\n}\n"
 ---
-starstream::type::binary_operands
+]8;;https://starstream.nightstream.dev/errors/E0006\E0006 (link)]8;;\
 
   x binary `+` operands must match; found `bool` and `i64`
    ,-[test.star:3:13]
