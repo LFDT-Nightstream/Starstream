@@ -696,7 +696,9 @@ impl Compiler {
                 func.instructions().end();
             }
             // Todo
-            TypedExprKind::Match { .. } => return Err(self.todo(format!("{:?}", expr.kind))),
+            TypedExprKind::Match { .. } | TypedExprKind::Call { .. } => {
+                return Err(self.todo(format!("{:?}", expr.kind)));
+            }
         }
         Ok(())
     }
@@ -1148,7 +1150,8 @@ impl Compiler {
             // Todo
             TypedExprKind::StructLiteral { .. }
             | TypedExprKind::EnumConstructor { .. }
-            | TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
+            | TypedExprKind::Match { .. }
+            | TypedExprKind::Call { .. } => Err(self.todo(format!("{:?}", expr.kind))),
         }
     }
 }

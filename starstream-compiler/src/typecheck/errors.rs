@@ -56,53 +56,14 @@ impl TypeError {
 
 impl Diagnostic for TypeError {
     fn code(&self) -> Option<Box<dyn fmt::Display + '_>> {
-        let code = match &self.kind {
-            TypeErrorKind::UnknownVariable { .. } => "starstream::type::unknown_variable",
-            TypeErrorKind::Redeclaration { .. } => "starstream::type::redeclaration",
-            TypeErrorKind::AssignmentMismatch { .. } => "starstream::type::assignment_mismatch",
-            TypeErrorKind::AssignmentToImmutable { .. } => {
-                "starstream::type::assignment_to_immutable"
-            }
-            TypeErrorKind::UnaryMismatch { .. } => "starstream::type::unary_mismatch",
-            TypeErrorKind::BinaryOperandMismatch { .. } => "starstream::type::binary_operands",
-            TypeErrorKind::ConditionNotBool { .. } => "starstream::type::condition_not_bool",
-            TypeErrorKind::GeneralMismatch { .. } => "starstream::type::mismatch",
-            TypeErrorKind::ReturnMismatch { .. } => "starstream::type::return_mismatch",
-            TypeErrorKind::MissingReturn { .. } => "starstream::type::missing_return",
-            TypeErrorKind::UnknownTypeAnnotation { .. } => {
-                "starstream::type::unknown_type_annotation"
-            }
-            TypeErrorKind::TypeAlreadyDefined { .. } => "starstream::type::type_already_defined",
-            TypeErrorKind::DuplicateStructField { .. } => {
-                "starstream::type::duplicate_struct_field"
-            }
-            TypeErrorKind::DuplicateEnumVariant { .. } => {
-                "starstream::type::duplicate_enum_variant"
-            }
-            TypeErrorKind::UnknownStruct { .. } => "starstream::type::unknown_struct",
-            TypeErrorKind::UnknownEnum { .. } => "starstream::type::unknown_enum",
-            TypeErrorKind::UnknownStructField { .. } => "starstream::type::unknown_struct_field",
-            TypeErrorKind::DuplicateStructLiteralField { .. } => {
-                "starstream::type::duplicate_struct_literal_field"
-            }
-            TypeErrorKind::MissingStructField { .. } => "starstream::type::missing_struct_field",
-            TypeErrorKind::FieldAccessNotStruct { .. } => {
-                "starstream::type::field_access_not_struct"
-            }
-            TypeErrorKind::FieldAccessUnknownField { .. } => {
-                "starstream::type::field_access_unknown_field"
-            }
-            TypeErrorKind::UnknownEnumVariant { .. } => "starstream::type::unknown_enum_variant",
-            TypeErrorKind::EnumPayloadMismatch { .. } => "starstream::type::enum_payload_mismatch",
-            TypeErrorKind::MatchNotEnum { .. } => "starstream::type::match_not_enum",
-            TypeErrorKind::PatternEnumMismatch { .. } => "starstream::type::pattern_enum_mismatch",
-            TypeErrorKind::UnsupportedTypeFeature { .. } => {
-                "starstream::type::unsupported_type_feature"
-            }
-            TypeErrorKind::NonExhaustiveMatch { .. } => "starstream::type::non_exhaustive_match",
-            TypeErrorKind::UnreachablePattern => "starstream::type::unreachable_pattern",
-        };
-        Some(Box::new(code))
+        Some(Box::new(self.kind.error_code()))
+    }
+
+    fn url<'a>(&'a self) -> Option<Box<dyn fmt::Display + 'a>> {
+        Some(Box::new(format!(
+            "https://starstream.nightstream.dev/errors/{}",
+            self.kind.error_code()
+        )))
     }
 
     fn help(&self) -> Option<Box<dyn fmt::Display + '_>> {
@@ -118,6 +79,18 @@ impl Diagnostic for TypeError {
         labels.push(self.primary.to_labeled_span(None));
         for secondary in &self.secondary {
             labels.push(secondary.to_labeled_span(Some(false)));
+        }
+
+        if let TypeErrorKind::ArgumentTypeMismatch {
+            expected,
+            param_span: Some(span),
+            ..
+        } = &self.kind
+        {
+            labels.push(LabeledSpan::new_with_span(
+                Some(format!("parameter expects `{}`", expected.to_compact_string())),
+                to_source_span(*span),
+            ));
         }
 
         Some(Box::new(labels.into_iter()))
@@ -209,6 +182,9 @@ pub enum TypeErrorKind {
     TypeAlreadyDefined {
         name: String,
     },
+    FunctionAlreadyDefined {
+        name: String,
+    },
     DuplicateStructField {
         struct_name: String,
         field_name: String,
@@ -267,6 +243,62 @@ pub enum TypeErrorKind {
     },
     /// A pattern in a match is unreachable because previous patterns already cover all its cases.
     UnreachablePattern,
+    /// Attempted to call a value that is not a function.
+    NotAFunction {
+        found: Type,
+    },
+    /// Function called with wrong number of arguments.
+    ArityMismatch {
+        expected: usize,
+        found: usize,
+    },
+    /// Argument type does not match expected parameter type.
+    ArgumentTypeMismatch {
+        expected: Type,
+        found: Type,
+        position: usize,
+        param_span: Option<Span>,
+    },
+}
+
+impl TypeErrorKind {
+    /// Returns the numeric error code for this error kind.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            TypeErrorKind::UnknownVariable { .. } => "E0001",
+            TypeErrorKind::Redeclaration { .. } => "E0002",
+            TypeErrorKind::AssignmentMismatch { .. } => "E0003",
+            TypeErrorKind::AssignmentToImmutable { .. } => "E0004",
+            TypeErrorKind::UnaryMismatch { .. } => "E0005",
+            TypeErrorKind::BinaryOperandMismatch { .. } => "E0006",
+            TypeErrorKind::ConditionNotBool { .. } => "E0007",
+            TypeErrorKind::GeneralMismatch { .. } => "E0008",
+            TypeErrorKind::ReturnMismatch { .. } => "E0009",
+            TypeErrorKind::MissingReturn { .. } => "E0010",
+            TypeErrorKind::UnknownTypeAnnotation { .. } => "E0011",
+            TypeErrorKind::TypeAlreadyDefined { .. } => "E0012",
+            TypeErrorKind::FunctionAlreadyDefined { .. } => "E0013",
+            TypeErrorKind::DuplicateStructField { .. } => "E0014",
+            TypeErrorKind::DuplicateEnumVariant { .. } => "E0015",
+            TypeErrorKind::UnknownStruct { .. } => "E0016",
+            TypeErrorKind::UnknownEnum { .. } => "E0017",
+            TypeErrorKind::UnknownStructField { .. } => "E0018",
+            TypeErrorKind::DuplicateStructLiteralField { .. } => "E0019",
+            TypeErrorKind::MissingStructField { .. } => "E0020",
+            TypeErrorKind::FieldAccessNotStruct { .. } => "E0021",
+            TypeErrorKind::FieldAccessUnknownField { .. } => "E0022",
+            TypeErrorKind::UnknownEnumVariant { .. } => "E0023",
+            TypeErrorKind::EnumPayloadMismatch { .. } => "E0024",
+            TypeErrorKind::MatchNotEnum { .. } => "E0025",
+            TypeErrorKind::PatternEnumMismatch { .. } => "E0026",
+            TypeErrorKind::UnsupportedTypeFeature { .. } => "E0027",
+            TypeErrorKind::NonExhaustiveMatch { .. } => "E0028",
+            TypeErrorKind::UnreachablePattern => "E0029",
+            TypeErrorKind::NotAFunction { .. } => "E0030",
+            TypeErrorKind::ArityMismatch { .. } => "E0031",
+            TypeErrorKind::ArgumentTypeMismatch { .. } => "E0032",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -340,7 +372,9 @@ impl fmt::Display for TypeErrorKind {
                 found,
             } => write!(
                 f,
-                "cannot assign value of type `{found}` to variable `{name}` of type `{expected}`"
+                "cannot assign value of type `{}` to variable `{name}` of type `{}`",
+                found.to_compact_string(),
+                expected.to_compact_string()
             ),
             TypeErrorKind::AssignmentToImmutable { name } => {
                 write!(f, "cannot assign to immutable variable `{name}`")
@@ -351,36 +385,53 @@ impl fmt::Display for TypeErrorKind {
                 found,
             } => write!(
                 f,
-                "unary `{}` expects type `{expected}` but found `{found}`",
-                display_unary_op(*op)
+                "unary `{}` expects type `{}` but found `{}`",
+                display_unary_op(*op),
+                expected.to_compact_string(),
+                found.to_compact_string()
             ),
             TypeErrorKind::BinaryOperandMismatch { op, left, right } => write!(
                 f,
                 "binary `{}` operands must match; found `{}` and `{}`",
                 display_binary_op(*op),
-                left,
-                right
+                left.to_compact_string(),
+                right.to_compact_string()
             ),
             TypeErrorKind::ConditionNotBool { context, found } => {
-                write!(f, "the {} must have type `bool`, found `{found}`", context)
+                write!(
+                    f,
+                    "the {} must have type `bool`, found `{}`",
+                    context,
+                    found.to_compact_string()
+                )
             }
             TypeErrorKind::GeneralMismatch { expected, found } => {
-                write!(f, "expected type `{expected}`, found `{found}`")
+                write!(
+                    f,
+                    "expected type `{}`, found `{}`",
+                    expected.to_compact_string(),
+                    found.to_compact_string()
+                )
             }
             TypeErrorKind::ReturnMismatch { expected, found } => {
                 write!(
                     f,
-                    "return type `{found}` does not match function signature `{expected}`"
+                    "return type `{}` does not match function signature `{}`",
+                    found.to_compact_string(),
+                    expected.to_compact_string()
                 )
             }
             TypeErrorKind::MissingReturn { expected } => {
-                write!(f, "missing return of type `{expected}`")
+                write!(f, "missing return of type `{}`", expected.to_compact_string())
             }
             TypeErrorKind::UnknownTypeAnnotation { name } => {
                 write!(f, "unknown type annotation `{name}`")
             }
             TypeErrorKind::TypeAlreadyDefined { name } => {
                 write!(f, "type `{name}` is already defined in this module")
+            }
+            TypeErrorKind::FunctionAlreadyDefined { name } => {
+                write!(f, "function `{name}` is already defined in this module")
             }
             TypeErrorKind::DuplicateStructField {
                 struct_name,
@@ -416,7 +467,11 @@ impl fmt::Display for TypeErrorKind {
                 "struct `{struct_name}` literal is missing field `{field_name}`"
             ),
             TypeErrorKind::FieldAccessNotStruct { found } => {
-                write!(f, "cannot access fields on value of type `{found}`")
+                write!(
+                    f,
+                    "cannot access fields on value of type `{}`",
+                    found.to_compact_string()
+                )
             }
             TypeErrorKind::FieldAccessUnknownField { field_name, ty } => {
                 write!(
@@ -442,11 +497,16 @@ impl fmt::Display for TypeErrorKind {
                 "variant `{enum_name}::{variant_name}` expects {expected} but {found} provided"
             ),
             TypeErrorKind::MatchNotEnum { found } => {
-                write!(f, "match scrutinee must be an enum, found `{found}`")
+                write!(
+                    f,
+                    "match scrutinee must be an enum, found `{}`",
+                    found.to_compact_string()
+                )
             }
             TypeErrorKind::PatternEnumMismatch { enum_name, found } => write!(
                 f,
-                "pattern references enum `{enum_name}` but scrutinee has type `{found}`"
+                "pattern references enum `{enum_name}` but scrutinee has type `{}`",
+                found.to_compact_string()
             ),
             TypeErrorKind::UnsupportedTypeFeature { description } => {
                 write!(f, "unsupported type feature: {description}")
@@ -456,6 +516,38 @@ impl fmt::Display for TypeErrorKind {
             }
             TypeErrorKind::UnreachablePattern => {
                 write!(f, "unreachable pattern")
+            }
+            TypeErrorKind::NotAFunction { found } => {
+                write!(
+                    f,
+                    "cannot call value of type `{}` as a function",
+                    found.to_compact_string()
+                )
+            }
+            TypeErrorKind::ArityMismatch { expected, found } => {
+                let args = if *expected == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                };
+
+                write!(
+                    f,
+                    "function expects {expected} {args} but {found} were provided"
+                )
+            }
+            TypeErrorKind::ArgumentTypeMismatch {
+                expected,
+                found,
+                position,
+                ..
+            } => {
+                write!(
+                    f,
+                    "argument {position} has type `{}` but `{}` was expected",
+                    found.to_compact_string(),
+                    expected.to_compact_string()
+                )
             }
         }
     }
@@ -490,6 +582,6 @@ fn field_owner_label(ty: &Type) -> String {
     match ty {
         Type::Record(record) => format!("struct `{}`", record.name),
         Type::Enum(enum_type) => format!("enum `{}`", enum_type.name),
-        _ => format!("type `{}`", ty),
+        _ => format!("type `{}`", ty.to_compact_string()),
     }
 }

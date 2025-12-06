@@ -1,0 +1,32 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nfoo().bar"
+---
+Spanned {
+    node: FieldAccess {
+        target: Spanned {
+            node: Call {
+                callee: Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "foo",
+                            span: Some(
+                                0..3,
+                            ),
+                        },
+                    ),
+                    span: 0..3,
+                },
+                args: [],
+            },
+            span: 0..5,
+        },
+        field: Identifier {
+            name: "bar",
+            span: Some(
+                6..9,
+            ),
+        },
+    },
+    span: 0..9,
+}

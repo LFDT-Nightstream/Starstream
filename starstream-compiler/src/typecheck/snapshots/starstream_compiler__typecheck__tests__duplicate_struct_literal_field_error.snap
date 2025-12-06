@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    Point {\n        x: 1,\n        x: 2,\n    };\n}\n"
 ---
-starstream::type::duplicate_struct_literal_field
+]8;;https://starstream.nightstream.dev/errors/E0019\E0019 (link)]8;;\
 
   x field `x` is specified more than once
    ,-[test.star:8:9]

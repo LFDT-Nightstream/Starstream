@@ -25,17 +25,8 @@ T-Fn: test => i64
       T-Var: {s: enum Shape {
     Circle(i64),
     Rectangle { width: i64, height: i64 },
-}} ⊢ s ⇒ enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}
-      Unify-Enum: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-} ~ enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-} => {}
+}} ⊢ s ⇒ Shape
+      Unify-Enum: Shape ~ Shape => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
@@ -44,13 +35,7 @@ T-Fn: test => i64
     Circle(i64),
     Rectangle { width: i64, height: i64 },
 }} ⊢ radius ⇒ i64
-      Unify-Enum: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-} ~ enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-} => {}
+      Unify-Enum: Shape ~ Shape => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
@@ -69,5 +54,5 @@ T-Fn: test => i64
 }, width: i64} ⊢ height ⇒ i64
           Unify-Const: i64 ~ i64 => {}
           Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

@@ -94,7 +94,7 @@ expression_statement ::= expression ";"
 (* Expressions *)
 
 expression ::=
-  | primary_expression
+  | postfix_expression
   (* High to low precedence *)
   | unary_expression
   | multiplicative_expression
@@ -103,7 +103,11 @@ expression ::=
   | equality_expression
   | logical_and_expression
   | logical_or_expression
-  | field_access_expression
+
+(* Postfix expressions: function calls and field access *)
+postfix_expression ::= primary_expression ( call_suffix | field_suffix )*
+call_suffix ::= "(" ( expression ( "," expression )* )? ")"
+field_suffix ::= "." identifier
 
 (* Primary expressions are those outside the precedence table *)
 primary_expression ::=
@@ -121,8 +125,6 @@ primary_expression ::=
 struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
 
 struct_field_initializer ::= identifier ":" expression
-
-field_access_expression ::= expression "." identifier
 
 enum_construction ::= identifier "::" identifier ( "(" ( expression ( "," expression )* )? ")" )?
 
@@ -202,10 +204,10 @@ The following reserved words may not be used as identifiers:
 
 ## Precedence and Associativity
 
-| Precedence  | Operator             | Associativity | Description        |
-| ----------- | -------------------- | ------------- | ------------------ |
-| 8 (highest) | `.`                  | Left          | Field access       |
-| 7           | `!`, `-`             | Right         | Unary operators    |
+| Precedence  | Operator             | Associativity | Description           |
+| ----------- | -------------------- | ------------- | --------------------- |
+| 8 (highest) | `.`, `()`            | Left          | Field access, Call    |
+| 7           | `!`, `-`             | Right         | Unary operators       |
 | 6           | `*`, `/`, `%`        | Left          | Multiplicative     |
 | 5           | `+`, `-`             | Left          | Additive           |
 | 4           | `<`, `<=`, `>`, `>=` | Left          | Comparison         |
@@ -236,6 +238,7 @@ visibility modifier:
 - Enum constructors use `TypeName::Variant` with a previously declared enum name. Tuple-style payloads evaluate left-to-right and are stored without reordering.
 - Field accesses evaluate the receiver, ensure it is a struct value, then project the requested field. Accessing a missing field is a type error.
 - `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Pattern matching is exhaustive: all possible cases must be covered, and unreachable patterns are reported as errors. The wildcard pattern `_` matches any value without introducing a binding.
+- Function calls `f(arg1, arg2, ...)` evaluate the callee (which must be a function name), then evaluate arguments left-to-right, then execute the function body with parameters bound to argument values. The call expression evaluates to the function's return value.
 - Variable names refer to a `let` declaration earlier in the current scope or
   one of its parents, but not child scopes.
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
@@ -277,6 +280,7 @@ visibility modifier:
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
 | expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
 | expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
+| f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$ | Function call             |
 
 ### Structural typing rules
 

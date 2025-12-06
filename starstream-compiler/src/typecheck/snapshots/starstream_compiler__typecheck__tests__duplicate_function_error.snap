@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\nfn add(x: i64) -> i64 {\n    x\n}\n"
+---
+]8;;https://starstream.nightstream.dev/errors/E0013\E0013 (link)]8;;\
+
+  x function `add` is already defined in this module
+   ,-[test.star:1:4]
+ 1 | fn add(a: i64, b: i64) -> i64 {
+   :    ^|^
+   :     `-- previously defined here
+ 2 |     a + b
+   `----
+   ,-[test.star:5:4]
+ 4 | 
+ 5 | fn add(x: i64) -> i64 {
+   :    ^^^
+ 6 |     x
+   `----

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn takes(value: Box<i64>) {\n    value;\n}\n"
 ---
-starstream::type::unsupported_type_feature
+]8;;https://starstream.nightstream.dev/errors/E0027\E0027 (link)]8;;\
 
   x unsupported type feature: generic type parameters are not supported yet
    ,-[test.star:1:17]

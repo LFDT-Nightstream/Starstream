@@ -2,14 +2,12 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let bad = -true;\n}\n"
 ---
-starstream::type::unary_mismatch
+]8;;https://starstream.nightstream.dev/errors/E0005\E0005 (link)]8;;\
 
   x unary `-` expects type `i64` but found `bool`
    ,-[test.star:2:16]
  1 | fn test() {
  2 |     let bad = -true;
-   :                ^^|^|
-   :                  | `-- has type `i64`
-   :                  `-- has type `bool`
+   :                ^^^^
  3 | }
    `----

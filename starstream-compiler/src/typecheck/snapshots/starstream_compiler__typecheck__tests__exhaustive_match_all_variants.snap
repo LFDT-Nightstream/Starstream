@@ -25,17 +25,8 @@ T-Fn: test => i64
       T-Var: {r: enum Result {
     Ok(i64),
     Err(i64),
-}} ⊢ r ⇒ enum Result {
-    Ok(i64),
-    Err(i64),
-}
-      Unify-Enum: enum Result {
-    Ok(i64),
-    Err(i64),
-} ~ enum Result {
-    Ok(i64),
-    Err(i64),
-} => {}
+}} ⊢ r ⇒ Result
+      Unify-Enum: Result ~ Result => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: value => i64
@@ -43,13 +34,7 @@ T-Fn: test => i64
     Ok(i64),
     Err(i64),
 }, value: i64} ⊢ value ⇒ i64
-      Unify-Enum: enum Result {
-    Ok(i64),
-    Err(i64),
-} ~ enum Result {
-    Ok(i64),
-    Err(i64),
-} => {}
+      Unify-Enum: Result ~ Result => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 - code => i64
@@ -67,5 +52,5 @@ T-Fn: test => i64
 }} ⊢ code ⇒ i64
           Unify-Const: i64 ~ i64 => {}
           Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

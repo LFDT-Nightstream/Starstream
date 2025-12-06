@@ -35,7 +35,7 @@ Language features:
 
 - [x] `else if`
 - [x] functions
-- [ ] function call expressions
+- [x] function call expressions
 - [x] if expressions
 - [x] block expressions
 - [x] make `let` const and add `let mut`

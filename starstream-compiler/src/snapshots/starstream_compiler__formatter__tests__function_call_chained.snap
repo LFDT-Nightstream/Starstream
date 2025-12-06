@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn double(n: i64) -> i64 {\n    n + n\n}\n\nfn main() {\n    let value = double(double(5));\n}\n"
+---
+fn double(n: i64) -> i64 {
+    n + n
+}
+
+fn main() {
+    let value = double(double(5));
+}

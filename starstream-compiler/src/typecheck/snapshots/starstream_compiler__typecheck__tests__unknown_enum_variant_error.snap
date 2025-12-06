@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Message {\n    Ping,\n}\n\nfn test() {\n    Message::Pong;\n}\n"
 ---
-starstream::type::unknown_enum_variant
+]8;;https://starstream.nightstream.dev/errors/E0023\E0023 (link)]8;;\
 
   x enum `Message` has no variant named `Pong`
    ,-[test.star:6:14]
