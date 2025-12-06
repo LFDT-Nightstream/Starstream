@@ -425,7 +425,7 @@ impl DocumentState {
         }
     }
 
-    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut Vec<HashMap<String, Span>>) {
+    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut [HashMap<String, Span>]) {
         for part in &definition.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
