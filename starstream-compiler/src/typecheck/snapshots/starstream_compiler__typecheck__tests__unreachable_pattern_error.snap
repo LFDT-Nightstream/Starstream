@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Option {\n    None,\n    Some(i64),\n}\n\nfn test(o: Option) -> i64 {\n    match o {\n        _ => {\n            0\n        },\n        Option::None => {\n            1\n        },\n    }\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0029\E0029 (link)]8;;\
+E0029 (https://starstream.nightstream.dev/errors/E0029)
 
   x unreachable pattern
     ,-[test.star:11:9]

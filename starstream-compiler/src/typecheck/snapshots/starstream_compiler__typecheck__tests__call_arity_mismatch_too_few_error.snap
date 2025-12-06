@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\nfn test() {\n    add(1);\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0031\E0031 (link)]8;;\
+E0031 (https://starstream.nightstream.dev/errors/E0031)
 
   x function expects 2 arguments but 1 were provided
    ,-[test.star:6:5]

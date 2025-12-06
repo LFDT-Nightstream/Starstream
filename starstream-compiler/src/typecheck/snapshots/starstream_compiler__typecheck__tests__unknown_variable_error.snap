@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    missing;\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0001\E0001 (link)]8;;\
+E0001 (https://starstream.nightstream.dev/errors/E0001)
 
   x unknown variable `missing`
    ,-[test.star:2:5]

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let bad = -true;\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0005\E0005 (link)]8;;\
+E0005 (https://starstream.nightstream.dev/errors/E0005)
 
   x unary `-` expects type `i64` but found `bool`
    ,-[test.star:2:16]
