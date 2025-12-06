@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let value = 5;\n    value.field;\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0021\E0021 (link)]8;;\
+E0021 (https://starstream.nightstream.dev/errors/E0021)
 
   x cannot access fields on value of type `i64`
    ,-[test.star:3:5]

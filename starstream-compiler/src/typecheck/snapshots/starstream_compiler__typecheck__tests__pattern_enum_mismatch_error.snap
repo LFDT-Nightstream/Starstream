@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum First {\n    Alpha,\n}\n\nenum Second {\n    Beta,\n}\n\nfn test(value: First) {\n    match value {\n        Second::Beta => {\n            ()\n        },\n    }\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0026\E0026 (link)]8;;\
+E0026 (https://starstream.nightstream.dev/errors/E0026)
 
   x pattern references enum `Second` but scrutinee has type `First`
     ,-[test.star:10:11]

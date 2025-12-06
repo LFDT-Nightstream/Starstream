@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Message {\n    Ping(i64),\n}\n\nfn test() {\n    Message::Ping();\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0024\E0024 (link)]8;;\
+E0024 (https://starstream.nightstream.dev/errors/E0024)
 
   x variant `Message::Ping` expects a tuple with 1 value but a tuple with 0 values provided
    ,-[test.star:6:14]

@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nenum Color {\n    Red,\n    Green,\n    Blue,\n    Yellow(i64, i64),\n}\n\nfn test(c: Color) {\n    match c {\n        Color::Red => {\n            0\n        },\n        Color::Green => {\n            1\n        },\n    }\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0028\E0028 (link)]8;;\
+E0028 (https://starstream.nightstream.dev/errors/E0028)
 
   x non-exhaustive match
     ,-[test.star:9:5]

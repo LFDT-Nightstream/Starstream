@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let mut value: i64 = 0;\n    value = true;\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0003\E0003 (link)]8;;\
+E0003 (https://starstream.nightstream.dev/errors/E0003)
 
   x cannot assign value of type `bool` to variable `value` of type `i64`
    ,-[test.star:3:13]

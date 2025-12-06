@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct Point {\n    x: i64,\n}\n\nfn test() {\n    let point = Point {\n        x: 0,\n    };\n\n    point.y;\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0022\E0022 (link)]8;;\
+E0022 (https://starstream.nightstream.dev/errors/E0022)
 
   x struct `Point` has no field named `y`
     ,-[test.star:10:11]

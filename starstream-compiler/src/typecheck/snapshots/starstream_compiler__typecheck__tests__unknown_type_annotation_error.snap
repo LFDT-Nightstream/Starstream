@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn takes(value: Missing) {\n    value;\n}\n"
 ---
-]8;;https://starstream.nightstream.dev/errors/E0011\E0011 (link)]8;;\
+E0011 (https://starstream.nightstream.dev/errors/E0011)
 
   x unknown type annotation `Missing`
    ,-[test.star:1:17]
