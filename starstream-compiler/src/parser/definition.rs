@@ -137,7 +137,7 @@ fn utxo_definition<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
             just("storage").padded().then(just('{')).padded(),
             just('}').padded(),
         )
-        .map(|vars| UtxoPart::Storage(vars));
+        .map(UtxoPart::Storage);
 
     just("utxo")
         .padded()
