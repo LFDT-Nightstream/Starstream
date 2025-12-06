@@ -26,26 +26,28 @@ pub fn parser<'a>(
 
     let suffix = choice((field_access, call));
 
-    lower.clone().foldl_with(suffix.repeated(), |target, suffix, extra| {
-        let start = target.span.start;
-        let end = extra.span().end;
-        let span = SimpleSpan::new((), start..end);
+    lower
+        .clone()
+        .foldl_with(suffix.repeated(), |target, suffix, extra| {
+            let start = target.span.start;
+            let end = extra.span().end;
+            let span = SimpleSpan::new((), start..end);
 
-        match suffix {
-            Suffix::FieldAccess(field) => Spanned::new(
-                Expr::FieldAccess {
-                    target: Box::new(target),
-                    field,
-                },
-                span,
-            ),
-            Suffix::Call(args) => Spanned::new(
-                Expr::Call {
-                    callee: Box::new(target),
-                    args,
-                },
-                span,
-            ),
-        }
-    })
+            match suffix {
+                Suffix::FieldAccess(field) => Spanned::new(
+                    Expr::FieldAccess {
+                        target: Box::new(target),
+                        field,
+                    },
+                    span,
+                ),
+                Suffix::Call(args) => Spanned::new(
+                    Expr::Call {
+                        callee: Box::new(target),
+                        args,
+                    },
+                    span,
+                ),
+            }
+        })
 }

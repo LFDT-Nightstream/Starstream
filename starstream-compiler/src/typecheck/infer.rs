@@ -276,11 +276,10 @@ impl Inferencer {
         let name_span = def.name.span.unwrap_or_else(dummy_span);
 
         if let Some(existing) = self.functions.get(&name) {
-            return Err(TypeError::new(
-                TypeErrorKind::FunctionAlreadyDefined { name },
-                name_span,
-            )
-            .with_secondary(existing.name_span, "previously defined here"));
+            return Err(
+                TypeError::new(TypeErrorKind::FunctionAlreadyDefined { name }, name_span)
+                    .with_secondary(existing.name_span, "previously defined here"),
+            );
         }
 
         let mut param_types = Vec::with_capacity(def.params.len());
@@ -2141,9 +2140,7 @@ impl Inferencer {
                 let mut children = vec![callee_trace];
                 let mut typed_args = Vec::with_capacity(args.len());
 
-                for (index, (arg, expected_ty)) in
-                    args.iter().zip(param_types.iter()).enumerate()
-                {
+                for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
                     let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
                     let actual_ty = typed_arg.node.ty.clone();
 
@@ -2304,7 +2301,10 @@ impl Inferencer {
                 left_span,
             )
             .with_primary_message(format!("has type `{}`", left_ty.to_compact_string()))
-            .with_secondary(right_span, format!("has type `{}`", right_ty.to_compact_string())))
+            .with_secondary(
+                right_span,
+                format!("has type `{}`", right_ty.to_compact_string()),
+            ))
         }
     }
 
@@ -2342,7 +2342,10 @@ impl Inferencer {
                 left_span,
             )
             .with_primary_message(format!("has type `{}`", left_ty.to_compact_string()))
-            .with_secondary(right_span, format!("has type `{}`", right_ty.to_compact_string())))
+            .with_secondary(
+                right_span,
+                format!("has type `{}`", right_ty.to_compact_string()),
+            ))
         }
     }
 
