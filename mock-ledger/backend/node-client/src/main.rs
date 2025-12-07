@@ -15,9 +15,8 @@ struct Args {
     /// Address of the dynamic handler server
     #[arg(default_value = "[::1]:7762")]
     addr: String,
-    /// Component instance to invoke (e.g., "wrpc-examples:hello/handler")
-    #[arg(default_value = "root:component")]
-    instance: String,
+    /// Contract hash to invoke
+    contract_hash: String,
     /// Function name to invoke (e.g., "hello")
     #[arg(default_value = "get-value")]
     function: String,
@@ -29,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
 
     let Args {
         addr,
-        instance,
+        contract_hash,
         function,
     } = Args::parse();
 
@@ -43,12 +42,12 @@ async fn main() -> anyhow::Result<()> {
     let result = bindings::starstream::node_rpc::handler::call(
         &wrpc,
         (),
-        "0xB9213ECB33239E80",
+        &contract_hash.clone(),
         &function.clone(),
         &params,
     )
     .await
-    .with_context(|| format!("failed to call `{instance}.{function}`"))?;
+    .with_context(|| format!("failed to call `{contract_hash}.{function}`"))?;
 
     // In a real implementation, you'd decode the result based on the function's return type
     // For this POC, we'll assume it's a string (which hello() returns)

@@ -80,17 +80,17 @@ impl Handler {
     /// Forward an invocation to the appropriate component
     async fn forward_invocation(
         &self,
-        instance: String,
+        contract_hash: String,
         function: String,
         _params: Vec<u8>,
     ) -> anyhow::Result<Vec<u8>> {
-        debug!(instance, function, "forwarding invocation");
+        debug!(contract_hash, function, "forwarding invocation");
 
         // Look up the component handler
         let components = self.components.read().await;
         let handler = components
-            .get(&instance)
-            .ok_or_else(|| anyhow::anyhow!("component instance `{instance}` not found"))?;
+            .get(&contract_hash)
+            .ok_or_else(|| anyhow::anyhow!("component instance `{contract_hash}` not found"))?;
 
         // Get the component instance and store
         let instance_guard = handler.instance.lock()
@@ -112,6 +112,7 @@ impl Handler {
             .context("failed to call component function")?;
 
         // Extract the result (s64)
+        // TODO: make this more generic
         let result_value = match results[0] {
             wasmtime::component::Val::S64(val) => val,
             _ => return Err(anyhow::anyhow!("unexpected return type from component function")),
@@ -130,11 +131,11 @@ impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for H
     async fn call(
         &self,
         _: SocketAddr,
-        instance: String,
+        contract_hash: String,
         function: String,
         params: wit_bindgen_wrpc::bytes::Bytes,
     ) -> anyhow::Result<wit_bindgen_wrpc::bytes::Bytes> {
-        self.forward_invocation(instance, function, params.to_vec())
+        self.forward_invocation(contract_hash, function, params.to_vec())
             .await
             .map(|v| v.into())
     }

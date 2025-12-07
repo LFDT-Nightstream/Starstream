@@ -41,7 +41,7 @@ pub async fn run_server(addr: String, handler: Handler) -> anyhow::Result<()> {
     let mut invocations = select_all(
         invocations
             .into_iter()
-            .map(|(instance, name, invocations)| invocations.map(move |res| (instance, name, res))),
+            .map(|(contract_hash, name, invocations)| invocations.map(move |res| (contract_hash, name, res))),
     );
     let shutdown = signal::ctrl_c();
     let mut shutdown = pin!(shutdown);
@@ -49,20 +49,20 @@ pub async fn run_server(addr: String, handler: Handler) -> anyhow::Result<()> {
 
     loop {
         select! {
-            Some((instance, name, res)) = invocations.next() => {
+            Some((contract_hash, name, res)) = invocations.next() => {
                 match res {
                     Ok(fut) => {
-                        debug!(instance, name, "invocation accepted");
+                        debug!(contract_hash, name, "invocation accepted");
                         tasks.spawn(async move {
                             if let Err(err) = fut.await {
                                 warn!(?err, "failed to handle invocation");
                             } else {
-                                info!(instance, name, "invocation successfully handled");
+                                info!(contract_hash, name, "invocation successfully handled");
                             }
                         });
                     }
                     Err(err) => {
-                        warn!(?err, instance, name, "failed to accept invocation");
+                        warn!(?err, contract_hash, name, "failed to accept invocation");
                     }
                 }
             }
