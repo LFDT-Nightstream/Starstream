@@ -4,12 +4,12 @@ package starstream:node-rpc;
 interface handler {
     /// Call a function on a component instance dynamically
     /// 
-    /// - instance: The component instance name (e.g., "wrpc-examples:hello/handler")
+    /// - hash: The contract hash
     /// - function: The function name (e.g., "hello")
     /// - params: Encoded parameters as bytes (using Component Model value encoding)
     /// - Returns: Encoded results as bytes
     call: func(
-        instance: string,
+        hash: string,
         function: string,
         params: list<u8>,
     ) -> list<u8>;
