@@ -33,3 +33,4 @@ wit-bindgen-wrpc = { workspace = true }
 wrpc-transport = { workspace = true, features = ["net"] }
 rand = { workspace = true, features = ["std_rng"] }
 hex = { workspace = true }
+once_cell = { workspace = true }

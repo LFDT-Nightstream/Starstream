@@ -1090,6 +1090,7 @@ dependencies = [
  "clap",
  "futures",
  "hex",
+ "once_cell",
  "p3-field",
  "p3-goldilocks",
  "p3-poseidon2",
