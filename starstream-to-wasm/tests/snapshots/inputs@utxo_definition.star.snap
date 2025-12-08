@@ -51,7 +51,6 @@ Program {
 }
 
 ==== Inference trace ====
-:  => 
 
 ==== Typed AST ====
 TypedProgram {
