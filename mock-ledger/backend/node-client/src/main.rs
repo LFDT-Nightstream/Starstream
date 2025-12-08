@@ -13,12 +13,13 @@ mod bindings {
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Address of the dynamic handler server
-    #[arg(default_value = "[::1]:7762")]
+    #[arg(long, default_value = "[::1]:7762")]
     addr: String,
     /// Contract hash to invoke
+    #[arg(long)]
     contract_hash: String,
     /// Function name to invoke (e.g., "hello")
-    #[arg(default_value = "get-value")]
+    #[arg(long, default_value = "get-value")]
     function: String,
 }
 
