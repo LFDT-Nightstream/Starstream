@@ -17,6 +17,7 @@ anyhow = { version = "1", default-features = false }
 bytes = { version = "1", default-features = false }
 clap = { version = "4", default-features = false }
 futures = { version = "0.3", default-features = false }
+once_cell = { version = "1", default-features = false }
 tokio = { version = "1", default-features = false }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false }
