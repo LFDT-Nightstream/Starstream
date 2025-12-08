@@ -39,24 +39,11 @@ jobs:
       - run: cd website && npm i && npm run build
       - name: Require that `tree-sitter generate` output was committed
         run: git diff --exit-code tree-sitter-starstream/src/ && echo "OK"
-      - uses: actions/upload-pages-artifact@v3
+      - env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        if: github.event_name == 'push' && github.ref_name == 'main' && env.CLOUDFLARE_API_TOKEN
+        uses: cloudflare/wrangler-action@v3
         with:
-          path: ./website/build
-  website-deploy:
-    name: GitHub Pages
-    needs: website
-    if: github.event_name == 'push' && github.ref_name == 'main'
-    permissions:
-      pages: write
-      id-token: write
-    concurrency:
-      group: pages
-      cancel-in-progress: true
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/configure-pages@v5
-      - uses: actions/deploy-pages@v4
-        id: deployment
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy website/build --project-name=${{ secrets.CLOUDFLARE_PROJECT_NAME }}
