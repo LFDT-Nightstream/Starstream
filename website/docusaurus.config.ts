@@ -4,7 +4,7 @@ import { themes as prismThemes } from "prism-react-renderer";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 
-const baseUrl = "/Starstream/";
+const baseUrl = "/";
 const config: Config = {
   title: "Starstream",
   favicon: "starstream.svg",
@@ -15,15 +15,15 @@ const config: Config = {
   },
 
   // Set the production url of your site here
-  url: "https://lfdt-nightstream.github.io/",
+  url: "https://starstream.nightstream.dev/",
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl,
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
-  organizationName: "LFDT-Nightstream", // Usually your GitHub org/user name.
-  projectName: "Starstream", // Usually your repo name.
+  // organizationName: "LFDT-Nightstream", // Usually your GitHub org/user name.
+  // projectName: "Starstream", // Usually your repo name.
 
   onBrokenLinks: "throw",
   onBrokenAnchors: "throw",
