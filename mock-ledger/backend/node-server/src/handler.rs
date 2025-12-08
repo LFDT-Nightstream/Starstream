@@ -61,7 +61,8 @@ impl Handler {
             .context("failed to instantiate component")?;
         
         let digest = poseidon2_hash_bytes(&component_bytes);
-        let contract_hash = format!("0x{:016X}", digest[0].as_canonical_u64());
+        let contract_hash = format!("0x{:016X}{:016X}{:016X}{:016X}", digest[0].as_canonical_u64(), digest[1].as_canonical_u64(), digest[2].as_canonical_u64(), digest[3].as_canonical_u64());
+        println!("contract hash: {}", contract_hash);
 
         // Register the component handler
         components.insert(
