@@ -13,23 +13,41 @@ Notably, the node RPC defines the following functions:
 
 ## Current Implementation Status
 
+Testing WASM Component encodings
 - [ ] test encoding a single uint argument
 - [ ] test encoding a multiple uint arguments
 - [ ] encode return value between server & client using WASM Component binary spec
 - [ ] handle function overloading
 - [ ] test contracts that return streams
 - [ ] test contracts that use complex types (structs, unions, resources, etc.)
-- [ ] lookup by contract hash / utxo ID
-- [ ] support member variable operations (instead of just calling functions)
+- [ ] better error handling
+
+Ledger itself
 - [ ] need the concept of accounts (P2PKH utxos)
+- [ ] dynamic registry based on UTXO set
+- [ ] built a reth-like plugin system for the ledger (tricky: how to sandbox)
+
+Connections
 - [ ] connect to the real Starstream
 - [ ] connect to the playground
-- [ ] dynamic registry based on UTXO set
-- [ ] better error handling
-- [ ] create example query from CLI (without needing to write Rust code)
+- [ ] look into wassette
 - [ ] consider moving to something runtime agnostic like https://github.com/DouglasDwyer/wasm_component_layer
+- [ ] have the ledger have a Ghostty frontend that can compile to WASM
+- [ ] implement MessageBroadcast as a communication style for wRPC
+    - "The Preview 3 release of the component model comes with asynchronous streams. These can avoid copies between the host and guest components by providing the host with a buffer within the component’s memory space that it can write into directly, or pass to asynchronous I/O operations provided by the operating system, like io_uring. For avoiding copies between components themselves, there’s work on shared heaps which could be leveraged for views of a single buffer with exclusive ownership of this view being passed between components."
+    - MessageBroadcast may be hard if each component also has its own UI that it's rendering to a canvas. Two items to look into:
+        - wasi-gfx (wasi:surface and wasi-webgpu)
+        - OffscreenCanvas
+- [ ] wallet WASM component
+    - maybe as a reth-like plugin that decrypts every block as it comes in?
+        - too tightly coupled for real wallets connecting over RPC
 
-The following RPC calls needs to be added
+Refactoring
+- [ ] split `hash.rs` into a utils crate
+    - double-check that it matches the result of other poseidon2+goldilock hashes out there
+- [ ] docs
+
+New RPC calls
 - [ ] get UTXO by ID
 - [ ] get UTXO set (with filters)
 - [ ] `eth_chainId`
