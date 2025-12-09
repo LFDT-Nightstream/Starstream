@@ -1,3 +1,4 @@
+mod comment;
 mod context;
 mod definition;
 mod error;
