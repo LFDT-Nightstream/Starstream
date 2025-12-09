@@ -1,10 +1,9 @@
-mod handler;
+mod api;
 mod utils;
-mod server;
 mod ledger;
 
 use clap::Parser;
-use crate::{handler::core::Handler, ledger::Chain, server::run_server};
+use crate::{api::handler::Handler, ledger::Chain, api::tcp::server::run_server};
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
