@@ -1,6 +1,9 @@
 #![allow(clippy::result_large_err)]
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+};
 
 use starstream_types::{
     Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
@@ -41,6 +44,26 @@ pub struct TypecheckOptions {
 pub struct TypecheckSuccess {
     pub program: TypedProgram,
     pub traces: Vec<InferenceTree>,
+}
+
+impl TypecheckSuccess {
+    pub fn display_traces(&self) -> impl Display {
+        DisplayTraces(&self.traces)
+    }
+}
+
+struct DisplayTraces<'a>(&'a [InferenceTree]);
+
+impl<'a> Display for DisplayTraces<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, tree) in self.0.iter().enumerate() {
+            if index > 0 {
+                f.write_str("\n")?;
+            }
+            tree.fmt(f)?;
+        }
+        Ok(())
+    }
 }
 
 struct TypeRegistry {

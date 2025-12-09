@@ -1,0 +1,399 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/multiple_functions.star
+---
+==== AST ====
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        3..7,
+                    ),
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [
+                        VariableDeclaration {
+                            mutable: false,
+                            name: Identifier {
+                                name: "flag",
+                                span: Some(
+                                    20..24,
+                                ),
+                            },
+                            ty: None,
+                            value: Spanned {
+                                node: Literal(
+                                    Boolean(
+                                        true,
+                                    ),
+                                ),
+                                span: 27..31,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: If {
+                                branches: [
+                                    (
+                                        Spanned {
+                                            node: Identifier(
+                                                Identifier {
+                                                    name: "flag",
+                                                    span: Some(
+                                                        41..45,
+                                                    ),
+                                                },
+                                            ),
+                                            span: 41..45,
+                                        },
+                                        Block {
+                                            statements: [
+                                                Return(
+                                                    None,
+                                                ),
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                ],
+                                else_branch: Some(
+                                    Block {
+                                        statements: [
+                                            Return(
+                                                None,
+                                            ),
+                                        ],
+                                        tail_expression: None,
+                                    },
+                                ),
+                            },
+                            span: 37..100,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "compute",
+                    span: Some(
+                        106..113,
+                    ),
+                },
+                params: [],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                119..122,
+                            ),
+                        },
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [
+                        VariableDeclaration {
+                            mutable: false,
+                            name: Identifier {
+                                name: "base",
+                                span: Some(
+                                    133..137,
+                                ),
+                            },
+                            ty: None,
+                            value: Spanned {
+                                node: Literal(
+                                    Integer(
+                                        41,
+                                    ),
+                                ),
+                                span: 140..142,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Binary {
+                                op: Add,
+                                left: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "base",
+                                            span: Some(
+                                                148..152,
+                                            ),
+                                        },
+                                    ),
+                                    span: 148..153,
+                                },
+                                right: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            1,
+                                        ),
+                                    ),
+                                    span: 155..156,
+                                },
+                            },
+                            span: 148..156,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+T-Fn: main => ()
+  T-Let: {} ⊢ let flag = true; ⇒ bool
+    T-Bool: {} ⊢ true ⇒ bool
+  T-ReturnTail: if (flag) {
+    return;
+} else {
+    return;
+} => ()
+    T-If: {flag: bool} ⊢ if (flag) {
+    return;
+} else {
+    return;
+} ⇒ ()
+      T-Var: {flag: bool} ⊢ flag ⇒ bool
+      Check-Bool: bool => ok
+      T-ReturnUnit: {flag: bool} ⊢ return; ⇒ ()
+        Unify-Const: () ~ () => {}
+      T-ReturnUnit: {flag: bool} ⊢ return; ⇒ ()
+        Unify-Const: () ~ () => {}
+      Unify-Const: () ~ () => {}
+    Unify-Const: () ~ () => {}
+
+T-Fn: compute => i64
+  T-Let: {} ⊢ let base = 41; ⇒ i64
+    T-Int: {} ⊢ 41 ⇒ i64
+  T-ReturnTail: base + 1 => i64
+    T-Bin-Add: {base: i64} ⊢ base + 1 ⇒ i64
+      T-Var: {base: i64} ⊢ base ⇒ i64
+      T-Int: {base: i64} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        3..7,
+                    ),
+                },
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [
+                        VariableDeclaration {
+                            mutable: false,
+                            name: Identifier {
+                                name: "flag",
+                                span: Some(
+                                    20..24,
+                                ),
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Bool,
+                                    kind: Literal(
+                                        Boolean(
+                                            true,
+                                        ),
+                                    ),
+                                },
+                                span: 27..31,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Unit,
+                                kind: If {
+                                    branches: [
+                                        (
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Bool,
+                                                    kind: Identifier(
+                                                        Identifier {
+                                                            name: "flag",
+                                                            span: Some(
+                                                                41..45,
+                                                            ),
+                                                        },
+                                                    ),
+                                                },
+                                                span: 41..45,
+                                            },
+                                            TypedBlock {
+                                                statements: [
+                                                    Return(
+                                                        None,
+                                                    ),
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: Some(
+                                        TypedBlock {
+                                            statements: [
+                                                Return(
+                                                    None,
+                                                ),
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                },
+                            },
+                            span: 37..100,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "compute",
+                    span: Some(
+                        106..113,
+                    ),
+                },
+                params: [],
+                return_type: Int,
+                body: TypedBlock {
+                    statements: [
+                        VariableDeclaration {
+                            mutable: false,
+                            name: Identifier {
+                                name: "base",
+                                span: Some(
+                                    133..137,
+                                ),
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Literal(
+                                        Integer(
+                                            41,
+                                        ),
+                                    ),
+                                },
+                                span: 140..142,
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "base",
+                                                    span: Some(
+                                                        148..152,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 148..153,
+                                    },
+                                    right: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Literal(
+                                                Integer(
+                                                    1,
+                                                ),
+                                            ),
+                                        },
+                                        span: 155..156,
+                                    },
+                                },
+                            },
+                            span: 148..156,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func))
+  (type (;1;) (func (result i64)))
+  (func (;0;) (type 0)
+    (local i32)
+    (local.set 0
+      (i32.const 1))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.eqz
+            (local.get 0)))
+        (return)
+        (br 1 (;@1;)))
+      (return))
+  )
+  (func (;1;) (type 1) (result i64)
+    (local i64)
+    (local.set 0
+      (i64.const 41))
+    (i64.add
+      (local.get 0)
+      (i64.const 1))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component)
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+}

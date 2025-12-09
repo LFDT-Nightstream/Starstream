@@ -2,6 +2,198 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/add.star
 ---
+==== AST ====
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "add",
+                    span: Some(
+                        10..13,
+                    ),
+                },
+                params: [
+                    FunctionParam {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                14..15,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    17..20,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                    FunctionParam {
+                        name: Identifier {
+                            name: "y",
+                            span: Some(
+                                22..23,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    25..28,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                33..36,
+                            ),
+                        },
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Binary {
+                                op: Add,
+                                left: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "x",
+                                            span: Some(
+                                                43..44,
+                                            ),
+                                        },
+                                    ),
+                                    span: 43..45,
+                                },
+                                right: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "y",
+                                            span: Some(
+                                                47..48,
+                                            ),
+                                        },
+                                    ),
+                                    span: 47..49,
+                                },
+                            },
+                            span: 43..49,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+T-Fn: add => i64
+  T-ReturnTail: x + y => i64
+    T-Bin-Add: {x: i64, y: i64} ⊢ x + y ⇒ i64
+      T-Var: {x: i64, y: i64} ⊢ x ⇒ i64
+      T-Var: {x: i64, y: i64} ⊢ y ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "add",
+                    span: Some(
+                        10..13,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                14..15,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "y",
+                            span: Some(
+                                22..23,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                ],
+                return_type: Int,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "x",
+                                                    span: Some(
+                                                        43..44,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 43..45,
+                                    },
+                                    right: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "y",
+                                                    span: Some(
+                                                        47..48,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 47..49,
+                                    },
+                                },
+                            },
+                            span: 43..49,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
 (module
   (type (;0;) (func (param i64 i64) (result i64)))
   (export "add" (func 0))
@@ -28,3 +220,10 @@ input_file: starstream-to-wasm/tests/inputs/add.star
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  export add: func(x: s64, y: s64) -> s64;
+}

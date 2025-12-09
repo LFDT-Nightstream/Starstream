@@ -2,6 +2,379 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/struct_param.star
 ---
+==== AST ====
+Program {
+    definitions: [
+        Struct(
+            StructDef {
+                name: Identifier {
+                    name: "Token",
+                    span: Some(
+                        7..12,
+                    ),
+                },
+                fields: [
+                    StructField {
+                        name: Identifier {
+                            name: "amount",
+                            span: Some(
+                                19..25,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    27..30,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                    StructField {
+                        name: Identifier {
+                            name: "price",
+                            span: Some(
+                                36..41,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    43..46,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "total_value",
+                    span: Some(
+                        61..72,
+                    ),
+                },
+                params: [
+                    FunctionParam {
+                        name: Identifier {
+                            name: "token",
+                            span: Some(
+                                73..78,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "Token",
+                                span: Some(
+                                    80..85,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                90..93,
+                            ),
+                        },
+                        generics: [],
+                    },
+                ),
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Binary {
+                                op: Multiply,
+                                left: Spanned {
+                                    node: FieldAccess {
+                                        target: Spanned {
+                                            node: Identifier(
+                                                Identifier {
+                                                    name: "token",
+                                                    span: Some(
+                                                        100..105,
+                                                    ),
+                                                },
+                                            ),
+                                            span: 100..105,
+                                        },
+                                        field: Identifier {
+                                            name: "amount",
+                                            span: Some(
+                                                106..112,
+                                            ),
+                                        },
+                                    },
+                                    span: 100..112,
+                                },
+                                right: Spanned {
+                                    node: FieldAccess {
+                                        target: Spanned {
+                                            node: Identifier(
+                                                Identifier {
+                                                    name: "token",
+                                                    span: Some(
+                                                        115..120,
+                                                    ),
+                                                },
+                                            ),
+                                            span: 115..120,
+                                        },
+                                        field: Identifier {
+                                            name: "price",
+                                            span: Some(
+                                                121..126,
+                                            ),
+                                        },
+                                    },
+                                    span: 115..126,
+                                },
+                            },
+                            span: 100..126,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+
+T-Fn: total_value => i64
+  T-ReturnTail: token.amount * token.price => i64
+    T-Bin-Mul: {token: struct Token {
+    amount: i64,
+    price: i64,
+}} ⊢ token.amount * token.price ⇒ i64
+      T-FieldAccess: {token: struct Token {
+    amount: i64,
+    price: i64,
+}} ⊢ token.amount ⇒ i64
+        T-Var: {token: struct Token {
+    amount: i64,
+    price: i64,
+}} ⊢ token ⇒ struct Token {
+    amount: i64,
+    price: i64,
+}
+      T-FieldAccess: {token: struct Token {
+    amount: i64,
+    price: i64,
+}} ⊢ token.price ⇒ i64
+        T-Var: {token: struct Token {
+    amount: i64,
+    price: i64,
+}} ⊢ token ⇒ struct Token {
+    amount: i64,
+    price: i64,
+}
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Struct(
+            TypedStructDef {
+                name: Identifier {
+                    name: "Token",
+                    span: Some(
+                        7..12,
+                    ),
+                },
+                fields: [
+                    TypedStructField {
+                        name: Identifier {
+                            name: "amount",
+                            span: Some(
+                                19..25,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                    TypedStructField {
+                        name: Identifier {
+                            name: "price",
+                            span: Some(
+                                36..41,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                ],
+                ty: Record(
+                    RecordType {
+                        name: "Token",
+                        fields: [
+                            RecordFieldType {
+                                name: "amount",
+                                ty: Int,
+                            },
+                            RecordFieldType {
+                                name: "price",
+                                ty: Int,
+                            },
+                        ],
+                    },
+                ),
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "total_value",
+                    span: Some(
+                        61..72,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "token",
+                            span: Some(
+                                73..78,
+                            ),
+                        },
+                        ty: Record(
+                            RecordType {
+                                name: "Token",
+                                fields: [
+                                    RecordFieldType {
+                                        name: "amount",
+                                        ty: Int,
+                                    },
+                                    RecordFieldType {
+                                        name: "price",
+                                        ty: Int,
+                                    },
+                                ],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Int,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Binary {
+                                    op: Multiply,
+                                    left: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: FieldAccess {
+                                                target: Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Record(
+                                                            RecordType {
+                                                                name: "Token",
+                                                                fields: [
+                                                                    RecordFieldType {
+                                                                        name: "amount",
+                                                                        ty: Int,
+                                                                    },
+                                                                    RecordFieldType {
+                                                                        name: "price",
+                                                                        ty: Int,
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                        kind: Identifier(
+                                                            Identifier {
+                                                                name: "token",
+                                                                span: Some(
+                                                                    100..105,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: 100..105,
+                                                },
+                                                field: Identifier {
+                                                    name: "amount",
+                                                    span: Some(
+                                                        106..112,
+                                                    ),
+                                                },
+                                            },
+                                        },
+                                        span: 100..112,
+                                    },
+                                    right: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: FieldAccess {
+                                                target: Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Record(
+                                                            RecordType {
+                                                                name: "Token",
+                                                                fields: [
+                                                                    RecordFieldType {
+                                                                        name: "amount",
+                                                                        ty: Int,
+                                                                    },
+                                                                    RecordFieldType {
+                                                                        name: "price",
+                                                                        ty: Int,
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                        kind: Identifier(
+                                                            Identifier {
+                                                                name: "token",
+                                                                span: Some(
+                                                                    115..120,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: 115..120,
+                                                },
+                                                field: Identifier {
+                                                    name: "price",
+                                                    span: Some(
+                                                        121..126,
+                                                    ),
+                                                },
+                                            },
+                                        },
+                                        span: 115..126,
+                                    },
+                                },
+                            },
+                            span: 100..126,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
 (module
   (type (;0;) (func (param i64 i64) (result i64)))
   (export "total-value" (func 0))
@@ -37,3 +410,15 @@ input_file: starstream-to-wasm/tests/inputs/struct_param.star
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  record token {
+    amount: s64,
+    price: s64,
+  }
+
+  export total-value: func(token: token) -> s64;
+}

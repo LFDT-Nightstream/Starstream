@@ -1,0 +1,138 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/struct_definition.star
+---
+==== AST ====
+Program {
+    definitions: [
+        Struct(
+            StructDef {
+                name: Identifier {
+                    name: "Point",
+                    span: Some(
+                        7..12,
+                    ),
+                },
+                fields: [
+                    StructField {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                19..20,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    22..25,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                    StructField {
+                        name: Identifier {
+                            name: "y",
+                            span: Some(
+                                31..32,
+                            ),
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    34..37,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Struct(
+            TypedStructDef {
+                name: Identifier {
+                    name: "Point",
+                    span: Some(
+                        7..12,
+                    ),
+                },
+                fields: [
+                    TypedStructField {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                19..20,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                    TypedStructField {
+                        name: Identifier {
+                            name: "y",
+                            span: Some(
+                                31..32,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                ],
+                ty: Record(
+                    RecordType {
+                        name: "Point",
+                        fields: [
+                            RecordFieldType {
+                                name: "x",
+                                ty: Int,
+                            },
+                            RecordFieldType {
+                                name: "y",
+                                ty: Int,
+                            },
+                        ],
+                    },
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (record (field "x" s64) (field "y" s64)))
+              (import "point" (type (;1;) (eq 0)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  ))
+
+==== WIT ====
+package root:component;
+
+world root {
+  record point {
+    x: s64,
+    y: s64,
+  }
+}

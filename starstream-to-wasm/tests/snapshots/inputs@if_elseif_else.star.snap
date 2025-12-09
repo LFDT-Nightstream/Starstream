@@ -2,6 +2,255 @@
 source: starstream-to-wasm/tests/snapshots.rs
 input_file: starstream-to-wasm/tests/inputs/if_elseif_else.star
 ---
+==== AST ====
+Program {
+    definitions: [
+        Function(
+            FunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        10..14,
+                    ),
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: If {
+                                branches: [
+                                    (
+                                        Spanned {
+                                            node: Literal(
+                                                Boolean(
+                                                    false,
+                                                ),
+                                            ),
+                                            span: 27..32,
+                                        },
+                                        Block {
+                                            statements: [
+                                                Expression(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                1,
+                                                            ),
+                                                        ),
+                                                        span: 44..45,
+                                                    },
+                                                ),
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                    (
+                                        Spanned {
+                                            node: Literal(
+                                                Boolean(
+                                                    true,
+                                                ),
+                                            ),
+                                            span: 62..66,
+                                        },
+                                        Block {
+                                            statements: [
+                                                Expression(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                2,
+                                                            ),
+                                                        ),
+                                                        span: 78..79,
+                                                    },
+                                                ),
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                ],
+                                else_branch: Some(
+                                    Block {
+                                        statements: [
+                                            Expression(
+                                                Spanned {
+                                                    node: Literal(
+                                                        Integer(
+                                                            3,
+                                                        ),
+                                                    ),
+                                                    span: 102..103,
+                                                },
+                                            ),
+                                        ],
+                                        tail_expression: None,
+                                    },
+                                ),
+                            },
+                            span: 23..111,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Inference trace ====
+T-Fn: main => ()
+  T-ReturnTail: if (false) {
+    1;
+} else if (true) {
+    2;
+} else {
+    3;
+} => ()
+    T-If: {} ⊢ if (false) {
+    1;
+} else if (true) {
+    2;
+} else {
+    3;
+} ⇒ ()
+      T-Bool: {} ⊢ false ⇒ bool
+      Check-Bool: bool => ok
+      T-Expr: {} ⊢ 1; ⇒ ()
+        T-Int: {} ⊢ 1 ⇒ i64
+      T-Bool: {} ⊢ true ⇒ bool
+      Check-Bool: bool => ok
+      T-Expr: {} ⊢ 2; ⇒ ()
+        T-Int: {} ⊢ 2 ⇒ i64
+      Unify-Const: () ~ () => {}
+      T-Expr: {} ⊢ 3; ⇒ ()
+        T-Int: {} ⊢ 3 ⇒ i64
+      Unify-Const: () ~ () => {}
+    Unify-Const: () ~ () => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        10..14,
+                    ),
+                },
+                params: [],
+                return_type: Unit,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Unit,
+                                kind: If {
+                                    branches: [
+                                        (
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Bool,
+                                                    kind: Literal(
+                                                        Boolean(
+                                                            false,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 27..32,
+                                            },
+                                            TypedBlock {
+                                                statements: [
+                                                    Expression(
+                                                        Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int,
+                                                                kind: Literal(
+                                                                    Integer(
+                                                                        1,
+                                                                    ),
+                                                                ),
+                                                            },
+                                                            span: 44..45,
+                                                        },
+                                                    ),
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                        (
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Bool,
+                                                    kind: Literal(
+                                                        Boolean(
+                                                            true,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 62..66,
+                                            },
+                                            TypedBlock {
+                                                statements: [
+                                                    Expression(
+                                                        Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int,
+                                                                kind: Literal(
+                                                                    Integer(
+                                                                        2,
+                                                                    ),
+                                                                ),
+                                                            },
+                                                            span: 78..79,
+                                                        },
+                                                    ),
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: Some(
+                                        TypedBlock {
+                                            statements: [
+                                                Expression(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    3,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 102..103,
+                                                    },
+                                                ),
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                },
+                            },
+                            span: 23..111,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
 (module
   (type (;0;) (func))
   (export "main" (func 0))
@@ -36,3 +285,10 @@ input_file: starstream-to-wasm/tests/inputs/if_elseif_else.star
     )
   )
 )
+
+==== WIT ====
+package root:component;
+
+world root {
+  export main: func();
+}

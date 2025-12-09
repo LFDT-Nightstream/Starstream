@@ -1,1 +1,1 @@
-script fn main() {}
+script fn main() { }
