@@ -3,14 +3,17 @@ use chumsky::{
     extra::{self, SimpleState},
     input,
 };
+use starstream_types::Span;
 
 /// Starsteam Parser State
 #[derive(Default)]
-pub struct State {}
+pub struct State {
+    pub comments: Vec<Span>,
+}
 
 impl State {
     pub fn new() -> SimpleState<Self> {
-        SimpleState(State {})
+        SimpleState(State::default())
     }
 }
 
