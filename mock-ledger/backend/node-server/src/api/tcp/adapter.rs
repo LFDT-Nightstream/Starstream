@@ -1,6 +1,6 @@
 use core::net::SocketAddr;
 
-use crate::handler::{binding::bindings, core::Handler};
+use crate::api::{binding::bindings, handler::Handler};
 
 impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for Handler {
     async fn call(

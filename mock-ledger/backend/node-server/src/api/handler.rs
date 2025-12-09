@@ -7,6 +7,8 @@ use crate::ledger::Chain;
 
 #[derive(Clone)]
 pub struct Handler {
+    // Arc instead of 'a
+    // as we can't easily control lifetime logic for different transport systems we need to implement the API for
     chain: Arc<Chain>,
 }
 
