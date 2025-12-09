@@ -10,7 +10,8 @@ use tokio::{select, signal};
 use tracing::{debug, error, info, warn};
 use wrpc_transport::Server;
 
-use crate::handler::{bindings, Handler};
+use crate::handler::binding::bindings;
+use crate::handler::core::Handler;
 
 pub async fn run_server(addr: String, handler: Handler) -> anyhow::Result<()> {
     let srv = Arc::new(Server::default());
