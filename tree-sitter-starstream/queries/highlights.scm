@@ -74,3 +74,5 @@
 (match_arm "=>" @operator)
 (utxo_definition "utxo" @keyword)
 (storage_utxo_part "storage" @keyword)
+(comment) @comment
+(shebang) @comment
