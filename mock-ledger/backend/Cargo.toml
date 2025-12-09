@@ -10,6 +10,7 @@ repository = "https://github.com/LFDT-Nightstream/Starstream"
 members = [
     "node-server",
     "node-client",
+    "ledger",
 ]
 
 [workspace.dependencies]
@@ -30,3 +31,4 @@ p3-symmetric = { version = "0.3", default-features = false }
 p3-field = { version = "0.3", default-features = false }
 rand = { version = "0.9", default-features = false }
 hex = { version = "0.4", default-features = false }
+starstream-ledger = { path = "ledger" }

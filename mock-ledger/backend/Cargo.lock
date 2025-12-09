@@ -495,12 +495,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
-name = "hex"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
 name = "id-arena"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1068,6 +1062,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "starstream-ledger"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "once_cell",
+ "p3-field",
+ "p3-goldilocks",
+ "p3-poseidon2",
+ "p3-symmetric",
+ "rand",
+ "tokio",
+ "wasmtime",
+]
+
+[[package]]
 name = "starstream-node-client"
 version = "0.1.0"
 dependencies = [
@@ -1089,13 +1098,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
- "hex",
- "once_cell",
- "p3-field",
- "p3-goldilocks",
- "p3-poseidon2",
- "p3-symmetric",
- "rand",
+ "starstream-ledger",
  "tokio",
  "tracing",
  "tracing-subscriber",
