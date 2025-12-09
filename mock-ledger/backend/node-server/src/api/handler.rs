@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use tracing::debug;
 
-use crate::ledger::Chain;
+use starstream_ledger::Chain;
 
 #[derive(Clone)]
 pub struct Handler {

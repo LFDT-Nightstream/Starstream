@@ -25,12 +25,6 @@ tokio = { workspace = true, features = ["rt-multi-thread", "signal", "net"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "fmt"] }
 wasmtime = { workspace = true }
-p3-poseidon2 = { workspace = true }
-p3-goldilocks = { workspace = true }
-p3-symmetric = { workspace = true }
-p3-field = { workspace = true }
 wit-bindgen-wrpc = { workspace = true }
 wrpc-transport = { workspace = true, features = ["net"] }
-rand = { workspace = true, features = ["std_rng"] }
-hex = { workspace = true }
-once_cell = { workspace = true }
+starstream-ledger = { workspace = true }
