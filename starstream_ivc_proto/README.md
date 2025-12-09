@@ -23,7 +23,7 @@ with other programs.
 
 A program is either:
 
-1. A coordination script. Which doesn't have state persisted in the ledger.
+1. A coordination script. Which has no state persisted in the ledger.
 2. A utxo, which has persistent state.
 
 Coordination scripts can call into utxos with some id, or other coordination
@@ -32,7 +32,7 @@ scripts (here the id can just be source code). Utxos can only yield.
 Coordination scripts calling into each other is equivalent to plain coroutine
 calls.
 
-Yielding doesn't necessarily changes control flow to the coordination script
+Yielding doesn't necessarily change control flow to the coordination script
 that called resume, because the transaction may end before that, and the next
 coordination script could be a different one. Also because we have algebraic
 effect handlers, control flow may go to a coordination script that was deeper in
@@ -45,7 +45,7 @@ expressed as WASM host (imported) function calls. To verify execution, we use a
 only memory modified by it is that expressed by the function signature.
 
 This means we can think of a program trace as a list of native operations with
-interspersed blackbox operations (which work as lookup arguments).
+interspersed black-box operations (which work as lookup arguments).
 
 From the program trace, we can use the zkVM to make a zero knowledge that claims
 that.
@@ -53,8 +53,8 @@ that.
 1. The ISA instructions were executed in accordance with the WASM ISA rules.
 2. Host calls interact with the stack according to function types.
 
-What a single proof doesn't claim is that the values returned by host calls
-were correct.
+A single proof does not claim that the values returned by host calls were
+correct.
 
 In the case of lookup arguments for the optimizations (e.g. witnesses for
 division, sorting), this can be extended by adding some verification of the
@@ -138,7 +138,7 @@ We use the zkVM and we get a proof of that execution. And also the proof is
 bound to an incremental commitment `C_coord_comm := Commit(resume, v2, r2) +
 Commit(resume, v1, r1)`.
 
-The straight forward construction for this is by using iterative hashing, for
+The straightforward construction for this is by using iterative hashing, for
 example with Poseidon. For example: `H(<resume, v2, r2>, H(<resume, v1, r1>,
 <nop, 0, 0>)`.
 
@@ -257,3 +257,219 @@ The flow of execution to proving then looks something like this:
 Note: WASM is an arbitrary trace of wasm opcodes from the corresponding program.
 
 ![img](graph.png)
+
+## Proving algebraic effects
+
+### Background
+
+Algebraic effect handlers involve two things:
+
+**The ability to declare which effects can be performed by a function.**
+
+For example:
+
+```rust
+fn pure(x: u32) : u32 / {} = {
+  x + 1
+}
+```
+
+```rust
+fn effectful(x: u32) : u32 / { IO } = {
+  do print("x: " ++ x)
+
+  pure(x)
+}
+```
+
+In their simpler form, the effects of a function are the union of all the
+interfaces used in its body. In this case we can imagine that IO is an interface
+that allows printing:
+
+```ts
+interface IO {
+  print(x: String): ()
+}
+```
+
+**The ability to define handlers for effects.**
+
+```rust
+fn pure2(x: u32) : (u32, String) / {} {
+  let mut logs = "";
+
+  try {
+    effectful(x)
+  }
+  with IO {
+    def print(s) = {
+      logs += s;
+      logs += "/n";
+
+      resume(());
+    }
+  }
+}
+```
+
+In a way, interfaces define a DSL of allowed operations, and handlers give
+meaning to those operations by running them.
+
+Depending on the implementation, we can distinguish between a few types of
+handlers:
+
+1. Single tail-resumption.
+
+```python
+with Interface {
+  def op(x: u32): u32 {
+    let y = x+1
+    resume(y)
+
+    # nothing happens here
+  }
+}
+```
+
+There are basically equivalent to function calls. In an environment with shared
+memory, these can be implemented as closures.
+
+In our case, since the continuation could (will?) be running in a different VM
+instance, instead we need to think of this more like a channel, where we use a
+host call to pass the data from one VM to the other.
+
+The important thing is that control flow doesn't need to go back to the handler.
+
+
+2. Single non-tail-resumption.
+
+```python
+with Interface {
+  def op(x: u32): u32 {
+    let now = Time.now();
+
+    let y = x+1
+    resume(y)
+
+    print(now.elapsed()); # we eventually come back here after the continuation finishes.
+  }
+}
+```
+
+The tricky part about these is that the handler may be invoked again before
+reaching the "exit code".
+
+There are at least two ways of handling that.
+
+One is to put the code after resume in a stack, potentially as a closure. Then
+before resuming, the continuation code gets pushed into a stack (in the function
+stack).
+
+The other way is to make the handler run in its own VM, and just spawn a new one
+(with its own proof) per call to the handler.
+
+3. Storing the continuation
+
+```python
+let queue = emptyQueue();
+try {
+  f()
+
+  while let Some(k) = queue.pop() {
+    k()
+  }
+}
+with Interface {
+  def op(x: u32): u32 {
+    queue.push(lambda: resume(x + 1))
+  }
+}
+```
+
+This can be compiled into a local closure (can only be called from the same
+program), so it's not different from just executing the resumption inline.
+
+The issues with this are more about:
+
+- linearity: probably want to resume every program at least once (so the queue
+has to be linear), and not allow resuming twice (since probably we don't want
+this feature)
+- static checking of captures maybe, since the call to `k` in the `try` may also
+perform effects. It also shouldn't be possible to return the boxed closure.
+
+4. Non resumptive
+
+```python
+with Interface {
+  def op(x: u32): never {
+    print(x + 1)
+  }
+}
+```
+
+This is not necessarily difficult to implement, and it needs to happen at the
+last yield of a utxo in the transaction anyway, since the resume will happen in
+the next transaction.
+
+We may not want to allow defining these though, and enshrine `yield` as a
+special effect.
+
+5. Multi-shot
+
+It's still undecided whether we want to have this feature (and what would be the semantics
+
+## Proving
+
+The cases outlined above can be proved with the architecture outlined in the
+previous section without too many changes. The main constraint that we have
+is that we can't share memory trivially, which also means we can't just send
+closures back and forth. What we can pass back and forth however is the id
+of a VM instance (a coroutine). Note that these can be just transaction-local
+identifiers, like an index into a contiguous memory/table. Program identifier
+hashes can be stored in this table and verified when necessary, but the main
+thing we care about here is about interleaving consistency.
+
+The general outline follows.
+
+Each effectul function receives a dictionary mapping effects to coroutines.
+This can be just encoded through parameter passing. So a function with type: `()
+-> () / { singleton_effect }` is compiled into a function of (wasm) type `(k:
+coroutine_id) -> ()`.
+
+This is most likely simpler to prove, but the alternative is to have the the
+interleaving proof machinery keep track of the dictionary of installed handlers
+(and uninstalling them). The trade-off is a slightly more complicated ABI.
+
+Invoking a handler is _resuming_ a specific coroutine (received as an argument).
+The operation to perform can be passed as an argument encoded as a tagged union.
+The tag doesn't have to be a small integer like it's usually done with enums, it
+can be for example a hash that identifies the operation.
+
+Installing a handler is conceptually:
+
+1. Passing the current coroutine id (wasm vm) id as a parameter in the right position.
+(Or call an operation to register a handlers for a certain operation, in the
+alternative way).
+
+2. Setup a trampoline-like loop to drive the handlers. Note that if the
+operation is not supported we can just flag an error here that aborts the
+transaction.
+
+### Tail-resumptive basic code lowering example:
+
+![img](effect-handlers-codegen-simple.png)
+
+*Note:* matching colors are for the equality constraints that need to be
+enforced by the proof, or to identify the coroutine id.
+
+### Non tail-resumptive example:
+
+For non-tail resumptive effects, the main difference is that a stack (heap
+memory) is needed to keep track of the "exit calls" to run after resumptions.
+
+For example, the script could look like this:
+
+**Note** that this also technically stores a continuation.
+
+![img](effect-handlers-codegen-script-non-tail.png)
+
