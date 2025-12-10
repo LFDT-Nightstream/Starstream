@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    Missing {\n        value: 1,\n    };\n}\n"
 ---
-starstream::type::unknown_struct
+E0016 (https://starstream.nightstream.dev/errors/E0016)
 
   x unknown struct `Missing`
    ,-[test.star:2:5]

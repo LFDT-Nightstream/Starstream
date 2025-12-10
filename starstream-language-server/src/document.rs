@@ -42,6 +42,7 @@ pub struct DocumentState {
     definition_entries: Vec<DefinitionEntry>,
     document_symbols: Vec<DocumentSymbol>,
     type_definitions: HashMap<String, Span>,
+    function_definitions: HashMap<String, Span>,
     struct_field_definitions: HashMap<String, HashMap<String, Span>>,
     struct_field_types: HashMap<String, HashMap<String, Type>>,
     enum_variant_definitions: HashMap<String, HashMap<String, Span>>,
@@ -65,6 +66,7 @@ impl DocumentState {
             definition_entries: Vec::new(),
             document_symbols: Vec::new(),
             type_definitions: HashMap::new(),
+            function_definitions: HashMap::new(),
             struct_field_definitions: HashMap::new(),
             struct_field_types: HashMap::new(),
             enum_variant_definitions: HashMap::new(),
@@ -133,6 +135,7 @@ impl DocumentState {
         self.definition_entries.clear();
         self.document_symbols.clear();
         self.type_definitions.clear();
+        self.function_definitions.clear();
         self.struct_field_definitions.clear();
         self.struct_field_types.clear();
         self.enum_variant_definitions.clear();
@@ -257,6 +260,49 @@ impl DocumentState {
         }
 
         if edits.is_empty() { None } else { Some(edits) }
+    }
+
+    /// Find all references to the symbol at the given position.
+    pub fn references(
+        &self,
+        uri: &Uri,
+        position: Position,
+        include_declaration: bool,
+    ) -> Option<Vec<Location>> {
+        let offset = self.position_to_offset(position)?;
+
+        let base_entry = self
+            .definition_entries
+            .iter()
+            .filter(|entry| entry.contains(offset))
+            .min_by_key(|entry| (entry.len(), entry.usage.start))?;
+
+        let target = base_entry.target;
+
+        let mut seen = HashSet::new();
+        let mut locations = Vec::new();
+
+        for entry in &self.definition_entries {
+            if entry.target == target && seen.insert((entry.usage.start, entry.usage.end)) {
+                locations.push(Location {
+                    uri: uri.clone(),
+                    range: self.span_to_range(entry.usage),
+                });
+            }
+        }
+
+        if include_declaration && seen.insert((target.start, target.end)) {
+            locations.push(Location {
+                uri: uri.clone(),
+                range: self.span_to_range(target),
+            });
+        }
+
+        if locations.is_empty() {
+            None
+        } else {
+            Some(locations)
+        }
     }
 
     fn build_indexes(&mut self, program: &TypedProgram, ast: Option<&Program>) {
@@ -425,7 +471,7 @@ impl DocumentState {
         }
     }
 
-    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut Vec<HashMap<String, Span>>) {
+    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut [HashMap<String, Span>]) {
         for part in &definition.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
@@ -451,6 +497,9 @@ impl DocumentState {
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         if let Some(span) = function.name.span {
+            self.function_definitions
+                .insert(function.name.name.clone(), span);
+
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
@@ -626,6 +675,13 @@ impl DocumentState {
 
                 for arm in arms {
                     self.collect_match_arm(arm, scopes, scrutinee.node.ty.clone());
+                }
+            }
+            TypedExprKind::Call { callee, args } => {
+                self.collect_expr(callee, scopes);
+
+                for arg in args {
+                    self.collect_expr(arg, scopes);
                 }
             }
         }
@@ -1064,10 +1120,16 @@ impl DocumentState {
     }
 
     fn lookup_definition(&self, name: &str, scopes: &[HashMap<String, Span>]) -> Option<Span> {
+        // Check local scopes first (variables, parameters)
         for scope in scopes.iter().rev() {
             if let Some(span) = scope.get(name) {
                 return Some(*span);
             }
+        }
+
+        // Check function definitions
+        if let Some(span) = self.function_definitions.get(name) {
+            return Some(*span);
         }
 
         None

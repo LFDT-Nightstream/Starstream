@@ -53,7 +53,7 @@ pub fn capabilities(_: ClientCapabilities) -> ServerCapabilities {
         implementation_provider: None,
 
         // The server provides find references support.
-        references_provider: None,
+        references_provider: Some(OneOf::Left(true)),
 
         // The server provides document highlight support.
         document_highlight_provider: None,

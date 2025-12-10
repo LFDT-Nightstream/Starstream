@@ -1,13 +1,10 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 556
 description: "Source:\n\nenum First {\n    Alpha,\n}\n\nenum Second {\n    Beta,\n}\n\nfn test(value: First) {\n    match value {\n        Second::Beta => {\n            ()\n        },\n    }\n}\n"
 ---
-starstream::type::pattern_enum_mismatch
+E0025 (https://starstream.nightstream.dev/errors/E0025)
 
-  x pattern references enum `Second` but scrutinee has type `enum First {
-  |     Alpha,
-  | }`
+  x pattern references enum `Second` but scrutinee has type `First`
     ,-[test.star:10:11]
   9 | fn test(value: First) {
  10 |     match value {

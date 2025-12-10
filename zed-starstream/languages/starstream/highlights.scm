@@ -1,6 +1,9 @@
 ; VSCode scopes: https://code.visualstudio.com/api/language-extensions/semantic-highlight-guide#standard-token-types-and-modifiers
 ; Zed scopes: https://zed.dev/docs/extensions/languages#syntax-highlighting
 
+; Fallback identifier - FIRST so more specific rules below override it
+(identifier) @variable
+
 ; Strict keywords that cannot be identifiers (see parser/primitives.rs)
 [
   "let"
@@ -21,9 +24,6 @@
 ; Zed recognizes @boolean, but VSC doesn't, so set @keyword as well.
 (boolean_literal) @boolean
 (integer_literal) @number
-
-; Fallback identifier
-(identifier) @variable
 
 ; Type annotations (override the fallback for types)
 (type_annotation (identifier) @type)
@@ -67,10 +67,22 @@
 (struct_literal (identifier) @type)
 (struct_field_initializer (identifier) @variable.member)
 (struct_field_initializer ":" @operator)
-("." @operator)
+(field_expression "." @operator)
 (enum_constructor (identifier) @type)
 (enum_constructor "::" @operator)
+; Function calls
+(call_expression
+  function: (identifier) @function.call)
+; Method calls
+(call_expression
+  function: (field_expression
+    field: (identifier) @function.call))
+(arguments "(" @punctuation.bracket)
+(arguments ")" @punctuation.bracket)
+(arguments "," @operator)
 (match_expression "match" @keyword)
 (match_arm "=>" @operator)
 (utxo_definition "utxo" @keyword)
 (storage_utxo_part "storage" @keyword)
+
+

@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn square(n: i64) -> i64 {\n    n * n\n}\n\nfn test() {\n    square(true);\n}\n"
+---
+E0031 (https://starstream.nightstream.dev/errors/E0031)
+
+  x argument 1 has type `bool` but `i64` was expected
+   ,-[test.star:1:14]
+ 1 | fn square(n: i64) -> i64 {
+   :              ^|^
+   :               `-- parameter expects `i64`
+ 2 |     n * n
+   `----
+   ,-[test.star:6:12]
+ 5 | fn test() {
+ 6 |     square(true);
+   :            ^^^^
+ 7 | }
+   `----

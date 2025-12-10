@@ -26,5 +26,5 @@ T-Fn: test => i64
       Unify-Const: bool ~ bool => {}
       T-Tail: 0 => i64
         T-Int: {b: bool} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
