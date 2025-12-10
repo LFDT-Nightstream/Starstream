@@ -1,0 +1,6 @@
+package starstream:node-rpc-server;
+
+world server {
+    include starstream:node-rpc/server;
+}
+

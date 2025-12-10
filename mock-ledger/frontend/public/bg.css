@@ -1,0 +1,54 @@
+#city {
+  bottom: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 100vw;
+}
+
+#dot {
+  background-color: red;
+  border-radius: 50%;
+  position: absolute;
+  visibility: hidden;
+  z-index: 1;
+}
+
+#dot.on {
+  visibility: visible;
+}
+
+#sky {
+  background-color: black;
+  height: 100vh;
+  width: 100vw;
+}
+
+.building {
+  align-items: center;
+  background-color: black;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: absolute;
+}
+
+.floor {
+  display: flex;
+}
+
+.star {
+  height: 1px;
+  position: absolute;
+  width: 1px;
+}
+
+.window {
+  height: 1px;
+  visibility: hidden;
+  width: 1px;
+}
+
+.window.on {
+  visibility: visible;
+}

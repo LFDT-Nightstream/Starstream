@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Component Terminal</title>
+    <link rel="stylesheet" href="./public/bg.css">
+    <style>
+        body {
+            background: #333;
+            font-family: monospace;
+        }
+        #terminal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+
+            border-radius: 6px;
+            padding: 12px;
+            background-color: #1a1b26;
+            overflow: visible;
+            box-shadow: 0 0 1px 1px #1a1b26;
+
+            z-index: 100;
+        }
+        
+    </style>
+</head>
+<body>
+    <div id="sky"><span id="dot"></span></div>
+    <div id="city"></div>
+    <div id="terminal">
+        <div id="terminal-content"></div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+    <script type="module" src="./public/bg.js"></script>
+</body>
+</html>
+
