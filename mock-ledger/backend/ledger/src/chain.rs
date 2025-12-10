@@ -7,6 +7,7 @@ use wasmtime::*;
 use wasmtime::component::{Component, Linker};
 use p3_field::PrimeField64;
 
+use crate::encode::ChainContext;
 use crate::utxo::{UtxoId, UtxoInstance, UtxoRegistry};
 use crate::utils::hash::poseidon2_hash_bytes;
 
@@ -30,7 +31,7 @@ impl Chain {
               .context("failed to parse component")?;
 
           let linker = Linker::new(&engine);
-          let mut store = Store::new(&engine, ());
+          let mut store = Store::new(&engine, ChainContext::default());
           
           let instance = linker
               .instantiate(&mut store, &component)
@@ -43,6 +44,7 @@ impl Chain {
           utxos.insert(
               UtxoId::new(contract_hash, 0),
               UtxoInstance {
+                  wasm_component: Arc::new(component),
                   wasm_instance: Arc::new(Mutex::new(instance)),
                   wasm_store: Arc::new(Mutex::new(store)),
               },

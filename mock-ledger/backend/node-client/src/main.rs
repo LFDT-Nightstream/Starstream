@@ -50,12 +50,15 @@ async fn main() -> anyhow::Result<()> {
     .await
     .with_context(|| format!("failed to call `{contract_hash}.{function}`"))?;
 
-    // In a real implementation, you'd decode the result based on the function's return type
-    // For this POC, we'll assume it's a string (which hello() returns)
-    let result_string = String::from_utf8(result.to_vec())
-        .context("failed to decode result as UTF-8 string")?;
+    // print a hex string of the bytes for now
 
-    eprintln!("Result: {result_string}");
+    println!("Result: {:?}", result);
+    // // In a real implementation, you'd decode the result based on the function's return type
+    // // For this POC, we'll assume it's a string (which hello() returns)
+    // let result_string = String::from_utf8(result.to_vec())
+    //     .context("failed to decode result as UTF-8 string")?;
+
+    // eprintln!("Result: {result_string}");
     Ok(())
 }
 

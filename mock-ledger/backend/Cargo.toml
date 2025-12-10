@@ -20,11 +20,12 @@ clap = { version = "4", default-features = false }
 futures = { version = "0.3", default-features = false }
 once_cell = { version = "1", default-features = false }
 tokio = { version = "1", default-features = false }
+tokio-util = { version = "0.7", default-features = false, features = ["codec"] }
 tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false }
 wit-bindgen-wrpc = { version = "0.10", default-features = false }
 wrpc-transport = { version = "0.28.3", default-features = false }
-wasmtime = { version = "39.0", default-features = false, features = ["cranelift", "runtime", "component-model"] }
+wasmtime = { version = "38.0", default-features = false, features = ["cranelift", "runtime", "component-model"] }
 p3-poseidon2 = { version = "0.3", default-features = false }
 p3-goldilocks = { version = "0.3", default-features = false }
 p3-symmetric = { version = "0.3", default-features = false }
@@ -32,3 +33,4 @@ p3-field = { version = "0.3", default-features = false }
 rand = { version = "0.9", default-features = false }
 hex = { version = "0.4", default-features = false }
 starstream-ledger = { path = "ledger" }
+wrpc-runtime-wasmtime = { version = "0.30", default-features = false }
