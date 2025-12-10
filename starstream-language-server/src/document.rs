@@ -42,6 +42,7 @@ pub struct DocumentState {
     definition_entries: Vec<DefinitionEntry>,
     document_symbols: Vec<DocumentSymbol>,
     type_definitions: HashMap<String, Span>,
+    function_definitions: HashMap<String, Span>,
     struct_field_definitions: HashMap<String, HashMap<String, Span>>,
     struct_field_types: HashMap<String, HashMap<String, Type>>,
     enum_variant_definitions: HashMap<String, HashMap<String, Span>>,
@@ -65,6 +66,7 @@ impl DocumentState {
             definition_entries: Vec::new(),
             document_symbols: Vec::new(),
             type_definitions: HashMap::new(),
+            function_definitions: HashMap::new(),
             struct_field_definitions: HashMap::new(),
             struct_field_types: HashMap::new(),
             enum_variant_definitions: HashMap::new(),
@@ -133,6 +135,7 @@ impl DocumentState {
         self.definition_entries.clear();
         self.document_symbols.clear();
         self.type_definitions.clear();
+        self.function_definitions.clear();
         self.struct_field_definitions.clear();
         self.struct_field_types.clear();
         self.enum_variant_definitions.clear();
@@ -451,6 +454,9 @@ impl DocumentState {
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         if let Some(span) = function.name.span {
+            self.function_definitions
+                .insert(function.name.name.clone(), span);
+
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
@@ -1071,10 +1077,16 @@ impl DocumentState {
     }
 
     fn lookup_definition(&self, name: &str, scopes: &[HashMap<String, Span>]) -> Option<Span> {
+        // Check local scopes first (variables, parameters)
         for scope in scopes.iter().rev() {
             if let Some(span) = scope.get(name) {
                 return Some(*span);
             }
+        }
+
+        // Check function definitions
+        if let Some(span) = self.function_definitions.get(name) {
+            return Some(*span);
         }
 
         None
