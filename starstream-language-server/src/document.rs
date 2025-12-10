@@ -262,6 +262,49 @@ impl DocumentState {
         if edits.is_empty() { None } else { Some(edits) }
     }
 
+    /// Find all references to the symbol at the given position.
+    pub fn references(
+        &self,
+        uri: &Uri,
+        position: Position,
+        include_declaration: bool,
+    ) -> Option<Vec<Location>> {
+        let offset = self.position_to_offset(position)?;
+
+        let base_entry = self
+            .definition_entries
+            .iter()
+            .filter(|entry| entry.contains(offset))
+            .min_by_key(|entry| (entry.len(), entry.usage.start))?;
+
+        let target = base_entry.target;
+
+        let mut seen = HashSet::new();
+        let mut locations = Vec::new();
+
+        for entry in &self.definition_entries {
+            if entry.target == target && seen.insert((entry.usage.start, entry.usage.end)) {
+                locations.push(Location {
+                    uri: uri.clone(),
+                    range: self.span_to_range(entry.usage),
+                });
+            }
+        }
+
+        if include_declaration && seen.insert((target.start, target.end)) {
+            locations.push(Location {
+                uri: uri.clone(),
+                range: self.span_to_range(target),
+            });
+        }
+
+        if locations.is_empty() {
+            None
+        } else {
+            Some(locations)
+        }
+    }
+
     fn build_indexes(&mut self, program: &TypedProgram, ast: Option<&Program>) {
         self.hover_entries.clear();
         self.definition_entries.clear();
