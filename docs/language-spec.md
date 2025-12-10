@@ -58,7 +58,11 @@ struct_field ::= identifier ":" type_annotation
 enum_definition ::=
   "enum" identifier "{" ( enum_variant ( "," enum_variant )* )? "}"
 
-enum_variant ::= identifier ( "(" ( type_annotation ( "," type_annotation )* )? ")" )?
+enum_variant ::= identifier ( enum_variant_tuple_payload | enum_variant_struct_payload )?
+
+enum_variant_tuple_payload ::= "(" ( type_annotation ( "," type_annotation )* )? ")"
+
+enum_variant_struct_payload ::= "{" ( struct_field ( "," struct_field )* )? "}"
 
 utxo_definition ::=
   "utxo" identifier "{" utxo_part* "}"
@@ -130,7 +134,12 @@ struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_
 
 struct_field_initializer ::= identifier ":" expression
 
-enum_construction ::= identifier "::" identifier ( "(" ( expression ( "," expression )* )? ")" )?
+enum_construction ::=
+  identifier "::" identifier ( enum_constructor_tuple_payload | enum_constructor_struct_payload )?
+
+enum_constructor_tuple_payload ::= "(" ( expression ( "," expression )* )? ")"
+
+enum_constructor_struct_payload ::= "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
 
 match_expression ::= "match" expression "{" ( match_arm ( "," match_arm )* )? "}"
 
@@ -142,10 +151,21 @@ pattern ::=
   | boolean_literal
   | unit_literal
   | identifier
-  | identifier "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
-  | identifier "(" ( pattern ( "," pattern )* )? ")"
+  | struct_pattern
+  | enum_variant_pattern
 
-struct_field_pattern ::= identifier ":" pattern
+struct_pattern ::= identifier "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
+
+struct_field_pattern ::=
+  | identifier ":" pattern
+  | identifier
+
+enum_variant_pattern ::=
+  identifier "::" identifier ( enum_pattern_tuple_payload | enum_pattern_struct_payload )?
+
+enum_pattern_tuple_payload ::= "(" ( pattern ( "," pattern )* )? ")"
+
+enum_pattern_struct_payload ::= "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
 
 if_expression ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* ( "else" block )?
 
