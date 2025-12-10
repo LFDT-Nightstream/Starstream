@@ -17,10 +17,13 @@ Testing WASM Component encodings
 - [ ] test encoding a single uint argument
 - [ ] test encoding a multiple uint arguments
 - [ ] encode return value between server & client using WASM Component binary spec
-- [ ] handle function overloading
+- [ ] design & implement multiplexing so the host can call the underlying WASM component based on contract address
+    - current we have a complex `encode.rs`, but this could maybe be cleaner if it was an in-memory transport for wRPC
+- [ ] handle function overloading (?)
 - [ ] test contracts that return streams
 - [ ] test contracts that use complex types (structs, unions, resources, etc.)
 - [ ] better error handling
+- [ ] allow calling the same contract twice
 
 Ledger itself
 - [ ] need the concept of accounts (P2PKH utxos)
@@ -38,13 +41,13 @@ Connections
     - MessageBroadcast may be hard if each component also has its own UI that it's rendering to a canvas. Two items to look into:
         - wasi-gfx (wasi:surface and wasi-webgpu)
         - OffscreenCanvas
+    - Possibly use DurableStreams instead (https://github.com/durable-streams/durable-streams)
 - [ ] wallet WASM component
     - maybe as a reth-like plugin that decrypts every block as it comes in?
         - too tightly coupled for real wallets connecting over RPC
 
 Refactoring
-- [ ] split `hash.rs` into a utils crate
-    - double-check that it matches the result of other poseidon2+goldilock hashes out there
+- [ ] double-check that `hash.rs` matches the result of other poseidon2+goldilock hashes out there
 - [ ] docs
 
 New RPC calls

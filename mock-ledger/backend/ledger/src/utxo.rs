@@ -2,14 +2,21 @@ use std::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
 use wasmtime::Store;
-use wasmtime::component::{Instance};
+use wasmtime::component::{Instance, Component};
+
+use crate::encode::ChainContext;
+
 
 #[derive(Clone)]
 pub struct UtxoInstance {
+  /// The component that was instantiated
+  /// TODO: does this need a Mutex? Can this be derived from other data?
+  pub wasm_component: Arc<Component>,
   /// The component instance that can be invoked
   pub wasm_instance: Arc<Mutex<Instance>>,
-  /// The store for the component instance
-  pub wasm_store: Arc<Mutex<Store<()>>>,
+  /// The store for the component instance.
+  /// Contains the ChainContext which holds host state (ledger context, etc.)
+  pub wasm_store: Arc<Mutex<Store<ChainContext>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
