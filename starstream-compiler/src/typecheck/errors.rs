@@ -230,9 +230,6 @@ pub enum TypeErrorKind {
         expected: EnumPayloadKind,
         found: EnumPayloadKind,
     },
-    MatchNotEnum {
-        found: Type,
-    },
     PatternEnumMismatch {
         enum_name: String,
         found: Type,
@@ -292,14 +289,13 @@ impl TypeErrorKind {
             TypeErrorKind::FieldAccessUnknownField { .. } => "E0022",
             TypeErrorKind::UnknownEnumVariant { .. } => "E0023",
             TypeErrorKind::EnumPayloadMismatch { .. } => "E0024",
-            TypeErrorKind::MatchNotEnum { .. } => "E0025",
-            TypeErrorKind::PatternEnumMismatch { .. } => "E0026",
-            TypeErrorKind::UnsupportedTypeFeature { .. } => "E0027",
-            TypeErrorKind::NonExhaustiveMatch { .. } => "E0028",
-            TypeErrorKind::UnreachablePattern => "E0029",
-            TypeErrorKind::NotAFunction { .. } => "E0030",
-            TypeErrorKind::ArityMismatch { .. } => "E0031",
-            TypeErrorKind::ArgumentTypeMismatch { .. } => "E0032",
+            TypeErrorKind::PatternEnumMismatch { .. } => "E0025",
+            TypeErrorKind::UnsupportedTypeFeature { .. } => "E0026",
+            TypeErrorKind::NonExhaustiveMatch { .. } => "E0027",
+            TypeErrorKind::UnreachablePattern => "E0028",
+            TypeErrorKind::NotAFunction { .. } => "E0029",
+            TypeErrorKind::ArityMismatch { .. } => "E0030",
+            TypeErrorKind::ArgumentTypeMismatch { .. } => "E0031",
         }
     }
 }
@@ -503,13 +499,6 @@ impl fmt::Display for TypeErrorKind {
                 f,
                 "variant `{enum_name}::{variant_name}` expects {expected} but {found} provided"
             ),
-            TypeErrorKind::MatchNotEnum { found } => {
-                write!(
-                    f,
-                    "match scrutinee must be an enum, found `{}`",
-                    found.to_compact_string()
-                )
-            }
             TypeErrorKind::PatternEnumMismatch { enum_name, found } => write!(
                 f,
                 "pattern references enum `{enum_name}` but scrutinee has type `{}`",

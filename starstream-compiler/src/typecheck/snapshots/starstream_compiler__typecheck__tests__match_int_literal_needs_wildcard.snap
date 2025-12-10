@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test(n: i64) -> i64 {\n    match n {\n        0 => {\n            100\n        },\n        1 => {\n            200\n        },\n    }\n}\n"
 ---
-E0028 (https://starstream.nightstream.dev/errors/E0028)
+E0027 (https://starstream.nightstream.dev/errors/E0027)
 
   x non-exhaustive match
     ,-[test.star:2:5]

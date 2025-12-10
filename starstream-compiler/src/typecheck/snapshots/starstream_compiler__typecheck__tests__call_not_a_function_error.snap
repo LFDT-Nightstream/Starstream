@@ -2,7 +2,7 @@
 source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let value = 42;\n    value();\n}\n"
 ---
-E0030 (https://starstream.nightstream.dev/errors/E0030)
+E0029 (https://starstream.nightstream.dev/errors/E0029)
 
   x cannot call value of type `i64` as a function
    ,-[test.star:3:5]

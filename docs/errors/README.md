@@ -30,11 +30,10 @@ This section documents all Starstream compiler error codes. Each error code link
 | [E0022](./E0022.md) | Unknown field access |
 | [E0023](./E0023.md) | Unknown enum variant |
 | [E0024](./E0024.md) | Enum payload mismatch |
-| [E0025](./E0025.md) | Match on non-enum type |
-| [E0026](./E0026.md) | Pattern enum mismatch |
-| [E0027](./E0027.md) | Unsupported type feature |
-| [E0028](./E0028.md) | Non-exhaustive match |
-| [E0029](./E0029.md) | Unreachable pattern |
-| [E0030](./E0030.md) | Not a function |
-| [E0031](./E0031.md) | Wrong number of arguments |
-| [E0032](./E0032.md) | Argument type mismatch |
+| [E0025](./E0025.md) | Pattern enum mismatch |
+| [E0026](./E0026.md) | Unsupported type feature |
+| [E0027](./E0027.md) | Non-exhaustive match |
+| [E0028](./E0028.md) | Unreachable pattern |
+| [E0029](./E0029.md) | Not a function |
+| [E0030](./E0030.md) | Wrong number of arguments |
+| [E0031](./E0031.md) | Argument type mismatch |
