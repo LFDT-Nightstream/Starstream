@@ -70,6 +70,7 @@
 ("." @operator)
 (enum_constructor (identifier) @type)
 (enum_constructor "::" @operator)
+(call_expression callee: (expression (identifier) @function.call))
 (call_expression "(" @punctuation.bracket)
 (call_expression ")" @punctuation.bracket)
 (call_expression "," @operator)

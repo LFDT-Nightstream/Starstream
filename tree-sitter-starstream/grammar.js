@@ -207,9 +207,14 @@ module.exports = grammar({
 
     call_expression: ($) =>
       seq(
-        $.expression,
+        field("callee", $.expression),
         "(",
-        optional(seq($.expression, repeat(seq(",", $.expression)))),
+        optional(
+          seq(
+            field("argument", $.expression),
+            repeat(seq(",", field("argument", $.expression))),
+          ),
+        ),
         optional(","),
         ")",
       ),
