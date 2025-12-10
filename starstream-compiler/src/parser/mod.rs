@@ -15,14 +15,14 @@ pub use program::parser as program;
 pub use statement::parser as statement;
 
 use chumsky::prelude::*;
-use starstream_types::{Span, ast::Program};
+use starstream_types::ast::Program;
 
 use crate::parser::context::State;
 
 pub struct ParseOutput {
-    program: Option<Program>,
-    errors: Vec<ParseError>,
-    extra: State,
+    pub program: Option<Program>,
+    pub errors: Vec<ParseError>,
+    pub extra: State,
 }
 
 impl ParseOutput {

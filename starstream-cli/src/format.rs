@@ -99,12 +99,12 @@ fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::R
     if !parse_output.errors().is_empty() {
         let named = NamedSource::new(path.display().to_string(), input.clone());
 
-        for error in parse_output.errors().iter().cloned() {
+        for error in parse_output.errors {
             print_diagnostic(named.clone(), error)?;
         }
     }
 
-    let Some(program) = parse_output.into_program() else {
+    let Some(program) = parse_output.program else {
         std::process::exit(1)
     };
 
