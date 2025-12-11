@@ -65,9 +65,14 @@ impl Identifier {
 // ----------------------------------------------------------------------------
 // Top-level definitions
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Comment(pub Span);
+
 /// Entire program: a sequence of definitions.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Program {
+    #[serde(skip)]
+    pub shebang: Option<Comment>,
     pub definitions: Vec<Definition>,
 }
 

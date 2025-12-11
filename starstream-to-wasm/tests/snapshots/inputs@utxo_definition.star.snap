@@ -4,6 +4,7 @@ input_file: starstream-to-wasm/tests/inputs/utxo_definition.star
 ---
 ==== AST ====
 Program {
+    shebang: None,
     definitions: [
         Enum(
             EnumDef {

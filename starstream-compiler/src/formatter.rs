@@ -1,7 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
-    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    BinaryOp, Block, Comment, Definition, Expr, FunctionDef, FunctionExport, FunctionParam,
+    Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -10,10 +10,10 @@ use starstream_types::{
 };
 use std::fmt;
 
-pub fn program(program: &Program) -> Result<String, fmt::Error> {
+pub fn program(program: &Program, source: &str) -> Result<String, fmt::Error> {
     let mut out = String::new();
 
-    program_to_doc(program).render_fmt(80, &mut out)?;
+    program_to_doc(program, source).render_fmt(80, &mut out)?;
 
     Ok(out)
 }
@@ -34,14 +34,21 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
     Ok(out)
 }
 
-fn program_to_doc(program: &Program) -> RcDoc<'_, ()> {
-    if program.definitions.is_empty() {
-        RcDoc::hardline()
+fn program_to_doc<'a>(program: &'a Program, source: &'a str) -> RcDoc<'a, ()> {
+    (if let Some(shebang) = &program.shebang {
+        comment_to_doc(shebang, source)
     } else {
-        let defs = program.definitions.iter().map(definition_to_doc);
-        RcDoc::intersperse(defs, RcDoc::hardline().append(RcDoc::hardline()))
-            .append(RcDoc::hardline())
-    }
+        RcDoc::nil()
+    })
+    .append(RcDoc::intersperse(
+        program.definitions.iter().map(definition_to_doc),
+        RcDoc::hardline().append(RcDoc::hardline()),
+    ))
+    .append(RcDoc::hardline())
+}
+
+fn comment_to_doc<'a>(comment: &Comment, source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::text(&source[comment.0.start..comment.0.end])
 }
 
 fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
@@ -678,12 +685,13 @@ mod tests {
         let parse_output = parser::parse_program(code);
         assert!(
             parse_output.errors().is_empty(),
-            "program should parse without errors"
+            "program should parse without errors: {:?}",
+            parse_output.errors,
         );
 
-        let ast = parse_output.into_program().expect("program should parse");
+        let ast = parse_output.program.expect("program should parse");
 
-        super::program(&ast).expect("formatting succeeds")
+        super::program(&ast, code).expect("formatting succeeds")
     }
 
     macro_rules! assert_format_snapshot {
@@ -831,6 +839,16 @@ mod tests {
                     }
                 }
             }
+            "#,
+        );
+    }
+
+    #[test]
+    fn comments() {
+        assert_format_snapshot!(
+            r#"
+            #!/usr/bin/env starstream
+            fn main(){}
             "#,
         );
     }

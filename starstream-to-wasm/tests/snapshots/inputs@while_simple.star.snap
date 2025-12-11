@@ -4,6 +4,7 @@ input_file: starstream-to-wasm/tests/inputs/while_simple.star
 ---
 ==== AST ====
 Program {
+    shebang: None,
     definitions: [
         Function(
             FunctionDef {

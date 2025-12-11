@@ -4,6 +4,11 @@ input_file: starstream-to-wasm/tests/inputs/empty.star
 ---
 ==== AST ====
 Program {
+    shebang: Some(
+        Comment(
+            0..12,
+        ),
+    ),
     definitions: [
         Function(
             FunctionDef {
@@ -13,7 +18,7 @@ Program {
                 name: Identifier {
                     name: "main",
                     span: Some(
-                        10..14,
+                        22..26,
                     ),
                 },
                 params: [],
@@ -41,7 +46,7 @@ TypedProgram {
                 name: Identifier {
                     name: "main",
                     span: Some(
-                        10..14,
+                        22..26,
                     ),
                 },
                 params: [],

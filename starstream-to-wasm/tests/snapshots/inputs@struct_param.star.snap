@@ -4,6 +4,7 @@ input_file: starstream-to-wasm/tests/inputs/struct_param.star
 ---
 ==== AST ====
 Program {
+    shebang: None,
     definitions: [
         Struct(
             StructDef {

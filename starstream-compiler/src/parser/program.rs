@@ -7,12 +7,12 @@ use super::{comment, context::Extra, definition};
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Program, Extra<'a>> {
     comment::shebang()
         .or_not()
-        .ignore_then(definition::parser())
-        .padded()
-        .repeated()
-        .collect::<Vec<_>>()
+        .then(definition::parser().padded().repeated().collect::<Vec<_>>())
         .then_ignore(end())
-        .map(|definitions| Program { definitions })
+        .map(|(shebang, definitions)| Program {
+            shebang,
+            definitions,
+        })
 }
 
 // NOTE: The test cases for the root program parser are included in the

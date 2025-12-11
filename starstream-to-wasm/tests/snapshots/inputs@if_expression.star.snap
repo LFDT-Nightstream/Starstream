@@ -4,6 +4,7 @@ input_file: starstream-to-wasm/tests/inputs/if_expression.star
 ---
 ==== AST ====
 Program {
+    shebang: None,
     definitions: [
         Function(
             FunctionDef {
