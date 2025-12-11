@@ -1,7 +1,7 @@
 use chumsky::{prelude::*, span::SimpleSpan};
 use starstream_types::ast::{Expr, Spanned};
 
-use crate::parser::{context::Extra, primitives};
+use crate::parser::{ParserExt, context::Extra, primitives};
 
 pub fn parser<'a>(
     lower: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
@@ -11,7 +11,7 @@ pub fn parser<'a>(
     lower.foldl(field.repeated(), |target, field| {
         let start = target.span.start;
         let end = field.span.map(|span| span.end).unwrap_or(target.span.end);
-        let span = SimpleSpan::new((), start..end);
+        let span = SimpleSpan::from(start..end);
 
         Spanned::new(
             Expr::FieldAccess {

@@ -14,10 +14,10 @@ pub use expression::parser as expression;
 pub use program::parser as program;
 pub use statement::parser as statement;
 
-use chumsky::prelude::*;
-use starstream_types::ast::Program;
+use chumsky::{combinator::MapWith, prelude::*};
+use starstream_types::{Spanned, ast::Program};
 
-use crate::parser::context::State;
+use crate::parser::context::{Extra, State};
 
 pub struct ParseOutput {
     pub program: Option<Program>,
@@ -62,5 +62,21 @@ pub fn parse_program(source: &str) -> ParseOutput {
         program,
         errors,
         extra: state.0,
+    }
+}
+
+trait ParserExt<'a, T>: Sized {
+    /// Surround parse result in [Spanned].
+    fn spanned(
+        self,
+    ) -> MapWith<Self, T, impl Fn(T, &mut context::MapExtra<'a, '_>) -> Spanned<T> + Clone>;
+    // ^ explicit MapWith return type lets the result impl Clone if and only if T does.
+}
+
+impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
+    fn spanned(
+        self,
+    ) -> MapWith<Self, T, impl Fn(T, &mut context::MapExtra<'a, '_>) -> Spanned<T> + Clone> {
+        self.map_with(|inner, extra: &mut context::MapExtra| Spanned::new(inner, extra.span()))
     }
 }

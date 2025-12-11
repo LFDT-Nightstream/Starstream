@@ -1,7 +1,7 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Expr, Spanned, UnaryOp};
 
-use crate::parser::context::Extra;
+use crate::parser::{ParserExt, context::Extra};
 
 pub fn parser<'a>(
     base: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
@@ -10,28 +10,20 @@ pub fn parser<'a>(
         let negate = just('-')
             .padded()
             .ignore_then(unary_parser.clone())
-            .map_with(|expr, extra| {
-                Spanned::new(
-                    Expr::Unary {
-                        op: UnaryOp::Negate,
-                        expr: Box::new(expr),
-                    },
-                    extra.span(),
-                )
-            });
+            .map(|expr| Expr::Unary {
+                op: UnaryOp::Negate,
+                expr: Box::new(expr),
+            })
+            .spanned();
 
         let not = just('!')
             .padded()
             .ignore_then(unary_parser)
-            .map_with(|expr, extra| {
-                Spanned::new(
-                    Expr::Unary {
-                        op: UnaryOp::Not,
-                        expr: Box::new(expr),
-                    },
-                    extra.span(),
-                )
-            });
+            .map(|expr| Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(expr),
+            })
+            .spanned();
 
         choice((negate, not, base))
     })
