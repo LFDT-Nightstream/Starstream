@@ -108,7 +108,7 @@ fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::R
         std::process::exit(1)
     };
 
-    let output = formatter::program(&program).into_diagnostic()?;
+    let output = formatter::program(&program, &input).into_diagnostic()?;
 
     if input != output {
         problem_files.push(Unformatted {

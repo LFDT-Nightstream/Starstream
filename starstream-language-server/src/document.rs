@@ -188,7 +188,8 @@ impl DocumentState {
             None => return Ok(None),
         };
 
-        formatter::program(program).map(Some)
+        let str = self.rope.to_string();
+        formatter::program(program, &str).map(Some)
     }
 
     /// Resolve hover information for the given cursor position.
