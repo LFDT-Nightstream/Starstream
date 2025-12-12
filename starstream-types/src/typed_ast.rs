@@ -155,6 +155,10 @@ pub enum TypedExprKind {
         scrutinee: Box<Spanned<TypedExpr>>,
         arms: Vec<TypedMatchArm>,
     },
+    Call {
+        callee: Box<Spanned<TypedExpr>>,
+        args: Vec<Spanned<TypedExpr>>,
+    },
 }
 
 #[derive(Clone, Debug)]

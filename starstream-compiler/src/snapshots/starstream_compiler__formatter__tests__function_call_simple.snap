@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\nfn main() {\n    let result = add(1, 2);\n}\n"
+---
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+fn main() {
+    let result = add(1, 2);
+}

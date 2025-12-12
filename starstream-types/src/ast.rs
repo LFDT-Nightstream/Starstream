@@ -251,6 +251,10 @@ pub enum Expr {
         scrutinee: Box<Spanned<Expr>>,
         arms: Vec<MatchArm>,
     },
+    Call {
+        callee: Box<Spanned<Expr>>,
+        args: Vec<Spanned<Expr>>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

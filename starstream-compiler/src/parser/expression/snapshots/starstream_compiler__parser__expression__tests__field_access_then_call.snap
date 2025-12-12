@@ -1,0 +1,52 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nobj.method(x)"
+---
+Spanned {
+    node: Call {
+        callee: Spanned {
+            node: FieldAccess {
+                target: Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "obj",
+                            span: Some(
+                                0..3,
+                            ),
+                        },
+                    ),
+                    span: 0..3,
+                    comments_before: [],
+                    comments_after: [],
+                },
+                field: Identifier {
+                    name: "method",
+                    span: Some(
+                        4..10,
+                    ),
+                },
+            },
+            span: 0..10,
+            comments_before: [],
+            comments_after: [],
+        },
+        args: [
+            Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "x",
+                        span: Some(
+                            11..12,
+                        ),
+                    },
+                ),
+                span: 11..12,
+                comments_before: [],
+                comments_after: [],
+            },
+        ],
+    },
+    span: 0..13,
+    comments_before: [],
+    comments_after: [],
+}

@@ -1,0 +1,46 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nadd(1, 2)"
+---
+Spanned {
+    node: Call {
+        callee: Spanned {
+            node: Identifier(
+                Identifier {
+                    name: "add",
+                    span: Some(
+                        0..3,
+                    ),
+                },
+            ),
+            span: 0..3,
+            comments_before: [],
+            comments_after: [],
+        },
+        args: [
+            Spanned {
+                node: Literal(
+                    Integer(
+                        1,
+                    ),
+                ),
+                span: 4..5,
+                comments_before: [],
+                comments_after: [],
+            },
+            Spanned {
+                node: Literal(
+                    Integer(
+                        2,
+                    ),
+                ),
+                span: 7..8,
+                comments_before: [],
+                comments_after: [],
+            },
+        ],
+    },
+    span: 0..9,
+    comments_before: [],
+    comments_after: [],
+}

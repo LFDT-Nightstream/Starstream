@@ -35,7 +35,7 @@ Language features:
 
 - [x] `else if`
 - [x] functions
-- [ ] function call expressions
+- [x] function call expressions
 - [x] if expressions
 - [x] block expressions
 - [x] make `let` const and add `let mut`
@@ -81,15 +81,15 @@ Language features:
 - [ ] string type & string literals
 - [x] patterns and pattern matching
   - exhaustive patterns in arguments?
-  - [ ] support literals in pattern
+  - [x] support literals in pattern
   - [ ] patterns in `let` LHS (structs make sense, enums not so much)
-  - [ ] exhaustiveness checking for `match`
+  - [x] exhaustiveness checking for `match`
   - [ ] improve diagnostics for pattern/type mismatches
   - [ ] flag inconsistent `match` arm return values (fallthrough semantics)
 - [ ] fields and foreign field arithmetic (important for interop)
   - `Field<X>`
   - may require targetting Nightstream directly w/o Wasm intermediate
-- [ ] hover/go-to-definition for struct fields, enum variants, pattern bindings
+- [x] hover/go-to-definition for struct fields, enum variants, pattern bindings
 
 Research:
 

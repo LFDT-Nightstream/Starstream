@@ -636,6 +636,26 @@ fn expr_with_prec<'a>(
                     }
                 }
                 Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms, source),
+                Expr::Call { callee, args } => {
+                    let callee_doc = expr_with_prec(
+                        &callee.node,
+                        PREC_FIELD_ACCESS,
+                        ChildPosition::Left,
+                        source,
+                    );
+
+                    let args_doc = RcDoc::intersperse(
+                        args.iter().map(|arg| {
+                            expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source)
+                        }),
+                        RcDoc::text(",").append(RcDoc::space()),
+                    );
+
+                    callee_doc
+                        .append(RcDoc::text("("))
+                        .append(args_doc)
+                        .append(RcDoc::text(")"))
+                }
             };
 
             if needs_parentheses(prec, parent_prec, position) {
@@ -689,7 +709,7 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Grouping(inner) => precedence(&inner.node),
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),
-        Expr::FieldAccess { .. } => PREC_FIELD_ACCESS,
+        Expr::FieldAccess { .. } | Expr::Call { .. } => PREC_FIELD_ACCESS,
         Expr::If { .. } | Expr::Block { .. } | Expr::Match { .. } => PREC_LOWEST,
     }
 }
@@ -739,8 +759,8 @@ const PREC_COMPARISON: u8 = 4;
 const PREC_ADDITIVE: u8 = 5;
 const PREC_MULTIPLICATIVE: u8 = 6;
 const PREC_UNARY: u8 = 7;
-const PREC_PRIMARY: u8 = 8;
-const PREC_FIELD_ACCESS: u8 = 9;
+const PREC_FIELD_ACCESS: u8 = 8;
+const PREC_PRIMARY: u8 = 9;
 const INDENT: isize = 4;
 
 #[cfg(test)]
@@ -916,6 +936,91 @@ mod tests {
             r#"
             #!/usr/bin/env starstream
             fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn function_call_simple() {
+        assert_format_snapshot!(
+            r#"
+            fn add(a: i64, b: i64) -> i64 {
+                a + b
+            }
+
+            fn main() {
+                let result = add(1, 2);
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn function_call_no_args() {
+        assert_format_snapshot!(
+            r#"
+            fn greet() -> i64 {
+                42
+            }
+
+            fn main() {
+                let value = greet();
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn function_call_chained() {
+        assert_format_snapshot!(
+            r#"
+            fn double(n: i64) -> i64 {
+                n + n
+            }
+
+            fn main() {
+                let value = double(double(5));
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn function_call_with_field_access() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                x: i64,
+            }
+
+            fn get_x(p: Point) -> i64 {
+                p.x
+            }
+
+            fn main() {
+                let p = Point { x: 10 };
+                let value = get_x(p);
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn method_style_call_chain() {
+        assert_format_snapshot!(
+            r#"
+            struct Builder {
+                value: i64,
+            }
+
+            fn build(b: Builder) -> i64 {
+                b.value
+            }
+
+            fn main() {
+                let b = Builder { value: 5 };
+                let result = build(b);
+            }
             "#,
         );
     }

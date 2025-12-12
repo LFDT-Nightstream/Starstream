@@ -62,6 +62,7 @@ macro_rules! assert_typecheck_snapshot {
 fn render_report(report: &Report) -> miette::Result<String> {
     let mut rendered = String::new();
     GraphicalReportHandler::new_themed(GraphicalTheme::none())
+        .with_links(false)
         .render_report(&mut rendered, report.as_ref())
         .map_err(|err| miette::miette!("failed to render diagnostic: {err}"))?;
     Ok(rendered.trim_end_matches('\n').to_string())
@@ -786,6 +787,123 @@ fn match_int_literal_with_wildcard() {
                     0
                 },
             }
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_expression_traces() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn add(a: i64, b: i64) -> i64 {
+            a + b
+        }
+
+        fn test() {
+            let result = add(1, 2);
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_expression_no_args() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn greet() -> i64 {
+            42
+        }
+
+        fn test() {
+            let value = greet();
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_expression_chained() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn double(n: i64) -> i64 {
+            n + n
+        }
+
+        fn test() {
+            let value = double(double(5));
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_not_a_function_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let value = 42;
+            value();
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_arity_mismatch_too_few_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn add(a: i64, b: i64) -> i64 {
+            a + b
+        }
+
+        fn test() {
+            add(1);
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_arity_mismatch_too_many_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn add(a: i64, b: i64) -> i64 {
+            a + b
+        }
+
+        fn test() {
+            add(1, 2, 3);
+        }
+        "#
+    );
+}
+
+#[test]
+fn call_argument_type_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn square(n: i64) -> i64 {
+            n * n
+        }
+
+        fn test() {
+            square(true);
+        }
+        "#
+    );
+}
+
+#[test]
+fn duplicate_function_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn add(a: i64, b: i64) -> i64 {
+            a + b
+        }
+
+        fn add(x: i64) -> i64 {
+            x
         }
         "#
     );

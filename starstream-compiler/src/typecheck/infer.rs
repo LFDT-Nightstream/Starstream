@@ -205,6 +205,35 @@ struct Inferencer {
     next_type_var: u32,
     subst: HashMap<TypeVarId, Type>,
     types: TypeRegistry,
+    functions: FunctionRegistry,
+}
+
+struct FunctionRegistry {
+    entries: HashMap<String, FunctionInfo>,
+}
+
+impl FunctionRegistry {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, name: String, info: FunctionInfo) {
+        self.entries.insert(name, info);
+    }
+
+    fn get(&self, name: &str) -> Option<&FunctionInfo> {
+        self.entries.get(name)
+    }
+}
+
+#[derive(Clone)]
+struct FunctionInfo {
+    param_types: Vec<Type>,
+    param_spans: Vec<Span>,
+    return_type: Type,
+    name_span: Span,
 }
 
 struct FunctionCtx {
@@ -221,6 +250,7 @@ impl Inferencer {
             next_type_var: 0,
             subst: HashMap::new(),
             types: TypeRegistry::new(),
+            functions: FunctionRegistry::new(),
         }
     }
 
@@ -236,6 +266,45 @@ impl Inferencer {
                 Definition::Utxo(_) => {}
             }
         }
+        for definition in definitions {
+            if let Definition::Function(def) = &definition.node {
+                self.register_function(def)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn register_function(&mut self, def: &FunctionDef) -> Result<(), TypeError> {
+        let name = def.name.name.clone();
+        let name_span = def.name.span.unwrap_or_else(dummy_span);
+
+        if let Some(existing) = self.functions.get(&name) {
+            return Err(
+                TypeError::new(TypeErrorKind::FunctionAlreadyDefined { name }, name_span)
+                    .with_secondary(existing.name_span, "previously defined here"),
+            );
+        }
+
+        let mut param_types = Vec::with_capacity(def.params.len());
+        let mut param_spans = Vec::with_capacity(def.params.len());
+        for param in &def.params {
+            let ty = self.type_from_annotation(&param.ty)?;
+            param_types.push(ty);
+            param_spans.push(param.ty.name.span.unwrap_or_else(dummy_span));
+        }
+        let return_type = match &def.return_type {
+            Some(annotation) => self.type_from_annotation(annotation)?,
+            None => Type::unit(),
+        };
+        self.functions.insert(
+            name,
+            FunctionInfo {
+                param_types,
+                param_spans,
+                return_type,
+                name_span,
+            },
+        );
         Ok(())
     }
 
@@ -1239,11 +1308,20 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Identifier(Identifier { name, span }) => {
-                let binding = env.get(name).cloned().ok_or_else(|| {
+                let ty = if let Some(binding) = env.get(name).cloned() {
+                    self.instantiate(&binding.scheme)
+                } else if let Some(func_info) = self.functions.get(name) {
+                    Type::Function(
+                        func_info.param_types.clone(),
+                        Box::new(func_info.return_type.clone()),
+                    )
+                } else {
                     let span = span.unwrap_or(expr.span);
-                    TypeError::new(TypeErrorKind::UnknownVariable { name: name.clone() }, span)
-                })?;
-                let ty = self.instantiate(&binding.scheme);
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownVariable { name: name.clone() },
+                        span,
+                    ));
+                };
                 let typed = Spanned::new(
                     TypedExpr::new(
                         ty.clone(),
@@ -1933,7 +2011,7 @@ impl Inferencer {
                 let (typed_scrutinee, scrutinee_trace) = self.infer_expr(env, scrutinee, ctx)?;
                 let mut children = vec![scrutinee_trace];
                 let mut typed_arms = Vec::with_capacity(arms.len());
-                let mut result_ty: Option<Type> = None;
+                let mut result_ty: Option<(Type, Span)> = None;
 
                 for arm in arms {
                     env.push_scope();
@@ -1956,25 +2034,24 @@ impl Inferencer {
                         .map(|expr| expr.node.ty.clone())
                         .unwrap_or_else(Type::unit);
 
-                    result_ty = if let Some(current) = result_ty {
-                        let (merged, unify_trace) = self.unify(
-                            current.clone(),
+                    let arm_span = arm
+                        .body
+                        .tail_expression
+                        .as_ref()
+                        .map(|e| e.span)
+                        .unwrap_or(expr.span);
+
+                    result_ty = if let Some((first_ty, first_span)) = result_ty {
+                        let (merged, unify_trace) = self.unify_match_arms(
                             arm_ty.clone(),
-                            arm.body
-                                .tail_expression
-                                .as_ref()
-                                .map(|expr| expr.span)
-                                .unwrap_or(expr.span),
-                            expr.span,
-                            TypeErrorKind::GeneralMismatch {
-                                expected: current,
-                                found: self.apply(&arm_ty),
-                            },
+                            first_ty.clone(),
+                            arm_span,
+                            first_span,
                         )?;
                         children.push(unify_trace);
-                        Some(merged)
+                        Some((merged, first_span))
                     } else {
-                        Some(arm_ty)
+                        Some((arm_ty, arm_span))
                     };
 
                     typed_arms.push(TypedMatchArm {
@@ -1992,7 +2069,7 @@ impl Inferencer {
                     return Err(exhaustiveness_errors.into_iter().next().unwrap());
                 }
 
-                let expr_type = result_ty.unwrap_or_else(Type::unit);
+                let expr_type = result_ty.map(|(ty, _)| ty).unwrap_or_else(Type::unit);
                 let typed = Spanned::new(
                     TypedExpr::new(
                         expr_type.clone(),
@@ -2008,6 +2085,106 @@ impl Inferencer {
                     self.make_trace("T-Match", env_context, subject_repr, result_repr, || {
                         children
                     });
+                Ok((typed, tree))
+            }
+            Expr::Call { callee, args } => {
+                let (typed_callee, callee_trace) = self.infer_expr(env, callee, ctx)?;
+                let callee_ty = self.apply(&typed_callee.node.ty);
+
+                let callee_name = if let TypedExprKind::Identifier(Identifier { name, .. }) =
+                    &typed_callee.node.kind
+                {
+                    Some(name.as_str())
+                } else {
+                    None
+                };
+
+                let (param_types, param_spans, return_type) = match &callee_ty {
+                    Type::Function(params, ret) => {
+                        let spans = callee_name
+                            .and_then(|name| self.functions.get(name))
+                            .map(|info| info.param_spans.clone())
+                            .unwrap_or_default();
+                        (params.clone(), spans, (**ret).clone())
+                    }
+                    _ => {
+                        if let Some(name) = callee_name {
+                            if let Some(info) = self.functions.get(name) {
+                                (
+                                    info.param_types.clone(),
+                                    info.param_spans.clone(),
+                                    info.return_type.clone(),
+                                )
+                            } else {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::NotAFunction { found: callee_ty },
+                                    callee.span,
+                                ));
+                            }
+                        } else {
+                            return Err(TypeError::new(
+                                TypeErrorKind::NotAFunction { found: callee_ty },
+                                callee.span,
+                            ));
+                        }
+                    }
+                };
+
+                if args.len() != param_types.len() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::ArityMismatch {
+                            expected: param_types.len(),
+                            found: args.len(),
+                        },
+                        expr.span,
+                    ));
+                }
+
+                let mut children = vec![callee_trace];
+                let mut typed_args = Vec::with_capacity(args.len());
+
+                for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
+                    let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+                    let actual_ty = typed_arg.node.ty.clone();
+
+                    let param_span = param_spans.get(index).copied();
+
+                    let (_, unify_trace) = self.unify(
+                        actual_ty.clone(),
+                        expected_ty.clone(),
+                        arg.span,
+                        arg.span,
+                        TypeErrorKind::ArgumentTypeMismatch {
+                            expected: expected_ty.clone(),
+                            found: self.apply(&actual_ty),
+                            position: index + 1,
+                            param_span,
+                        },
+                    )?;
+
+                    children.push(arg_trace);
+                    children.push(unify_trace);
+                    typed_args.push(typed_arg);
+                }
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        return_type.clone(),
+                        TypedExprKind::Call {
+                            callee: Box::new(typed_callee),
+                            args: typed_args,
+                        },
+                    ),
+                    expr.span,
+                );
+
+                let result_repr = self.maybe_string(|| self.format_type(&return_type));
+
+                let tree =
+                    self.make_trace("T-Call", env_context, subject_repr, result_repr, || {
+                        children
+                    });
+
                 Ok((typed, tree))
             }
         }
@@ -2126,8 +2303,11 @@ impl Inferencer {
                 },
                 left_span,
             )
-            .with_primary_message(format!("has type `{left_ty}`"))
-            .with_secondary(right_span, format!("has type `{right_ty}`")))
+            .with_primary_message(format!("has type `{}`", left_ty.to_compact_string()))
+            .with_secondary(
+                right_span,
+                format!("has type `{}`", right_ty.to_compact_string()),
+            ))
         }
     }
 
@@ -2164,8 +2344,11 @@ impl Inferencer {
                 },
                 left_span,
             )
-            .with_primary_message(format!("has type `{left_ty}`"))
-            .with_secondary(right_span, format!("has type `{right_ty}`")))
+            .with_primary_message(format!("has type `{}`", left_ty.to_compact_string()))
+            .with_secondary(
+                right_span,
+                format!("has type `{}`", right_ty.to_compact_string()),
+            ))
         }
     }
 
@@ -2338,6 +2521,13 @@ impl Inferencer {
                     self.apply_block(&mut arm.body);
                 }
             }
+            TypedExprKind::Call { callee, args } => {
+                self.apply_expr(callee);
+
+                for arg in args {
+                    self.apply_expr(arg);
+                }
+            }
         }
     }
 
@@ -2443,9 +2633,9 @@ impl Inferencer {
         }
     }
 
-    /// Short helper to format a type using existing `Display` impls.
+    /// Short helper to format a type compactly for error messages.
     fn format_type(&self, ty: &Type) -> String {
-        format!("{ty}")
+        ty.to_compact_string()
     }
 
     /// Format the difference between the stored substitution map and a prior snapshot.
@@ -2458,6 +2648,125 @@ impl Inferencer {
         }
         entries.sort();
         format!("{{{}}}", entries.join(", "))
+    }
+
+    /// Unify match arm types with custom error labels.
+    ///
+    /// The `current_arm` is the arm being checked, and `first_arm` is the first arm
+    /// that established the expected type. On error, the primary label is on the
+    /// current arm, and the secondary label explains that the first arm set the expectation.
+    fn unify_match_arms(
+        &mut self,
+        current_arm_ty: Type,
+        first_arm_ty: Type,
+        current_arm_span: Span,
+        first_arm_span: Span,
+    ) -> Result<(Type, InferenceTree), TypeError> {
+        let current_ty = self.apply(&current_arm_ty);
+        let first_ty = self.apply(&first_arm_ty);
+
+        match self.unify_inner(current_ty.clone(), first_ty.clone()) {
+            Ok((result_ty, children, rule)) => {
+                let subject = self.maybe_string(|| {
+                    format!(
+                        "{} ~ {}",
+                        self.format_type(&current_ty),
+                        self.format_type(&first_ty)
+                    )
+                });
+                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
+                let tree = self.make_trace(rule, None, subject, result_repr, || children);
+                Ok((result_ty, tree))
+            }
+            Err(_) => {
+                let current_repr = self.format_type(&current_ty);
+                let first_repr = self.format_type(&first_ty);
+                let err = TypeError::new(
+                    TypeErrorKind::GeneralMismatch {
+                        expected: first_ty,
+                        found: current_ty,
+                    },
+                    current_arm_span,
+                )
+                .with_primary_message(format!("has type `{current_repr}`"))
+                .with_secondary(
+                    first_arm_span,
+                    format!("expected `{first_repr}` due to this"),
+                );
+                Err(err)
+            }
+        }
+    }
+
+    /// Inner unification logic that returns the result without creating error labels.
+    fn unify_inner(
+        &mut self,
+        left: Type,
+        right: Type,
+    ) -> Result<(Type, Vec<InferenceTree>, &'static str), ()> {
+        match (left.clone(), right.clone()) {
+            (Type::Int, Type::Int) => Ok((Type::Int, Vec::new(), "Unify-Const")),
+            (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
+            (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
+            (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
+                let mut children = Vec::new();
+                for (l, r) in ls.iter().zip(rs.iter()) {
+                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
+                    children.extend(child);
+                }
+                Ok((Type::Tuple(ls), children, "Unify-Tuple"))
+            }
+            (Type::Function(lp, lr), Type::Function(rp, rr)) if lp.len() == rp.len() => {
+                let mut children = Vec::new();
+                for (l, r) in lp.iter().zip(rp.iter()) {
+                    let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
+                    children.extend(child);
+                }
+                let (_, ret_child, _) = self.unify_inner((*lr).clone(), (*rr).clone())?;
+                children.extend(ret_child);
+                Ok((Type::Function(lp, lr), children, "Unify-Arrow"))
+            }
+            (Type::Record(ls), Type::Record(rs))
+                if ls.name == rs.name && ls.fields.len() == rs.fields.len() =>
+            {
+                let mut children = Vec::new();
+                for (lf, rf) in ls.fields.iter().zip(rs.fields.iter()) {
+                    if lf.name != rf.name {
+                        return Err(());
+                    }
+                    let (_, child, _) = self.unify_inner(lf.ty.clone(), rf.ty.clone())?;
+                    children.extend(child);
+                }
+                Ok((Type::Record(ls), children, "Unify-Record"))
+            }
+            (Type::Enum(ls), Type::Enum(rs))
+                if ls.name == rs.name && ls.variants.len() == rs.variants.len() =>
+            {
+                // Simplified: just check structural compatibility
+                Ok((Type::Enum(ls), Vec::new(), "Unify-Enum"))
+            }
+            (Type::Var(id), ty) => {
+                if ty == Type::Var(id) {
+                    return Ok((ty, Vec::new(), "Unify-Var"));
+                }
+                if occurs_in(id, &ty, &self.subst) {
+                    return Err(());
+                }
+                self.subst.insert(id, ty.clone());
+                Ok((ty, Vec::new(), "Unify-Var"))
+            }
+            (ty, Type::Var(id)) => {
+                if ty == Type::Var(id) {
+                    return Ok((ty, Vec::new(), "Unify-Var"));
+                }
+                if occurs_in(id, &ty, &self.subst) {
+                    return Err(());
+                }
+                self.subst.insert(id, ty.clone());
+                Ok((ty, Vec::new(), "Unify-Var"))
+            }
+            _ => Err(()),
+        }
     }
 
     /// Unify two types, updating the substitution set and returning a trace node.
@@ -2658,11 +2967,15 @@ impl Inferencer {
                 (ty, Vec::new(), "Unify-Var")
             }
             _ => {
-                let left_repr = self.format_type(&left);
-                let right_repr = self.format_type(&right);
-                return Err(TypeError::new(error_kind, left_span)
-                    .with_primary_message(format!("has type `{left_repr}`"))
-                    .with_secondary(right_span, format!("has type `{right_repr}`")));
+                let mut err = TypeError::new(error_kind, left_span);
+                if left_span != right_span {
+                    let left_repr = self.format_type(&left);
+                    let right_repr = self.format_type(&right);
+                    err = err
+                        .with_primary_message(format!("has type `{left_repr}`"))
+                        .with_secondary(right_span, format!("has type `{right_repr}`"));
+                }
+                return Err(err);
             }
         };
 

@@ -127,7 +127,7 @@ Program {
                                                 ),
                                             },
                                         },
-                                        span: 100..112,
+                                        span: 100..113,
                                         comments_before: [],
                                         comments_after: [],
                                     },
@@ -153,12 +153,12 @@ Program {
                                                 ),
                                             },
                                         },
-                                        span: 115..126,
+                                        span: 115..127,
                                         comments_before: [],
                                         comments_after: [],
                                     },
                                 },
-                                span: 100..126,
+                                span: 100..127,
                                 comments_before: [],
                                 comments_after: [],
                             },
@@ -188,10 +188,7 @@ T-Fn: total_value => i64
         T-Var: {token: struct Token {
     amount: i64,
     price: i64,
-}} ⊢ token ⇒ struct Token {
-    amount: i64,
-    price: i64,
-}
+}} ⊢ token ⇒ Token
       T-FieldAccess: {token: struct Token {
     amount: i64,
     price: i64,
@@ -199,10 +196,7 @@ T-Fn: total_value => i64
         T-Var: {token: struct Token {
     amount: i64,
     price: i64,
-}} ⊢ token ⇒ struct Token {
-    amount: i64,
-    price: i64,
-}
+}} ⊢ token ⇒ Token
       Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
@@ -342,7 +336,7 @@ TypedProgram {
                                                 },
                                             },
                                         },
-                                        span: 100..112,
+                                        span: 100..113,
                                         comments_before: [],
                                         comments_after: [],
                                     },
@@ -388,13 +382,13 @@ TypedProgram {
                                                 },
                                             },
                                         },
-                                        span: 115..126,
+                                        span: 115..127,
                                         comments_before: [],
                                         comments_after: [],
                                     },
                                 },
                             },
-                            span: 100..126,
+                            span: 100..127,
                             comments_before: [],
                             comments_after: [],
                         },

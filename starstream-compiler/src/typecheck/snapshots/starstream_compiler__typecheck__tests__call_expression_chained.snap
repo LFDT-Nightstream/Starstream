@@ -1,0 +1,22 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn double(n: i64) -> i64 {\n    n + n\n}\n\nfn test() {\n    let value = double(double(5));\n}\n"
+---
+T-Fn: double => i64
+  T-ReturnTail: n + n => i64
+    T-Bin-Add: {n: i64} ⊢ n + n ⇒ i64
+      T-Var: {n: i64} ⊢ n ⇒ i64
+      T-Var: {n: i64} ⊢ n ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: test => ()
+  T-Let: {} ⊢ let value = double(double(5)); ⇒ i64
+    T-Call: {} ⊢ double(double(5)) ⇒ i64
+      T-Var: {} ⊢ double ⇒ fn(i64) -> i64
+      T-Call: {} ⊢ double(5) ⇒ i64
+        T-Var: {} ⊢ double ⇒ fn(i64) -> i64
+        T-Int: {} ⊢ 5 ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}

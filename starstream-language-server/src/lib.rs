@@ -297,6 +297,35 @@ impl LanguageServer for Server {
         }
     }
 
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let ReferenceParams {
+            text_document_position,
+            context,
+            ..
+        } = params;
+
+        let TextDocumentPositionParams {
+            text_document,
+            position,
+        } = text_document_position;
+
+        let uri = text_document.uri;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("References request: {}", uri.as_str()),
+            )
+            .await;
+
+        let locations = self
+            .document_map
+            .get(&uri)
+            .and_then(|document| document.references(&uri, position, context.include_declaration));
+
+        Ok(locations)
+    }
+
     async fn document_symbol(
         &self,
         params: DocumentSymbolParams,

@@ -1,3 +1,7 @@
+---
+sidebar_position: 1
+---
+
 # Architecture
 
 > _This page explains the motivation and reasoning behind creating Starstream as a new virtual machine, and why existing solutions were not sufficient._

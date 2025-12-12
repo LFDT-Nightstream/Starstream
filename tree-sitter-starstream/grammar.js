@@ -144,9 +144,8 @@ module.exports = grammar({
 
     expression: ($) =>
       choice(
+        $._postfix_expression,
         $._primary_expression,
-
-        prec.left(8, seq($.expression, ".", $.identifier)),
 
         prec.left(7, seq("!", $.expression)),
         prec.left(7, seq("-", $.expression)),
@@ -169,6 +168,29 @@ module.exports = grammar({
         prec.left(2, seq($.expression, "&&", $.expression)),
 
         prec.left(1, seq($.expression, "||", $.expression)),
+      ),
+
+    // Postfix expressions: function calls and field access
+    _postfix_expression: ($) => choice($.call_expression, $.field_expression),
+
+    call_expression: ($) =>
+      seq(
+        field("function", choice($._primary_expression, $.field_expression)),
+        field("arguments", $.arguments),
+      ),
+
+    arguments: ($) =>
+      seq(
+        "(",
+        optional(seq($.expression, repeat(seq(",", $.expression)), optional(","))),
+        ")",
+      ),
+
+    field_expression: ($) =>
+      seq(
+        field("operand", choice($._primary_expression, $.call_expression, $.field_expression)),
+        ".",
+        field("field", $.identifier),
       ),
 
     if_expression: ($) =>

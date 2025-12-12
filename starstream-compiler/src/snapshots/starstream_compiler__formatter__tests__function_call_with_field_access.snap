@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nstruct Point {\n    x: i64,\n}\n\nfn get_x(p: Point) -> i64 {\n    p.x\n}\n\nfn main() {\n    let p = Point { x: 10 };\n    let value = get_x(p);\n}\n"
+---
+struct Point {
+    x: i64,
+}
+
+fn get_x(p: Point) -> i64 {
+    p.x
+}
+
+fn main() {
+    let p = Point {
+        x: 10,
+    };
+    let value = get_x(p);
+}
