@@ -58,6 +58,16 @@ fn comments_to_doc<'a>(comments: &[Comment], source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::concat(comments.iter().map(|c| comment_to_doc(c, source)))
 }
 
+fn spanned<'a, T, F: FnOnce(&T) -> RcDoc<'a, ()>>(
+    spanned: &Spanned<T>,
+    source: &'a str,
+    f: F,
+) -> RcDoc<'a, ()> {
+    comments_to_doc(&spanned.comments_before, source)
+        .append(f(&spanned.node))
+        .append(comments_to_doc(&spanned.comments_after, source))
+}
+
 fn definition_to_doc<'a>(definition: &Definition, source: &'a str) -> RcDoc<'a, ()> {
     match definition {
         Definition::Function(function) => function_to_doc(function, source),
@@ -285,28 +295,25 @@ fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()>
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(comments_to_doc(&value.comments, source))
-            .append(expr_to_doc(&value.node, source))
+            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
             .append(RcDoc::text(";")),
         Statement::Assignment { target, value } => identifier_to_doc(target, source)
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(comments_to_doc(&value.comments, source))
-            .append(expr_to_doc(&value.node, source))
+            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
             .append(RcDoc::text(";")),
         Statement::While { condition, body } => RcDoc::text("while")
             .append(RcDoc::space())
             .append(parened_expr(condition, source))
             .append(RcDoc::space())
             .append(block_to_doc(body, source)),
-        Statement::Expression(expr) => comments_to_doc(&expr.comments, source)
-            .append(expr_to_doc(&expr.node, source))
-            .append(RcDoc::text(";")),
+        Statement::Expression(expr) => {
+            spanned(expr, source, |node| expr_to_doc(&node, source)).append(RcDoc::text(";"))
+        }
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
-            .append(comments_to_doc(&expr.comments, source))
-            .append(expr_to_doc(&expr.node, source))
+            .append(spanned(&expr, source, |node| expr_to_doc(&node, source)))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
     }
@@ -322,9 +329,7 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
             .map(|x| statement_to_doc(x, source))
             .collect();
         if let Some(expr) = &block.tail_expression {
-            items.push(
-                comments_to_doc(&expr.comments, source).append(expr_to_doc(&expr.node, source)),
-            );
+            items.push(spanned(&expr, source, |node| expr_to_doc(&node, source)));
         }
 
         let body = RcDoc::intersperse(items, RcDoc::line());
@@ -337,10 +342,11 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
 }
 
 fn parened_expr<'a>(expr: &Spanned<Expr>, source: &'a str) -> RcDoc<'a, ()> {
-    RcDoc::text("(")
-        .append(comments_to_doc(&expr.comments, source))
-        .append(expr_to_doc(&expr.node, source))
-        .append(RcDoc::text(")"))
+    spanned(expr, source, |node| {
+        RcDoc::text("(")
+            .append(expr_to_doc(&node, source))
+            .append(RcDoc::text(")"))
+    })
 }
 
 fn identifier_to_doc<'a>(identifier: &Identifier, _source: &'a str) -> RcDoc<'a, ()> {
@@ -386,8 +392,9 @@ fn struct_literal_fields_to_doc<'a>(
             fields.iter().map(|field| {
                 identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
-                    .append(comments_to_doc(&field.value.comments, source))
-                    .append(expr_to_doc(&field.value.node, source))
+                    .append(spanned(&field.value, source, |node| {
+                        expr_to_doc(&node, source)
+                    }))
                     .append(RcDoc::text(","))
             }),
             RcDoc::line(),
@@ -417,10 +424,9 @@ fn enum_constructor_to_doc<'a>(
                 doc.append(RcDoc::text("()"))
             } else {
                 let args = RcDoc::intersperse(
-                    values.iter().map(|expr| {
-                        comments_to_doc(&expr.comments, source)
-                            .append(expr_to_doc(&expr.node, source))
-                    }),
+                    values
+                        .iter()
+                        .map(|expr| spanned(expr, source, |node| expr_to_doc(&node, source))),
                     RcDoc::text(", "),
                 );
                 doc.append(RcDoc::text("("))
@@ -443,8 +449,9 @@ fn match_expr_to_doc<'a>(
 ) -> RcDoc<'a, ()> {
     let doc = RcDoc::text("match")
         .append(RcDoc::space())
-        .append(comments_to_doc(&scrutinee.comments, source))
-        .append(expr_to_doc(&scrutinee.node, source))
+        .append(spanned(scrutinee, source, |node| {
+            expr_to_doc(&node, source)
+        }))
         .append(RcDoc::space());
 
     if arms.is_empty() {
@@ -551,90 +558,85 @@ fn expr_with_prec<'a>(
 ) -> RcDoc<'a, ()> {
     match expr {
         Expr::Grouping(inner) => RcDoc::text("(")
-            .append(comments_to_doc(&inner.comments, source))
-            .append(expr_with_prec(
-                &inner.node,
-                PREC_LOWEST,
-                ChildPosition::Top,
-                source,
-            ))
+            .append(spanned(&inner, source, |node| {
+                expr_with_prec(&node, PREC_LOWEST, ChildPosition::Top, source)
+            }))
             .append(RcDoc::text(")")),
         _ => {
             let prec = precedence(expr);
-            let doc =
-                match expr {
-                    Expr::Literal(literal) => literal_to_doc(literal, source),
-                    Expr::Identifier(identifier) => identifier_to_doc(identifier, source),
-                    Expr::Unary { op, expr } => {
-                        let operand = comments_to_doc(&expr.comments, source).append(
-                            expr_with_prec(&expr.node, prec, ChildPosition::Unary, source),
-                        );
+            let doc = match expr {
+                Expr::Literal(literal) => literal_to_doc(literal, source),
+                Expr::Identifier(identifier) => identifier_to_doc(identifier, source),
+                Expr::Unary { op, expr } => {
+                    let operand = spanned(expr, source, |node| {
+                        expr_with_prec(&node, prec, ChildPosition::Unary, source)
+                    });
 
-                        RcDoc::text(unary_op_str(op)).append(operand)
-                    }
-                    Expr::Binary { op, left, right } => {
-                        let left_doc = comments_to_doc(&left.comments, source).append(
-                            expr_with_prec(&left.node, prec, ChildPosition::Left, source).group(),
-                        );
-                        let right_doc = comments_to_doc(&right.comments, source).append(
-                            expr_with_prec(&right.node, prec, ChildPosition::Right, source).group(),
-                        );
+                    RcDoc::text(unary_op_str(op)).append(operand)
+                }
+                Expr::Binary { op, left, right } => {
+                    let left_doc = spanned(left, source, |node| {
+                        expr_with_prec(&node, prec, ChildPosition::Left, source).group()
+                    });
+                    let right_doc = spanned(right, source, |node| {
+                        expr_with_prec(&node, prec, ChildPosition::Right, source).group()
+                    });
 
-                        left_doc
-                            .append(RcDoc::space())
-                            .append(RcDoc::text(binary_op_str(op)))
-                            .append(RcDoc::space())
-                            .append(right_doc)
-                    }
-                    Expr::Grouping(_) => unreachable!(),
-                    Expr::StructLiteral { name, fields } => {
-                        struct_literal_expr_to_doc(name, fields, source)
-                    }
-                    Expr::FieldAccess { target, field } => {
-                        let receiver = comments_to_doc(&target.comments, source).append(
-                            expr_with_prec(&target.node, PREC_PRIMARY, ChildPosition::Top, source),
-                        );
-                        receiver
-                            .append(RcDoc::text("."))
-                            .append(identifier_to_doc(field, source))
-                    }
-                    Expr::EnumConstructor {
-                        enum_name,
-                        variant,
-                        payload,
-                    } => enum_constructor_to_doc(enum_name, variant, payload, source),
-                    Expr::Block(block) => block_to_doc(block, source),
-                    Expr::If {
-                        branches,
-                        else_branch,
-                    } => {
-                        let mut out = RcDoc::nil();
-                        for (i, (condition, block)) in branches.iter().enumerate() {
-                            if i > 0 {
-                                out = out
-                                    .append(RcDoc::space())
-                                    .append("else")
-                                    .append(RcDoc::space());
-                            }
+                    left_doc
+                        .append(RcDoc::space())
+                        .append(RcDoc::text(binary_op_str(op)))
+                        .append(RcDoc::space())
+                        .append(right_doc)
+                }
+                Expr::Grouping(_) => unreachable!(),
+                Expr::StructLiteral { name, fields } => {
+                    struct_literal_expr_to_doc(name, fields, source)
+                }
+                Expr::FieldAccess { target, field } => {
+                    let receiver = spanned(&target, source, |node| {
+                        expr_with_prec(&node, PREC_PRIMARY, ChildPosition::Top, source)
+                    });
+                    receiver
+                        .append(RcDoc::text("."))
+                        .append(identifier_to_doc(field, source))
+                }
+                Expr::EnumConstructor {
+                    enum_name,
+                    variant,
+                    payload,
+                } => enum_constructor_to_doc(enum_name, variant, payload, source),
+                Expr::Block(block) => block_to_doc(block, source),
+                Expr::If {
+                    branches,
+                    else_branch,
+                } => {
+                    let mut out = RcDoc::nil();
+                    for (i, (condition, block)) in branches.iter().enumerate() {
+                        if i > 0 {
                             out = out
-                                .append("if")
                                 .append(RcDoc::space())
-                                .append(parened_expr(condition, source))
-                                .append(RcDoc::space())
-                                .append(block_to_doc(block, source));
+                                .append("else")
+                                .append(RcDoc::space());
                         }
-
-                        if let Some(else_branch) = else_branch {
-                            out.append(RcDoc::space())
-                                .append(RcDoc::text("else"))
-                                .append(RcDoc::space())
-                                .append(block_to_doc(else_branch, source))
-                        } else {
-                            out
-                        }
+                        out = out
+                            .append("if")
+                            .append(RcDoc::space())
+                            .append(parened_expr(condition, source))
+                            .append(RcDoc::space())
+                            .append(block_to_doc(block, source));
                     }
-                    Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms, source),
-                };
+
+                    if let Some(else_branch) = else_branch {
+                        out.append(RcDoc::space())
+                            .append(RcDoc::text("else"))
+                            .append(RcDoc::space())
+                            .append(block_to_doc(else_branch, source))
+                    } else {
+                        out
+                    }
+                }
+                Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms, source),
+            };
 
             if needs_parentheses(prec, parent_prec, position) {
                 RcDoc::text("(").append(doc).append(RcDoc::text(")"))

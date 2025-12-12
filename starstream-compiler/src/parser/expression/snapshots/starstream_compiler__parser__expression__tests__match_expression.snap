@@ -14,7 +14,8 @@ Spanned {
                 },
             ),
             span: 6..12,
-            comments: [],
+            comments_before: [],
+            comments_after: [],
         },
         arms: [
             MatchArm {
@@ -57,7 +58,8 @@ Spanned {
                                 },
                             ),
                             span: 49..59,
-                            comments: [],
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                 },
@@ -102,7 +104,8 @@ Spanned {
                                 },
                             ),
                             span: 99..110,
-                            comments: [],
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                 },
@@ -110,5 +113,6 @@ Spanned {
         ],
     },
     span: 0..115,
-    comments: [],
+    comments_before: [],
+    comments_after: [],
 }

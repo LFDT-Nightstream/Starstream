@@ -80,11 +80,17 @@ impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
             .repeated()
             .collect::<Vec<_>>()
             .then(self)
-            .map_with(|(comments, node), extra: &mut context::MapExtra| Spanned {
-                node,
-                span: extra.span(),
-                comments,
-            })
+            .then(comment::comment().repeated().collect::<Vec<_>>())
+            .map_with(
+                |((comments_before, node), comments_after), extra: &mut context::MapExtra| {
+                    Spanned {
+                        node,
+                        span: extra.span(),
+                        comments_before,
+                        comments_after,
+                    }
+                },
+            )
     }
 
     fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
@@ -95,10 +101,16 @@ impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
             .repeated()
             .collect::<Vec<_>>()
             .then(self)
-            .map_with(|(comments, node), extra: &mut context::MapExtra| Spanned {
-                node,
-                span: extra.span(),
-                comments,
-            })
+            .then(comment::comment().repeated().collect::<Vec<_>>())
+            .map_with(
+                |((comments_before, node), comments_after), extra: &mut context::MapExtra| {
+                    Spanned {
+                        node,
+                        span: extra.span(),
+                        comments_before,
+                        comments_after,
+                    }
+                },
+            )
     }
 }

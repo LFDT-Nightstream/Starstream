@@ -18,6 +18,7 @@ VariableDeclaration {
             ),
         ),
         span: 17..19,
-        comments: [],
+        comments_before: [],
+        comments_after: [],
     },
 }

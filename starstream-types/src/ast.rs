@@ -15,7 +15,9 @@ pub struct Spanned<T> {
     #[serde(skip)]
     pub span: Span,
     #[serde(skip)]
-    pub comments: Vec<Comment>,
+    pub comments_before: Vec<Comment>,
+    #[serde(skip)]
+    pub comments_after: Vec<Comment>,
 }
 
 impl<T> Spanned<T> {
@@ -23,7 +25,8 @@ impl<T> Spanned<T> {
         Self {
             node,
             span,
-            comments: Vec::new(),
+            comments_before: Vec::new(),
+            comments_after: Vec::new(),
         }
     }
 
@@ -32,7 +35,8 @@ impl<T> Spanned<T> {
         Spanned {
             node: map(self.node),
             span: self.span,
-            comments: self.comments,
+            comments_before: self.comments_before,
+            comments_after: self.comments_after,
         }
     }
 
@@ -44,7 +48,8 @@ impl<T> Spanned<T> {
                 end: 0,
                 context: (),
             },
-            comments: Vec::new(),
+            comments_before: Vec::new(),
+            comments_after: Vec::new(),
         }
     }
 }

@@ -16,7 +16,8 @@ Spanned {
                         },
                     ),
                     span: 0..5,
-                    comments: [],
+                    comments_before: [],
+                    comments_after: [],
                 },
                 field: Identifier {
                     name: "position",
@@ -26,7 +27,8 @@ Spanned {
                 },
             },
             span: 0..14,
-            comments: [],
+            comments_before: [],
+            comments_after: [],
         },
         field: Identifier {
             name: "x",
@@ -36,5 +38,6 @@ Spanned {
         },
     },
     span: 0..16,
-    comments: [],
+    comments_before: [],
+    comments_after: [],
 }

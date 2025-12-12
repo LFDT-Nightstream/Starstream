@@ -9,5 +9,6 @@ Spanned {
         ),
     ),
     span: 0..2,
-    comments: [],
+    comments_before: [],
+    comments_after: [],
 }
