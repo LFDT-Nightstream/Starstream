@@ -6,52 +6,57 @@ input_file: starstream-to-wasm/tests/inputs/struct_definition.star
 Program {
     shebang: None,
     definitions: [
-        Struct(
-            StructDef {
-                name: Identifier {
-                    name: "Point",
-                    span: Some(
-                        7..12,
-                    ),
+        Spanned {
+            node: Struct(
+                StructDef {
+                    name: Identifier {
+                        name: "Point",
+                        span: Some(
+                            7..12,
+                        ),
+                    },
+                    fields: [
+                        StructField {
+                            name: Identifier {
+                                name: "x",
+                                span: Some(
+                                    19..20,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        22..25,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                        StructField {
+                            name: Identifier {
+                                name: "y",
+                                span: Some(
+                                    31..32,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        34..37,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
                 },
-                fields: [
-                    StructField {
-                        name: Identifier {
-                            name: "x",
-                            span: Some(
-                                19..20,
-                            ),
-                        },
-                        ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: Some(
-                                    22..25,
-                                ),
-                            },
-                            generics: [],
-                        },
-                    },
-                    StructField {
-                        name: Identifier {
-                            name: "y",
-                            span: Some(
-                                31..32,
-                            ),
-                        },
-                        ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: Some(
-                                    34..37,
-                                ),
-                            },
-                            generics: [],
-                        },
-                    },
-                ],
-            },
-        ),
+            ),
+            span: 0..41,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 

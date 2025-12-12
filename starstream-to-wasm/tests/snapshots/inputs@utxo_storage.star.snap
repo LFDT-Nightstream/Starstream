@@ -6,122 +6,137 @@ input_file: starstream-to-wasm/tests/inputs/utxo_storage.star
 Program {
     shebang: None,
     definitions: [
-        Utxo(
-            UtxoDef {
-                name: Identifier {
-                    name: "MyUtxo",
-                    span: Some(
-                        5..11,
-                    ),
-                },
-                parts: [
-                    Storage(
-                        [
-                            UtxoGlobal {
-                                name: Identifier {
-                                    name: "counter",
-                                    span: Some(
-                                        44..51,
-                                    ),
-                                },
-                                ty: TypeAnnotation {
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: Some(
+                            5..11,
+                        ),
+                    },
+                    parts: [
+                        Storage(
+                            [
+                                UtxoGlobal {
                                     name: Identifier {
-                                        name: "i64",
+                                        name: "counter",
                                         span: Some(
-                                            53..56,
+                                            44..51,
                                         ),
                                     },
-                                    generics: [],
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                53..56,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
                                 },
-                            },
-                        ],
-                    ),
-                ],
-            },
-        ),
-        Function(
-            FunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "increment",
-                    span: Some(
-                        77..86,
-                    ),
+                            ],
+                        ),
+                    ],
                 },
-                params: [],
-                return_type: Some(
-                    TypeAnnotation {
-                        name: Identifier {
-                            name: "i64",
-                            span: Some(
-                                92..95,
-                            ),
-                        },
-                        generics: [],
+            ),
+            span: 0..67,
+            comments_before: [],
+            comments_after: [],
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "increment",
+                        span: Some(
+                            77..86,
+                        ),
                     },
-                ),
-                body: Block {
-                    statements: [
-                        Assignment {
-                            target: Identifier {
-                                name: "counter",
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
                                 span: Some(
-                                    102..109,
+                                    92..95,
                                 ),
                             },
-                            value: Spanned {
-                                node: Binary {
-                                    op: Add,
-                                    left: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "counter",
-                                                span: Some(
-                                                    112..119,
-                                                ),
-                                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Assignment {
+                                    target: Identifier {
+                                        name: "counter",
+                                        span: Some(
+                                            102..109,
                                         ),
-                                        span: 112..120,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
-                                    right: Spanned {
-                                        node: Literal(
-                                            Integer(
-                                                1,
-                                            ),
-                                        ),
-                                        span: 122..123,
+                                    value: Spanned {
+                                        node: Binary {
+                                            op: Add,
+                                            left: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "counter",
+                                                        span: Some(
+                                                            112..119,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 112..120,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            right: Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                                span: 122..123,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                        },
+                                        span: 112..123,
                                         comments_before: [],
                                         comments_after: [],
                                     },
                                 },
-                                span: 112..123,
+                                span: 102..129,
                                 comments_before: [],
                                 comments_after: [],
                             },
-                        },
-                    ],
-                    tail_expression: Some(
-                        Spanned {
-                            node: Identifier(
-                                Identifier {
-                                    name: "counter",
-                                    span: Some(
-                                        129..136,
-                                    ),
-                                },
-                            ),
-                            span: 129..137,
-                            comments_before: [],
-                            comments_after: [],
-                        },
-                    ),
+                        ],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Identifier(
+                                    Identifier {
+                                        name: "counter",
+                                        span: Some(
+                                            129..136,
+                                        ),
+                                    },
+                                ),
+                                span: 129..137,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    },
                 },
-            },
-        ),
+            ),
+            span: 67..139,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 

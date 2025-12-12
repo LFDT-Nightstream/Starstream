@@ -86,7 +86,7 @@ pub struct Comment(pub Span);
 pub struct Program {
     #[serde(skip)]
     pub shebang: Option<Comment>,
-    pub definitions: Vec<Definition>,
+    pub definitions: Vec<Spanned<Definition>>,
 }
 
 /// Top-level definition items.
@@ -186,7 +186,7 @@ pub struct TypeAnnotation {
 /// A new scope containing a group of statements and an optional trailing expression.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Block {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<Spanned<Statement>>,
     pub tail_expression: Option<Spanned<Expr>>,
 }
 

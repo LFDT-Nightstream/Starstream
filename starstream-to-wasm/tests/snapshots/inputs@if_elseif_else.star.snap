@@ -6,112 +6,132 @@ input_file: starstream-to-wasm/tests/inputs/if_elseif_else.star
 Program {
     shebang: None,
     definitions: [
-        Function(
-            FunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "main",
-                    span: Some(
-                        10..14,
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
                     ),
-                },
-                params: [],
-                return_type: None,
-                body: Block {
-                    statements: [],
-                    tail_expression: Some(
-                        Spanned {
-                            node: If {
-                                branches: [
-                                    (
-                                        Spanned {
-                                            node: Literal(
-                                                Boolean(
-                                                    false,
-                                                ),
-                                            ),
-                                            span: 27..32,
-                                            comments_before: [],
-                                            comments_after: [],
-                                        },
-                                        Block {
-                                            statements: [
-                                                Expression(
-                                                    Spanned {
-                                                        node: Literal(
-                                                            Integer(
-                                                                1,
-                                                            ),
-                                                        ),
-                                                        span: 44..45,
-                                                        comments_before: [],
-                                                        comments_after: [],
-                                                    },
-                                                ),
-                                            ],
-                                            tail_expression: None,
-                                        },
-                                    ),
-                                    (
-                                        Spanned {
-                                            node: Literal(
-                                                Boolean(
-                                                    true,
-                                                ),
-                                            ),
-                                            span: 62..66,
-                                            comments_before: [],
-                                            comments_after: [],
-                                        },
-                                        Block {
-                                            statements: [
-                                                Expression(
-                                                    Spanned {
-                                                        node: Literal(
-                                                            Integer(
-                                                                2,
-                                                            ),
-                                                        ),
-                                                        span: 78..79,
-                                                        comments_before: [],
-                                                        comments_after: [],
-                                                    },
-                                                ),
-                                            ],
-                                            tail_expression: None,
-                                        },
-                                    ),
-                                ],
-                                else_branch: Some(
-                                    Block {
-                                        statements: [
-                                            Expression(
-                                                Spanned {
-                                                    node: Literal(
-                                                        Integer(
-                                                            3,
-                                                        ),
+                    name: Identifier {
+                        name: "main",
+                        span: Some(
+                            10..14,
+                        ),
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: If {
+                                    branches: [
+                                        (
+                                            Spanned {
+                                                node: Literal(
+                                                    Boolean(
+                                                        false,
                                                     ),
-                                                    span: 102..103,
+                                                ),
+                                                span: 27..32,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            Block {
+                                                statements: [
+                                                    Spanned {
+                                                        node: Expression(
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        1,
+                                                                    ),
+                                                                ),
+                                                                span: 44..45,
+                                                                comments_before: [],
+                                                                comments_after: [],
+                                                            },
+                                                        ),
+                                                        span: 44..51,
+                                                        comments_before: [],
+                                                        comments_after: [],
+                                                    },
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                        (
+                                            Spanned {
+                                                node: Literal(
+                                                    Boolean(
+                                                        true,
+                                                    ),
+                                                ),
+                                                span: 62..66,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            Block {
+                                                statements: [
+                                                    Spanned {
+                                                        node: Expression(
+                                                            Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        2,
+                                                                    ),
+                                                                ),
+                                                                span: 78..79,
+                                                                comments_before: [],
+                                                                comments_after: [],
+                                                            },
+                                                        ),
+                                                        span: 78..85,
+                                                        comments_before: [],
+                                                        comments_after: [],
+                                                    },
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: Some(
+                                        Block {
+                                            statements: [
+                                                Spanned {
+                                                    node: Expression(
+                                                        Spanned {
+                                                            node: Literal(
+                                                                Integer(
+                                                                    3,
+                                                                ),
+                                                            ),
+                                                            span: 102..103,
+                                                            comments_before: [],
+                                                            comments_after: [],
+                                                        },
+                                                    ),
+                                                    span: 102..109,
                                                     comments_before: [],
                                                     comments_after: [],
                                                 },
-                                            ),
-                                        ],
-                                        tail_expression: None,
-                                    },
-                                ),
+                                            ],
+                                            tail_expression: None,
+                                        },
+                                    ),
+                                },
+                                span: 23..111,
+                                comments_before: [],
+                                comments_after: [],
                             },
-                            span: 23..111,
-                            comments_before: [],
-                            comments_after: [],
-                        },
-                    ),
+                        ),
+                    },
                 },
-            },
-        ),
+            ),
+            span: 0..113,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 

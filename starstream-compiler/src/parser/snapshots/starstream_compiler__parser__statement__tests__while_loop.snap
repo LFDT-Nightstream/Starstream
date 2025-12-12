@@ -36,44 +36,49 @@ While {
     },
     body: Block {
         statements: [
-            Assignment {
-                target: Identifier {
-                    name: "count",
-                    span: Some(
-                        21..26,
-                    ),
-                },
-                value: Spanned {
-                    node: Binary {
-                        op: Add,
-                        left: Spanned {
-                            node: Identifier(
-                                Identifier {
-                                    name: "count",
-                                    span: Some(
-                                        29..34,
-                                    ),
-                                },
-                            ),
-                            span: 29..35,
-                            comments_before: [],
-                            comments_after: [],
-                        },
-                        right: Spanned {
-                            node: Literal(
-                                Integer(
-                                    1,
-                                ),
-                            ),
-                            span: 37..38,
-                            comments_before: [],
-                            comments_after: [],
-                        },
+            Spanned {
+                node: Assignment {
+                    target: Identifier {
+                        name: "count",
+                        span: Some(
+                            21..26,
+                        ),
                     },
-                    span: 29..38,
-                    comments_before: [],
-                    comments_after: [],
+                    value: Spanned {
+                        node: Binary {
+                            op: Add,
+                            left: Spanned {
+                                node: Identifier(
+                                    Identifier {
+                                        name: "count",
+                                        span: Some(
+                                            29..34,
+                                        ),
+                                    },
+                                ),
+                                span: 29..35,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                            right: Spanned {
+                                node: Literal(
+                                    Integer(
+                                        1,
+                                    ),
+                                ),
+                                span: 37..38,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        },
+                        span: 29..38,
+                        comments_before: [],
+                        comments_after: [],
+                    },
                 },
+                span: 21..40,
+                comments_before: [],
+                comments_after: [],
             },
         ],
         tail_expression: None,

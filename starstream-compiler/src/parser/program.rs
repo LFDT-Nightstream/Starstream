@@ -1,13 +1,21 @@
 use chumsky::prelude::*;
 use starstream_types::ast::Program;
 
+use crate::parser::ParserExt;
+
 use super::{comment, context::Extra, definition};
 
 /// Get a parser for a Starstream source file.
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Program, Extra<'a>> {
     comment::shebang()
         .or_not()
-        .then(definition::parser().padded().repeated().collect::<Vec<_>>())
+        .then(
+            definition::parser()
+                .spanned()
+                .padded()
+                .repeated()
+                .collect::<Vec<_>>(),
+        )
         .then_ignore(end())
         .map(|(shebang, definitions)| Program {
             shebang,

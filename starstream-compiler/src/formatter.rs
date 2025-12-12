@@ -44,7 +44,7 @@ fn program_to_doc<'a>(program: &Program, source: &'a str) -> RcDoc<'a, ()> {
         program
             .definitions
             .iter()
-            .map(|x| definition_to_doc(x, source)),
+            .map(|x| spanned(x, source, |node| definition_to_doc(node, source))),
         RcDoc::hardline().append(RcDoc::hardline()),
     ))
     .append(RcDoc::hardline())
@@ -326,7 +326,7 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
         let mut items: Vec<RcDoc<'a, ()>> = block
             .statements
             .iter()
-            .map(|x| statement_to_doc(x, source))
+            .map(|x| spanned(x, source, |node| statement_to_doc(node, source)))
             .collect();
         if let Some(expr) = &block.tail_expression {
             items.push(spanned(&expr, source, |node| expr_to_doc(&node, source)));

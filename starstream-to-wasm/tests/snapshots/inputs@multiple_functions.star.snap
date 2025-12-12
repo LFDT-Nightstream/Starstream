@@ -6,167 +6,197 @@ input_file: starstream-to-wasm/tests/inputs/multiple_functions.star
 Program {
     shebang: None,
     definitions: [
-        Function(
-            FunctionDef {
-                export: None,
-                name: Identifier {
-                    name: "main",
-                    span: Some(
-                        3..7,
-                    ),
-                },
-                params: [],
-                return_type: None,
-                body: Block {
-                    statements: [
-                        VariableDeclaration {
-                            mutable: false,
-                            name: Identifier {
-                                name: "flag",
-                                span: Some(
-                                    20..24,
-                                ),
-                            },
-                            ty: None,
-                            value: Spanned {
-                                node: Literal(
-                                    Boolean(
-                                        true,
-                                    ),
-                                ),
-                                span: 27..31,
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "main",
+                        span: Some(
+                            3..7,
+                        ),
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: VariableDeclaration {
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "flag",
+                                        span: Some(
+                                            20..24,
+                                        ),
+                                    },
+                                    ty: None,
+                                    value: Spanned {
+                                        node: Literal(
+                                            Boolean(
+                                                true,
+                                            ),
+                                        ),
+                                        span: 27..31,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 16..37,
                                 comments_before: [],
                                 comments_after: [],
                             },
-                        },
-                    ],
-                    tail_expression: Some(
-                        Spanned {
-                            node: If {
-                                branches: [
-                                    (
-                                        Spanned {
-                                            node: Identifier(
-                                                Identifier {
-                                                    name: "flag",
-                                                    span: Some(
-                                                        41..45,
-                                                    ),
-                                                },
-                                            ),
-                                            span: 41..45,
-                                            comments_before: [],
-                                            comments_after: [],
-                                        },
+                        ],
+                        tail_expression: Some(
+                            Spanned {
+                                node: If {
+                                    branches: [
+                                        (
+                                            Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "flag",
+                                                        span: Some(
+                                                            41..45,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 41..45,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            Block {
+                                                statements: [
+                                                    Spanned {
+                                                        node: Return(
+                                                            None,
+                                                        ),
+                                                        span: 57..69,
+                                                        comments_before: [],
+                                                        comments_after: [],
+                                                    },
+                                                ],
+                                                tail_expression: None,
+                                            },
+                                        ),
+                                    ],
+                                    else_branch: Some(
                                         Block {
                                             statements: [
-                                                Return(
-                                                    None,
-                                                ),
+                                                Spanned {
+                                                    node: Return(
+                                                        None,
+                                                    ),
+                                                    span: 86..98,
+                                                    comments_before: [],
+                                                    comments_after: [],
+                                                },
                                             ],
                                             tail_expression: None,
                                         },
                                     ),
-                                ],
-                                else_branch: Some(
-                                    Block {
-                                        statements: [
-                                            Return(
-                                                None,
-                                            ),
-                                        ],
-                                        tail_expression: None,
-                                    },
-                                ),
-                            },
-                            span: 37..100,
-                            comments_before: [],
-                            comments_after: [],
-                        },
-                    ),
-                },
-            },
-        ),
-        Function(
-            FunctionDef {
-                export: None,
-                name: Identifier {
-                    name: "compute",
-                    span: Some(
-                        106..113,
-                    ),
-                },
-                params: [],
-                return_type: Some(
-                    TypeAnnotation {
-                        name: Identifier {
-                            name: "i64",
-                            span: Some(
-                                119..122,
-                            ),
-                        },
-                        generics: [],
-                    },
-                ),
-                body: Block {
-                    statements: [
-                        VariableDeclaration {
-                            mutable: false,
-                            name: Identifier {
-                                name: "base",
-                                span: Some(
-                                    133..137,
-                                ),
-                            },
-                            ty: None,
-                            value: Spanned {
-                                node: Literal(
-                                    Integer(
-                                        41,
-                                    ),
-                                ),
-                                span: 140..142,
+                                },
+                                span: 37..100,
                                 comments_before: [],
                                 comments_after: [],
                             },
-                        },
-                    ],
-                    tail_expression: Some(
-                        Spanned {
-                            node: Binary {
-                                op: Add,
-                                left: Spanned {
-                                    node: Identifier(
-                                        Identifier {
-                                            name: "base",
-                                            span: Some(
-                                                148..152,
-                                            ),
-                                        },
-                                    ),
-                                    span: 148..153,
-                                    comments_before: [],
-                                    comments_after: [],
-                                },
-                                right: Spanned {
-                                    node: Literal(
-                                        Integer(
-                                            1,
-                                        ),
-                                    ),
-                                    span: 155..156,
-                                    comments_before: [],
-                                    comments_after: [],
-                                },
+                        ),
+                    },
+                },
+            ),
+            span: 0..103,
+            comments_before: [],
+            comments_after: [],
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "compute",
+                        span: Some(
+                            106..113,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    119..122,
+                                ),
                             },
-                            span: 148..156,
-                            comments_before: [],
-                            comments_after: [],
+                            generics: [],
                         },
                     ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: VariableDeclaration {
+                                    mutable: false,
+                                    name: Identifier {
+                                        name: "base",
+                                        span: Some(
+                                            133..137,
+                                        ),
+                                    },
+                                    ty: None,
+                                    value: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                41,
+                                            ),
+                                        ),
+                                        span: 140..142,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 129..148,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "base",
+                                                span: Some(
+                                                    148..152,
+                                                ),
+                                            },
+                                        ),
+                                        span: 148..153,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                1,
+                                            ),
+                                        ),
+                                        span: 155..156,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 148..156,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    },
                 },
-            },
-        ),
+            ),
+            span: 103..159,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 

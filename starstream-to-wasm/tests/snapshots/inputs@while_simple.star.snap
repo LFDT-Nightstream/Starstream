@@ -6,123 +6,143 @@ input_file: starstream-to-wasm/tests/inputs/while_simple.star
 Program {
     shebang: None,
     definitions: [
-        Function(
-            FunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "main",
-                    span: Some(
-                        10..14,
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
                     ),
-                },
-                params: [],
-                return_type: None,
-                body: Block {
-                    statements: [
-                        VariableDeclaration {
-                            mutable: true,
-                            name: Identifier {
-                                name: "foo",
-                                span: Some(
-                                    31..34,
-                                ),
-                            },
-                            ty: None,
-                            value: Spanned {
-                                node: Literal(
-                                    Integer(
-                                        0,
-                                    ),
-                                ),
-                                span: 37..38,
-                                comments_before: [],
-                                comments_after: [],
-                            },
-                        },
-                        While {
-                            condition: Spanned {
-                                node: Binary {
-                                    op: Less,
-                                    left: Spanned {
-                                        node: Identifier(
-                                            Identifier {
-                                                name: "foo",
-                                                span: Some(
-                                                    51..54,
-                                                ),
-                                            },
+                    name: Identifier {
+                        name: "main",
+                        span: Some(
+                            10..14,
+                        ),
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: VariableDeclaration {
+                                    mutable: true,
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: Some(
+                                            31..34,
                                         ),
-                                        span: 51..55,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
-                                    right: Spanned {
+                                    ty: None,
+                                    value: Spanned {
                                         node: Literal(
                                             Integer(
-                                                10,
+                                                0,
                                             ),
                                         ),
-                                        span: 57..59,
+                                        span: 37..38,
                                         comments_before: [],
                                         comments_after: [],
                                     },
                                 },
-                                span: 51..59,
+                                span: 23..44,
                                 comments_before: [],
                                 comments_after: [],
                             },
-                            body: Block {
-                                statements: [
-                                    Assignment {
-                                        target: Identifier {
-                                            name: "foo",
-                                            span: Some(
-                                                71..74,
-                                            ),
-                                        },
-                                        value: Spanned {
-                                            node: Binary {
-                                                op: Add,
-                                                left: Spanned {
-                                                    node: Identifier(
-                                                        Identifier {
-                                                            name: "foo",
-                                                            span: Some(
-                                                                77..80,
-                                                            ),
-                                                        },
-                                                    ),
-                                                    span: 77..81,
-                                                    comments_before: [],
-                                                    comments_after: [],
-                                                },
-                                                right: Spanned {
-                                                    node: Literal(
-                                                        Integer(
-                                                            1,
+                            Spanned {
+                                node: While {
+                                    condition: Spanned {
+                                        node: Binary {
+                                            op: Less,
+                                            left: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "foo",
+                                                        span: Some(
+                                                            51..54,
                                                         ),
-                                                    ),
-                                                    span: 83..84,
-                                                    comments_before: [],
-                                                    comments_after: [],
-                                                },
+                                                    },
+                                                ),
+                                                span: 51..55,
+                                                comments_before: [],
+                                                comments_after: [],
                                             },
-                                            span: 77..84,
-                                            comments_before: [],
-                                            comments_after: [],
+                                            right: Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        10,
+                                                    ),
+                                                ),
+                                                span: 57..59,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
                                         },
+                                        span: 51..59,
+                                        comments_before: [],
+                                        comments_after: [],
                                     },
-                                ],
-                                tail_expression: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Assignment {
+                                                    target: Identifier {
+                                                        name: "foo",
+                                                        span: Some(
+                                                            71..74,
+                                                        ),
+                                                    },
+                                                    value: Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "foo",
+                                                                        span: Some(
+                                                                            77..80,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                span: 77..81,
+                                                                comments_before: [],
+                                                                comments_after: [],
+                                                            },
+                                                            right: Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        1,
+                                                                    ),
+                                                                ),
+                                                                span: 83..84,
+                                                                comments_before: [],
+                                                                comments_after: [],
+                                                            },
+                                                        },
+                                                        span: 77..84,
+                                                        comments_before: [],
+                                                        comments_after: [],
+                                                    },
+                                                },
+                                                span: 71..90,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                    },
+                                },
+                                span: 44..92,
+                                comments_before: [],
+                                comments_after: [],
                             },
-                        },
-                    ],
-                    tail_expression: None,
+                        ],
+                        tail_expression: None,
+                    },
                 },
-            },
-        ),
+            ),
+            span: 0..94,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 

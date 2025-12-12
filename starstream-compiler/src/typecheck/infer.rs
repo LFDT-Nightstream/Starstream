@@ -167,7 +167,7 @@ pub fn typecheck_program(
 
     let mut env = TypeEnv::new();
     for definition in &program.definitions {
-        match inferencer.infer_definition(&mut env, definition) {
+        match inferencer.infer_definition(&mut env, &definition.node) {
             Ok((typed_definition, trace)) => {
                 typed_definitions.push(typed_definition);
                 definition_traces.push(trace);
@@ -224,9 +224,12 @@ impl Inferencer {
         }
     }
 
-    fn register_type_definitions(&mut self, definitions: &[Definition]) -> Result<(), TypeError> {
+    fn register_type_definitions(
+        &mut self,
+        definitions: &[Spanned<Definition>],
+    ) -> Result<(), TypeError> {
         for definition in definitions {
-            match definition {
+            match &definition.node {
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
@@ -1155,7 +1158,7 @@ impl Inferencer {
         let mut typed_statements = Vec::with_capacity(block.statements.len());
         let mut traces = Vec::with_capacity(block.statements.len() + 1);
         for statement in &block.statements {
-            let (typed, trace) = self.infer_statement(env, statement, ctx)?;
+            let (typed, trace) = self.infer_statement(env, &statement.node, ctx)?;
             typed_statements.push(typed);
             traces.push(trace);
         }
