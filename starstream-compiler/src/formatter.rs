@@ -1,7 +1,8 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
-    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, BinaryOp, Block, Definition, EventDef, Expr, FunctionDef, FunctionExport,
+    FunctionParam, Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal,
+    UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -50,6 +51,7 @@ fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
         Definition::Struct(definition) => struct_definition_to_doc(definition),
         Definition::Enum(definition) => enum_definition_to_doc(definition),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition),
+        Definition::Abi(definition) => abi_definition_to_doc(definition),
     }
 }
 
@@ -194,6 +196,46 @@ fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {
             RcDoc::text(", "),
         )
     }
+}
+
+fn abi_definition_to_doc(definition: &AbiDef) -> RcDoc<'_, ()> {
+    if definition.parts.is_empty() {
+        RcDoc::text("abi")
+            .append(RcDoc::space())
+            .append(identifier_to_doc(&definition.name))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{ }"))
+    } else {
+        let parts = RcDoc::intersperse(
+            definition.parts.iter().map(abi_part_to_doc),
+            RcDoc::line(),
+        );
+
+        RcDoc::text("abi")
+            .append(RcDoc::space())
+            .append(identifier_to_doc(&definition.name))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{"))
+            .append(RcDoc::line().append(parts).nest(INDENT))
+            .append(RcDoc::line())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn abi_part_to_doc(part: &AbiPart) -> RcDoc<'_, ()> {
+    match part {
+        AbiPart::Event(event) => event_definition_to_doc(event),
+    }
+}
+
+fn event_definition_to_doc(event: &EventDef) -> RcDoc<'_, ()> {
+    let params = params_to_doc(&event.params);
+    RcDoc::text("event")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&event.name))
+        .append(RcDoc::text("("))
+        .append(params)
+        .append(RcDoc::text(");"))
 }
 
 fn utxo_definition_to_doc(definition: &UtxoDef) -> RcDoc<'_, ()> {
@@ -577,6 +619,20 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
                         .append(args_doc)
                         .append(RcDoc::text(")"))
                 }
+                Expr::Emit { event, args } => {
+                    let args_doc = RcDoc::intersperse(
+                        args.iter()
+                            .map(|arg| expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top)),
+                        RcDoc::text(",").append(RcDoc::space()),
+                    );
+
+                    RcDoc::text("emit")
+                        .append(RcDoc::space())
+                        .append(identifier_to_doc(event))
+                        .append(RcDoc::text("("))
+                        .append(args_doc)
+                        .append(RcDoc::text(")"))
+                }
             };
 
             if needs_parentheses(prec, parent_prec, position) {
@@ -626,7 +682,8 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Literal(_)
         | Expr::Identifier(_)
         | Expr::StructLiteral { .. }
-        | Expr::EnumConstructor { .. } => PREC_PRIMARY,
+        | Expr::EnumConstructor { .. }
+        | Expr::Emit { .. } => PREC_PRIMARY,
         Expr::Grouping(inner) => precedence(&inner.node),
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),

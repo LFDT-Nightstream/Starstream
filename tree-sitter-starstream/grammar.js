@@ -24,6 +24,7 @@ module.exports = grammar({
         $.struct_definition,
         $.enum_definition,
         $.utxo_definition,
+        $.abi_definition,
       ),
 
     function_definition: ($) =>
@@ -97,6 +98,21 @@ module.exports = grammar({
 
     utxo_global: ($) =>
       seq("let", "mut", $.identifier, ":", $.type_annotation, ";"),
+
+    abi_definition: ($) =>
+      seq("abi", $.identifier, "{", repeat($._abi_part), "}"),
+
+    _abi_part: ($) => choice($.event_definition),
+
+    event_definition: ($) =>
+      seq(
+        "event",
+        $.identifier,
+        "(",
+        optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        ")",
+        ";",
+      ),
 
     // Type syntax
 
@@ -220,10 +236,18 @@ module.exports = grammar({
         $.unit_literal,
         $.struct_literal,
         $.enum_constructor,
+        $.emit_expression,
 
         $.block,
         $.if_expression,
         $.match_expression,
+      ),
+
+    emit_expression: ($) =>
+      seq(
+        "emit",
+        field("event", $.identifier),
+        field("arguments", $.arguments),
       ),
 
     struct_literal: ($) =>
