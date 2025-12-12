@@ -134,6 +134,19 @@ pub fn parser<'a>(
             )
         });
 
+    let emit_expression = just("emit")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            expression
+                .clone()
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just('(').padded(), just(')').padded()),
+        )
+        .map_with(|(event, args), extra| Spanned::new(Expr::Emit { event, args }, extra.span()));
+
     let block =
         block.map_with(|block, extra| Spanned::new(Expr::Block(Box::new(block)), extra.span()));
 
@@ -144,6 +157,7 @@ pub fn parser<'a>(
         unit_literal,
         struct_literal,
         enum_constructor,
+        emit_expression,
         block,
         if_expression,
         match_expression,

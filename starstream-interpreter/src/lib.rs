@@ -201,8 +201,9 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         | TypedExprKind::FieldAccess { .. }
         | TypedExprKind::EnumConstructor { .. }
         | TypedExprKind::Call { .. }
-        | TypedExprKind::Match { .. } => {
-            todo!("structs and enums are not supported in the interpreter yet")
+        | TypedExprKind::Match { .. }
+        | TypedExprKind::Emit { .. } => {
+            todo!("not supported in the interpreter yet")
         }
     })
 }

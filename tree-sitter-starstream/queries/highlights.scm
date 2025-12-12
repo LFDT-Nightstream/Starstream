@@ -18,6 +18,9 @@
   "struct"
   "enum"
   "match"
+  "abi"
+  "event"
+  "emit"
 ] @keyword
 
 ; Literals
@@ -85,4 +88,9 @@
 (utxo_definition "utxo" @keyword)
 (storage_utxo_part "storage" @keyword)
 
+; ABI and events
+(abi_definition (identifier) @type.definition)
+(event_definition (identifier) @function.definition)
+(emit_expression
+  event: (identifier) @function.call)
 
