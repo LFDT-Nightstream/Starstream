@@ -80,6 +80,7 @@ Program {
                                         },
                                     ),
                                     span: 43..45,
+                                    comments: [],
                                 },
                                 right: Spanned {
                                     node: Identifier(
@@ -91,9 +92,11 @@ Program {
                                         },
                                     ),
                                     span: 47..49,
+                                    comments: [],
                                 },
                             },
                             span: 43..49,
+                            comments: [],
                         },
                     ),
                 },
@@ -168,6 +171,7 @@ TypedProgram {
                                             ),
                                         },
                                         span: 43..45,
+                                        comments: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -182,10 +186,12 @@ TypedProgram {
                                             ),
                                         },
                                         span: 47..49,
+                                        comments: [],
                                     },
                                 },
                             },
                             span: 43..49,
+                            comments: [],
                         },
                     ),
                 },

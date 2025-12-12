@@ -14,7 +14,7 @@ pub fn parser<'a>(
                 op: UnaryOp::Negate,
                 expr: Box::new(expr),
             })
-            .spanned();
+            .spanned_clone();
 
         let not = just('!')
             .padded()
@@ -23,7 +23,7 @@ pub fn parser<'a>(
                 op: UnaryOp::Not,
                 expr: Box::new(expr),
             })
-            .spanned();
+            .spanned_clone();
 
         choice((negate, not, base))
     })

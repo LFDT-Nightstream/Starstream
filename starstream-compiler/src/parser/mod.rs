@@ -14,7 +14,7 @@ pub use expression::parser as expression;
 pub use program::parser as program;
 pub use statement::parser as statement;
 
-use chumsky::{combinator::MapWith, prelude::*};
+use chumsky::prelude::*;
 use starstream_types::{Spanned, ast::Program};
 
 use crate::parser::context::{Extra, State};
@@ -67,16 +67,38 @@ pub fn parse_program(source: &str) -> ParseOutput {
 
 trait ParserExt<'a, T>: Sized {
     /// Surround parse result in [Spanned].
-    fn spanned(
-        self,
-    ) -> MapWith<Self, T, impl Fn(T, &mut context::MapExtra<'a, '_>) -> Spanned<T> + Clone>;
-    // ^ explicit MapWith return type lets the result impl Clone if and only if T does.
+    fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>>;
+    /// Surround parse result in [Spanned].
+    fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
+    where
+        Self: Clone;
 }
 
 impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
-    fn spanned(
-        self,
-    ) -> MapWith<Self, T, impl Fn(T, &mut context::MapExtra<'a, '_>) -> Spanned<T> + Clone> {
-        self.map_with(|inner, extra: &mut context::MapExtra| Spanned::new(inner, extra.span()))
+    fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> {
+        comment::comment()
+            .repeated()
+            .collect::<Vec<_>>()
+            .then(self)
+            .map_with(|(comments, node), extra: &mut context::MapExtra| Spanned {
+                node,
+                span: extra.span(),
+                comments,
+            })
+    }
+
+    fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
+    where
+        Self: Clone,
+    {
+        comment::comment()
+            .repeated()
+            .collect::<Vec<_>>()
+            .then(self)
+            .map_with(|(comments, node), extra: &mut context::MapExtra| Spanned {
+                node,
+                span: extra.span(),
+                comments,
+            })
     }
 }

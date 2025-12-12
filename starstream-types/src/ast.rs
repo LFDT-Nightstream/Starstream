@@ -14,11 +14,17 @@ pub struct Spanned<T> {
     pub node: T,
     #[serde(skip)]
     pub span: Span,
+    #[serde(skip)]
+    pub comments: Vec<Comment>,
 }
 
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
-        Self { node, span }
+        Self {
+            node,
+            span,
+            comments: Vec::new(),
+        }
     }
 
     /// Map the contained value while keeping the original span.
@@ -26,6 +32,7 @@ impl<T> Spanned<T> {
         Spanned {
             node: map(self.node),
             span: self.span,
+            comments: self.comments,
         }
     }
 
@@ -37,6 +44,7 @@ impl<T> Spanned<T> {
                 end: 0,
                 context: (),
             },
+            comments: Vec::new(),
         }
     }
 }

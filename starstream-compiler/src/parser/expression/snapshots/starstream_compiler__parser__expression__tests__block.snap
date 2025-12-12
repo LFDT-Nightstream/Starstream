@@ -22,6 +22,7 @@ Spanned {
                             ),
                         ),
                         span: 14..15,
+                        comments: [],
                     },
                 },
                 Assignment {
@@ -44,6 +45,7 @@ Spanned {
                                     },
                                 ),
                                 span: 21..23,
+                                comments: [],
                             },
                             right: Spanned {
                                 node: Literal(
@@ -52,9 +54,11 @@ Spanned {
                                     ),
                                 ),
                                 span: 25..26,
+                                comments: [],
                             },
                         },
                         span: 21..26,
+                        comments: [],
                     },
                 },
             ],
@@ -62,4 +66,5 @@ Spanned {
         },
     ),
     span: 0..30,
+    comments: [],
 }

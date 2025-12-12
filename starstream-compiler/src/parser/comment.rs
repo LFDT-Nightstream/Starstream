@@ -11,7 +11,7 @@ pub fn shebang<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> {
         .map(Comment)
 }
 
-pub fn comment<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> {
+pub fn comment<'a>() -> impl Parser<'a, &'a str, Comment, Extra<'a>> + Clone {
     let line_comment = just("//")
         .then(none_of("\n").repeated())
         .then(just("\n"))

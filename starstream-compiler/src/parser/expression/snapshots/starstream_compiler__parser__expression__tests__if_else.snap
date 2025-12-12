@@ -16,6 +16,7 @@ Spanned {
                         },
                     ),
                     span: 4..8,
+                    comments: [],
                 },
                 Block {
                     statements: [
@@ -35,6 +36,7 @@ Spanned {
                                     ),
                                 ),
                                 span: 20..21,
+                                comments: [],
                             },
                         },
                     ],
@@ -65,6 +67,7 @@ Spanned {
                                         },
                                     ),
                                     span: 40..46,
+                                    comments: [],
                                 },
                                 right: Spanned {
                                     node: Literal(
@@ -73,9 +76,11 @@ Spanned {
                                         ),
                                     ),
                                     span: 48..49,
+                                    comments: [],
                                 },
                             },
                             span: 40..49,
+                            comments: [],
                         },
                     },
                 ],
@@ -84,4 +89,5 @@ Spanned {
         ),
     },
     span: 0..53,
+    comments: [],
 }

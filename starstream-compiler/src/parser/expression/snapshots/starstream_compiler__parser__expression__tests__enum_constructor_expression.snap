@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/parser/expression/mod.rs
-assertion_line: 113
 description: "Code:\n\nResult::Ok(answer)"
 ---
 Spanned {
@@ -29,9 +28,11 @@ Spanned {
                         },
                     ),
                     span: 11..17,
+                    comments: [],
                 },
             ],
         ),
     },
     span: 0..18,
+    comments: [],
 }

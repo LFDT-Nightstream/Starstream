@@ -111,6 +111,7 @@ Program {
                                                 },
                                             ),
                                             span: 100..105,
+                                            comments: [],
                                         },
                                         field: Identifier {
                                             name: "amount",
@@ -120,6 +121,7 @@ Program {
                                         },
                                     },
                                     span: 100..112,
+                                    comments: [],
                                 },
                                 right: Spanned {
                                     node: FieldAccess {
@@ -133,6 +135,7 @@ Program {
                                                 },
                                             ),
                                             span: 115..120,
+                                            comments: [],
                                         },
                                         field: Identifier {
                                             name: "price",
@@ -142,9 +145,11 @@ Program {
                                         },
                                     },
                                     span: 115..126,
+                                    comments: [],
                                 },
                             },
                             span: 100..126,
+                            comments: [],
                         },
                     ),
                 },
@@ -311,6 +316,7 @@ TypedProgram {
                                                         ),
                                                     },
                                                     span: 100..105,
+                                                    comments: [],
                                                 },
                                                 field: Identifier {
                                                     name: "amount",
@@ -321,6 +327,7 @@ TypedProgram {
                                             },
                                         },
                                         span: 100..112,
+                                        comments: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -353,6 +360,7 @@ TypedProgram {
                                                         ),
                                                     },
                                                     span: 115..120,
+                                                    comments: [],
                                                 },
                                                 field: Identifier {
                                                     name: "price",
@@ -363,10 +371,12 @@ TypedProgram {
                                             },
                                         },
                                         span: 115..126,
+                                        comments: [],
                                     },
                                 },
                             },
                             span: 100..126,
+                            comments: [],
                         },
                     ),
                 },

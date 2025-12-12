@@ -16,6 +16,7 @@ Expression(
                     },
                 ),
                 span: 0..6,
+                comments: [],
             },
             right: Spanned {
                 node: Literal(
@@ -24,8 +25,10 @@ Expression(
                     ),
                 ),
                 span: 8..9,
+                comments: [],
             },
         },
         span: 0..9,
+        comments: [],
     },
 )

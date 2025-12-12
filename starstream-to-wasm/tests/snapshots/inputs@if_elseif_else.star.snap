@@ -33,6 +33,7 @@ Program {
                                                 ),
                                             ),
                                             span: 27..32,
+                                            comments: [],
                                         },
                                         Block {
                                             statements: [
@@ -44,6 +45,7 @@ Program {
                                                             ),
                                                         ),
                                                         span: 44..45,
+                                                        comments: [],
                                                     },
                                                 ),
                                             ],
@@ -58,6 +60,7 @@ Program {
                                                 ),
                                             ),
                                             span: 62..66,
+                                            comments: [],
                                         },
                                         Block {
                                             statements: [
@@ -69,6 +72,7 @@ Program {
                                                             ),
                                                         ),
                                                         span: 78..79,
+                                                        comments: [],
                                                     },
                                                 ),
                                             ],
@@ -87,6 +91,7 @@ Program {
                                                         ),
                                                     ),
                                                     span: 102..103,
+                                                    comments: [],
                                                 },
                                             ),
                                         ],
@@ -95,6 +100,7 @@ Program {
                                 ),
                             },
                             span: 23..111,
+                            comments: [],
                         },
                     ),
                 },
@@ -168,6 +174,7 @@ TypedProgram {
                                                     ),
                                                 },
                                                 span: 27..32,
+                                                comments: [],
                                             },
                                             TypedBlock {
                                                 statements: [
@@ -182,6 +189,7 @@ TypedProgram {
                                                                 ),
                                                             },
                                                             span: 44..45,
+                                                            comments: [],
                                                         },
                                                     ),
                                                 ],
@@ -199,6 +207,7 @@ TypedProgram {
                                                     ),
                                                 },
                                                 span: 62..66,
+                                                comments: [],
                                             },
                                             TypedBlock {
                                                 statements: [
@@ -213,6 +222,7 @@ TypedProgram {
                                                                 ),
                                                             },
                                                             span: 78..79,
+                                                            comments: [],
                                                         },
                                                     ),
                                                 ],
@@ -234,6 +244,7 @@ TypedProgram {
                                                             ),
                                                         },
                                                         span: 102..103,
+                                                        comments: [],
                                                     },
                                                 ),
                                             ],
@@ -243,6 +254,7 @@ TypedProgram {
                                 },
                             },
                             span: 23..111,
+                            comments: [],
                         },
                     ),
                 },

@@ -15,6 +15,7 @@ Spanned {
                         ),
                     ),
                     span: 0..1,
+                    comments: [],
                 },
                 right: Spanned {
                     node: Binary {
@@ -26,6 +27,7 @@ Spanned {
                                 ),
                             ),
                             span: 4..5,
+                            comments: [],
                         },
                         right: Spanned {
                             node: Literal(
@@ -34,12 +36,15 @@ Spanned {
                                 ),
                             ),
                             span: 8..9,
+                            comments: [],
                         },
                     },
                     span: 4..9,
+                    comments: [],
                 },
             },
             span: 0..9,
+            comments: [],
         },
         right: Spanned {
             node: Literal(
@@ -48,7 +53,9 @@ Spanned {
                 ),
             ),
             span: 12..13,
+            comments: [],
         },
     },
     span: 0..13,
+    comments: [],
 }

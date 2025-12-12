@@ -18,5 +18,6 @@ VariableDeclaration {
             ),
         ),
         span: 13..15,
+        comments: [],
     },
 }

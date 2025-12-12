@@ -1,7 +1,7 @@
 use chumsky::{prelude::*, span::SimpleSpan};
 use starstream_types::ast::{Expr, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, primitives};
+use crate::parser::{context::Extra, primitives};
 
 pub fn parser<'a>(
     lower: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,

@@ -37,6 +37,7 @@ Program {
                                     ),
                                 ),
                                 span: 37..38,
+                                comments: [],
                             },
                         },
                         While {
@@ -53,6 +54,7 @@ Program {
                                             },
                                         ),
                                         span: 51..55,
+                                        comments: [],
                                     },
                                     right: Spanned {
                                         node: Literal(
@@ -61,9 +63,11 @@ Program {
                                             ),
                                         ),
                                         span: 57..59,
+                                        comments: [],
                                     },
                                 },
                                 span: 51..59,
+                                comments: [],
                             },
                             body: Block {
                                 statements: [
@@ -87,6 +91,7 @@ Program {
                                                         },
                                                     ),
                                                     span: 77..81,
+                                                    comments: [],
                                                 },
                                                 right: Spanned {
                                                     node: Literal(
@@ -95,9 +100,11 @@ Program {
                                                         ),
                                                     ),
                                                     span: 83..84,
+                                                    comments: [],
                                                 },
                                             },
                                             span: 77..84,
+                                            comments: [],
                                         },
                                     },
                                 ],
@@ -168,6 +175,7 @@ TypedProgram {
                                     ),
                                 },
                                 span: 37..38,
+                                comments: [],
                             },
                         },
                         While {
@@ -189,6 +197,7 @@ TypedProgram {
                                                 ),
                                             },
                                             span: 51..55,
+                                            comments: [],
                                         },
                                         right: Spanned {
                                             node: TypedExpr {
@@ -200,10 +209,12 @@ TypedProgram {
                                                 ),
                                             },
                                             span: 57..59,
+                                            comments: [],
                                         },
                                     },
                                 },
                                 span: 51..59,
+                                comments: [],
                             },
                             body: TypedBlock {
                                 statements: [
@@ -232,6 +243,7 @@ TypedProgram {
                                                             ),
                                                         },
                                                         span: 77..81,
+                                                        comments: [],
                                                     },
                                                     right: Spanned {
                                                         node: TypedExpr {
@@ -243,10 +255,12 @@ TypedProgram {
                                                             ),
                                                         },
                                                         span: 83..84,
+                                                        comments: [],
                                                     },
                                                 },
                                             },
                                             span: 77..84,
+                                            comments: [],
                                         },
                                     },
                                 ],

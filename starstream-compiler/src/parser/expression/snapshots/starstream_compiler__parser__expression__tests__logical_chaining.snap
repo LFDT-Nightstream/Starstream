@@ -20,6 +20,7 @@ Spanned {
                                         ),
                                     ),
                                     span: 1..2,
+                                    comments: [],
                                 },
                                 right: Spanned {
                                     node: Literal(
@@ -28,12 +29,15 @@ Spanned {
                                         ),
                                     ),
                                     span: 5..6,
+                                    comments: [],
                                 },
                             },
                             span: 1..6,
+                            comments: [],
                         },
                     ),
                     span: 0..8,
+                    comments: [],
                 },
                 right: Spanned {
                     node: Literal(
@@ -42,9 +46,11 @@ Spanned {
                         ),
                     ),
                     span: 11..17,
+                    comments: [],
                 },
             },
             span: 0..17,
+            comments: [],
         },
         right: Spanned {
             node: Literal(
@@ -53,7 +59,9 @@ Spanned {
                 ),
             ),
             span: 20..24,
+            comments: [],
         },
     },
     span: 0..24,
+    comments: [],
 }

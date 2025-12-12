@@ -16,6 +16,7 @@ Spanned {
                         },
                     ),
                     span: 0..5,
+                    comments: [],
                 },
                 field: Identifier {
                     name: "position",
@@ -25,6 +26,7 @@ Spanned {
                 },
             },
             span: 0..14,
+            comments: [],
         },
         field: Identifier {
             name: "x",
@@ -34,4 +36,5 @@ Spanned {
         },
     },
     span: 0..16,
+    comments: [],
 }
