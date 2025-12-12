@@ -97,6 +97,7 @@ pub enum Definition {
     Struct(StructDef),
     Enum(EnumDef),
     Utxo(UtxoDef),
+    Abi(AbiDef),
 }
 
 /// `fn` definition.
@@ -169,6 +170,25 @@ pub enum UtxoPart {
 pub struct UtxoGlobal {
     pub name: Identifier,
     pub ty: TypeAnnotation,
+}
+
+/// `abi` definition containing event and function declarations.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct AbiDef {
+    pub name: Identifier,
+    pub parts: Vec<AbiPart>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum AbiPart {
+    Event(EventDef),
+}
+
+/// `event` declaration inside an `abi` block.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct EventDef {
+    pub name: Identifier,
+    pub params: Vec<FunctionParam>,
 }
 
 // ----------------------------------------------------------------------------
@@ -253,6 +273,11 @@ pub enum Expr {
     },
     Call {
         callee: Box<Spanned<Expr>>,
+        args: Vec<Spanned<Expr>>,
+    },
+    /// Event emission expression: `emit EventName(args...)`
+    Emit {
+        event: Identifier,
         args: Vec<Spanned<Expr>>,
     },
 }
