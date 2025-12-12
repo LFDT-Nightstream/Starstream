@@ -1,0 +1,15 @@
+===
+Comments
+===
+#!/usr/bin/starstream
+// ^ hypothetical future, just to illustrate it's allowed
+script fn main(/* no args yet...*/) {}
+---
+(program
+  (shebang)
+  (comment)
+  (function_definition
+    (function_export)
+    (identifier)
+    (comment)
+    (block)))

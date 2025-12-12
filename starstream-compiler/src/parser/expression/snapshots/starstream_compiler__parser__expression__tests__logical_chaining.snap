@@ -20,6 +20,8 @@ Spanned {
                                         ),
                                     ),
                                     span: 1..2,
+                                    comments_before: [],
+                                    comments_after: [],
                                 },
                                 right: Spanned {
                                     node: Literal(
@@ -28,12 +30,18 @@ Spanned {
                                         ),
                                     ),
                                     span: 5..6,
+                                    comments_before: [],
+                                    comments_after: [],
                                 },
                             },
                             span: 1..6,
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                     span: 0..8,
+                    comments_before: [],
+                    comments_after: [],
                 },
                 right: Spanned {
                     node: Literal(
@@ -42,9 +50,13 @@ Spanned {
                         ),
                     ),
                     span: 11..17,
+                    comments_before: [],
+                    comments_after: [],
                 },
             },
             span: 0..17,
+            comments_before: [],
+            comments_after: [],
         },
         right: Spanned {
             node: Literal(
@@ -53,7 +65,11 @@ Spanned {
                 ),
             ),
             span: 20..24,
+            comments_before: [],
+            comments_after: [],
         },
     },
     span: 0..24,
+    comments_before: [],
+    comments_after: [],
 }

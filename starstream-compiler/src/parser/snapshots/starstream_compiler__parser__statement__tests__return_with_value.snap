@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/parser/statement.rs
-assertion_line: 205
 description: "Code:\n\nreturn flag;"
 ---
 Return(
@@ -15,6 +14,8 @@ Return(
                 },
             ),
             span: 7..11,
+            comments_before: [],
+            comments_after: [],
         },
     ),
 )

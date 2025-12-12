@@ -75,14 +75,14 @@ fn check_file(path: &Path) -> miette::Result<CheckResult> {
     let mut errors = 0usize;
 
     if !parse_output.errors().is_empty() {
-        for error in parse_output.errors().iter().cloned() {
+        for error in parse_output.errors {
             print_diagnostic(named.clone(), error)?;
 
             errors += 1;
         }
     }
 
-    let Some(program) = parse_output.into_program() else {
+    let Some(program) = parse_output.program else {
         return Ok(CheckResult { errors });
     };
 

@@ -14,7 +14,7 @@ module.exports = grammar({
   // Rules names prefixed with _ are hidden in the output syntax tree, best
   // used for choices between single children.
   rules: {
-    program: ($) => repeat($._definition),
+    program: ($) => seq(optional($.shebang), repeat($._definition)),
 
     // Definitions
 
@@ -358,6 +358,14 @@ module.exports = grammar({
     integer_literal: ($) => /[0-9]+/,
     boolean_literal: ($) => choice("true", "false"),
     unit_literal: ($) => seq("(", ")"),
+
+    // Comments
+    shebang: ($) => token(seq("#!", /.*/)),
+    comment: ($) =>
+      token(
+        choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
+      ),
   },
   conflicts: ($) => [[$.enum_constructor]],
+  extras: ($) => [/\s/, $.comment],
 });

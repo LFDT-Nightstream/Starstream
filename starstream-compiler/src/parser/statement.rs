@@ -1,7 +1,7 @@
 use chumsky::{prelude::*, recursive::Recursive};
 use starstream_types::ast::{Block, Expr, Spanned, Statement};
 
-use crate::parser::type_annotation;
+use crate::parser::{ParserExt, type_annotation};
 
 use super::{context::Extra, expression, primitives};
 
@@ -99,6 +99,7 @@ fn build_parsers<'a>(
 
     let block = statement_parser
         .clone()
+        .spanned()
         .repeated()
         .collect::<Vec<_>>()
         .then(expr.clone().padded().or_not())

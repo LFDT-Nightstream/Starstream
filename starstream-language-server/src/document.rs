@@ -191,7 +191,8 @@ impl DocumentState {
             None => return Ok(None),
         };
 
-        formatter::program(program).map(Some)
+        let str = self.rope.to_string();
+        formatter::program(program, &str).map(Some)
     }
 
     /// Resolve hover information for the given cursor position.
@@ -985,7 +986,7 @@ impl DocumentState {
 
     fn collect_type_annotations_from_ast(&mut self, program: &Program) {
         for definition in &program.definitions {
-            match definition {
+            match &definition.node {
                 untyped_ast::Definition::Function(function) => {
                     for param in &function.params {
                         self.collect_type_annotation_node(&param.ty);
@@ -1034,7 +1035,7 @@ impl DocumentState {
 
     fn collect_block_annotations_from_ast(&mut self, block: &untyped_ast::Block) {
         for statement in &block.statements {
-            self.collect_statement_annotations_from_ast(statement);
+            self.collect_statement_annotations_from_ast(&statement.node);
         }
     }
 

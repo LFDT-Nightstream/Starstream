@@ -1,0 +1,6 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n#!/usr/bin/env starstream\nfn main(){}\n"
+---
+#!/usr/bin/env starstream
+fn main() { }

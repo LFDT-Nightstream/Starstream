@@ -6,60 +6,80 @@ Spanned {
     node: Block(
         Block {
             statements: [
-                VariableDeclaration {
-                    mutable: true,
-                    name: Identifier {
-                        name: "a",
-                        span: Some(
-                            10..11,
-                        ),
-                    },
-                    ty: None,
-                    value: Spanned {
-                        node: Literal(
-                            Integer(
-                                1,
+                Spanned {
+                    node: VariableDeclaration {
+                        mutable: true,
+                        name: Identifier {
+                            name: "a",
+                            span: Some(
+                                10..11,
                             ),
-                        ),
-                        span: 14..15,
-                    },
-                },
-                Assignment {
-                    target: Identifier {
-                        name: "a",
-                        span: Some(
-                            17..18,
-                        ),
-                    },
-                    value: Spanned {
-                        node: Binary {
-                            op: Add,
-                            left: Spanned {
-                                node: Identifier(
-                                    Identifier {
-                                        name: "a",
-                                        span: Some(
-                                            21..22,
-                                        ),
-                                    },
-                                ),
-                                span: 21..23,
-                            },
-                            right: Spanned {
-                                node: Literal(
-                                    Integer(
-                                        1,
-                                    ),
-                                ),
-                                span: 25..26,
-                            },
                         },
-                        span: 21..26,
+                        ty: None,
+                        value: Spanned {
+                            node: Literal(
+                                Integer(
+                                    1,
+                                ),
+                            ),
+                            span: 14..15,
+                            comments_before: [],
+                            comments_after: [],
+                        },
                     },
+                    span: 2..17,
+                    comments_before: [],
+                    comments_after: [],
+                },
+                Spanned {
+                    node: Assignment {
+                        target: Identifier {
+                            name: "a",
+                            span: Some(
+                                17..18,
+                            ),
+                        },
+                        value: Spanned {
+                            node: Binary {
+                                op: Add,
+                                left: Spanned {
+                                    node: Identifier(
+                                        Identifier {
+                                            name: "a",
+                                            span: Some(
+                                                21..22,
+                                            ),
+                                        },
+                                    ),
+                                    span: 21..23,
+                                    comments_before: [],
+                                    comments_after: [],
+                                },
+                                right: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            1,
+                                        ),
+                                    ),
+                                    span: 25..26,
+                                    comments_before: [],
+                                    comments_after: [],
+                                },
+                            },
+                            span: 21..26,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    },
+                    span: 17..28,
+                    comments_before: [],
+                    comments_after: [],
                 },
             ],
             tail_expression: None,
         },
     ),
     span: 0..30,
+    comments_before: [],
+    comments_after: [],
 }

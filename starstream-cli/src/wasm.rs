@@ -32,11 +32,11 @@ impl Wasm {
         let named = NamedSource::new(self.compile_file.display().to_string(), source_text.clone());
 
         let parse_output = starstream_compiler::parse_program(&source_text);
-        for error in parse_output.errors().iter().cloned() {
+        for error in parse_output.errors {
             print_diagnostic(named.clone(), error)?;
         }
 
-        let Some(program) = parse_output.into_program() else {
+        let Some(program) = parse_output.program else {
             std::process::exit(1);
         };
 

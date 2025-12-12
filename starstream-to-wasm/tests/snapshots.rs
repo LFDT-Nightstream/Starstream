@@ -56,8 +56,8 @@ fn inputs() {
         if let Some(program) = program {
             writeln!(output, "{:#?}\n", program).unwrap();
 
-            let formatted_source =
-                starstream_compiler::formatter::program(&program).expect("formatter error");
+            let formatted_source = starstream_compiler::formatter::program(&program, &source)
+                .expect("formatter error");
             assert_eq!(
                 source, formatted_source,
                 "formatted source differs from original"
