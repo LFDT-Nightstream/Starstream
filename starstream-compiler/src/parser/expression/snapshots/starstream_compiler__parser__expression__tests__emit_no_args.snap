@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nemit Ping()"
+---
+Spanned {
+    node: Emit {
+        event: Identifier {
+            name: "Ping",
+            span: Some(
+                5..9,
+            ),
+        },
+        args: [],
+    },
+    span: 0..11,
+}

@@ -171,4 +171,14 @@ mod tests {
     fn field_access_then_call() {
         assert_expression_snapshot!("obj.method(x)");
     }
+
+    #[test]
+    fn emit_no_args() {
+        assert_expression_snapshot!("emit Ping()");
+    }
+
+    #[test]
+    fn emit_with_args() {
+        assert_expression_snapshot!("emit Transfer(from, to, amount)");
+    }
 }

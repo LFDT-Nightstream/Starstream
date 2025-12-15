@@ -187,3 +187,65 @@ fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
         .then_ignore(just(';').padded())
         .map(|(name, params)| EventDef { name, params })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+
+    macro_rules! assert_definition_snapshot {
+        ($code:expr) => {{
+            let def = parser()
+                .parse(indoc! { $code })
+                .into_result()
+                .expect("definition should parse");
+
+            insta::with_settings!({
+                description => format!("Code:\n\n{}", indoc! { $code }),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(def);
+            });
+        }};
+    }
+
+    #[test]
+    fn abi_empty() {
+        assert_definition_snapshot!("abi Events {}");
+    }
+
+    #[test]
+    fn abi_single_event() {
+        assert_definition_snapshot!(
+            r#"
+            abi Events {
+                event Transfer(from: i64, to: i64);
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_multiple_events() {
+        assert_definition_snapshot!(
+            r#"
+            abi Events {
+                event Transfer(from: i64, to: i64, amount: i64);
+                event Log(message: i64);
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_event_no_params() {
+        assert_definition_snapshot!(
+            r#"
+            abi Events {
+                event Ping();
+            }
+            "#
+        );
+    }
+}

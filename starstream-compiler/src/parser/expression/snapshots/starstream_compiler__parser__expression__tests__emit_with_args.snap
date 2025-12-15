@@ -1,0 +1,50 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nemit Transfer(from, to, amount)"
+---
+Spanned {
+    node: Emit {
+        event: Identifier {
+            name: "Transfer",
+            span: Some(
+                5..13,
+            ),
+        },
+        args: [
+            Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "from",
+                        span: Some(
+                            14..18,
+                        ),
+                    },
+                ),
+                span: 14..18,
+            },
+            Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "to",
+                        span: Some(
+                            20..22,
+                        ),
+                    },
+                ),
+                span: 20..22,
+            },
+            Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "amount",
+                        span: Some(
+                            24..30,
+                        ),
+                    },
+                ),
+                span: 24..30,
+            },
+        ],
+    },
+    span: 0..31,
+}
