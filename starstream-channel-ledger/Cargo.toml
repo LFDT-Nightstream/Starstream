@@ -1,0 +1,18 @@
+[package]
+name = "starstream-channel-ledger"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3 = "1"
+replace_with = "0.1"
+bincode = "2"
+k256 = "0.14.0-rc.1"
+wasmi = "1"
+
+[lints.clippy]
+all = "allow"
