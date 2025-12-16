@@ -1,0 +1,115 @@
+list(X) ::= n:u32 (el:X)^n => el^n
+sized(X) ::= n:u32 el:X => el* if size(el) = n
+
+byte ::= 0x00 | … | 0xFF
+
+uN ::= n:byte => n if n < 2^7 ∧ n < 2^N
+     | n:byte m:u(N-7) => 2^7 · m + (n - 2^7) if n ≥ 2^7 ∧ N > 7
+
+sN ::= n:byte => n if n < 2^6 ∧ n < 2^(N-1)
+     | n:byte => n - 2^7 if 2^6 ≤ n < 2^7 ∧ n ≥ 2^7 - 2^(N-1)
+     | n:byte i:u(N-7) => 2^7 · i + (n - 2^7) if n ≥ 2^7 ∧ N > 7
+
+name ::= name:list(byte) => name
+
+cont(b) = b - 0x80 if 0x80 < b < 0xC0
+
+numtype ::= 0x7F => i32
+valtype ::= nt:numtype => nt
+limits ::= 0x00 n:u64 => (i32, [ n .. ]) | 0x01 n:u64 m:u64 => (i32, [ n .. m ])
+memtype ::= (at, lim):limits => at lim page
+
+typeidx ::= x:u32 => x
+funcidx ::= x:u32 => x
+memidx ::= x:u32 => x
+elemidx ::= x:u32 => x
+dataidx ::= x:u32 => x
+localidx ::= x:u32 => x
+labelidx ::= l:u32 => l
+externidx ::= 0x00 x:funcidx => func x
+externidx ::= 0x02 x:memidx => memory x
+
+blocktype ::= 0x40 => epsilon
+blocktype ::= t:valtype => t
+blocktype ::= i:s33 => i if i >= 0
+
+memarg ::= n:u32 m:u32 => (0, { align n, offset m }) if n < 2^6
+memarg ::= n:u32 x:memidx m:u32 => (x, { align (n - 2^6), offset m }) if 2^6 <= n < 2^7
+
+instr ::= 0x00 => unreachable
+instr ::= 0x01 => nop
+instr ::= 0x02 bt:blocktype (in:instr)* 0x0B => block bt in*
+instr ::= 0x03 bt:blocktype (in:instr)* 0x0B => loop bt in*
+instr ::= 0x04 bt:blocktype (in1:instr)* 0x05 (in2:instr)* 0x0B => if bt in1* else in2*
+instr ::= 0x04 bt:blocktype (in1:instr)* 0x0B => if bt in1* else epsilon
+instr ::= 0x0C l:labelidx => br l
+instr ::= 0x0D l:labelidx => br_if l
+instr ::= 0x0F => return
+instr ::= 0x10 x:funcidx => call x
+instr ::= 0x1A => drop
+instr ::= 0x1B => select
+instr ::= 0x1C t*:list(valtype) => select t*
+instr ::= 0x20 x:localidx => local.get x
+instr ::= 0x21 x:localidx => local.set x
+instr ::= 0x22 x:localidx => local.tee x
+instr ::= 0x28 (x, ao):memarg => i32.load x ao
+instr ::= 0x2C (x, ao):memarg => i32.load8_s x ao
+instr ::= 0x2D (x, ao):memarg => i32.load8_u x ao
+instr ::= 0x2E (x, ao):memarg => i32.load16_s x ao
+instr ::= 0x2F (x, ao):memarg => i32.load16_u x ao
+instr ::= 0x36 (x, ao):memarg => i32.store x ao
+instr ::= 0x3A (x, ao):memarg => i32.store8 x ao
+instr ::= 0x3B (x, ao):memarg => i32.store16 x ao
+instr ::= 0x41 n:i32 => i32.const n
+instr ::= 0x45 => i32.eqz
+instr ::= 0x46 => i32.eq
+instr ::= 0x47 => i32.ne
+instr ::= 0x48 => i32.lt_s
+instr ::= 0x49 => i32.lt_u
+instr ::= 0x4A => i32.gt_s
+instr ::= 0x4B => i32.gt_u
+instr ::= 0x4C => i32.le_s
+instr ::= 0x4D => i32.le_u
+instr ::= 0x4E => i32.ge_s
+instr ::= 0x4F => i32.ge_u
+instr ::= 0x67 => i32.clz
+instr ::= 0x68 => i32.ctz
+instr ::= 0x69 => i32.popcnt
+instr ::= 0x6A => i32.add
+instr ::= 0x6B => i32.sub
+instr ::= 0x6C => i32.mul
+instr ::= 0x6D => i32.div_s
+instr ::= 0x6E => i32.div_u
+instr ::= 0x6F => i32.rem_s
+instr ::= 0x70 => i32.rem_u
+instr ::= 0x71 => i32.and
+instr ::= 0x72 => i32.or
+instr ::= 0x73 => i32.xor
+instr ::= 0x74 => i32.shl
+instr ::= 0x75 => i32.shr_s
+instr ::= 0x76 => i32.shr_u
+instr ::= 0x77 => i32.rotl
+instr ::= 0x78 => i32.rotr
+expr ::= (in:instr)* 0x0B => in*
+
+section(n, X) ::= n:byte en*:sized(X) => en*
+section(n, X) ::= epsilon => epsilon
+unknown_section ::= n:byte list(byte) => epsilon
+memsec ::= mem*:section(5, list(mem)) => mem*
+mem ::= mt:memtype => memory mt
+exportsec ::= ex*:section(7, list(export)) => ex*
+export ::= nm:name xx:externidx => export nm xx
+codesec ::= code*:section(10, list(code)) => code*
+func ::= loc**:list(locals) e:expr => (⊕ loc**, e)
+code ::= code:sized(func) => code
+locals ::= n:u32 t:valtype => (local t)^n
+datasec ::= data*:section(11, list(data)) => data*
+data ::= 0:u32 e:expr b*:list(byte) => data b* (active 0 e)
+typesec ::= ty*:section(1, list(type)) => ty*
+type ::= qt:fntype => type qt
+fntype ::= 0x60 t1*:resulttype t2*:resulttype => func t1* -> t2*
+resulttype ::= t*:list(valtype) => t*
+funcsec ::= x*:section(3, list(typeidx)) => x*
+magic ::= 0x00 0x61 0x73 0x6D
+version ::= 0x01 0x00 0x00 0x00
+module ::= magic version unknown_section* type*:typesec unknown_section* typeidx*:funcsec mem*:memsec unknown_section* export*:exportsec unknown_section* (local*, expr)*:codesec unknown_section* data*:datasec unknown_section* => module type* typeidx* mem* func* data* export*

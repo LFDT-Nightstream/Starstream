@@ -1,0 +1,17 @@
+[package]
+name = "starstream-nova"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+combine = "4.6.7"
+
+[dev-dependencies]
+wat = "1.239.0"
+
+[lints.clippy]
+all = "allow"
