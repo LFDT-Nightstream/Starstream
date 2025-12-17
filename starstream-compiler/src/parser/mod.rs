@@ -1,3 +1,4 @@
+mod comment;
 mod context;
 mod definition;
 mod error;
@@ -14,11 +15,14 @@ pub use program::parser as program;
 pub use statement::parser as statement;
 
 use chumsky::prelude::*;
-use starstream_types::ast::Program;
+use starstream_types::{Spanned, ast::Program};
+
+use crate::parser::context::{Extra, State};
 
 pub struct ParseOutput {
-    program: Option<Program>,
-    errors: Vec<ParseError>,
+    pub program: Option<Program>,
+    pub errors: Vec<ParseError>,
+    pub extra: State,
 }
 
 impl ParseOutput {
@@ -54,5 +58,59 @@ pub fn parse_program(source: &str) -> ParseOutput {
         .map(error::ParseError::from_rich)
         .collect();
 
-    ParseOutput { program, errors }
+    ParseOutput {
+        program,
+        errors,
+        extra: state.0,
+    }
+}
+
+trait ParserExt<'a, T>: Sized {
+    /// Surround parse result in [Spanned].
+    fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>>;
+    /// Surround parse result in [Spanned].
+    fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
+    where
+        Self: Clone;
+}
+
+impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
+    fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> {
+        comment::comment()
+            .repeated()
+            .collect::<Vec<_>>()
+            .then(self)
+            .then(comment::comment().repeated().collect::<Vec<_>>())
+            .map_with(
+                |((comments_before, node), comments_after), extra: &mut context::MapExtra| {
+                    Spanned {
+                        node,
+                        span: extra.span(),
+                        comments_before,
+                        comments_after,
+                    }
+                },
+            )
+    }
+
+    fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
+    where
+        Self: Clone,
+    {
+        comment::comment()
+            .repeated()
+            .collect::<Vec<_>>()
+            .then(self)
+            .then(comment::comment().repeated().collect::<Vec<_>>())
+            .map_with(
+                |((comments_before, node), comments_after), extra: &mut context::MapExtra| {
+                    Spanned {
+                        node,
+                        span: extra.span(),
+                        comments_before,
+                        comments_after,
+                    }
+                },
+            )
+    }
 }

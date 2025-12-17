@@ -4,100 +4,112 @@ input_file: starstream-to-wasm/tests/inputs/add.star
 ---
 ==== AST ====
 Program {
+    shebang: None,
     definitions: [
-        Function(
-            FunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "add",
-                    span: Some(
-                        10..13,
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
                     ),
-                },
-                params: [
-                    FunctionParam {
-                        name: Identifier {
-                            name: "x",
-                            span: Some(
-                                14..15,
-                            ),
+                    name: Identifier {
+                        name: "add",
+                        span: Some(
+                            10..13,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "x",
+                                span: Some(
+                                    14..15,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        17..20,
+                                    ),
+                                },
+                                generics: [],
+                            },
                         },
-                        ty: TypeAnnotation {
+                        FunctionParam {
+                            name: Identifier {
+                                name: "y",
+                                span: Some(
+                                    22..23,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        25..28,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
                                 span: Some(
-                                    17..20,
+                                    33..36,
                                 ),
                             },
                             generics: [],
                         },
-                    },
-                    FunctionParam {
-                        name: Identifier {
-                            name: "y",
-                            span: Some(
-                                22..23,
-                            ),
-                        },
-                        ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: Some(
-                                    25..28,
-                                ),
-                            },
-                            generics: [],
-                        },
-                    },
-                ],
-                return_type: Some(
-                    TypeAnnotation {
-                        name: Identifier {
-                            name: "i64",
-                            span: Some(
-                                33..36,
-                            ),
-                        },
-                        generics: [],
-                    },
-                ),
-                body: Block {
-                    statements: [],
-                    tail_expression: Some(
-                        Spanned {
-                            node: Binary {
-                                op: Add,
-                                left: Spanned {
-                                    node: Identifier(
-                                        Identifier {
-                                            name: "x",
-                                            span: Some(
-                                                43..44,
-                                            ),
-                                        },
-                                    ),
-                                    span: 43..45,
-                                },
-                                right: Spanned {
-                                    node: Identifier(
-                                        Identifier {
-                                            name: "y",
-                                            span: Some(
-                                                47..48,
-                                            ),
-                                        },
-                                    ),
-                                    span: 47..49,
-                                },
-                            },
-                            span: 43..49,
-                        },
                     ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "x",
+                                                span: Some(
+                                                    43..44,
+                                                ),
+                                            },
+                                        ),
+                                        span: 43..45,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "y",
+                                                span: Some(
+                                                    47..48,
+                                                ),
+                                            },
+                                        ),
+                                        span: 47..49,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 43..49,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    },
                 },
-            },
-        ),
+            ),
+            span: 0..51,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 
@@ -167,6 +179,8 @@ TypedProgram {
                                             ),
                                         },
                                         span: 43..45,
+                                        comments_before: [],
+                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -181,10 +195,14 @@ TypedProgram {
                                             ),
                                         },
                                         span: 47..49,
+                                        comments_before: [],
+                                        comments_after: [],
                                     },
                                 },
                             },
                             span: 43..49,
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                 },

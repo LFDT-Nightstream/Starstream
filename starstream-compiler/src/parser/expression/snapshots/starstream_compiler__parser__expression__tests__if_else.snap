@@ -16,26 +16,35 @@ Spanned {
                         },
                     ),
                     span: 4..8,
+                    comments_before: [],
+                    comments_after: [],
                 },
                 Block {
                     statements: [
-                        VariableDeclaration {
-                            mutable: false,
-                            name: Identifier {
-                                name: "a",
-                                span: Some(
-                                    16..17,
-                                ),
-                            },
-                            ty: None,
-                            value: Spanned {
-                                node: Literal(
-                                    Integer(
-                                        1,
+                        Spanned {
+                            node: VariableDeclaration {
+                                mutable: false,
+                                name: Identifier {
+                                    name: "a",
+                                    span: Some(
+                                        16..17,
                                     ),
-                                ),
-                                span: 20..21,
+                                },
+                                ty: None,
+                                value: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            1,
+                                        ),
+                                    ),
+                                    span: 20..21,
+                                    comments_before: [],
+                                    comments_after: [],
+                                },
                             },
+                            span: 12..23,
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ],
                     tail_expression: None,
@@ -45,38 +54,49 @@ Spanned {
         else_branch: Some(
             Block {
                 statements: [
-                    Assignment {
-                        target: Identifier {
-                            name: "value",
-                            span: Some(
-                                32..37,
-                            ),
-                        },
-                        value: Spanned {
-                            node: Binary {
-                                op: Add,
-                                left: Spanned {
-                                    node: Identifier(
-                                        Identifier {
-                                            name: "value",
-                                            span: Some(
-                                                40..45,
-                                            ),
-                                        },
-                                    ),
-                                    span: 40..46,
-                                },
-                                right: Spanned {
-                                    node: Literal(
-                                        Integer(
-                                            1,
-                                        ),
-                                    ),
-                                    span: 48..49,
-                                },
+                    Spanned {
+                        node: Assignment {
+                            target: Identifier {
+                                name: "value",
+                                span: Some(
+                                    32..37,
+                                ),
                             },
-                            span: 40..49,
+                            value: Spanned {
+                                node: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "value",
+                                                span: Some(
+                                                    40..45,
+                                                ),
+                                            },
+                                        ),
+                                        span: 40..46,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                1,
+                                            ),
+                                        ),
+                                        span: 48..49,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 40..49,
+                                comments_before: [],
+                                comments_after: [],
+                            },
                         },
+                        span: 32..51,
+                        comments_before: [],
+                        comments_after: [],
                     },
                 ],
                 tail_expression: None,
@@ -84,4 +104,6 @@ Spanned {
         ),
     },
     span: 0..53,
+    comments_before: [],
+    comments_after: [],
 }

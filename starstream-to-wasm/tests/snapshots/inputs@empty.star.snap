@@ -4,26 +4,36 @@ input_file: starstream-to-wasm/tests/inputs/empty.star
 ---
 ==== AST ====
 Program {
-    definitions: [
-        Function(
-            FunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "main",
-                    span: Some(
-                        10..14,
-                    ),
-                },
-                params: [],
-                return_type: None,
-                body: Block {
-                    statements: [],
-                    tail_expression: None,
-                },
-            },
+    shebang: Some(
+        Comment(
+            0..12,
         ),
+    ),
+    definitions: [
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "main",
+                        span: Some(
+                            22..26,
+                        ),
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                    },
+                },
+            ),
+            span: 12..33,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 
@@ -41,7 +51,7 @@ TypedProgram {
                 name: Identifier {
                     name: "main",
                     span: Some(
-                        10..14,
+                        22..26,
                     ),
                 },
                 params: [],

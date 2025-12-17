@@ -1,7 +1,7 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Definition, Expr, FunctionDef, FunctionExport, FunctionParam, Literal,
-    Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    BinaryOp, Block, Comment, Definition, Expr, FunctionDef, FunctionExport, FunctionParam,
+    Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -10,10 +10,10 @@ use starstream_types::{
 };
 use std::fmt;
 
-pub fn program(program: &Program) -> Result<String, fmt::Error> {
+pub fn program(program: &Program, source: &str) -> Result<String, fmt::Error> {
     let mut out = String::new();
 
-    program_to_doc(program).render_fmt(80, &mut out)?;
+    program_to_doc(program, source).render_fmt(80, &mut out)?;
 
     Ok(out)
 }
@@ -21,7 +21,7 @@ pub fn program(program: &Program) -> Result<String, fmt::Error> {
 pub fn statement(statement: &Statement) -> Result<String, fmt::Error> {
     let mut out = String::new();
 
-    statement_to_doc(statement).render_fmt(80, &mut out)?;
+    statement_to_doc(statement, "").render_fmt(80, &mut out)?;
 
     Ok(out)
 }
@@ -29,40 +29,64 @@ pub fn statement(statement: &Statement) -> Result<String, fmt::Error> {
 pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
     let mut out = String::new();
 
-    expr_to_doc(expr).render_fmt(80, &mut out)?;
+    expr_to_doc(expr, "").render_fmt(80, &mut out)?;
 
     Ok(out)
 }
 
-fn program_to_doc(program: &Program) -> RcDoc<'_, ()> {
-    if program.definitions.is_empty() {
-        RcDoc::hardline()
+fn program_to_doc<'a>(program: &Program, source: &'a str) -> RcDoc<'a, ()> {
+    (if let Some(shebang) = &program.shebang {
+        comment_to_doc(shebang, source)
     } else {
-        let defs = program.definitions.iter().map(definition_to_doc);
-        RcDoc::intersperse(defs, RcDoc::hardline().append(RcDoc::hardline()))
-            .append(RcDoc::hardline())
-    }
+        RcDoc::nil()
+    })
+    .append(RcDoc::intersperse(
+        program
+            .definitions
+            .iter()
+            .map(|x| spanned(x, source, |node| definition_to_doc(node, source))),
+        RcDoc::hardline().append(RcDoc::hardline()),
+    ))
+    .append(RcDoc::hardline())
 }
 
-fn definition_to_doc(definition: &Definition) -> RcDoc<'_, ()> {
+fn comment_to_doc<'a>(comment: &Comment, source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::text(source.get(comment.0.start..comment.0.end).unwrap_or(""))
+}
+
+fn comments_to_doc<'a>(comments: &[Comment], source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::concat(comments.iter().map(|c| comment_to_doc(c, source)))
+}
+
+fn spanned<'a, T, F: FnOnce(&T) -> RcDoc<'a, ()>>(
+    spanned: &Spanned<T>,
+    source: &'a str,
+    f: F,
+) -> RcDoc<'a, ()> {
+    comments_to_doc(&spanned.comments_before, source)
+        .append(f(&spanned.node))
+        .append(comments_to_doc(&spanned.comments_after, source))
+}
+
+fn definition_to_doc<'a>(definition: &Definition, source: &'a str) -> RcDoc<'a, ()> {
     match definition {
-        Definition::Function(function) => function_to_doc(function),
-        Definition::Struct(definition) => struct_definition_to_doc(definition),
-        Definition::Enum(definition) => enum_definition_to_doc(definition),
-        Definition::Utxo(definition) => utxo_definition_to_doc(definition),
+        Definition::Function(function) => function_to_doc(function, source),
+        Definition::Struct(definition) => struct_definition_to_doc(definition, source),
+        Definition::Enum(definition) => enum_definition_to_doc(definition, source),
+        Definition::Utxo(definition) => utxo_definition_to_doc(definition, source),
     }
 }
 
-fn function_to_doc(function: &FunctionDef) -> RcDoc<'_, ()> {
-    let params = params_to_doc(&function.params);
+fn function_to_doc<'a>(function: &FunctionDef, source: &'a str) -> RcDoc<'a, ()> {
+    let params = params_to_doc(&function.params, source);
     let mut doc = if let Some(export) = &function.export {
-        function_export_to_doc(export).append(RcDoc::space())
+        function_export_to_doc(export, source).append(RcDoc::space())
     } else {
         RcDoc::nil()
     }
     .append("fn")
     .append(RcDoc::space())
-    .append(identifier_to_doc(&function.name))
+    .append(identifier_to_doc(&function.name, source))
     .append(RcDoc::text("("))
     .append(params)
     .append(RcDoc::text(")"));
@@ -72,36 +96,36 @@ fn function_to_doc(function: &FunctionDef) -> RcDoc<'_, ()> {
             .append(RcDoc::space())
             .append(RcDoc::text("->"))
             .append(RcDoc::space())
-            .append(type_annotation_to_doc(return_type));
+            .append(type_annotation_to_doc(return_type, source));
     }
 
     doc.append(RcDoc::space())
-        .append(block_to_doc(&function.body))
+        .append(block_to_doc(&function.body, source))
 }
 
-fn function_export_to_doc(export: &FunctionExport) -> RcDoc<'_, ()> {
+fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDoc<'a, ()> {
     match export {
         FunctionExport::Script => RcDoc::text("script"),
     }
 }
 
-fn struct_definition_to_doc(definition: &StructDef) -> RcDoc<'_, ()> {
+fn struct_definition_to_doc<'a>(definition: &StructDef, source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text("struct")
         .append(RcDoc::space())
-        .append(identifier_to_doc(&definition.name))
+        .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(struct_fields_to_doc(&definition.fields))
+        .append(struct_fields_to_doc(&definition.fields, source))
 }
 
-fn struct_fields_to_doc(fields: &[StructField]) -> RcDoc<'_, ()> {
+fn struct_fields_to_doc<'a>(fields: &[StructField], source: &'a str) -> RcDoc<'a, ()> {
     if fields.is_empty() {
         RcDoc::text("{ }")
     } else {
         let entries = RcDoc::intersperse(
             fields.iter().map(|field| {
-                identifier_to_doc(&field.name)
+                identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
-                    .append(type_annotation_to_doc(&field.ty))
+                    .append(type_annotation_to_doc(&field.ty, source))
                     .append(RcDoc::text(","))
             }),
             RcDoc::line(),
@@ -114,22 +138,22 @@ fn struct_fields_to_doc(fields: &[StructField]) -> RcDoc<'_, ()> {
     }
 }
 
-fn enum_definition_to_doc(definition: &EnumDef) -> RcDoc<'_, ()> {
+fn enum_definition_to_doc<'a>(definition: &EnumDef, source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text("enum")
         .append(RcDoc::space())
-        .append(identifier_to_doc(&definition.name))
+        .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(enum_variants_to_doc(&definition.variants))
+        .append(enum_variants_to_doc(&definition.variants, source))
 }
 
-fn enum_variants_to_doc(variants: &[EnumVariant]) -> RcDoc<'_, ()> {
+fn enum_variants_to_doc<'a>(variants: &[EnumVariant], source: &'a str) -> RcDoc<'a, ()> {
     if variants.is_empty() {
         RcDoc::text("{ }")
     } else {
         let entries = RcDoc::intersperse(
             variants
                 .iter()
-                .map(|variant| enum_variant_to_doc(variant).append(RcDoc::text(","))),
+                .map(|variant| enum_variant_to_doc(variant, source).append(RcDoc::text(","))),
             RcDoc::line(),
         );
 
@@ -140,16 +164,18 @@ fn enum_variants_to_doc(variants: &[EnumVariant]) -> RcDoc<'_, ()> {
     }
 }
 
-fn enum_variant_to_doc(variant: &EnumVariant) -> RcDoc<'_, ()> {
+fn enum_variant_to_doc<'a>(variant: &EnumVariant, source: &'a str) -> RcDoc<'a, ()> {
     match &variant.payload {
-        EnumVariantPayload::Unit => identifier_to_doc(&variant.name),
+        EnumVariantPayload::Unit => identifier_to_doc(&variant.name, source),
         EnumVariantPayload::Tuple(types) => {
             if types.is_empty() {
-                identifier_to_doc(&variant.name).append(RcDoc::text("()"))
+                identifier_to_doc(&variant.name, source).append(RcDoc::text("()"))
             } else {
-                let payload =
-                    RcDoc::intersperse(types.iter().map(type_annotation_to_doc), RcDoc::text(", "));
-                identifier_to_doc(&variant.name)
+                let payload = RcDoc::intersperse(
+                    types.iter().map(|x| type_annotation_to_doc(x, source)),
+                    RcDoc::text(", "),
+                );
+                identifier_to_doc(&variant.name, source)
                     .append(RcDoc::text("("))
                     .append(payload)
                     .append(RcDoc::text(")"))
@@ -157,55 +183,55 @@ fn enum_variant_to_doc(variant: &EnumVariant) -> RcDoc<'_, ()> {
         }
         EnumVariantPayload::Struct(fields) => {
             let body = if fields.len() < 3 {
-                inline_struct_fields_to_doc(fields)
+                inline_struct_fields_to_doc(fields, source)
             } else {
-                struct_fields_to_doc(fields)
+                struct_fields_to_doc(fields, source)
             };
-            identifier_to_doc(&variant.name)
+            identifier_to_doc(&variant.name, source)
                 .append(RcDoc::space())
                 .append(body)
         }
     }
 }
 
-fn inline_struct_fields_to_doc(fields: &[StructField]) -> RcDoc<'_, ()> {
+fn inline_struct_fields_to_doc<'a>(fields: &[StructField], source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text("{ ")
         .append(RcDoc::intersperse(
             fields.iter().map(|field| {
-                identifier_to_doc(&field.name)
+                identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
-                    .append(type_annotation_to_doc(&field.ty))
+                    .append(type_annotation_to_doc(&field.ty, source))
             }),
             RcDoc::text(", "),
         ))
         .append(RcDoc::text(" }"))
 }
 
-fn params_to_doc(params: &[FunctionParam]) -> RcDoc<'_, ()> {
+fn params_to_doc<'a>(params: &[FunctionParam], source: &'a str) -> RcDoc<'a, ()> {
     if params.is_empty() {
         RcDoc::nil()
     } else {
         RcDoc::intersperse(
             params.iter().map(|param| {
-                identifier_to_doc(&param.name)
+                identifier_to_doc(&param.name, source)
                     .append(RcDoc::text(": "))
-                    .append(type_annotation_to_doc(&param.ty))
+                    .append(type_annotation_to_doc(&param.ty, source))
             }),
             RcDoc::text(", "),
         )
     }
 }
 
-fn utxo_definition_to_doc(definition: &UtxoDef) -> RcDoc<'_, ()> {
+fn utxo_definition_to_doc<'a>(definition: &UtxoDef, source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text("utxo")
         .append(RcDoc::space())
-        .append(identifier_to_doc(&definition.name))
+        .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
         .append("{")
         .append(
             RcDoc::line()
                 .append(RcDoc::intersperse(
-                    definition.parts.iter().map(utxo_part_to_doc),
+                    definition.parts.iter().map(|x| utxo_part_to_doc(x, source)),
                     RcDoc::line(),
                 ))
                 .nest(INDENT),
@@ -214,7 +240,7 @@ fn utxo_definition_to_doc(definition: &UtxoDef) -> RcDoc<'_, ()> {
         .append("}")
 }
 
-fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
+fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str) -> RcDoc<'a, ()> {
     match part {
         UtxoPart::Storage(vars) => RcDoc::text("storage")
             .append(RcDoc::space())
@@ -222,7 +248,7 @@ fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
             .append(
                 RcDoc::line()
                     .append(RcDoc::intersperse(
-                        vars.iter().map(utxo_global_to_doc),
+                        vars.iter().map(|x| utxo_global_to_doc(x, source)),
                         RcDoc::line(),
                     ))
                     .nest(INDENT),
@@ -232,19 +258,19 @@ fn utxo_part_to_doc(part: &UtxoPart) -> RcDoc<'_, ()> {
     }
 }
 
-fn utxo_global_to_doc(decl: &UtxoGlobal) -> RcDoc<'_, ()> {
+fn utxo_global_to_doc<'a>(decl: &UtxoGlobal, source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text("let")
         .append(RcDoc::space())
         .append("mut")
         .append(RcDoc::space())
-        .append(identifier_to_doc(&decl.name))
+        .append(identifier_to_doc(&decl.name, source))
         .append(":")
         .append(RcDoc::space())
-        .append(type_annotation_to_doc(&decl.ty))
+        .append(type_annotation_to_doc(&decl.ty, source))
         .append(RcDoc::text(";"))
 }
 
-fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
+fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()> {
     match statement {
         Statement::VariableDeclaration {
             mutable,
@@ -258,46 +284,52 @@ fn statement_to_doc(statement: &Statement) -> RcDoc<'_, ()> {
             } else {
                 RcDoc::nil()
             })
-            .append(identifier_to_doc(name))
+            .append(identifier_to_doc(name, source))
             .append(if let Some(ty) = ty {
                 RcDoc::text(":")
                     .append(RcDoc::space())
-                    .append(type_annotation_to_doc(ty))
+                    .append(type_annotation_to_doc(ty, source))
             } else {
                 RcDoc::nil()
             })
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(expr_to_doc(&value.node))
+            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
             .append(RcDoc::text(";")),
-        Statement::Assignment { target, value } => identifier_to_doc(target)
+        Statement::Assignment { target, value } => identifier_to_doc(target, source)
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(expr_to_doc(&value.node))
+            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
             .append(RcDoc::text(";")),
         Statement::While { condition, body } => RcDoc::text("while")
             .append(RcDoc::space())
-            .append(parened_expr(condition))
+            .append(parened_expr(condition, source))
             .append(RcDoc::space())
-            .append(block_to_doc(body)),
-        Statement::Expression(expr) => expr_to_doc(&expr.node).append(RcDoc::text(";")),
+            .append(block_to_doc(body, source)),
+        Statement::Expression(expr) => {
+            spanned(expr, source, |node| expr_to_doc(&node, source)).append(RcDoc::text(";"))
+        }
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
-            .append(expr_to_doc(&expr.node))
+            .append(spanned(&expr, source, |node| expr_to_doc(&node, source)))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
     }
 }
 
-fn block_to_doc(block: &Block) -> RcDoc<'_, ()> {
+fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
     if block.statements.is_empty() && block.tail_expression.is_none() {
         RcDoc::text("{ }")
     } else {
-        let mut items: Vec<RcDoc<'_, ()>> = block.statements.iter().map(statement_to_doc).collect();
+        let mut items: Vec<RcDoc<'a, ()>> = block
+            .statements
+            .iter()
+            .map(|x| spanned(x, source, |node| statement_to_doc(node, source)))
+            .collect();
         if let Some(expr) = &block.tail_expression {
-            items.push(expr_to_doc(&expr.node));
+            items.push(spanned(&expr, source, |node| expr_to_doc(&node, source)));
         }
 
         let body = RcDoc::intersperse(items, RcDoc::line());
@@ -309,21 +341,26 @@ fn block_to_doc(block: &Block) -> RcDoc<'_, ()> {
     }
 }
 
-fn parened_expr(expr: &Spanned<Expr>) -> RcDoc<'_, ()> {
-    RcDoc::text("(")
-        .append(expr_to_doc(&expr.node))
-        .append(RcDoc::text(")"))
+fn parened_expr<'a>(expr: &Spanned<Expr>, source: &'a str) -> RcDoc<'a, ()> {
+    spanned(expr, source, |node| {
+        RcDoc::text("(")
+            .append(expr_to_doc(&node, source))
+            .append(RcDoc::text(")"))
+    })
 }
 
-fn identifier_to_doc(identifier: &Identifier) -> RcDoc<'_, ()> {
+fn identifier_to_doc<'a>(identifier: &Identifier, _source: &'a str) -> RcDoc<'a, ()> {
     RcDoc::text(identifier.name.clone())
 }
 
-fn type_annotation_to_doc(annotation: &TypeAnnotation) -> RcDoc<'_, ()> {
-    let mut doc = identifier_to_doc(&annotation.name);
+fn type_annotation_to_doc<'a>(annotation: &TypeAnnotation, source: &'a str) -> RcDoc<'a, ()> {
+    let mut doc = identifier_to_doc(&annotation.name, source);
     if !annotation.generics.is_empty() {
         let generics = RcDoc::intersperse(
-            annotation.generics.iter().map(type_annotation_to_doc),
+            annotation
+                .generics
+                .iter()
+                .map(|x| type_annotation_to_doc(x, source)),
             RcDoc::text(", "),
         );
         doc = doc
@@ -335,23 +372,29 @@ fn type_annotation_to_doc(annotation: &TypeAnnotation) -> RcDoc<'_, ()> {
 }
 
 fn struct_literal_expr_to_doc<'a>(
-    name: &'a Identifier,
-    fields: &'a [StructLiteralField],
+    name: &Identifier,
+    fields: &[StructLiteralField],
+    source: &'a str,
 ) -> RcDoc<'a, ()> {
-    identifier_to_doc(name)
+    identifier_to_doc(name, source)
         .append(RcDoc::space())
-        .append(struct_literal_fields_to_doc(fields))
+        .append(struct_literal_fields_to_doc(fields, source))
 }
 
-fn struct_literal_fields_to_doc<'a>(fields: &'a [StructLiteralField]) -> RcDoc<'a, ()> {
+fn struct_literal_fields_to_doc<'a>(
+    fields: &[StructLiteralField],
+    source: &'a str,
+) -> RcDoc<'a, ()> {
     if fields.is_empty() {
         RcDoc::text("{ }")
     } else {
         let body = RcDoc::intersperse(
             fields.iter().map(|field| {
-                identifier_to_doc(&field.name)
+                identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
-                    .append(expr_to_doc(&field.value.node))
+                    .append(spanned(&field.value, source, |node| {
+                        expr_to_doc(&node, source)
+                    }))
                     .append(RcDoc::text(","))
             }),
             RcDoc::line(),
@@ -365,13 +408,14 @@ fn struct_literal_fields_to_doc<'a>(fields: &'a [StructLiteralField]) -> RcDoc<'
 }
 
 fn enum_constructor_to_doc<'a>(
-    enum_name: &'a Identifier,
-    variant: &'a Identifier,
-    payload: &'a EnumConstructorPayload,
+    enum_name: &Identifier,
+    variant: &Identifier,
+    payload: &EnumConstructorPayload,
+    source: &'a str,
 ) -> RcDoc<'a, ()> {
-    let mut doc = identifier_to_doc(enum_name)
+    let mut doc = identifier_to_doc(enum_name, source)
         .append(RcDoc::text("::"))
-        .append(identifier_to_doc(variant));
+        .append(identifier_to_doc(variant, source));
 
     doc = match payload {
         EnumConstructorPayload::Unit => doc,
@@ -380,7 +424,9 @@ fn enum_constructor_to_doc<'a>(
                 doc.append(RcDoc::text("()"))
             } else {
                 let args = RcDoc::intersperse(
-                    values.iter().map(|expr| expr_to_doc(&expr.node)),
+                    values
+                        .iter()
+                        .map(|expr| spanned(expr, source, |node| expr_to_doc(&node, source))),
                     RcDoc::text(", "),
                 );
                 doc.append(RcDoc::text("("))
@@ -390,16 +436,22 @@ fn enum_constructor_to_doc<'a>(
         }
         EnumConstructorPayload::Struct(fields) => doc
             .append(RcDoc::space())
-            .append(struct_literal_fields_to_doc(fields)),
+            .append(struct_literal_fields_to_doc(fields, source)),
     };
 
     doc
 }
 
-fn match_expr_to_doc<'a>(scrutinee: &'a Spanned<Expr>, arms: &'a [MatchArm]) -> RcDoc<'a, ()> {
+fn match_expr_to_doc<'a>(
+    scrutinee: &Spanned<Expr>,
+    arms: &[MatchArm],
+    source: &'a str,
+) -> RcDoc<'a, ()> {
     let doc = RcDoc::text("match")
         .append(RcDoc::space())
-        .append(expr_to_doc(&scrutinee.node))
+        .append(spanned(scrutinee, source, |node| {
+            expr_to_doc(&node, source)
+        }))
         .append(RcDoc::space());
 
     if arms.is_empty() {
@@ -407,7 +459,7 @@ fn match_expr_to_doc<'a>(scrutinee: &'a Spanned<Expr>, arms: &'a [MatchArm]) -> 
     } else {
         let items = RcDoc::intersperse(
             arms.iter()
-                .map(|arm| match_arm_to_doc(arm).append(RcDoc::text(","))),
+                .map(|arm| match_arm_to_doc(arm, source).append(RcDoc::text(","))),
             RcDoc::line(),
         );
         doc.append(
@@ -419,38 +471,40 @@ fn match_expr_to_doc<'a>(scrutinee: &'a Spanned<Expr>, arms: &'a [MatchArm]) -> 
     }
 }
 
-fn match_arm_to_doc<'a>(arm: &'a MatchArm) -> RcDoc<'a, ()> {
-    pattern_to_doc(&arm.pattern)
+fn match_arm_to_doc<'a>(arm: &MatchArm, source: &'a str) -> RcDoc<'a, ()> {
+    pattern_to_doc(&arm.pattern, source)
         .append(RcDoc::space())
         .append(RcDoc::text("=>"))
         .append(RcDoc::space())
-        .append(block_to_doc(&arm.body))
+        .append(block_to_doc(&arm.body, source))
 }
 
-fn pattern_to_doc<'a>(pattern: &'a Pattern) -> RcDoc<'a, ()> {
+fn pattern_to_doc<'a>(pattern: &Pattern, source: &'a str) -> RcDoc<'a, ()> {
     match pattern {
-        Pattern::Binding(name) => identifier_to_doc(name),
+        Pattern::Binding(name) => identifier_to_doc(name, source),
         Pattern::Wildcard { .. } => RcDoc::text("_"),
-        Pattern::Literal { value, .. } => literal_to_doc(value),
-        Pattern::Struct { name, fields } => identifier_to_doc(name)
+        Pattern::Literal { value, .. } => literal_to_doc(value, source),
+        Pattern::Struct { name, fields } => identifier_to_doc(name, source)
             .append(RcDoc::space())
-            .append(struct_pattern_fields_to_doc(fields)),
+            .append(struct_pattern_fields_to_doc(fields, source)),
         Pattern::EnumVariant {
             enum_name,
             variant,
             payload,
         } => {
-            let doc = identifier_to_doc(enum_name)
+            let doc = identifier_to_doc(enum_name, source)
                 .append(RcDoc::text("::"))
-                .append(identifier_to_doc(variant));
+                .append(identifier_to_doc(variant, source));
             match payload {
                 EnumPatternPayload::Unit => doc,
                 EnumPatternPayload::Tuple(items) => {
                     if items.is_empty() {
                         doc.append(RcDoc::text("()"))
                     } else {
-                        let inner =
-                            RcDoc::intersperse(items.iter().map(pattern_to_doc), RcDoc::text(", "));
+                        let inner = RcDoc::intersperse(
+                            items.iter().map(|x| pattern_to_doc(x, source)),
+                            RcDoc::text(", "),
+                        );
                         doc.append(RcDoc::text("("))
                             .append(inner)
                             .append(RcDoc::text(")"))
@@ -458,13 +512,16 @@ fn pattern_to_doc<'a>(pattern: &'a Pattern) -> RcDoc<'a, ()> {
                 }
                 EnumPatternPayload::Struct(fields) => doc
                     .append(RcDoc::space())
-                    .append(struct_pattern_fields_to_doc(fields)),
+                    .append(struct_pattern_fields_to_doc(fields, source)),
             }
         }
     }
 }
 
-fn struct_pattern_fields_to_doc<'a>(fields: &'a [StructPatternField]) -> RcDoc<'a, ()> {
+fn struct_pattern_fields_to_doc<'a>(
+    fields: &[StructPatternField],
+    source: &'a str,
+) -> RcDoc<'a, ()> {
     if fields.is_empty() {
         RcDoc::text("{ }")
     } else {
@@ -473,12 +530,12 @@ fn struct_pattern_fields_to_doc<'a>(fields: &'a [StructPatternField]) -> RcDoc<'
                 if let Pattern::Binding(binding) = field.pattern.as_ref()
                     && binding.name == field.name.name
                 {
-                    return identifier_to_doc(&field.name);
+                    return identifier_to_doc(&field.name, source);
                 }
 
-                identifier_to_doc(&field.name)
+                identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
-                    .append(pattern_to_doc(&field.pattern))
+                    .append(pattern_to_doc(&field.pattern, source))
             }),
             RcDoc::text(", "),
         );
@@ -489,28 +546,41 @@ fn struct_pattern_fields_to_doc<'a>(fields: &'a [StructPatternField]) -> RcDoc<'
             .append(RcDoc::text("}"))
     }
 }
-fn expr_to_doc(expr: &Expr) -> RcDoc<'_, ()> {
-    expr_with_prec(expr, PREC_LOWEST, ChildPosition::Top)
+fn expr_to_doc<'a>(expr: &Expr, source: &'a str) -> RcDoc<'a, ()> {
+    expr_with_prec(expr, PREC_LOWEST, ChildPosition::Top, source)
 }
 
-fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDoc<'_, ()> {
+fn expr_with_prec<'a>(
+    expr: &Expr,
+    parent_prec: u8,
+    position: ChildPosition,
+    source: &'a str,
+) -> RcDoc<'a, ()> {
     match expr {
         Expr::Grouping(inner) => RcDoc::text("(")
-            .append(expr_with_prec(&inner.node, PREC_LOWEST, ChildPosition::Top))
+            .append(spanned(&inner, source, |node| {
+                expr_with_prec(&node, PREC_LOWEST, ChildPosition::Top, source)
+            }))
             .append(RcDoc::text(")")),
         _ => {
             let prec = precedence(expr);
             let doc = match expr {
-                Expr::Literal(literal) => literal_to_doc(literal),
-                Expr::Identifier(identifier) => identifier_to_doc(identifier),
+                Expr::Literal(literal) => literal_to_doc(literal, source),
+                Expr::Identifier(identifier) => identifier_to_doc(identifier, source),
                 Expr::Unary { op, expr } => {
-                    let operand = expr_with_prec(&expr.node, prec, ChildPosition::Unary);
+                    let operand = spanned(expr, source, |node| {
+                        expr_with_prec(&node, prec, ChildPosition::Unary, source)
+                    });
 
                     RcDoc::text(unary_op_str(op)).append(operand)
                 }
                 Expr::Binary { op, left, right } => {
-                    let left_doc = expr_with_prec(&left.node, prec, ChildPosition::Left).group();
-                    let right_doc = expr_with_prec(&right.node, prec, ChildPosition::Right).group();
+                    let left_doc = spanned(left, source, |node| {
+                        expr_with_prec(&node, prec, ChildPosition::Left, source).group()
+                    });
+                    let right_doc = spanned(right, source, |node| {
+                        expr_with_prec(&node, prec, ChildPosition::Right, source).group()
+                    });
 
                     left_doc
                         .append(RcDoc::space())
@@ -519,19 +589,23 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
                         .append(right_doc)
                 }
                 Expr::Grouping(_) => unreachable!(),
-                Expr::StructLiteral { name, fields } => struct_literal_expr_to_doc(name, fields),
+                Expr::StructLiteral { name, fields } => {
+                    struct_literal_expr_to_doc(name, fields, source)
+                }
                 Expr::FieldAccess { target, field } => {
-                    let receiver = expr_with_prec(&target.node, PREC_PRIMARY, ChildPosition::Top);
+                    let receiver = spanned(&target, source, |node| {
+                        expr_with_prec(&node, PREC_PRIMARY, ChildPosition::Top, source)
+                    });
                     receiver
                         .append(RcDoc::text("."))
-                        .append(identifier_to_doc(field))
+                        .append(identifier_to_doc(field, source))
                 }
                 Expr::EnumConstructor {
                     enum_name,
                     variant,
                     payload,
-                } => enum_constructor_to_doc(enum_name, variant, payload),
-                Expr::Block(block) => block_to_doc(block),
+                } => enum_constructor_to_doc(enum_name, variant, payload, source),
+                Expr::Block(block) => block_to_doc(block, source),
                 Expr::If {
                     branches,
                     else_branch,
@@ -547,28 +621,33 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
                         out = out
                             .append("if")
                             .append(RcDoc::space())
-                            .append(parened_expr(condition))
+                            .append(parened_expr(condition, source))
                             .append(RcDoc::space())
-                            .append(block_to_doc(block));
+                            .append(block_to_doc(block, source));
                     }
 
                     if let Some(else_branch) = else_branch {
                         out.append(RcDoc::space())
                             .append(RcDoc::text("else"))
                             .append(RcDoc::space())
-                            .append(block_to_doc(else_branch))
+                            .append(block_to_doc(else_branch, source))
                     } else {
                         out
                     }
                 }
-                Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms),
+                Expr::Match { scrutinee, arms } => match_expr_to_doc(scrutinee, arms, source),
                 Expr::Call { callee, args } => {
-                    let callee_doc =
-                        expr_with_prec(&callee.node, PREC_FIELD_ACCESS, ChildPosition::Left);
+                    let callee_doc = expr_with_prec(
+                        &callee.node,
+                        PREC_FIELD_ACCESS,
+                        ChildPosition::Left,
+                        source,
+                    );
 
                     let args_doc = RcDoc::intersperse(
-                        args.iter()
-                            .map(|arg| expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top)),
+                        args.iter().map(|arg| {
+                            expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source)
+                        }),
                         RcDoc::text(",").append(RcDoc::space()),
                     );
 
@@ -588,7 +667,7 @@ fn expr_with_prec(expr: &Expr, parent_prec: u8, position: ChildPosition) -> RcDo
     }
 }
 
-fn literal_to_doc(literal: &Literal) -> RcDoc<'_, ()> {
+fn literal_to_doc<'a>(literal: &Literal, _source: &'a str) -> RcDoc<'a, ()> {
     match literal {
         Literal::Integer(value) => RcDoc::as_string(*value),
         Literal::Boolean(value) => RcDoc::text(if *value { "true" } else { "false" }),
@@ -693,12 +772,13 @@ mod tests {
         let parse_output = parser::parse_program(code);
         assert!(
             parse_output.errors().is_empty(),
-            "program should parse without errors"
+            "program should parse without errors: {:?}",
+            parse_output.errors,
         );
 
-        let ast = parse_output.into_program().expect("program should parse");
+        let ast = parse_output.program.expect("program should parse");
 
-        super::program(&ast).expect("formatting succeeds")
+        super::program(&ast, code).expect("formatting succeeds")
     }
 
     macro_rules! assert_format_snapshot {
@@ -846,6 +926,16 @@ mod tests {
                     }
                 }
             }
+            "#,
+        );
+    }
+
+    #[test]
+    fn comments() {
+        assert_format_snapshot!(
+            r#"
+            #!/usr/bin/env starstream
+            fn main() {}
             "#,
         );
     }

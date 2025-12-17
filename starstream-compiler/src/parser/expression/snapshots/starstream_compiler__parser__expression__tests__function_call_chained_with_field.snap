@@ -16,10 +16,14 @@ Spanned {
                         },
                     ),
                     span: 0..3,
+                    comments_before: [],
+                    comments_after: [],
                 },
                 args: [],
             },
             span: 0..5,
+            comments_before: [],
+            comments_after: [],
         },
         field: Identifier {
             name: "bar",
@@ -29,4 +33,6 @@ Spanned {
         },
     },
     span: 0..9,
+    comments_before: [],
+    comments_after: [],
 }

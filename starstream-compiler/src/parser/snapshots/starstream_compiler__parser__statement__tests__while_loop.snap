@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/parser/statement.rs
-assertion_line: 177
 description: "Code:\n\nwhile (count < 10) { count = count + 1; }\n"
 ---
 While {
@@ -17,6 +16,8 @@ While {
                     },
                 ),
                 span: 7..13,
+                comments_before: [],
+                comments_after: [],
             },
             right: Spanned {
                 node: Literal(
@@ -25,44 +26,59 @@ While {
                     ),
                 ),
                 span: 15..17,
+                comments_before: [],
+                comments_after: [],
             },
         },
         span: 7..17,
+        comments_before: [],
+        comments_after: [],
     },
     body: Block {
         statements: [
-            Assignment {
-                target: Identifier {
-                    name: "count",
-                    span: Some(
-                        21..26,
-                    ),
-                },
-                value: Spanned {
-                    node: Binary {
-                        op: Add,
-                        left: Spanned {
-                            node: Identifier(
-                                Identifier {
-                                    name: "count",
-                                    span: Some(
-                                        29..34,
-                                    ),
-                                },
-                            ),
-                            span: 29..35,
-                        },
-                        right: Spanned {
-                            node: Literal(
-                                Integer(
-                                    1,
-                                ),
-                            ),
-                            span: 37..38,
-                        },
+            Spanned {
+                node: Assignment {
+                    target: Identifier {
+                        name: "count",
+                        span: Some(
+                            21..26,
+                        ),
                     },
-                    span: 29..38,
+                    value: Spanned {
+                        node: Binary {
+                            op: Add,
+                            left: Spanned {
+                                node: Identifier(
+                                    Identifier {
+                                        name: "count",
+                                        span: Some(
+                                            29..34,
+                                        ),
+                                    },
+                                ),
+                                span: 29..35,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                            right: Spanned {
+                                node: Literal(
+                                    Integer(
+                                        1,
+                                    ),
+                                ),
+                                span: 37..38,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        },
+                        span: 29..38,
+                        comments_before: [],
+                        comments_after: [],
+                    },
                 },
+                span: 21..40,
+                comments_before: [],
+                comments_after: [],
             },
         ],
         tail_expression: None,

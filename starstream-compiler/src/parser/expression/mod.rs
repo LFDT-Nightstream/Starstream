@@ -56,7 +56,7 @@ fn span_union(a: SimpleSpan, b: SimpleSpan) -> SimpleSpan {
     let start = a.start.min(b.start);
     let end = a.end.max(b.end);
 
-    SimpleSpan::new((), start..end)
+    SimpleSpan::from(start..end)
 }
 
 #[cfg(test)]

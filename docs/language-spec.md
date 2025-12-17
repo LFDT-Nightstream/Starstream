@@ -226,6 +226,14 @@ The following reserved words may not be used as identifiers:
   - the [VSC language configuration](../vscode-starstream/language-configuration.json).
 -->
 
+## Comments and whitespace
+
+Comments and whitespace may appear between terminal tokens.
+
+- `/*` starts a comment that ends at the first `*/` (no nesting).
+- `//` starts a comment that ends at a new line.
+- `#!` at the start of a program starts a comment that ends at a new line.
+
 ## Precedence and Associativity
 
 | Precedence  | Operator             | Associativity | Description           |

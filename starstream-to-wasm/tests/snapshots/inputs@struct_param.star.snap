@@ -4,151 +4,172 @@ input_file: starstream-to-wasm/tests/inputs/struct_param.star
 ---
 ==== AST ====
 Program {
+    shebang: None,
     definitions: [
-        Struct(
-            StructDef {
-                name: Identifier {
-                    name: "Token",
-                    span: Some(
-                        7..12,
-                    ),
-                },
-                fields: [
-                    StructField {
-                        name: Identifier {
-                            name: "amount",
-                            span: Some(
-                                19..25,
-                            ),
+        Spanned {
+            node: Struct(
+                StructDef {
+                    name: Identifier {
+                        name: "Token",
+                        span: Some(
+                            7..12,
+                        ),
+                    },
+                    fields: [
+                        StructField {
+                            name: Identifier {
+                                name: "amount",
+                                span: Some(
+                                    19..25,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        27..30,
+                                    ),
+                                },
+                                generics: [],
+                            },
                         },
-                        ty: TypeAnnotation {
+                        StructField {
+                            name: Identifier {
+                                name: "price",
+                                span: Some(
+                                    36..41,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        43..46,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                },
+            ),
+            span: 0..51,
+            comments_before: [],
+            comments_after: [],
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "total_value",
+                        span: Some(
+                            61..72,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "token",
+                                span: Some(
+                                    73..78,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Token",
+                                    span: Some(
+                                        80..85,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
                                 span: Some(
-                                    27..30,
+                                    90..93,
                                 ),
                             },
                             generics: [],
-                        },
-                    },
-                    StructField {
-                        name: Identifier {
-                            name: "price",
-                            span: Some(
-                                36..41,
-                            ),
-                        },
-                        ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "i64",
-                                span: Some(
-                                    43..46,
-                                ),
-                            },
-                            generics: [],
-                        },
-                    },
-                ],
-            },
-        ),
-        Function(
-            FunctionDef {
-                export: Some(
-                    Script,
-                ),
-                name: Identifier {
-                    name: "total_value",
-                    span: Some(
-                        61..72,
-                    ),
-                },
-                params: [
-                    FunctionParam {
-                        name: Identifier {
-                            name: "token",
-                            span: Some(
-                                73..78,
-                            ),
-                        },
-                        ty: TypeAnnotation {
-                            name: Identifier {
-                                name: "Token",
-                                span: Some(
-                                    80..85,
-                                ),
-                            },
-                            generics: [],
-                        },
-                    },
-                ],
-                return_type: Some(
-                    TypeAnnotation {
-                        name: Identifier {
-                            name: "i64",
-                            span: Some(
-                                90..93,
-                            ),
-                        },
-                        generics: [],
-                    },
-                ),
-                body: Block {
-                    statements: [],
-                    tail_expression: Some(
-                        Spanned {
-                            node: Binary {
-                                op: Multiply,
-                                left: Spanned {
-                                    node: FieldAccess {
-                                        target: Spanned {
-                                            node: Identifier(
-                                                Identifier {
-                                                    name: "token",
-                                                    span: Some(
-                                                        100..105,
-                                                    ),
-                                                },
-                                            ),
-                                            span: 100..105,
-                                        },
-                                        field: Identifier {
-                                            name: "amount",
-                                            span: Some(
-                                                106..112,
-                                            ),
-                                        },
-                                    },
-                                    span: 100..113,
-                                },
-                                right: Spanned {
-                                    node: FieldAccess {
-                                        target: Spanned {
-                                            node: Identifier(
-                                                Identifier {
-                                                    name: "token",
-                                                    span: Some(
-                                                        115..120,
-                                                    ),
-                                                },
-                                            ),
-                                            span: 115..120,
-                                        },
-                                        field: Identifier {
-                                            name: "price",
-                                            span: Some(
-                                                121..126,
-                                            ),
-                                        },
-                                    },
-                                    span: 115..127,
-                                },
-                            },
-                            span: 100..127,
                         },
                     ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Binary {
+                                    op: Multiply,
+                                    left: Spanned {
+                                        node: FieldAccess {
+                                            target: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "token",
+                                                        span: Some(
+                                                            100..105,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 100..105,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            field: Identifier {
+                                                name: "amount",
+                                                span: Some(
+                                                    106..112,
+                                                ),
+                                            },
+                                        },
+                                        span: 100..113,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: FieldAccess {
+                                            target: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "token",
+                                                        span: Some(
+                                                            115..120,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 115..120,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            field: Identifier {
+                                                name: "price",
+                                                span: Some(
+                                                    121..126,
+                                                ),
+                                            },
+                                        },
+                                        span: 115..127,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 100..127,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    },
                 },
-            },
-        ),
+            ),
+            span: 51..129,
+            comments_before: [],
+            comments_after: [],
+        },
     ],
 }
 
@@ -304,6 +325,8 @@ TypedProgram {
                                                         ),
                                                     },
                                                     span: 100..105,
+                                                    comments_before: [],
+                                                    comments_after: [],
                                                 },
                                                 field: Identifier {
                                                     name: "amount",
@@ -314,6 +337,8 @@ TypedProgram {
                                             },
                                         },
                                         span: 100..113,
+                                        comments_before: [],
+                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -346,6 +371,8 @@ TypedProgram {
                                                         ),
                                                     },
                                                     span: 115..120,
+                                                    comments_before: [],
+                                                    comments_after: [],
                                                 },
                                                 field: Identifier {
                                                     name: "price",
@@ -356,10 +383,14 @@ TypedProgram {
                                             },
                                         },
                                         span: 115..127,
+                                        comments_before: [],
+                                        comments_after: [],
                                     },
                                 },
                             },
                             span: 100..127,
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                 },

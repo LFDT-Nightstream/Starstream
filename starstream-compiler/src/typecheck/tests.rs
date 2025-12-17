@@ -14,7 +14,7 @@ macro_rules! assert_typecheck_snapshot {
 
         let result: Result<(), miette::Error> = (|| {
             if !parse_output.errors().is_empty() {
-                for error in parse_output.errors().iter().cloned() {
+                for error in parse_output.errors {
                     let report = Report::new(error).with_source_code(named.clone());
                     rendered.push_str(&render_report(&report)?);
                     rendered.push('\n');

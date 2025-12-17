@@ -14,11 +14,20 @@ pub struct Spanned<T> {
     pub node: T,
     #[serde(skip)]
     pub span: Span,
+    #[serde(skip)]
+    pub comments_before: Vec<Comment>,
+    #[serde(skip)]
+    pub comments_after: Vec<Comment>,
 }
 
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
-        Self { node, span }
+        Self {
+            node,
+            span,
+            comments_before: Vec::new(),
+            comments_after: Vec::new(),
+        }
     }
 
     /// Map the contained value while keeping the original span.
@@ -26,6 +35,8 @@ impl<T> Spanned<T> {
         Spanned {
             node: map(self.node),
             span: self.span,
+            comments_before: self.comments_before,
+            comments_after: self.comments_after,
         }
     }
 
@@ -37,6 +48,8 @@ impl<T> Spanned<T> {
                 end: 0,
                 context: (),
             },
+            comments_before: Vec::new(),
+            comments_after: Vec::new(),
         }
     }
 }
@@ -65,10 +78,15 @@ impl Identifier {
 // ----------------------------------------------------------------------------
 // Top-level definitions
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct Comment(pub Span);
+
 /// Entire program: a sequence of definitions.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Program {
-    pub definitions: Vec<Definition>,
+    #[serde(skip)]
+    pub shebang: Option<Comment>,
+    pub definitions: Vec<Spanned<Definition>>,
 }
 
 /// Top-level definition items.
@@ -168,7 +186,7 @@ pub struct TypeAnnotation {
 /// A new scope containing a group of statements and an optional trailing expression.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Block {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<Spanned<Statement>>,
     pub tail_expression: Option<Spanned<Expr>>,
 }
 

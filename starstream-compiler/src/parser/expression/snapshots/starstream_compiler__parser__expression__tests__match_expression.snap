@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/parser/expression/mod.rs
-assertion_line: 123
 description: "Code:\n\nmatch value {\n    Result::Ok(inner) => {\n        inner\n    },\n    Result::Err(reason) => {\n        reason\n    },\n}\n"
 ---
 Spanned {
@@ -15,6 +14,8 @@ Spanned {
                 },
             ),
             span: 6..12,
+            comments_before: [],
+            comments_after: [],
         },
         arms: [
             MatchArm {
@@ -57,6 +58,8 @@ Spanned {
                                 },
                             ),
                             span: 49..59,
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                 },
@@ -101,6 +104,8 @@ Spanned {
                                 },
                             ),
                             span: 99..110,
+                            comments_before: [],
+                            comments_after: [],
                         },
                     ),
                 },
@@ -108,4 +113,6 @@ Spanned {
         ],
     },
     span: 0..115,
+    comments_before: [],
+    comments_after: [],
 }
