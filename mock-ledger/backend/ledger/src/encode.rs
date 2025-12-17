@@ -1,152 +1,82 @@
-use std::cell::RefCell;
-use wasmtime::component::{ResourceTable};
-use wrpc_runtime_wasmtime::{WrpcView, WrpcCtx, WrpcCtxView, SharedResourceTable};
-use wrpc_transport::{Invoke, Index};
-use bytes::Bytes;
-use tokio::io::DuplexStream;
+use wasmtime::component::ResourceTable;
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
+use wrpc_runtime_wasmtime::{SharedResourceTable, WrpcCtxView, WrpcView};
+use wrpc_transport::Invoke;
+use core::time::Duration;
 
-/// Host any context that can be fetched from Starstream contracts through an effect handler
-///
-/// Think of this similar to a React Context: Starstream programs can raise an effect to receive context from the runtime
-/// This is represented as a Resource (in the WIT definition of the word) that the host provides when it calls into the UTXO
-/// (pseudocode as the Starstream syntax isn't decided yet): `raise Ctx.Caller()`
-/// 
-/// Here, the ledger is the "host" in the WASM sense
-/// and it exposes this data to guests via host functions added to the Linker
-/// 
-/// Note: blockchain execution doesn't involve stateful handles like file descriptors or network connections
-/// When adding fields, also add corresponding host functions in the Linker setup
-/// (see `chain.rs`) so guests can access this data.
-pub struct ChainContext {
-    // TODO: Add ledger context fields as needed:
-    // pub block_range: (u64, u64), // validity interval of tx
-    // pub timestamp_range: (u64, u64), // validity interval of tx
-    // pub caller_address: String,
-    wrpc_table: RefCell<ResourceTable>,
-    wrpc_shared_resources: RefCell<SharedResourceTable>,
-    wrpc_ctx: RefCell<ChainContextWrpcCtx>,
+pub type ChainContext = ();
+
+pub struct WrpcCtx<C: Invoke> {
+    pub wrpc: C,
+    pub cx: C::Context,
+    pub shared_resources: SharedResourceTable,
+    pub timeout: Duration,
 }
 
-/// A wrapper around DuplexStream that implements Index
-pub struct IndexedStream(pub DuplexStream);
-
-// IndexedStream needs to be Unpin, Send, Sync, and 'static
-unsafe impl Send for IndexedStream {}
-unsafe impl Sync for IndexedStream {}
-impl Unpin for IndexedStream {}
-
-impl Index<IndexedStream> for IndexedStream {
-    fn index(&self, _path: &[usize]) -> anyhow::Result<IndexedStream> {
-        // For encoding purposes, we don't need actual indexing
-        // Create a new stream pair
-        let (outgoing, incoming) = tokio::io::duplex(1024);
-        Ok(IndexedStream(outgoing))
-    }
+pub struct Ctx<C: Invoke> {
+    pub table: ResourceTable,
+    // pub wasi: WasiCtx,
+    pub wrpc: WrpcCtx<C>,
 }
 
-impl tokio::io::AsyncRead for IndexedStream {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        std::pin::Pin::new(&mut self.get_mut().0).poll_read(cx, buf)
-    }
-}
-
-impl tokio::io::AsyncWrite for IndexedStream {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
-        std::pin::Pin::new(&mut self.get_mut().0).poll_write(cx, buf)
+impl<C> wrpc_runtime_wasmtime::WrpcCtx<C> for WrpcCtx<C>
+where
+    C: Invoke,
+    C::Context: Clone,
+{
+    fn context(&self) -> C::Context {
+        self.cx.clone()
     }
 
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        std::pin::Pin::new(&mut self.get_mut().0).poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
-        std::pin::Pin::new(&mut self.get_mut().0).poll_shutdown(cx)
-    }
-}
-
-/// A no-op Invoke implementation for encoding values without actual RPC calls
-pub struct NoOpInvoke;
-
-impl Invoke for NoOpInvoke {
-    type Context = ();
-    type Incoming = IndexedStream;
-    type Outgoing = IndexedStream;
-
-    fn invoke<P>(
-        &self,
-        _cx: Self::Context,
-        _instance: &str,
-        _func: &str,
-        _params: Bytes,
-        _paths: impl AsRef<[P]> + Send,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<(Self::Outgoing, Self::Incoming)>> + Send>>
-    where
-        P: AsRef<[Option<usize>]> + Send + Sync,
-    {
-        Box::pin(async move {
-            // Create a pair of connected streams
-            let (outgoing, incoming) = tokio::io::duplex(1024);
-            Ok((IndexedStream(outgoing), IndexedStream(incoming)))
-        })
-    }
-}
-
-#[derive(Default)]
-struct ChainContextWrpcCtx {
-    shared_resources: RefCell<SharedResourceTable>,
-}
-
-impl WrpcCtx<NoOpInvoke> for ChainContextWrpcCtx {
-    fn context(&self) -> () {
-        ()
-    }
-
-    fn client(&self) -> &NoOpInvoke {
-        static NOOP: NoOpInvoke = NoOpInvoke;
-        &NOOP
+    fn client(&self) -> &C {
+        &self.wrpc
     }
 
     fn shared_resources(&mut self) -> &mut SharedResourceTable {
-        self.shared_resources.get_mut()
+        &mut self.shared_resources
+    }
+
+    fn timeout(&self) -> Option<Duration> {
+        Some(self.timeout)
     }
 }
 
-impl Default for ChainContext {
-  fn default() -> Self {
-      let shared_resources = RefCell::new(SharedResourceTable::default());
-      Self {
-          wrpc_table: RefCell::new(ResourceTable::default()),
-          wrpc_shared_resources: RefCell::new(SharedResourceTable::default()),
-          wrpc_ctx: RefCell::new(ChainContextWrpcCtx {
-              shared_resources,
-          }),
-      }
-  }
+impl<C> WrpcView for Ctx<C>
+where
+    C: Invoke,
+    C::Context: Clone,
+{
+    type Invoke = C;
+
+    fn wrpc(&mut self) -> WrpcCtxView<'_, Self::Invoke> {
+        WrpcCtxView {
+            ctx: &mut self.wrpc,
+            table: &mut self.table,
+        }
+    }
 }
 
-impl WrpcView for ChainContext {
-  type Invoke = NoOpInvoke;
-
-  fn wrpc(&mut self) -> WrpcCtxView<'_, Self::Invoke> {
-      let table = self.wrpc_table.get_mut();
-      let ctx = self.wrpc_ctx.get_mut();
-      WrpcCtxView {
-          ctx,
-          table,
-      }
-  }
+pub fn gen_ctx<C: Invoke>(
+    wrpc: C,
+    cx: C::Context,
+) -> Ctx<C> {
+    Ctx {
+        table: ResourceTable::new(),
+        // wasi: WasiCtxBuilder::new()
+        //     .inherit_env()
+        //     .inherit_stdio()
+        //     .inherit_network()
+        //     .allow_ip_name_lookup(true)
+        //     .allow_tcp(true)
+        //     .allow_udp(true)
+        //     .args(&["your-program.wasm"]) // or whatever arg you need
+        //     .build(),
+        // http: WasiHttpCtx::new(),
+        wrpc: WrpcCtx {
+            wrpc,
+            cx,
+            shared_resources: SharedResourceTable::default(),
+            timeout: Duration::from_secs(10), // TODO
+        },
+    }
 }

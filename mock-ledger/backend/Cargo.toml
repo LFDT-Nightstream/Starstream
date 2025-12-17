@@ -34,3 +34,4 @@ rand = { version = "0.9", default-features = false }
 hex = { version = "0.4", default-features = false }
 starstream-ledger = { path = "ledger" }
 wrpc-runtime-wasmtime = { version = "0.30", default-features = false }
+wasmtime-wasi = { version = "38", default-features = false }

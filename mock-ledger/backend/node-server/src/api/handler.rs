@@ -5,7 +5,7 @@ use anyhow::Context;
 use tracing::debug;
 use tokio_util::codec::Encoder;
 
-use starstream_ledger::{Chain, IndexedStream};
+use starstream_ledger::{Chain, encode::ChainContext};
 use wrpc_runtime_wasmtime::{ValEncoder, collect_component_resource_exports};
 use wasmtime::{AsContextMut, Engine};
 
@@ -99,10 +99,11 @@ impl Handler {
             let context = (&mut *store_guard).as_context_mut();
             // TODO: get "resources" from the store_guard in a way that makes sense
             let mut guest_resources_vec = Vec::new();
-            collect_component_resource_exports(&engine, &(&*component_guard).component_type(), &mut guest_resources_vec);
-            let mut enc: ValEncoder<'_, _, IndexedStream> = ValEncoder::new(context, ty, guest_resources_vec.as_slice());
+            collect_component_resource_exports(&engine, &(*component_guard).component_type(), &mut guest_resources_vec);
+            let mut enc = ValEncoder::new(context, ty, guest_resources_vec.as_slice());
             enc.encode(&results[i], &mut buf)
                 .with_context(|| format!("failed to encode result value {i}"))?;
+            // TODO: enc.deferred
             result_bufs.extend_from_slice(buf.freeze().as_ref());
         }
 

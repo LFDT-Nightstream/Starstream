@@ -9,7 +9,7 @@ The Starstream node runs a mock ledger consisting of
 The node RPC allows not just introspection of the chain (finding which smart contracts are deployed - aka which UTXOs exist on the chain), but also facilitates calling these UTXOs as each of them is a WASM Component with a corresponding WIT interface.
 
 Notably, the node RPC defines the following functions:
-- `call`: call a function of a smart contract using the [Component model binary encoding](https://github.com/WebAssembly/component-model/blob/ddc8f6502c71e123ac083039fbd2ffdf3c0959f6/design/mvp/Binary.md) for the arguments and the return value.
+- `call`: call a function of a smart contract using the wRPC extension of the [Component model binary encoding](https://github.com/WebAssembly/component-model/blob/ddc8f6502c71e123ac083039fbd2ffdf3c0959f6/design/mvp/Binary.md) for the arguments and the return value.
 
 ## Current Implementation Status
 
@@ -29,10 +29,29 @@ Ledger itself
 - [ ] need the concept of accounts (P2PKH utxos)
 - [ ] dynamic registry based on UTXO set
 - [ ] built a reth-like plugin system for the ledger (tricky: how to sandbox)
+- [ ] persist UTXO on disk. Probably needs to be a combination of (component bytes, host interface) to allow for upgrading the host
+- [ ] compilation cache
+    - [ ] look into better startup times with InstancePre
+    - [ ] serialize components into cache
+- [ ] look into wasmtime allocation_strategy
+- [ ] cost depending on memory size of UTXO
+- [ ] disable floating point in wasmtime (?)
+- [ ] have a single global engine to ensure cache/allocation logic works properly
+- [ ] enforce determinism
+    - [ ] enable deterministic execution https://github.com/bytecodealliance/wasmtime/pull/11284/files#diff-908a422cef87524478865a23918af79040c970e02a3cc6862f6eb508710606f9R2770
+    - [ ] review Component Model non-determinism: https://github.com/WebAssembly/component-model/blob/main/design/mvp/Concurrency.md#nondeterminism
+
+Registry:
+- [ ] accept WIT files placed into it
+    - [ ] flatten dependencies (and make sure they're all in the registry)
+    - [ ] make sure the package name is the WIT hash (incl hash of all dependencies) - reuse wit-deps logic for this
+    - [ ] only use most strict semver possible (to guarantee unique result)
+    - [ ] careful about wit deduplication causing file content to change due to semver (i.e an `import` disappears because it is redundant as it's covered my another import)
 
 Connections
 - [ ] connect to the real Starstream
 - [ ] connect to the playground
+- [ ] parse CLI arguments with [WAVE](https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasm-wave)
 - [ ] look into wassette
 - [ ] consider moving to something runtime agnostic like https://github.com/DouglasDwyer/wasm_component_layer
 - [ ] have the ledger have a Ghostty frontend that can compile to WASM
@@ -51,6 +70,7 @@ Refactoring
 - [ ] docs
 
 New RPC calls
+- [ ] use fuel to avoid `call` DOSing RPC nodes
 - [ ] get UTXO by ID
 - [ ] get UTXO set (with filters)
 - [ ] `eth_chainId`
