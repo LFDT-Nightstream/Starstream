@@ -30,6 +30,7 @@ impl Chain {
           let component = Component::new(&engine, component_bytes)
               .context("failed to parse component")?;
 
+          // TODO: inject context imports into linker: inject_context_imports
           let linker = Linker::new(&engine);
           let mut store = Store::new(&engine, ChainContext::default());
           
@@ -69,4 +70,23 @@ impl Chain {
         .ok_or_else(|| anyhow!("UTXO not found"))?;
     Ok(utxo)
   }
+}
+
+
+/// Host any context that can be fetched from Starstream contracts through an effect handler
+///
+/// Think of this similar to a React Context: Starstream programs can raise an effect to receive context from the runtime
+/// This is represented as an interface (in the WIT definition of the word) that the host provides when it calls into the UTXO
+/// (pseudocode as the Starstream syntax isn't decided yet): `raise Ctx.Caller()`
+/// 
+/// Here, the ledger is the "host" in the WASM sense
+/// and it exposes this data to guests via host functions added to the Linker
+/// 
+/// Note: blockchain execution doesn't involve stateful handles like file descriptors or network connections
+///       so it can be an interface, and not a "resource"
+fn inject_context_imports() {
+  // TODO: Add ledger context fields as needed:
+  // pub block_range: (u64, u64), // validity interval of tx
+  // pub timestamp_range: (u64, u64), // validity interval of tx
+  // pub caller_address: String
 }
