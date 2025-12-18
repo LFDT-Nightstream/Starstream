@@ -337,13 +337,13 @@ fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()>
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
+            .append(spanned(value, source, |node| expr_to_doc(node, source)))
             .append(RcDoc::text(";")),
         Statement::Assignment { target, value } => identifier_to_doc(target, source)
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
+            .append(spanned(value, source, |node| expr_to_doc(node, source)))
             .append(RcDoc::text(";")),
         Statement::While { condition, body } => RcDoc::text("while")
             .append(RcDoc::space())
@@ -351,11 +351,11 @@ fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()>
             .append(RcDoc::space())
             .append(block_to_doc(body, source)),
         Statement::Expression(expr) => {
-            spanned(expr, source, |node| expr_to_doc(&node, source)).append(RcDoc::text(";"))
+            spanned(expr, source, |node| expr_to_doc(node, source)).append(RcDoc::text(";"))
         }
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
-            .append(spanned(&expr, source, |node| expr_to_doc(&node, source)))
+            .append(spanned(expr, source, |node| expr_to_doc(node, source)))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
     }
@@ -371,7 +371,7 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
             .map(|x| spanned(x, source, |node| statement_to_doc(node, source)))
             .collect();
         if let Some(expr) = &block.tail_expression {
-            items.push(spanned(&expr, source, |node| expr_to_doc(&node, source)));
+            items.push(spanned(expr, source, |node| expr_to_doc(node, source)));
         }
 
         let body = RcDoc::intersperse(items, RcDoc::line());
@@ -386,7 +386,7 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
 fn parened_expr<'a>(expr: &Spanned<Expr>, source: &'a str) -> RcDoc<'a, ()> {
     spanned(expr, source, |node| {
         RcDoc::text("(")
-            .append(expr_to_doc(&node, source))
+            .append(expr_to_doc(node, source))
             .append(RcDoc::text(")"))
     })
 }
@@ -435,7 +435,7 @@ fn struct_literal_fields_to_doc<'a>(
                 identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
                     .append(spanned(&field.value, source, |node| {
-                        expr_to_doc(&node, source)
+                        expr_to_doc(node, source)
                     }))
                     .append(RcDoc::text(","))
             }),
@@ -468,7 +468,7 @@ fn enum_constructor_to_doc<'a>(
                 let args = RcDoc::intersperse(
                     values
                         .iter()
-                        .map(|expr| spanned(expr, source, |node| expr_to_doc(&node, source))),
+                        .map(|expr| spanned(expr, source, |node| expr_to_doc(node, source))),
                     RcDoc::text(", "),
                 );
                 doc.append(RcDoc::text("("))
@@ -492,7 +492,7 @@ fn match_expr_to_doc<'a>(
     let doc = RcDoc::text("match")
         .append(RcDoc::space())
         .append(spanned(scrutinee, source, |node| {
-            expr_to_doc(&node, source)
+            expr_to_doc(node, source)
         }))
         .append(RcDoc::space());
 
@@ -600,8 +600,8 @@ fn expr_with_prec<'a>(
 ) -> RcDoc<'a, ()> {
     match expr {
         Expr::Grouping(inner) => RcDoc::text("(")
-            .append(spanned(&inner, source, |node| {
-                expr_with_prec(&node, PREC_LOWEST, ChildPosition::Top, source)
+            .append(spanned(inner, source, |node| {
+                expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source)
             }))
             .append(RcDoc::text(")")),
         _ => {
@@ -611,17 +611,17 @@ fn expr_with_prec<'a>(
                 Expr::Identifier(identifier) => identifier_to_doc(identifier, source),
                 Expr::Unary { op, expr } => {
                     let operand = spanned(expr, source, |node| {
-                        expr_with_prec(&node, prec, ChildPosition::Unary, source)
+                        expr_with_prec(node, prec, ChildPosition::Unary, source)
                     });
 
                     RcDoc::text(unary_op_str(op)).append(operand)
                 }
                 Expr::Binary { op, left, right } => {
                     let left_doc = spanned(left, source, |node| {
-                        expr_with_prec(&node, prec, ChildPosition::Left, source).group()
+                        expr_with_prec(node, prec, ChildPosition::Left, source).group()
                     });
                     let right_doc = spanned(right, source, |node| {
-                        expr_with_prec(&node, prec, ChildPosition::Right, source).group()
+                        expr_with_prec(node, prec, ChildPosition::Right, source).group()
                     });
 
                     left_doc
@@ -635,8 +635,8 @@ fn expr_with_prec<'a>(
                     struct_literal_expr_to_doc(name, fields, source)
                 }
                 Expr::FieldAccess { target, field } => {
-                    let receiver = spanned(&target, source, |node| {
-                        expr_with_prec(&node, PREC_PRIMARY, ChildPosition::Top, source)
+                    let receiver = spanned(target, source, |node| {
+                        expr_with_prec(node, PREC_PRIMARY, ChildPosition::Top, source)
                     });
                     receiver
                         .append(RcDoc::text("."))
