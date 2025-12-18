@@ -17,7 +17,7 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
                     format!("keyword `{ident}` cannot be used as an identifier"),
                 ))
             } else {
-                Ok(Identifier::new(ident.to_string(), Some(span)))
+                Ok(Identifier::new(ident.to_string(), span))
             }
         })
         .padded()

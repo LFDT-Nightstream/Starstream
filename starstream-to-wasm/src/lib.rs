@@ -1,9 +1,16 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
+
+use crate::component_abi::{MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
+
+mod component_abi;
 
 /*
     The entry point [compile] is responsible for the overall AST-to-WASM-module
@@ -103,14 +110,18 @@ struct Compiler {
     // Function building.
     raw_func_type_cache: HashMap<FuncType, u32>,
     global_vars: HashMap<String, u32>,
+    global_record_type: Vec<TypedStructField>,
 }
 
 impl Compiler {
     /// After [Compiler::visit_program], this function collates all the
     /// in-progress sections into an actual Wasm binary module.
-    fn finish(self) -> (Option<Vec<u8>>, Vec<CompileError>) {
+    fn finish(mut self) -> (Option<Vec<u8>>, Vec<CompileError>) {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
+
+        // Generate suspend/resume functions.
+        self.generate_storage_exports();
 
         // Verify
         assert_eq!(self.functions.len(), self.code.len());
@@ -196,6 +207,78 @@ impl Compiler {
         self.push_error(Span::from(0..0), format!("TODO: {why}"))
     }
 
+    fn generate_storage_exports(&mut self) {
+        let fields = std::mem::take(&mut self.global_record_type);
+        if !fields.is_empty() {
+            let storage_struct = Type::Record(RecordType {
+                name: "Storage".into(),
+                fields: fields
+                    .iter()
+                    .map(|f| RecordFieldType {
+                        name: f.name.name.clone(),
+                        ty: f.ty.clone(),
+                    })
+                    .collect(),
+            });
+            self.visit_struct(&TypedStructDef {
+                name: Identifier::anon("Storage"),
+                fields: fields.clone(),
+                ty: storage_struct.clone(),
+            });
+            self.visit_function(&TypedFunctionDef {
+                export: Some(FunctionExport::Script),
+                name: Identifier::anon("get_storage"),
+                params: Vec::new(),
+                return_type: storage_struct.clone(),
+                body: TypedBlock::from(Spanned::none(TypedExpr {
+                    ty: storage_struct.clone(),
+                    kind: TypedExprKind::StructLiteral {
+                        name: Identifier::anon("Storage"),
+                        fields: fields
+                            .iter()
+                            .map(|f| TypedStructLiteralField {
+                                name: f.name.clone(),
+                                value: Spanned::none(TypedExpr {
+                                    ty: f.ty.clone(),
+                                    kind: TypedExprKind::Identifier(f.name.clone()),
+                                }),
+                            })
+                            .collect(),
+                    },
+                })),
+            });
+            self.visit_function(&TypedFunctionDef {
+                export: Some(FunctionExport::Script),
+                name: Identifier::anon("set_storage"),
+                params: vec![TypedFunctionParam {
+                    name: Identifier::anon("storage"),
+                    ty: storage_struct.clone(),
+                }],
+                return_type: Type::Unit,
+                body: TypedBlock::from(
+                    fields
+                        .iter()
+                        .map(|f| TypedStatement::Assignment {
+                            target: f.name.clone(),
+                            value: Spanned::none(TypedExpr {
+                                ty: f.ty.clone(),
+                                kind: TypedExprKind::FieldAccess {
+                                    target: Box::new(Spanned::none(TypedExpr {
+                                        ty: storage_struct.clone(),
+                                        kind: TypedExprKind::Identifier(Identifier::anon(
+                                            "storage",
+                                        )),
+                                    })),
+                                    field: f.name.clone(),
+                                },
+                            }),
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            });
+        }
+    }
+
     // ------------------------------------------------------------------------
     // Core table management
 
@@ -246,6 +329,10 @@ impl Compiler {
         idx
     }
 
+    fn export_core_fn(&mut self, name: &str, idx: u32) {
+        self.exports.export(name, ExportKind::Func, idx);
+    }
+
     // ------------------------------------------------------------------------
     // Component table management
 
@@ -271,12 +358,28 @@ impl Compiler {
         idx
     }
 
-    fn export_component_fn(&mut self, function: &TypedFunctionDef) {
-        let idx = self.add_component_func_type(function);
-        self.world_type.export(
-            &to_kebab_case(function.name.as_str()),
-            ComponentTypeRef::Func(idx),
-        );
+    fn export_component_fn(
+        &mut self,
+        function: &TypedFunctionDef,
+        idx: u32,
+        params: &[ValType],
+        results: &[ValType],
+    ) {
+        let name = to_kebab_case(function.name.as_str());
+
+        if params.len() <= MAX_FLAT_PARAMS && results.len() <= MAX_FLAT_RESULTS {
+            // No need to spill params or results to heap, so don't wrap.
+            self.export_core_fn(&name, idx);
+
+            let type_idx = self.add_component_func_type(function);
+            self.world_type
+                .export(&name, ComponentTypeRef::Func(type_idx));
+        } else {
+            self.push_error(
+                function.name.span.unwrap_or(Span::from(0..0)),
+                "TODO: Component ABI for function with too many params or results",
+            );
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -420,16 +523,14 @@ impl Compiler {
         let _ = self.visit_block_stack(&mut func, &(&() as &dyn Locals, &locals), &function.body);
         func.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, results), func);
+        let idx = self.add_function(
+            FuncType::new(params.iter().copied(), results.iter().copied()),
+            func,
+        );
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.exports.export(
-                    &to_kebab_case(function.name.as_str()),
-                    ExportKind::Func,
-                    idx,
-                );
-                self.export_component_fn(function);
+                self.export_component_fn(function, idx, &params, &results);
             }
             None => {}
         }
@@ -463,6 +564,10 @@ impl Compiler {
                         let idx = self.add_globals(types.iter().copied());
                         // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
                         self.global_vars.insert(var.name.name.clone(), idx);
+                        self.global_record_type.push(TypedStructField {
+                            name: var.name.clone(),
+                            ty: var.ty.clone(),
+                        });
                     }
                 }
             }
@@ -1159,8 +1264,23 @@ impl Compiler {
                 Ok(())
             }
             // Todo
-            TypedExprKind::StructLiteral { .. }
-            | TypedExprKind::EnumConstructor { .. }
+            TypedExprKind::StructLiteral { name: _, fields } => {
+                let Type::Record(record) = &expr.ty else {
+                    panic!("StructLiteral type must be a Record");
+                };
+                let fields = fields
+                    .iter()
+                    .map(|f| (f.name.as_str(), &f.value))
+                    .collect::<BTreeMap<_, _>>();
+                for field in &record.fields {
+                    let expr = fields
+                        .get(field.name.as_str())
+                        .expect("StructLiteral missing field");
+                    self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
+                }
+                Ok(())
+            }
+            TypedExprKind::EnumConstructor { .. }
             | TypedExprKind::Match { .. }
             | TypedExprKind::Call { .. } => Err(self.todo(format!("{:?}", expr.kind))),
             // TODO: Implement event emission in Wasm codegen.

@@ -234,25 +234,27 @@ fn eval_math() {
 
 #[test]
 fn eval_locals() {
+    let foo = Identifier::anon("foo");
+    let bar = Identifier::anon("bar");
     let block = TypedBlock {
         statements: vec![
             TypedStatement::VariableDeclaration {
                 mutable: true,
-                name: Identifier::new("foo", None),
+                name: foo.clone(),
                 value: Spanned::none(TypedExpr::new(
                     Type::Int,
                     TypedExprKind::Literal(Literal::Integer(6)),
                 )),
             },
             TypedStatement::Assignment {
-                target: Identifier::new("foo", None),
+                target: foo.clone(),
                 value: Spanned::none(TypedExpr::new(
                     Type::Int,
                     TypedExprKind::Binary {
                         op: BinaryOp::Multiply,
                         left: Box::new(Spanned::none(TypedExpr::new(
                             Type::Int,
-                            TypedExprKind::Identifier(Identifier::new("foo", None)),
+                            TypedExprKind::Identifier(foo.clone()),
                         ))),
                         right: Box::new(Spanned::none(TypedExpr::new(
                             Type::Int,
@@ -262,10 +264,10 @@ fn eval_locals() {
                 )),
             },
             TypedStatement::Assignment {
-                target: Identifier::new("bar", None),
+                target: bar.clone(),
                 value: Spanned::none(TypedExpr::new(
                     Type::Int,
-                    TypedExprKind::Identifier(Identifier::new("foo", None)),
+                    TypedExprKind::Identifier(foo.clone()),
                 )),
             },
         ],
