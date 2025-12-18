@@ -8,6 +8,10 @@ use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
 
+use crate::component_abi::{MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
+
+mod component_abi;
+
 /*
     The entry point [compile] is responsible for the overall AST-to-WASM-module
     compilation that is exposed to the outside world. Most of the rest of this
@@ -325,6 +329,10 @@ impl Compiler {
         idx
     }
 
+    fn export_core_fn(&mut self, name: &str, idx: u32) {
+        self.exports.export(name, ExportKind::Func, idx);
+    }
+
     // ------------------------------------------------------------------------
     // Component table management
 
@@ -350,12 +358,28 @@ impl Compiler {
         idx
     }
 
-    fn export_component_fn(&mut self, function: &TypedFunctionDef) {
-        let idx = self.add_component_func_type(function);
-        self.world_type.export(
-            &to_kebab_case(function.name.as_str()),
-            ComponentTypeRef::Func(idx),
-        );
+    fn export_component_fn(
+        &mut self,
+        function: &TypedFunctionDef,
+        idx: u32,
+        params: &[ValType],
+        results: &[ValType],
+    ) {
+        let name = to_kebab_case(function.name.as_str());
+
+        if params.len() <= MAX_FLAT_PARAMS && results.len() <= MAX_FLAT_RESULTS {
+            // No need to spill params or results to heap, so don't wrap.
+            self.export_core_fn(&name, idx);
+
+            let type_idx = self.add_component_func_type(function);
+            self.world_type
+                .export(&name, ComponentTypeRef::Func(type_idx));
+        } else {
+            self.push_error(
+                function.name.span.unwrap_or(Span::from(0..0)),
+                "TODO: Component ABI for function with too many params or results",
+            );
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -493,16 +517,14 @@ impl Compiler {
         let _ = self.visit_block_stack(&mut func, &(&() as &dyn Locals, &locals), &function.body);
         func.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, results), func);
+        let idx = self.add_function(
+            FuncType::new(params.iter().copied(), results.iter().copied()),
+            func,
+        );
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.exports.export(
-                    &to_kebab_case(function.name.as_str()),
-                    ExportKind::Func,
-                    idx,
-                );
-                self.export_component_fn(function);
+                self.export_component_fn(function, idx, &params, &results);
             }
             None => {}
         }
