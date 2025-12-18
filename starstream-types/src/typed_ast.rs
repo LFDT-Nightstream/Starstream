@@ -105,10 +105,19 @@ pub enum TypedStatement {
 }
 
 /// `{ statement* }`
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TypedBlock {
     pub statements: Vec<TypedStatement>,
     pub tail_expression: Option<Spanned<TypedExpr>>,
+}
+
+impl From<Spanned<TypedExpr>> for TypedBlock {
+    fn from(value: Spanned<TypedExpr>) -> Self {
+        TypedBlock {
+            statements: Vec::new(),
+            tail_expression: Some(value),
+        }
+    }
 }
 
 /// Typed expression node. The [`kind`](TypedExpr::kind) mirrors the untyped

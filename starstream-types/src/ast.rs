@@ -63,10 +63,19 @@ pub struct Identifier {
 }
 
 impl Identifier {
-    pub fn new(name: impl Into<String>, span: Option<Span>) -> Self {
+    /// Construct an Identifier without an associated span.
+    pub fn anon(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            span,
+            span: None,
+        }
+    }
+
+    /// Construct an Identifier with an associated span.
+    pub fn new(name: impl Into<String>, span: Span) -> Self {
+        Self {
+            name: name.into(),
+            span: Some(span),
         }
     }
 
