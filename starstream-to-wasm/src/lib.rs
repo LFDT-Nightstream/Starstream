@@ -1,4 +1,7 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
@@ -113,54 +116,15 @@ impl Compiler {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
 
+        // Generate suspend/resume functions.
+        self.generate_storage_exports();
+
         // Verify
         assert_eq!(self.functions.len(), self.code.len());
 
         // No reports generated beyond this point, so bail if fatal is set.
         if self.fatal {
             return (None, self.errors);
-        }
-
-        // Generate suspend/resume functions.
-        let fields = std::mem::take(&mut self.global_record_type);
-        if !fields.is_empty() {
-            let ty = Type::Record(RecordType {
-                name: "Storage".into(),
-                fields: fields
-                    .iter()
-                    .map(|f| RecordFieldType {
-                        name: f.name.name.clone(),
-                        ty: f.ty.clone(),
-                    })
-                    .collect(),
-            });
-            self.visit_struct(&TypedStructDef {
-                name: Identifier::anon("Storage"),
-                fields: fields.clone(),
-                ty: ty.clone(),
-            });
-            self.visit_function(&TypedFunctionDef {
-                export: Some(FunctionExport::Script),
-                name: Identifier::anon("get_storage"),
-                params: Vec::new(),
-                return_type: ty.clone(),
-                body: TypedBlock::from(Spanned::none(TypedExpr {
-                    ty,
-                    kind: TypedExprKind::StructLiteral {
-                        name: Identifier::anon("Storage"),
-                        fields: fields
-                            .iter()
-                            .map(|f| TypedStructLiteralField {
-                                name: f.name.clone(),
-                                value: Spanned::none(TypedExpr {
-                                    ty: f.ty.clone(),
-                                    kind: TypedExprKind::Identifier(f.name.clone()),
-                                }),
-                            })
-                            .collect(),
-                    },
-                })),
-            });
         }
 
         // The package type must always have 0 imports and 1 export which is the world.
@@ -237,6 +201,49 @@ impl Compiler {
     fn todo(&mut self, why: String) -> ErrorToken {
         // TODO: better span
         self.push_error(Span::from(0..0), format!("TODO: {why}"))
+    }
+
+    fn generate_storage_exports(&mut self) {
+        let fields = std::mem::take(&mut self.global_record_type);
+        if !fields.is_empty() {
+            let ty = Type::Record(RecordType {
+                name: "Storage".into(),
+                fields: fields
+                    .iter()
+                    .map(|f| RecordFieldType {
+                        name: f.name.name.clone(),
+                        ty: f.ty.clone(),
+                    })
+                    .collect(),
+            });
+            self.visit_struct(&TypedStructDef {
+                name: Identifier::anon("Storage"),
+                fields: fields.clone(),
+                ty: ty.clone(),
+            });
+            self.visit_function(&TypedFunctionDef {
+                export: Some(FunctionExport::Script),
+                name: Identifier::anon("get_storage"),
+                params: Vec::new(),
+                return_type: ty.clone(),
+                body: TypedBlock::from(Spanned::none(TypedExpr {
+                    ty,
+                    kind: TypedExprKind::StructLiteral {
+                        name: Identifier::anon("Storage"),
+                        fields: fields
+                            .iter()
+                            .map(|f| TypedStructLiteralField {
+                                name: f.name.clone(),
+                                value: Spanned::none(TypedExpr {
+                                    ty: f.ty.clone(),
+                                    kind: TypedExprKind::Identifier(f.name.clone()),
+                                }),
+                            })
+                            .collect(),
+                    },
+                })),
+            });
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -1195,8 +1202,23 @@ impl Compiler {
                 Ok(())
             }
             // Todo
-            TypedExprKind::StructLiteral { .. }
-            | TypedExprKind::EnumConstructor { .. }
+            TypedExprKind::StructLiteral { name: _, fields } => {
+                let Type::Record(record) = &expr.ty else {
+                    panic!("StructLiteral type must be a Record");
+                };
+                let fields = fields
+                    .iter()
+                    .map(|f| (f.name.as_str(), &f.value))
+                    .collect::<BTreeMap<_, _>>();
+                for field in &record.fields {
+                    let expr = fields
+                        .get(field.name.as_str())
+                        .expect("StructLiteral missing field");
+                    self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
+                }
+                Ok(())
+            }
+            TypedExprKind::EnumConstructor { .. }
             | TypedExprKind::Match { .. }
             | TypedExprKind::Call { .. } => Err(self.todo(format!("{:?}", expr.kind))),
         }

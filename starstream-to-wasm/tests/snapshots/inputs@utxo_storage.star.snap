@@ -275,11 +275,15 @@ TypedProgram {
   (type (;0;) (func (result i64)))
   (global (;0;) (mut i64) (i64.const 0))
   (export "increment" (func 0))
+  (export "get-storage" (func 1))
   (func (;0;) (type 0) (result i64)
     (global.set 0
       (i64.add
         (global.get 0)
         (i64.const 1)))
+    (global.get 0)
+  )
+  (func (;1;) (type 0) (result i64)
     (global.get 0)
   )
   (@custom "component-type"
@@ -291,6 +295,10 @@ TypedProgram {
             (component
               (type (;0;) (func (result s64)))
               (export (;0;) "increment" (func (type 0)))
+              (type (;1;) (record (field "counter" s64)))
+              (import "storage" (type (;2;) (eq 1)))
+              (type (;3;) (func (result 2)))
+              (export (;1;) "get-storage" (func (type 3)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -305,5 +313,10 @@ TypedProgram {
 package root:component;
 
 world root {
+  record storage {
+    counter: s64,
+  }
+
   export increment: func() -> s64;
+  export get-storage: func() -> storage;
 }
