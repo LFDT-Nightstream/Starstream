@@ -13,4 +13,6 @@ Spanned {
         args: [],
     },
     span: 0..11,
+    comments_before: [],
+    comments_after: [],
 }

@@ -21,6 +21,8 @@ Spanned {
                     },
                 ),
                 span: 14..18,
+                comments_before: [],
+                comments_after: [],
             },
             Spanned {
                 node: Identifier(
@@ -32,6 +34,8 @@ Spanned {
                     },
                 ),
                 span: 20..22,
+                comments_before: [],
+                comments_after: [],
             },
             Spanned {
                 node: Identifier(
@@ -43,8 +47,12 @@ Spanned {
                     },
                 ),
                 span: 24..30,
+                comments_before: [],
+                comments_after: [],
             },
         ],
     },
     span: 0..31,
+    comments_before: [],
+    comments_after: [],
 }
