@@ -731,8 +731,8 @@ utxo Streamable {
     yield with Stream {
       fn process(count: u32, channel_id: ChannelId) / { Channel } {
         // assume that take also removes from the list
-        for action in storage.action.take(count) {
-          do send(storage.action);
+        for action in storage.actions.take(count) {
+          do send(channel_id, storage.action);
         }
 
         if storage.actions.is_empty() {
@@ -779,7 +779,7 @@ utxo Accumulator {
 ```rust
 mod consumer {
   script {
-    fn consumer_script(input: (Consumer, ChannelId)) / { Channel } {
+    fn consumer_script(utxo: Consumer, chan: ChannelId) / { Channel } {
       let (utxo, chan) = input;
       utxo.process(chan);
     }
@@ -792,12 +792,11 @@ mod streamable {
   import consumer;
 
   script {
-    fn enqueue_action(utxo: Streamable, action: Action) {
+    fn push_action(utxo: Streamable, action: Action) {
       utxo.insert(action);
     }
 
-    fn process_10(input: (Streamable, ChannelId)) {
-      let (utxo, chan) = input;
+    fn process_10(utxo: Streamable, chan: ChannelId) {
       utxo.process(10, chan);
     }
 
@@ -813,6 +812,9 @@ mod streamable {
 
         do schedule(process_10_coord);
       }
+
+      // stop the consumer
+      do send(chan, Action::End);
     }
   }
 }
