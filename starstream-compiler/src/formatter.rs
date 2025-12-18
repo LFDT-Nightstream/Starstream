@@ -491,9 +491,7 @@ fn match_expr_to_doc<'a>(
 ) -> RcDoc<'a, ()> {
     let doc = RcDoc::text("match")
         .append(RcDoc::space())
-        .append(spanned(scrutinee, source, |node| {
-            expr_to_doc(node, source)
-        }))
+        .append(spanned(scrutinee, source, |node| expr_to_doc(node, source)))
         .append(RcDoc::space());
 
     if arms.is_empty() {
