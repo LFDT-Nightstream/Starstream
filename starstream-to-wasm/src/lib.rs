@@ -206,7 +206,7 @@ impl Compiler {
     fn generate_storage_exports(&mut self) {
         let fields = std::mem::take(&mut self.global_record_type);
         if !fields.is_empty() {
-            let ty = Type::Record(RecordType {
+            let storage_struct = Type::Record(RecordType {
                 name: "Storage".into(),
                 fields: fields
                     .iter()
@@ -219,15 +219,15 @@ impl Compiler {
             self.visit_struct(&TypedStructDef {
                 name: Identifier::anon("Storage"),
                 fields: fields.clone(),
-                ty: ty.clone(),
+                ty: storage_struct.clone(),
             });
             self.visit_function(&TypedFunctionDef {
                 export: Some(FunctionExport::Script),
                 name: Identifier::anon("get_storage"),
                 params: Vec::new(),
-                return_type: ty.clone(),
+                return_type: storage_struct.clone(),
                 body: TypedBlock::from(Spanned::none(TypedExpr {
-                    ty,
+                    ty: storage_struct.clone(),
                     kind: TypedExprKind::StructLiteral {
                         name: Identifier::anon("Storage"),
                         fields: fields
@@ -242,6 +242,35 @@ impl Compiler {
                             .collect(),
                     },
                 })),
+            });
+            self.visit_function(&TypedFunctionDef {
+                export: Some(FunctionExport::Script),
+                name: Identifier::anon("set_storage"),
+                params: vec![TypedFunctionParam {
+                    name: Identifier::anon("storage"),
+                    ty: storage_struct.clone(),
+                }],
+                return_type: Type::Unit,
+                body: TypedBlock::from(
+                    fields
+                        .iter()
+                        .map(|f| TypedStatement::Assignment {
+                            target: f.name.clone(),
+                            value: Spanned::none(TypedExpr {
+                                ty: f.ty.clone(),
+                                kind: TypedExprKind::FieldAccess {
+                                    target: Box::new(Spanned::none(TypedExpr {
+                                        ty: storage_struct.clone(),
+                                        kind: TypedExprKind::Identifier(Identifier::anon(
+                                            "storage",
+                                        )),
+                                    })),
+                                    field: f.name.clone(),
+                                },
+                            }),
+                        })
+                        .collect::<Vec<_>>(),
+                ),
             });
         }
     }

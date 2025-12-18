@@ -273,9 +273,11 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func (result i64)))
+  (type (;1;) (func (param i64)))
   (global (;0;) (mut i64) (i64.const 0))
   (export "increment" (func 0))
   (export "get-storage" (func 1))
+  (export "set-storage" (func 2))
   (func (;0;) (type 0) (result i64)
     (global.set 0
       (i64.add
@@ -285,6 +287,10 @@ TypedProgram {
   )
   (func (;1;) (type 0) (result i64)
     (global.get 0)
+  )
+  (func (;2;) (type 1) (param i64)
+    (global.set 0
+      (local.get 0))
   )
   (@custom "component-type"
     (component
@@ -299,6 +305,8 @@ TypedProgram {
               (import "storage" (type (;2;) (eq 1)))
               (type (;3;) (func (result 2)))
               (export (;1;) "get-storage" (func (type 3)))
+              (type (;4;) (func (param "storage" 2)))
+              (export (;2;) "set-storage" (func (type 4)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -319,4 +327,5 @@ world root {
 
   export increment: func() -> s64;
   export get-storage: func() -> storage;
+  export set-storage: func(storage: storage);
 }

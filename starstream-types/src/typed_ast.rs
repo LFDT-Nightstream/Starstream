@@ -111,6 +111,15 @@ pub struct TypedBlock {
     pub tail_expression: Option<Spanned<TypedExpr>>,
 }
 
+impl From<Vec<TypedStatement>> for TypedBlock {
+    fn from(value: Vec<TypedStatement>) -> Self {
+        TypedBlock {
+            statements: value,
+            tail_expression: None,
+        }
+    }
+}
+
 impl From<Spanned<TypedExpr>> for TypedBlock {
     fn from(value: Spanned<TypedExpr>) -> Self {
         TypedBlock {
