@@ -75,7 +75,7 @@ fn definition_to_doc<'a>(definition: &Definition, source: &'a str) -> RcDoc<'a, 
         Definition::Struct(definition) => struct_definition_to_doc(definition, source),
         Definition::Enum(definition) => enum_definition_to_doc(definition, source),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source),
-        Definition::Abi(definition) => abi_definition_to_doc(definition),
+        Definition::Abi(definition) => abi_definition_to_doc(definition, source),
     }
 }
 
@@ -272,19 +272,22 @@ fn utxo_global_to_doc<'a>(decl: &UtxoGlobal, source: &'a str) -> RcDoc<'a, ()> {
         .append(RcDoc::text(";"))
 }
 
-fn abi_definition_to_doc(definition: &AbiDef) -> RcDoc<'_, ()> {
+fn abi_definition_to_doc<'a>(definition: &AbiDef, source: &'a str) -> RcDoc<'a, ()> {
     if definition.parts.is_empty() {
         RcDoc::text("abi")
             .append(RcDoc::space())
-            .append(identifier_to_doc(&definition.name))
+            .append(identifier_to_doc(&definition.name, source))
             .append(RcDoc::space())
             .append(RcDoc::text("{ }"))
     } else {
-        let parts = RcDoc::intersperse(definition.parts.iter().map(abi_part_to_doc), RcDoc::line());
+        let parts = RcDoc::intersperse(
+            definition.parts.iter().map(|x| abi_part_to_doc(x, source)),
+            RcDoc::line(),
+        );
 
         RcDoc::text("abi")
             .append(RcDoc::space())
-            .append(identifier_to_doc(&definition.name))
+            .append(identifier_to_doc(&definition.name, source))
             .append(RcDoc::space())
             .append(RcDoc::text("{"))
             .append(RcDoc::line().append(parts).nest(INDENT))
@@ -293,17 +296,17 @@ fn abi_definition_to_doc(definition: &AbiDef) -> RcDoc<'_, ()> {
     }
 }
 
-fn abi_part_to_doc(part: &AbiPart) -> RcDoc<'_, ()> {
+fn abi_part_to_doc<'a>(part: &AbiPart, source: &'a str) -> RcDoc<'a, ()> {
     match part {
-        AbiPart::Event(event) => event_definition_to_doc(event),
+        AbiPart::Event(event) => event_definition_to_doc(event, source),
     }
 }
 
-fn event_definition_to_doc(event: &EventDef) -> RcDoc<'_, ()> {
-    let params = params_to_doc(&event.params);
+fn event_definition_to_doc<'a>(event: &EventDef, source: &'a str) -> RcDoc<'a, ()> {
+    let params = params_to_doc(&event.params, source);
     RcDoc::text("event")
         .append(RcDoc::space())
-        .append(identifier_to_doc(&event.name))
+        .append(identifier_to_doc(&event.name, source))
         .append(RcDoc::text("("))
         .append(params)
         .append(RcDoc::text(");"))
@@ -696,15 +699,16 @@ fn expr_with_prec<'a>(
                         .append(RcDoc::text(")"))
                 }
                 Expr::Emit { event, args } => {
-                    let args_doc = RcDoc::intersperse(
-                        args.iter()
-                            .map(|arg| expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top)),
-                        RcDoc::text(",").append(RcDoc::space()),
-                    );
+                    let args_doc = args.iter().map(|arg| {
+                        expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source)
+                    });
+
+                    let args_doc =
+                        RcDoc::intersperse(args_doc, RcDoc::text(",").append(RcDoc::space()));
 
                     RcDoc::text("emit")
                         .append(RcDoc::space())
-                        .append(identifier_to_doc(event))
+                        .append(identifier_to_doc(event, source))
                         .append(RcDoc::text("("))
                         .append(args_doc)
                         .append(RcDoc::text(")"))
