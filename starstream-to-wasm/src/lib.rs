@@ -103,12 +103,13 @@ struct Compiler {
     // Function building.
     raw_func_type_cache: HashMap<FuncType, u32>,
     global_vars: HashMap<String, u32>,
+    global_record_type: Vec<TypedStructField>,
 }
 
 impl Compiler {
     /// After [Compiler::visit_program], this function collates all the
     /// in-progress sections into an actual Wasm binary module.
-    fn finish(self) -> (Option<Vec<u8>>, Vec<CompileError>) {
+    fn finish(mut self) -> (Option<Vec<u8>>, Vec<CompileError>) {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
 
@@ -118,6 +119,48 @@ impl Compiler {
         // No reports generated beyond this point, so bail if fatal is set.
         if self.fatal {
             return (None, self.errors);
+        }
+
+        // Generate suspend/resume functions.
+        let fields = std::mem::take(&mut self.global_record_type);
+        if !fields.is_empty() {
+            let ty = Type::Record(RecordType {
+                name: "Storage".into(),
+                fields: fields
+                    .iter()
+                    .map(|f| RecordFieldType {
+                        name: f.name.name.clone(),
+                        ty: f.ty.clone(),
+                    })
+                    .collect(),
+            });
+            self.visit_struct(&TypedStructDef {
+                name: Identifier::anon("Storage"),
+                fields: fields.clone(),
+                ty: ty.clone(),
+            });
+            self.visit_function(&TypedFunctionDef {
+                export: Some(FunctionExport::Script),
+                name: Identifier::anon("get_storage"),
+                params: Vec::new(),
+                return_type: ty.clone(),
+                body: TypedBlock::from(Spanned::none(TypedExpr {
+                    ty,
+                    kind: TypedExprKind::StructLiteral {
+                        name: Identifier::anon("Storage"),
+                        fields: fields
+                            .iter()
+                            .map(|f| TypedStructLiteralField {
+                                name: f.name.clone(),
+                                value: Spanned::none(TypedExpr {
+                                    ty: f.ty.clone(),
+                                    kind: TypedExprKind::Identifier(f.name.clone()),
+                                }),
+                            })
+                            .collect(),
+                    },
+                })),
+            });
         }
 
         // The package type must always have 0 imports and 1 export which is the world.
@@ -457,6 +500,10 @@ impl Compiler {
                         let idx = self.add_globals(types.iter().copied());
                         // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
                         self.global_vars.insert(var.name.name.clone(), idx);
+                        self.global_record_type.push(TypedStructField {
+                            name: var.name.clone(),
+                            ty: var.ty.clone(),
+                        });
                     }
                 }
             }
