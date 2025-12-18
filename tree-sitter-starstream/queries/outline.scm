@@ -27,3 +27,16 @@
     (_)*  ; enum variant entries
     "}" @close
 ) @item)
+
+((abi_definition
+    "abi" @context
+    (identifier) @name
+    "{" @open
+    (_)*  ; abi parts (events, functions)
+    "}" @close
+) @item)
+
+((event_definition
+    "event" @context
+    (identifier) @name
+) @item)

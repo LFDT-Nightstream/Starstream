@@ -1,0 +1,108 @@
+---
+source: starstream-compiler/src/parser/definition.rs
+description: "Code:\n\nabi Events {\n    event Transfer(from: i64, to: i64, amount: i64);\n    event Log(message: i64);\n}\n"
+---
+Abi(
+    AbiDef {
+        name: Identifier {
+            name: "Events",
+            span: Some(
+                4..10,
+            ),
+        },
+        parts: [
+            Event(
+                EventDef {
+                    name: Identifier {
+                        name: "Transfer",
+                        span: Some(
+                            23..31,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "from",
+                                span: Some(
+                                    32..36,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        38..41,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                        FunctionParam {
+                            name: Identifier {
+                                name: "to",
+                                span: Some(
+                                    43..45,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        47..50,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                        FunctionParam {
+                            name: Identifier {
+                                name: "amount",
+                                span: Some(
+                                    52..58,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        60..63,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                },
+            ),
+            Event(
+                EventDef {
+                    name: Identifier {
+                        name: "Log",
+                        span: Some(
+                            76..79,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "message",
+                                span: Some(
+                                    80..87,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        89..92,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                },
+            ),
+        ],
+    },
+)

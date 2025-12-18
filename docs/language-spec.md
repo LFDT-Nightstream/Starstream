@@ -37,6 +37,7 @@ definition ::=
   | struct_definition
   | enum_definition
   | utxo_definition
+  | abi_definition
 
 function_definition ::=
   ( function_export )?
@@ -73,6 +74,15 @@ utxo_part ::=
 storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
 utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
+
+abi_definition ::=
+  "abi" identifier "{" abi_part* "}"
+
+abi_part ::=
+  | event_definition
+
+event_definition ::=
+  "event" identifier "(" ( parameter ( "," parameter )* )? ")" ";"
 
 (* Type syntax *)
 
@@ -126,9 +136,12 @@ primary_expression ::=
   | unit_literal
   | struct_literal
   | enum_construction
+  | emit_expression
   | block
   | if_expression
   | match_expression
+
+emit_expression ::= "emit" identifier "(" ( expression ( "," expression )* )? ")"
 
 struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
 
@@ -218,6 +231,9 @@ The following reserved words may not be used as identifiers:
 - `struct`
 - `enum`
 - `match`
+- `abi`
+- `event`
+- `emit`
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -271,6 +287,7 @@ visibility modifier:
 - Field accesses evaluate the receiver, ensure it is a struct value, then project the requested field. Accessing a missing field is a type error.
 - `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Pattern matching is exhaustive: all possible cases must be covered, and unreachable patterns are reported as errors. The wildcard pattern `_` matches any value without introducing a binding.
 - Function calls `f(arg1, arg2, ...)` evaluate the callee (which must be a function name), then evaluate arguments left-to-right, then execute the function body with parameters bound to argument values. The call expression evaluates to the function's return value.
+- Emit expressions `emit EventName(arg1, arg2, ...)` emit an event declared in an `abi` block. The event name must refer to an event definition in scope. Arguments are evaluated left-to-right and typechecked against the event's parameter types. The expression's type is always `()` (Unit). Unknown event names are type errors.
 - Variable names refer to a `let` declaration earlier in the current scope or
   one of its parents, but not child scopes.
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
@@ -313,6 +330,7 @@ visibility modifier:
 | expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
 | expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
 | f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$ | Function call             |
+| emit E(e₁, ..., eₙ)         | $\dfrac{E : event(T_1, ..., T_n) ∧ Γ ⊢ e_i : T_i}{Γ ⊢ emit\ E(e_1, ..., e_n) : ()}$ | Event emission            |
 
 ### Structural typing rules
 

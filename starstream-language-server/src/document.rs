@@ -20,8 +20,8 @@ use starstream_types::{
     Span, Spanned, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
-        TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef,
-        TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
+        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
+        TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
         TypedFunctionDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement,
         TypedStructDef, TypedStructLiteralField,
     },
@@ -334,6 +334,7 @@ impl DocumentState {
             TypedDefinition::Struct(definition) => self.collect_struct(definition),
             TypedDefinition::Enum(definition) => self.collect_enum(definition),
             TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
+            TypedDefinition::Abi(definition) => self.collect_abi(definition),
         }
     }
 
@@ -486,6 +487,30 @@ impl DocumentState {
                             });
                             self.add_hover_span(span, &var.ty);
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_abi(&mut self, definition: &TypedAbiDef) {
+        if let Some(span) = definition.name.span {
+            self.definition_entries.push(DefinitionEntry {
+                usage: span,
+                target: span,
+            });
+        }
+
+        for part in &definition.parts {
+            match part {
+                TypedAbiPart::Event(event) => {
+                    if let Some(span) = event.name.span {
+                        self.definition_entries.push(DefinitionEntry {
+                            usage: span,
+                            target: span,
+                        });
+
+                        self.add_hover_label(span, format!("event {}", event.name.name));
                     }
                 }
             }
@@ -680,6 +705,15 @@ impl DocumentState {
             }
             TypedExprKind::Call { callee, args } => {
                 self.collect_expr(callee, scopes);
+
+                for arg in args {
+                    self.collect_expr(arg, scopes);
+                }
+            }
+            TypedExprKind::Emit { event, args } => {
+                if let Some(span) = event.span {
+                    self.add_hover_label(span, format!("event {}", event.name));
+                }
 
                 for arg in args {
                     self.collect_expr(arg, scopes);
@@ -1029,6 +1063,17 @@ impl DocumentState {
                         }
                     }
                 }
+                untyped_ast::Definition::Abi(definition) => {
+                    for part in &definition.parts {
+                        match part {
+                            untyped_ast::AbiPart::Event(event) => {
+                                for param in &event.params {
+                                    self.collect_type_annotation_node(&param.ty);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1189,6 +1234,7 @@ impl DocumentState {
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),
                 TypedDefinition::Utxo(definition) => self.utxo_symbol(definition),
+                TypedDefinition::Abi(definition) => self.abi_symbol(definition),
             })
             .collect()
     }
@@ -1362,6 +1408,60 @@ impl DocumentState {
 
         Some(symbol)
     }
+
+    fn abi_symbol(&self, definition: &TypedAbiDef) -> Option<DocumentSymbol> {
+        let name_span = definition.name.span?;
+        let mut children = Vec::new();
+
+        for part in &definition.parts {
+            match part {
+                TypedAbiPart::Event(event) => {
+                    if let Some(span) = event.name.span {
+                        let params = event
+                            .params
+                            .iter()
+                            .map(|p| format!("{}: {}", p.name.name, p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        let detail = Some(format!("({})", params));
+
+                        #[allow(deprecated)]
+                        let child = DocumentSymbol {
+                            name: event.name.name.clone(),
+                            detail,
+                            kind: SymbolKind::EVENT,
+                            tags: None,
+                            deprecated: None,
+                            range: self.span_to_range(span),
+                            selection_range: self.span_to_range(span),
+                            children: None,
+                        };
+
+                        children.push(child);
+                    }
+                }
+            }
+        }
+
+        #[allow(deprecated)]
+        let symbol = DocumentSymbol {
+            name: definition.name.name.clone(),
+            detail: None,
+            kind: SymbolKind::INTERFACE,
+            tags: None,
+            deprecated: None,
+            range: self.span_to_range(name_span),
+            selection_range: self.span_to_range(name_span),
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
+        };
+
+        Some(symbol)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1453,16 +1553,21 @@ fn format_struct_variant_hover(
         .map(|(name, ty)| format!("{name}: {ty}"))
         .collect::<Vec<_>>()
         .join(", ");
+
     let inline = format!("{enum_name}::{variant_name} {{ {inline_body} }}");
+
     if fields.len() < 3 && inline.len() <= HOVER_WIDTH {
         return inline;
     }
 
     let mut out = format!("{enum_name}::{variant_name} {{\n");
+
     for (name, ty) in fields {
         out.push_str(&format!("    {name}: {ty},\n"));
     }
+
     out.push('}');
+
     out
 }
 

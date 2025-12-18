@@ -480,6 +480,12 @@ impl Compiler {
                 TypedDefinition::Enum(_) => {
                     self.todo("enums are not supported in Wasm yet".into());
                 }
+                // TODO: Implement ABI/events in Wasm codegen.
+                // Events will likely become imported functions or host calls.
+                TypedDefinition::Abi(_) => {
+                    // ABI definitions don't produce Wasm code directly;
+                    // events are handled at emit sites.
+                }
             }
         }
     }
@@ -803,6 +809,11 @@ impl Compiler {
             // Todo
             TypedExprKind::Match { .. } | TypedExprKind::Call { .. } => {
                 return Err(self.todo(format!("{:?}", expr.kind)));
+            }
+            // TODO: Implement event emission in Wasm codegen.
+            // Events will likely become calls to imported host functions.
+            TypedExprKind::Emit { .. } => {
+                return Err(self.todo("event emission is not supported in Wasm yet".into()));
             }
         }
         Ok(())
@@ -1272,6 +1283,11 @@ impl Compiler {
             TypedExprKind::EnumConstructor { .. }
             | TypedExprKind::Match { .. }
             | TypedExprKind::Call { .. } => Err(self.todo(format!("{:?}", expr.kind))),
+            // TODO: Implement event emission in Wasm codegen.
+            // Events will likely become calls to imported host functions.
+            TypedExprKind::Emit { .. } => {
+                Err(self.todo("event emission is not supported in Wasm yet".into()))
+            }
         }
     }
 }

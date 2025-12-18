@@ -908,3 +908,61 @@ fn duplicate_function_error() {
         "#
     );
 }
+
+#[test]
+fn abi_emit_traces() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Events {
+            event Transfer(from: i64, to: i64, amount: i64);
+            event Log(message: i64);
+        }
+
+        fn transfer(from: i64, to: i64, amount: i64) {
+            emit Transfer(from, to, amount);
+            emit Log(amount);
+        }
+        "#
+    );
+}
+
+#[test]
+fn emit_unknown_event_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main() {
+            emit UnknownEvent(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn emit_arity_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Events {
+            event Transfer(from: i64, to: i64);
+        }
+
+        fn main() {
+            emit Transfer(1);
+        }
+        "#
+    );
+}
+
+#[test]
+fn emit_type_mismatch_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Events {
+            event Transfer(from: i64, to: i64);
+        }
+
+        fn main() {
+            emit Transfer(1, true);
+        }
+        "#
+    );
+}

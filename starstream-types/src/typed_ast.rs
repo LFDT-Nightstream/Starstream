@@ -24,6 +24,7 @@ pub enum TypedDefinition {
     Struct(TypedStructDef),
     Enum(TypedEnumDef),
     Utxo(TypedUtxoDef),
+    Abi(TypedAbiDef),
 }
 
 #[derive(Clone, Debug)]
@@ -82,6 +83,23 @@ pub enum TypedUtxoPart {
 pub struct TypedUtxoGlobal {
     pub name: Identifier,
     pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedAbiDef {
+    pub name: Identifier,
+    pub parts: Vec<TypedAbiPart>,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedAbiPart {
+    Event(TypedEventDef),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedEventDef {
+    pub name: Identifier,
+    pub params: Vec<TypedFunctionParam>,
 }
 
 /// Typed statements.
@@ -175,6 +193,11 @@ pub enum TypedExprKind {
     },
     Call {
         callee: Box<Spanned<TypedExpr>>,
+        args: Vec<Spanned<TypedExpr>>,
+    },
+    /// Event emission expression: `emit EventName(args...)`
+    Emit {
+        event: Identifier,
         args: Vec<Spanned<TypedExpr>>,
     },
 }

@@ -1,7 +1,8 @@
 use pretty::RcDoc;
 use starstream_types::{
-    BinaryOp, Block, Comment, Definition, Expr, FunctionDef, FunctionExport, FunctionParam,
-    Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, BinaryOp, Block, Comment, Definition, EventDef, Expr, FunctionDef,
+    FunctionExport, FunctionParam, Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
@@ -74,6 +75,7 @@ fn definition_to_doc<'a>(definition: &Definition, source: &'a str) -> RcDoc<'a, 
         Definition::Struct(definition) => struct_definition_to_doc(definition, source),
         Definition::Enum(definition) => enum_definition_to_doc(definition, source),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source),
+        Definition::Abi(definition) => abi_definition_to_doc(definition, source),
     }
 }
 
@@ -270,6 +272,46 @@ fn utxo_global_to_doc<'a>(decl: &UtxoGlobal, source: &'a str) -> RcDoc<'a, ()> {
         .append(RcDoc::text(";"))
 }
 
+fn abi_definition_to_doc<'a>(definition: &AbiDef, source: &'a str) -> RcDoc<'a, ()> {
+    if definition.parts.is_empty() {
+        RcDoc::text("abi")
+            .append(RcDoc::space())
+            .append(identifier_to_doc(&definition.name, source))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{ }"))
+    } else {
+        let parts = RcDoc::intersperse(
+            definition.parts.iter().map(|x| abi_part_to_doc(x, source)),
+            RcDoc::line(),
+        );
+
+        RcDoc::text("abi")
+            .append(RcDoc::space())
+            .append(identifier_to_doc(&definition.name, source))
+            .append(RcDoc::space())
+            .append(RcDoc::text("{"))
+            .append(RcDoc::line().append(parts).nest(INDENT))
+            .append(RcDoc::line())
+            .append(RcDoc::text("}"))
+    }
+}
+
+fn abi_part_to_doc<'a>(part: &AbiPart, source: &'a str) -> RcDoc<'a, ()> {
+    match part {
+        AbiPart::Event(event) => event_definition_to_doc(event, source),
+    }
+}
+
+fn event_definition_to_doc<'a>(event: &EventDef, source: &'a str) -> RcDoc<'a, ()> {
+    let params = params_to_doc(&event.params, source);
+    RcDoc::text("event")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&event.name, source))
+        .append(RcDoc::text("("))
+        .append(params)
+        .append(RcDoc::text(");"))
+}
+
 fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()> {
     match statement {
         Statement::VariableDeclaration {
@@ -295,13 +337,13 @@ fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()>
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
+            .append(spanned(value, source, |node| expr_to_doc(node, source)))
             .append(RcDoc::text(";")),
         Statement::Assignment { target, value } => identifier_to_doc(target, source)
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(spanned(&value, source, |node| expr_to_doc(&node, source)))
+            .append(spanned(value, source, |node| expr_to_doc(node, source)))
             .append(RcDoc::text(";")),
         Statement::While { condition, body } => RcDoc::text("while")
             .append(RcDoc::space())
@@ -309,11 +351,11 @@ fn statement_to_doc<'a>(statement: &Statement, source: &'a str) -> RcDoc<'a, ()>
             .append(RcDoc::space())
             .append(block_to_doc(body, source)),
         Statement::Expression(expr) => {
-            spanned(expr, source, |node| expr_to_doc(&node, source)).append(RcDoc::text(";"))
+            spanned(expr, source, |node| expr_to_doc(node, source)).append(RcDoc::text(";"))
         }
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
-            .append(spanned(&expr, source, |node| expr_to_doc(&node, source)))
+            .append(spanned(expr, source, |node| expr_to_doc(node, source)))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
     }
@@ -329,7 +371,7 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
             .map(|x| spanned(x, source, |node| statement_to_doc(node, source)))
             .collect();
         if let Some(expr) = &block.tail_expression {
-            items.push(spanned(&expr, source, |node| expr_to_doc(&node, source)));
+            items.push(spanned(expr, source, |node| expr_to_doc(node, source)));
         }
 
         let body = RcDoc::intersperse(items, RcDoc::line());
@@ -344,7 +386,7 @@ fn block_to_doc<'a>(block: &Block, source: &'a str) -> RcDoc<'a, ()> {
 fn parened_expr<'a>(expr: &Spanned<Expr>, source: &'a str) -> RcDoc<'a, ()> {
     spanned(expr, source, |node| {
         RcDoc::text("(")
-            .append(expr_to_doc(&node, source))
+            .append(expr_to_doc(node, source))
             .append(RcDoc::text(")"))
     })
 }
@@ -393,7 +435,7 @@ fn struct_literal_fields_to_doc<'a>(
                 identifier_to_doc(&field.name, source)
                     .append(RcDoc::text(": "))
                     .append(spanned(&field.value, source, |node| {
-                        expr_to_doc(&node, source)
+                        expr_to_doc(node, source)
                     }))
                     .append(RcDoc::text(","))
             }),
@@ -426,7 +468,7 @@ fn enum_constructor_to_doc<'a>(
                 let args = RcDoc::intersperse(
                     values
                         .iter()
-                        .map(|expr| spanned(expr, source, |node| expr_to_doc(&node, source))),
+                        .map(|expr| spanned(expr, source, |node| expr_to_doc(node, source))),
                     RcDoc::text(", "),
                 );
                 doc.append(RcDoc::text("("))
@@ -449,9 +491,7 @@ fn match_expr_to_doc<'a>(
 ) -> RcDoc<'a, ()> {
     let doc = RcDoc::text("match")
         .append(RcDoc::space())
-        .append(spanned(scrutinee, source, |node| {
-            expr_to_doc(&node, source)
-        }))
+        .append(spanned(scrutinee, source, |node| expr_to_doc(node, source)))
         .append(RcDoc::space());
 
     if arms.is_empty() {
@@ -558,8 +598,8 @@ fn expr_with_prec<'a>(
 ) -> RcDoc<'a, ()> {
     match expr {
         Expr::Grouping(inner) => RcDoc::text("(")
-            .append(spanned(&inner, source, |node| {
-                expr_with_prec(&node, PREC_LOWEST, ChildPosition::Top, source)
+            .append(spanned(inner, source, |node| {
+                expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source)
             }))
             .append(RcDoc::text(")")),
         _ => {
@@ -569,17 +609,17 @@ fn expr_with_prec<'a>(
                 Expr::Identifier(identifier) => identifier_to_doc(identifier, source),
                 Expr::Unary { op, expr } => {
                     let operand = spanned(expr, source, |node| {
-                        expr_with_prec(&node, prec, ChildPosition::Unary, source)
+                        expr_with_prec(node, prec, ChildPosition::Unary, source)
                     });
 
                     RcDoc::text(unary_op_str(op)).append(operand)
                 }
                 Expr::Binary { op, left, right } => {
                     let left_doc = spanned(left, source, |node| {
-                        expr_with_prec(&node, prec, ChildPosition::Left, source).group()
+                        expr_with_prec(node, prec, ChildPosition::Left, source).group()
                     });
                     let right_doc = spanned(right, source, |node| {
-                        expr_with_prec(&node, prec, ChildPosition::Right, source).group()
+                        expr_with_prec(node, prec, ChildPosition::Right, source).group()
                     });
 
                     left_doc
@@ -593,8 +633,8 @@ fn expr_with_prec<'a>(
                     struct_literal_expr_to_doc(name, fields, source)
                 }
                 Expr::FieldAccess { target, field } => {
-                    let receiver = spanned(&target, source, |node| {
-                        expr_with_prec(&node, PREC_PRIMARY, ChildPosition::Top, source)
+                    let receiver = spanned(target, source, |node| {
+                        expr_with_prec(node, PREC_PRIMARY, ChildPosition::Top, source)
                     });
                     receiver
                         .append(RcDoc::text("."))
@@ -656,6 +696,21 @@ fn expr_with_prec<'a>(
                         .append(args_doc)
                         .append(RcDoc::text(")"))
                 }
+                Expr::Emit { event, args } => {
+                    let args_doc = args.iter().map(|arg| {
+                        expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source)
+                    });
+
+                    let args_doc =
+                        RcDoc::intersperse(args_doc, RcDoc::text(",").append(RcDoc::space()));
+
+                    RcDoc::text("emit")
+                        .append(RcDoc::space())
+                        .append(identifier_to_doc(event, source))
+                        .append(RcDoc::text("("))
+                        .append(args_doc)
+                        .append(RcDoc::text(")"))
+                }
             };
 
             if needs_parentheses(prec, parent_prec, position) {
@@ -705,7 +760,8 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Literal(_)
         | Expr::Identifier(_)
         | Expr::StructLiteral { .. }
-        | Expr::EnumConstructor { .. } => PREC_PRIMARY,
+        | Expr::EnumConstructor { .. }
+        | Expr::Emit { .. } => PREC_PRIMARY,
         Expr::Grouping(inner) => precedence(&inner.node),
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),

@@ -1,5 +1,24 @@
 [
   {
+    "type": "abi_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "event_definition",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "arguments",
     "named": true,
     "fields": {},
@@ -104,6 +123,10 @@
             "named": true
           },
           {
+            "type": "emit_expression",
+            "named": true
+          },
+          {
             "type": "enum_constructor",
             "named": true
           },
@@ -137,6 +160,32 @@
           },
           {
             "type": "unit_literal",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "emit_expression",
+    "named": true,
+    "fields": {
+      "arguments": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "arguments",
+            "named": true
+          }
+        ]
+      },
+      "event": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
             "named": true
           }
         ]
@@ -322,6 +371,25 @@
     }
   },
   {
+    "type": "event_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "expression",
     "named": true,
     "fields": {},
@@ -339,6 +407,10 @@
         },
         {
           "type": "call_expression",
+          "named": true
+        },
+        {
+          "type": "emit_expression",
           "named": true
         },
         {
@@ -416,6 +488,10 @@
           },
           {
             "type": "call_expression",
+            "named": true
+          },
+          {
+            "type": "emit_expression",
             "named": true
           },
           {
@@ -633,6 +709,10 @@
       "multiple": true,
       "required": false,
       "types": [
+        {
+          "type": "abi_definition",
+          "named": true
+        },
         {
           "type": "enum_definition",
           "named": true
@@ -1001,6 +1081,10 @@
     "named": false
   },
   {
+    "type": "abi",
+    "named": false
+  },
+  {
     "type": "comment",
     "named": true,
     "extra": true
@@ -1010,7 +1094,15 @@
     "named": false
   },
   {
+    "type": "emit",
+    "named": false
+  },
+  {
     "type": "enum",
+    "named": false
+  },
+  {
+    "type": "event",
     "named": false
   },
   {

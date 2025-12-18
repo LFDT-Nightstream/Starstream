@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi Events {\n    event Transfer(from: i64, to: i64);\n}\n\nfn main() {\n    emit Transfer(1);\n}\n"
+---
+E0033 (https://starstream.nightstream.dev/errors/E0033)
+
+  x event `Transfer` expects 2 arguments but 1 were provided
+   ,-[test.star:6:5]
+ 5 | fn main() {
+ 6 |     emit Transfer(1);
+   :     ^^^^^^^^^^^^^^^^
+ 7 | }
+   `----
