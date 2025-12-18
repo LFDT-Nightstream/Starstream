@@ -132,7 +132,8 @@ pub fn parser<'a>(
                 .collect::<Vec<_>>()
                 .delimited_by(just('(').padded(), just(')').padded()),
         )
-        .map_with(|(event, args), extra| Spanned::new(Expr::Emit { event, args }, extra.span()));
+        .map(|(event, args)| Expr::Emit { event, args })
+        .spanned();
 
     choice((
         grouping,

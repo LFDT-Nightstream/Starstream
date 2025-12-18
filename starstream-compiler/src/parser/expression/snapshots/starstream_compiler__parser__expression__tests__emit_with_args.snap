@@ -1,13 +1,13 @@
 ---
 source: starstream-compiler/src/parser/expression/mod.rs
-description: "Code:\n\nemit Transfer(from, to, amount)"
+description: "Code:\n\n// Transfer event\nemit Transfer(from, to, amount)\n"
 ---
 Spanned {
     node: Emit {
         event: Identifier {
             name: "Transfer",
             span: Some(
-                5..13,
+                23..31,
             ),
         },
         args: [
@@ -16,11 +16,11 @@ Spanned {
                     Identifier {
                         name: "from",
                         span: Some(
-                            14..18,
+                            32..36,
                         ),
                     },
                 ),
-                span: 14..18,
+                span: 32..36,
                 comments_before: [],
                 comments_after: [],
             },
@@ -29,11 +29,11 @@ Spanned {
                     Identifier {
                         name: "to",
                         span: Some(
-                            20..22,
+                            38..40,
                         ),
                     },
                 ),
-                span: 20..22,
+                span: 38..40,
                 comments_before: [],
                 comments_after: [],
             },
@@ -42,17 +42,21 @@ Spanned {
                     Identifier {
                         name: "amount",
                         span: Some(
-                            24..30,
+                            42..48,
                         ),
                     },
                 ),
-                span: 24..30,
+                span: 42..48,
                 comments_before: [],
                 comments_after: [],
             },
         ],
     },
-    span: 0..31,
-    comments_before: [],
+    span: 0..50,
+    comments_before: [
+        Comment(
+            0..18,
+        ),
+    ],
     comments_after: [],
 }
