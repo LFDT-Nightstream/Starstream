@@ -6,19 +6,19 @@ use std::{
 };
 
 use starstream_types::{
-    Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
-    UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, EventDef, Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef,
+    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, Literal, Pattern, Program, Statement,
         StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
-        TypedBlock, TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef,
-        TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload, TypedExpr,
-        TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedMatchArm, TypedPattern,
-        TypedProgram, TypedStatement, TypedStructDef, TypedStructField, TypedStructLiteralField,
-        TypedStructPatternField,
+        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
+        TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload,
+        TypedEventDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam,
+        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
+        TypedStructField, TypedStructLiteralField, TypedStructPatternField,
     },
     types::{
         EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
@@ -206,6 +206,7 @@ struct Inferencer {
     subst: HashMap<TypeVarId, Type>,
     types: TypeRegistry,
     functions: FunctionRegistry,
+    events: EventRegistry,
 }
 
 struct FunctionRegistry {
@@ -236,6 +237,34 @@ struct FunctionInfo {
     name_span: Span,
 }
 
+struct EventRegistry {
+    entries: HashMap<String, EventInfo>,
+}
+
+impl EventRegistry {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, name: String, info: EventInfo) {
+        self.entries.insert(name, info);
+    }
+
+    fn get(&self, name: &str) -> Option<&EventInfo> {
+        self.entries.get(name)
+    }
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+struct EventInfo {
+    param_types: Vec<Type>,
+    param_spans: Vec<Span>,
+    name_span: Span,
+}
+
 struct FunctionCtx {
     expected_return: Type,
     return_span: Span,
@@ -251,6 +280,7 @@ impl Inferencer {
             subst: HashMap::new(),
             types: TypeRegistry::new(),
             functions: FunctionRegistry::new(),
+            events: EventRegistry::new(),
         }
     }
 
@@ -264,6 +294,7 @@ impl Inferencer {
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
                 Definition::Utxo(_) => {}
+                Definition::Abi(def) => self.register_abi(def)?,
             }
         }
         for definition in definitions {
@@ -302,6 +333,37 @@ impl Inferencer {
                 param_types,
                 param_spans,
                 return_type,
+                name_span,
+            },
+        );
+        Ok(())
+    }
+
+    fn register_abi(&mut self, def: &AbiDef) -> Result<(), TypeError> {
+        for part in &def.parts {
+            match part {
+                AbiPart::Event(event) => self.register_event(event)?,
+            }
+        }
+        Ok(())
+    }
+
+    fn register_event(&mut self, event: &EventDef) -> Result<(), TypeError> {
+        let name = event.name.name.clone();
+        let name_span = event.name.span.unwrap_or_else(dummy_span);
+
+        let mut param_types = Vec::with_capacity(event.params.len());
+        let mut param_spans = Vec::with_capacity(event.params.len());
+        for param in &event.params {
+            let ty = self.type_from_annotation(&param.ty)?;
+            param_types.push(ty);
+            param_spans.push(param.ty.name.span.unwrap_or_else(dummy_span));
+        }
+        self.events.insert(
+            name,
+            EventInfo {
+                param_types,
+                param_spans,
                 name_span,
             },
         );
@@ -529,6 +591,45 @@ impl Inferencer {
             name: def.name.clone(),
             variants,
             ty: info.ty,
+        })
+    }
+
+    fn build_typed_abi(&self, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
+        let mut typed_parts = Vec::with_capacity(def.parts.len());
+
+        for part in &def.parts {
+            match part {
+                AbiPart::Event(event) => {
+                    let event_info = self.events.get(&event.name.name).ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEvent {
+                                name: event.name.name.clone(),
+                            },
+                            event.name.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                    let params = event_info
+                        .param_types
+                        .iter()
+                        .zip(&event.params)
+                        .map(|(ty, param)| TypedFunctionParam {
+                            name: param.name.clone(),
+                            ty: ty.clone(),
+                        })
+                        .collect();
+
+                    typed_parts.push(TypedAbiPart::Event(TypedEventDef {
+                        name: event.name.clone(),
+                        params,
+                    }));
+                }
+            }
+        }
+
+        Ok(TypedAbiDef {
+            name: def.name.clone(),
+            parts: typed_parts,
         })
     }
 
@@ -898,19 +999,28 @@ impl Inferencer {
         match definition {
             Definition::Function(function) => {
                 let (typed_function, trace) = self.infer_function(env, function)?;
+
                 Ok((TypedDefinition::Function(typed_function), trace))
             }
             Definition::Struct(def) => {
                 let typed = self.build_typed_struct(def)?;
+
                 Ok((TypedDefinition::Struct(typed), InferenceTree::default()))
             }
             Definition::Enum(def) => {
                 let typed = self.build_typed_enum(def)?;
+
                 Ok((TypedDefinition::Enum(typed), InferenceTree::default()))
             }
             Definition::Utxo(def) => {
                 let (utxo, trace) = self.infer_utxo(env, def)?;
+
                 Ok((TypedDefinition::Utxo(utxo), trace))
+            }
+            Definition::Abi(def) => {
+                let typed = self.build_typed_abi(def)?;
+
+                Ok((TypedDefinition::Abi(typed), InferenceTree::default()))
             }
         }
     }
@@ -2187,6 +2297,79 @@ impl Inferencer {
 
                 Ok((typed, tree))
             }
+            Expr::Emit { event, args } => {
+                let event_info = self.events.get(&event.name).ok_or_else(|| {
+                    TypeError::new(
+                        TypeErrorKind::UnknownEvent {
+                            name: event.name.clone(),
+                        },
+                        event.span.unwrap_or(expr.span),
+                    )
+                })?;
+
+                let param_types = event_info.param_types.clone();
+                let param_spans = event_info.param_spans.clone();
+                let event_name = event.name.clone();
+
+                if args.len() != param_types.len() {
+                    return Err(TypeError::new(
+                        TypeErrorKind::EventArityMismatch {
+                            event_name,
+                            expected: param_types.len(),
+                            found: args.len(),
+                        },
+                        expr.span,
+                    ));
+                }
+
+                let mut children = Vec::new();
+                let mut typed_args = Vec::with_capacity(args.len());
+
+                for (index, (arg, expected_ty)) in args.iter().zip(param_types.iter()).enumerate() {
+                    let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+                    let actual_ty = typed_arg.node.ty.clone();
+
+                    let param_span = param_spans.get(index).copied();
+
+                    let (_, unify_trace) = self.unify(
+                        actual_ty.clone(),
+                        expected_ty.clone(),
+                        arg.span,
+                        arg.span,
+                        TypeErrorKind::EventArgumentTypeMismatch {
+                            event_name: event_name.clone(),
+                            expected: expected_ty.clone(),
+                            found: self.apply(&actual_ty),
+                            position: index + 1,
+                            param_span,
+                        },
+                    )?;
+
+                    children.push(arg_trace);
+                    children.push(unify_trace);
+                    typed_args.push(typed_arg);
+                }
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        Type::Unit,
+                        TypedExprKind::Emit {
+                            event: event.clone(),
+                            args: typed_args,
+                        },
+                    ),
+                    expr.span,
+                );
+
+                let result_repr = self.maybe_string(|| self.format_type(&Type::Unit));
+
+                let tree =
+                    self.make_trace("T-Emit", env_context, subject_repr, result_repr, || {
+                        children
+                    });
+
+                Ok((typed, tree))
+            }
         }
     }
 
@@ -2419,7 +2602,7 @@ impl Inferencer {
         match definition {
             TypedDefinition::Function(function) => self.apply_function(function),
             TypedDefinition::Utxo(utxo) => self.apply_utxo(utxo),
-            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) => {}
+            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) | TypedDefinition::Abi(_) => {}
         }
     }
 
@@ -2524,6 +2707,11 @@ impl Inferencer {
             TypedExprKind::Call { callee, args } => {
                 self.apply_expr(callee);
 
+                for arg in args {
+                    self.apply_expr(arg);
+                }
+            }
+            TypedExprKind::Emit { args, .. } => {
                 for arg in args {
                     self.apply_expr(arg);
                 }

@@ -259,6 +259,24 @@ pub enum TypeErrorKind {
         position: usize,
         param_span: Option<Span>,
     },
+    /// Attempted to emit an event that doesn't exist.
+    UnknownEvent {
+        name: String,
+    },
+    /// Event called with wrong number of arguments.
+    EventArityMismatch {
+        event_name: String,
+        expected: usize,
+        found: usize,
+    },
+    /// Event argument type does not match expected parameter type.
+    EventArgumentTypeMismatch {
+        event_name: String,
+        expected: Type,
+        found: Type,
+        position: usize,
+        param_span: Option<Span>,
+    },
 }
 
 impl TypeErrorKind {
@@ -296,6 +314,9 @@ impl TypeErrorKind {
             TypeErrorKind::NotAFunction { .. } => "E0029",
             TypeErrorKind::ArityMismatch { .. } => "E0030",
             TypeErrorKind::ArgumentTypeMismatch { .. } => "E0031",
+            TypeErrorKind::UnknownEvent { .. } => "E0032",
+            TypeErrorKind::EventArityMismatch { .. } => "E0033",
+            TypeErrorKind::EventArgumentTypeMismatch { .. } => "E0034",
         }
     }
 }
@@ -541,6 +562,37 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "argument {position} has type `{}` but `{}` was expected",
+                    found.to_compact_string(),
+                    expected.to_compact_string()
+                )
+            }
+            TypeErrorKind::UnknownEvent { name } => write!(f, "unknown event `{name}`"),
+            TypeErrorKind::EventArityMismatch {
+                event_name,
+                expected,
+                found,
+            } => {
+                let args = if *expected == 1 {
+                    "argument"
+                } else {
+                    "arguments"
+                };
+
+                write!(
+                    f,
+                    "event `{event_name}` expects {expected} {args} but {found} were provided"
+                )
+            }
+            TypeErrorKind::EventArgumentTypeMismatch {
+                event_name,
+                expected,
+                found,
+                position,
+                ..
+            } => {
+                write!(
+                    f,
+                    "event `{event_name}` argument {position} has type `{}` but `{}` was expected",
                     found.to_compact_string(),
                     expected.to_compact_string()
                 )

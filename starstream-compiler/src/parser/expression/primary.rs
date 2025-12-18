@@ -121,6 +121,20 @@ pub fn parser<'a>(
 
     let block = block.map(Box::new).map(Expr::Block).spanned();
 
+    let emit_expression = just("emit")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            expression
+                .clone()
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just('(').padded(), just(')').padded()),
+        )
+        .map(|(event, args)| Expr::Emit { event, args })
+        .spanned();
+
     choice((
         grouping,
         integer_literal,
@@ -128,6 +142,7 @@ pub fn parser<'a>(
         unit_literal,
         struct_literal,
         enum_constructor,
+        emit_expression,
         block,
         if_expression,
         match_expression,

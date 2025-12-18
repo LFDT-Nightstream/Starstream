@@ -1,6 +1,6 @@
 use chumsky::prelude::*;
 use starstream_types::{
-    FunctionExport, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, EventDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         Definition, EnumDef, EnumVariant, EnumVariantPayload, FunctionDef, FunctionParam,
         StructDef, StructField,
@@ -15,6 +15,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
         struct_definition().map(Definition::Struct),
         enum_definition().map(Definition::Enum),
         utxo_definition().map(Definition::Utxo),
+        abi_definition().map(Definition::Abi),
     ))
 }
 
@@ -148,4 +149,103 @@ fn utxo_definition<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
         .map(|(name, parts)| UtxoDef { name, parts })
+}
+
+fn abi_definition<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
+    let abi_part = event_definition().map(AbiPart::Event);
+
+    just("abi")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            abi_part
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|(name, parts)| AbiDef { name, parts })
+}
+
+fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
+    let type_parser = type_annotation::parser().boxed();
+
+    let parameter = primitives::identifier()
+        .then_ignore(just(':').padded())
+        .then(type_parser)
+        .map(|(name, ty)| FunctionParam { name, ty });
+
+    just("event")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            parameter
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just('(').padded(), just(')').padded()),
+        )
+        .then_ignore(just(';').padded())
+        .map(|(name, params)| EventDef { name, params })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indoc::indoc;
+
+    macro_rules! assert_definition_snapshot {
+        ($code:expr) => {{
+            let def = parser()
+                .parse(indoc! { $code })
+                .into_result()
+                .expect("definition should parse");
+
+            insta::with_settings!({
+                description => format!("Code:\n\n{}", indoc! { $code }),
+                omit_expression => true,
+                prepend_module_to_snapshot => true,
+            }, {
+                insta::assert_debug_snapshot!(def);
+            });
+        }};
+    }
+
+    #[test]
+    fn abi_empty() {
+        assert_definition_snapshot!("abi Events {}");
+    }
+
+    #[test]
+    fn abi_single_event() {
+        assert_definition_snapshot!(
+            r#"
+            abi Events {
+                event Transfer(from: i64, to: i64);
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_multiple_events() {
+        assert_definition_snapshot!(
+            r#"
+            abi Events {
+                event Transfer(from: i64, to: i64, amount: i64);
+                event Log(message: i64);
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_event_no_params() {
+        assert_definition_snapshot!(
+            r#"
+            abi Events {
+                event Ping();
+            }
+            "#
+        );
+    }
 }

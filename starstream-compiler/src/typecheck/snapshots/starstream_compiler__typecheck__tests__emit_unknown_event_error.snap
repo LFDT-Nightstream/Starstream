@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main() {\n    emit UnknownEvent(42);\n}\n"
+---
+E0032 (https://starstream.nightstream.dev/errors/E0032)
+
+  x unknown event `UnknownEvent`
+   ,-[test.star:2:10]
+ 1 | fn main() {
+ 2 |     emit UnknownEvent(42);
+   :          ^^^^^^^^^^^^
+ 3 | }
+   `----
