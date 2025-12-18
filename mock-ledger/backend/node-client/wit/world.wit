@@ -1,0 +1,6 @@
+package starstream:node-rpc-client;
+
+world client {
+    include starstream:node-rpc/client;
+}
+
