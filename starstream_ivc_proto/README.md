@@ -72,7 +72,7 @@ to trigger a change in ledger state and get some value from another program.
 
 A transaction is made of:
 
-1. A list of inputs. And input is a "pointer" to an entry in the ledger state (a
+1. A list of inputs. An input is a "pointer" to an entry in the ledger state (a
 utxo). The entry in the ledger state has the serialized coroutine state and a
 verification key for a zk proof that gatekeeps spending.
 2. A list of outputs (these are the new entries to the ledger). These also need
@@ -107,7 +107,9 @@ The basic "ledger" operations that we care about are:
 
 ### Shared
 
-- resume(f: Continuation, value: Value) -> (Value, Continuation)
+#### resuming
+
+- **resume(f: Continuation, value: Value) -> (Value, Continuation)**
 
 Changes control flow from the current program to the utxo. The `value` argument
 needs to match the return value of the last `yield` in that program.
@@ -120,7 +122,7 @@ row in a caller -> handler -> caller flow.
 When performed from a utxo, these don't create a utxo entry. It's expected that
 effect handlers are atomic in the transaction.
 
-The circuit for resume needs to take care of:
+The circuit for **resume** needs to take care of:
 
 1. The Continuation returned matches the previous program (the previous opcode
 in the witness was a resume from that program).
@@ -131,7 +133,9 @@ return value that matches the input.
 5. Maybe check that continuations are linear/one-shot (by enforcing a nonce on
 the continuation). Not sure if this is needed or utxos can just take care of it.
 
-- program_id(f: Continuation) -> ProgramId
+#### program hash (coordination script attestation)
+
+- **program_hash(f: Continuation) -> ProgramId**
 
 Get the hash of the program with the given id. This can be used to attest the
 caller after resumption. For example, a method that only wants to be called by a
@@ -141,19 +145,27 @@ particular coordination script.
 argument. That is, instead of asking the program id and asserting a fixed one,
 you could just ask for a proof and verify it with the program's key.
 
-The difference is that this allows "batching" (each check is just a lookup into
-a process table, and there can be a single proof). It also has the flexibility
-of allowing indirection to have a list of allowed callers, for example.
+The difference is that this allows "batching". It also has the flexibility of
+allowing indirection to have a list of allowed callers, for example.
+
+In the proof context, this is essentially a lookup into a "process table", that
+has one entry per wasm program in the transaction, and it stores a hash of the
+wasm module. To verify the transaction this table has to be used as the public
+instance for the respective wasm proof.
 
 #### Coordination script
 
-- new(utxo: UtxoProgramHash, ..args) -> Continuation
+##### new utxo
+
+- **new(utxo: UtxoProgramHash, ..args) -> Continuation**
 
 Creates a new entry in the utxo set in the ledger state. It registers the
 `ProgramId`, which acts as a verification key, and sets the initial coroutine
 state. `Continuation` is basically the address.
 
-- new_coord(coord: CoordScriptHash, ..args) -> Continuation
+##### new coordination script (spawn)
+
+- **new_coord(coord: CoordScriptHash, ..args) -> Continuation**
 
 Register a new coordination script in this transaction, in a cold state (don't
 start running it). It can then be called with `resume`. The `args` are the input
@@ -170,7 +182,9 @@ same inputs to verify the coordination script wasm proof.
 
 #### Utxo
 
-- yield() -> (Value, Continuation)
+##### Yield
+
+- **yield() -> (Value, Continuation)**
 
 Pause execution of the current utxo and move control flow to the previous
 coordination script if any. If not, this creates a new utxo entry, with the PC =
@@ -181,7 +195,9 @@ The difference with `resume` is that it doesn't take a continuation as a target.
 Because of this, only `yield` can be used as the last operation for a utxo in a
 transaction.
 
-- burn()
+##### Burn
+
+- **burn()**
 
 Explicit drop in the utxo's program. This removes the program (and the coroutine
 state) from the ledger state. It's equivalent to a coroutine return.
@@ -194,7 +210,7 @@ state) from the ledger state. It's equivalent to a coroutine return.
 Relational arguments. The ledger state has to keep relations of inclusion, where
 tokens can be included in utxos.
 
-### Proving
+### Proving the interleaving
 
 All the operations that use the ledger state are communication operations. And
 can be thought of as memory operations. Taking inspiration from offline memory
@@ -637,10 +653,16 @@ mod concurrent {
         with Scheduler {
           fn suspend() {
             // reminder, this is a closure that just captures a "pointer" to a
-            // wasm sandbox (continuation or fiber if you want).
+            // wasm sandbox (continuation or fiber if you want), because of
+            // this, it can be implemented as a normal closure, since it
+            // basically just captures an int.
 
-            // and this is just a local closure, it can't be sent to other vm
-            // (since that requires shared memory).
+            // this is a local capture, it can't be sent to other vm (since that
+            // requires shared memory).
+            //
+            // in practice we may also not allow returning even in the same
+            // module (since it shouldn't be resumed without installing the
+            // handler).
             //
             // check the previous section for the low level representation.
 
@@ -736,7 +758,7 @@ utxo Streamable {
         }
 
         if storage.actions.is_empty() {
-          builtin::burn();
+          starstream::burn();
         }
       }
 
@@ -803,12 +825,12 @@ mod streamable {
     fn aggregate_on(consumer: Consumer) / { Channel, Scheduler } {
       let chan = do new_chan();
 
-      let consumer_coord = builtins::new_coord(consumer_script, consumer, chan);
+      let consumer_coord = starstream::new_coord(consumer_script, consumer, chan);
 
       do schedule(consumer_coord);
       // or just take a list as a parameter
       for utxo in Streamable {
-        let process_10_coord = builtins::new_coord(process_10, utxo, chan);
+        let process_10_coord = starstream::new_coord(process_10, utxo, chan);
 
         do schedule(process_10_coord);
       }
@@ -841,9 +863,9 @@ script {
     //  }
     // }
     //
-    let aggregation_script = builtin::new_coord(concurrent::aggregate_on, consumer);
-    let channel_handler = builtin::new_coord(concurrent::with_channels, aggregation_script);
-    let thread_handler = builtin::new_coord(concurrent::with_threads, channel_handler);
+    let aggregation_script = starstream::new_coord(streamable::aggregate_on, consumer);
+    let channel_handler = starstream::new_coord(concurrent::with_channels, aggregation_script);
+    let thread_handler = starstream::new_coord(concurrent::with_threads, channel_handler);
 
     // remember that new_coord doesn't run anything, it just gives an id to a
     // new instance, and binds (curry) the arguments.
@@ -900,7 +922,7 @@ runtime.
 
 ```rust
 fn aggregate_on(consumer: Consumer) / { Channel, Scheduler } {
-  assert(context.caller == concurrent::module_hash);
+  assert(context.caller == concurrent::hash);
 
   let chan = do new_chan();
 
