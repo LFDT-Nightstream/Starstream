@@ -171,6 +171,14 @@ The difference with `resume` is that it doesn't take a continuation as a target.
 Because of this, only `yield` can be used as the last operation for a utxo in a
 transaction.
 
+#### Effect handlers
+
+- **get_handler(interface_id) -> Continuation**
+
+Gets the last handler installed for a specific interface (effect) in the current "call stack".
+
+This can be used in combination with `resume` to perform effects.
+
 #### Coordination script
 
 ##### new utxo
@@ -197,6 +205,16 @@ In the interleaving circuit this is similar. This generates a new transient id
 for this wasm vm, which is used as the continuation id. Then it stores the input
 in memory. When checking the aggregated proofs, the verifier needs to use the
 same inputs to verify the coordination script wasm proof.
+
+##### effect handlers
+
+- **install_handler(interface: InterfaceId)**
+
+Registers the current coroutine as the handler for a specific interface. `get_handler` then will return the id of the current coroutine. Installing implies pushing to a stack. If another coroutine registers for the same interface, then it takes priority for `get_handler`.
+
+- **uninstall_handler(interface: InterfaceId)**
+
+De-register the current coroutine as the handler for a specific interface.
 
 #### Utxo
 
@@ -354,7 +372,7 @@ The flow of execution to proving then looks something like this:
 
 Note: WASM is an arbitrary trace of wasm opcodes from the corresponding program.
 
-![img](graph.png)
+![img](graph-scaled.png)
 
 ## Proving algebraic effects
 
@@ -516,7 +534,7 @@ special effect.
 
 It's still undecided whether we want to have this feature (and what would be the semantics
 
-## Proving
+### Proving
 
 The cases outlined above can be proved with the architecture outlined in the
 previous section without too many changes. The main constraint that we have
@@ -529,20 +547,20 @@ thing we care about here is about interleaving consistency.
 
 The general outline follows.
 
-Each effectul function receives a dictionary mapping effects to coroutines.
-This can be just encoded through parameter passing. So a function with type:
-`() -> () / { singleton_effect }` is compiled into a function of (wasm) type
-`(k: Continuation) -> ()`.
+To handle effects, we introduce a scoped handler installation mechanism.
+A coordination script can install a handler for a specific interface, identified
+by its hash (`interface_id`). This installation is scoped to the execution of the
+coordination script.
 
-This is sometimes called implicit capability passing.
+The primary operations are:
+- `install_handler(interface_id)`: Installs the current program as the handler
+for the given interface. This is only callable from a coordination script, since
+utxos can't call other utxos, they can't really wrap things. And utxo effects
+can only be invoked as named handlers.
+- `uninstall_handler(interface_id)`: Uninstalls the handler for the given interface.
+- `get_handler_for(interface_id)`: Retrieves the currently installed handler for the given interface. This is a shared operation, since coordination scripts can perform effects.
 
-This is most likely simpler to prove, but harder to do codegen for. The
-alternative is to have the the interleaving proof machinery keep track of the
-dictionary of installed handlers (and uninstalling them). The tradeoff is
-whether we want to spend more time on codegen, or make the interleaving proof
-more complex by keeping track of this dictionary.
-
-For example, in the alternative design a coordination script would do:
+For example, a coordination script would do:
 
 ```rust
 fn coord(k: Continuation<MyInterface>) {
@@ -554,6 +572,8 @@ fn coord(k: Continuation<MyInterface>) {
 }
 ```
 
+And a UTXO would use it like this:
+
 ```rust
 fn utxo() {
   let k = starstream::get_handler_for(MyInterface::hash); // fails if not installed
@@ -562,24 +582,17 @@ fn utxo() {
 }
 ```
 
->**Thought**: This may also be better for dynamic imports, since it's arguably a
-simpler abi.
+This design is arguably simpler for codegen and for dynamic imports, as it
+provides a clearer ABI than implicit capability passing.
 
-I'm going to assume the former design in the rest of the document, but I'm not
-closed to this option neither. It just requires figuring out the best way of
-encoding this map of stacks in the circuit.
-
-Invoking a handler is _resuming_ a specific coroutine (received as an argument).
+Invoking a handler is _resuming_ a specific coroutine (retrieved via `get_handler_for`).
 The operation to perform can be passed as an argument encoded as a tagged union.
 The tag doesn't have to be a small integer like it's usually done with enums, it
 can be for example a hash that identifies the operation.
 
 Installing a handler is conceptually:
 
-1. Passing the current continuation id (wasm vm) as a parameter in the right
-position.  (Or call an operation to register a handlers for a certain operation,
-in the alternative way).
-
+1. Calling an operation to register a handler for a certain interface (the whole interface).
 2. Setup a trampoline-like loop to drive the handlers. Note that if the
 operation is not supported we can just flag an error here that aborts the
 transaction.
@@ -601,6 +614,21 @@ For example, the script could look like this:
 **Note** that this also technically stores a continuation.
 
 ![img](effect-handlers-codegen-script-non-tail.png)
+
+### Alternative Handler Implementation: Implicit Capability Passing
+
+An alternative design is to use implicit capability passing. In this model, each
+effectful function receives a dictionary mapping effects to coroutines.
+This can be just encoded through parameter passing. So a function with type:
+`() -> () / { singleton_effect }` is compiled into a function of (wasm) type
+`(k: Continuation) -> ()`.
+
+This is most likely simpler to prove, but harder to do codegen for. The tradeoff is
+whether we want to spend more time on codegen, or make the interleaving proof
+more complex by keeping track of this dictionary.
+
+The decision here comes more to ABI, codegen complexity, whether we need dynamic
+loading of scripts, and how much more complex is the circuit.
 
 ## Concurrency + channels
 
@@ -686,8 +714,7 @@ mod concurrent {
       queue.insert(|| f.resume());
 
       // which lowers to:
-      // let thread_handler = starstream::pid();
-      // queue.insert(|| starstream::resume(f, thread_handler));
+      // queue.insert(|| starstream::resume(f));
 
       while let Some(next) = queue.pop() {
         try {
@@ -757,8 +784,12 @@ mod concurrent {
 
         // which compiles to:
 
-        // let channels_handler = starstream::pid();
-        // starstream::resume(f, channels_handler);
+        // starstream::install_handler(Scheduler::hash)
+        // starstream::resume(f)
+        // ...
+        // handler code
+        // ...
+        // starstream::uninstall_handler(Scheduler::hash)
       }
       with Channel {
         fn new_chan(): ChannelId {
@@ -934,15 +965,24 @@ script {
   }
 }
 ```
-
 But what does the above compile to?
 
-It depends on how do we choose to implement effects.
+With builtin scoped handlers, it can be compiled into just
 
-In the implicit capability style (which is the harder one from codegen point of
-view), the only issue is that we need partial application to be able to compose
-things properly. We can simulate that through a shim with suspensions. Also this
-may require static linking.
+```rust
+let aggregation_script = starstream::new_coord(aggregate_on, consumer);
+let channel_handler = starstream::new_coord(concurrent::with_channels, aggregation_script);
+let thread_handler = starstream::new_coord(concurrent::with_threads, channel_handler);
+
+resume(thread_handler, ());
+```
+
+Each script will wrap things with a handler before resuming the received
+continuation, so by the time an effect is needed then there would be one in
+scope.
+
+In the implicit capability passing style, we would need to instead have a shim
+to properly inject the outer handler to the wrapped coroutine:
 
 ```rust
 script {
@@ -993,26 +1033,12 @@ script {
 }
 ```
 
-In the other model where effect handlers just call a registration function it's
-simpler to see the transformation (but more complex the proof).
-
-The shim is not needed because `aggregate_on` will just ask for the installed
-handlers by name, so it's just a function with one argument.
-
-The `with_threads` and `with_channels` handlers would be modified to include the
-installation before calling resume, and the main coordination script would be
-the same as above, but without the shim and the partial application of the
-`thread_handler`.
-
-The decision here comes more to ABI, codegen complexity, whether we need dynamic
-loading of scripts, and how much more complex is the circuit.
-
 ## Attestation
 
 Interfaces are generally not enough to ensure safety as long as two or more
 independent processes are involved. Even if the interface is implemented
 "correctly", there are details that are just not possible to express without
-having some way of doing attestation (or maybe contracts?).
+having some way of doing attestation (or maybe contracts?). Of course in some case it may be enough to just check a signature, or have an embedded proof of some sort, but if anyone can interact with a contract there needs to be at least some way of asserting that they run the proper protocol.
 
 This is not unlike running a distributed system on a distributed scheduler, but
 trying to ensure some properties about it (like fairness). A checked
@@ -1063,21 +1089,9 @@ There is no need for the utxo to examine the call-stack.
 Of course the issue here is that there may be something else in the middle, but
 it's unclear whether that's a limitation in practice.
 
-2. The other way is to just check for the handler in every method call.
+2. Another way is to just check for the handler in every method call.
 
-Remember that a handler compiles from:
-
-```rust
-fn process(channel_id: ChannelId) / { Channel };
-```
-
-To:
-
-```rust
-fn process(channel_id: ChannelId, channel_handler: Continuation);
-```
-
-Therefore, it's possible to ask for `program_hash(channel_handler) ==
+It's possible to ask for `program_hash(channel_handler) ==
 concurrent::hash` before invoking a handler.
 
 What's the proper syntax for this is uncertain. It could be something like:
@@ -1104,3 +1118,27 @@ match {
 
 It's not necessarily more expensive since the hash could be cached in the utxo's
 memory (to reduce the amount of host calls), but it makes things more complex.
+
+3. Another option is to use handshakes.
+
+This still requires a wrapper script, but allows dynamic loading.
+
+So we have a wrapper script:
+
+```rust
+script {
+  fn trusted_script(input: Utxo<Foo>, known_coords: Utxo<Set>, dynamic_script: Coord) {
+    // this script, which is known and fixed on the utxo
+
+    // without this handshake, the utxo will refuse everything.
+    input.accept_script();
+
+    // use indirection to check
+    // let's say only an admin can modify known_coords
+    assert(known_coords.contains(dynamic_script.hash()))
+    assert(known_coords.authenticate());
+
+    resume(starstream::new_choord(dynamic_script));
+  }
+}
+```

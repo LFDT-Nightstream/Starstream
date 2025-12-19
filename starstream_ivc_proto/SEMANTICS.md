@@ -27,7 +27,7 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized)
+σ = (id_curr, id_prev, M, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack)
 
 Where:
   id_curr        : ID of the currently executing VM. In the range [0..#coord + #utxo]
@@ -39,6 +39,7 @@ Where:
   safe_to_ledger : A map {ProcessID -> Bool}
   is_utxo        : Read-only map {ProcessID -> Bool}
   initialized    : A map {ProcessID -> Bool}
+  handler_stack  : A map {InterfaceID -> Stack<ProcessID>}
 ```
 
 Note that the maps are used here for convenience of notation. In practice they
@@ -106,7 +107,7 @@ Rule: Resume
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
     1. M[id_curr]               <- ret       (Claim, needs to be checked later by future resumer)
-    2. counters[id_curr]        += 1         (Keep track of host call index per process)
+    2. counters'[id_curr]       += 1         (Keep track of host call index per process)
     3. id_prev'                 <- id_curr   (Save "caller" for yield)
     4. id_curr'                 <- target    (Switch)
     5. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
@@ -143,7 +144,7 @@ Rule: Yield (resumed)
 --------------------------------------------------------------------------------------------
 
     1. M[id_curr]               <- ret       (Claim, needs to be checked later by future resumer)
-    2. counters[id_curr]        += 1         (Keep track of host call index per process)
+    2. counters'[id_curr]       += 1         (Keep track of host call index per process)
     3. id_curr'                 <- id_prev   (Switch to parent)
     4. id_prev'                 <- id_curr   (Save "caller")
     5. safe_to_ledger'[id_curr] <- False     (This is not the final yield for this utxo in this transaction)
@@ -180,13 +181,21 @@ Rule: Program Hash
 
     op = ProgramHash(target_id)
     hash = process_table[target_id]
+
+    let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <NewUtxo, program_hash, val, id>
+
+    (Host call lookup condition)
+
 -----------------------------------------------------------------------
-    σ' = σ  (This is just a lookup constraints)
+    1. counters'[id_curr] += 1
 ```
 
 ---
 
-# Coordination Script Operations
+# 3. Coordination Script Operations
 
 ## New UTXO
 
@@ -222,7 +231,8 @@ Assigns a new (transaction-local) ID for a UTXO program.
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
-    initialized[id] <- True
+    1. initialized[id] <- True
+    2. counters'[id_curr] += 1
 ```
 
 ## New Coordination Script (Spawn)
@@ -262,12 +272,92 @@ handler) instance.
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
-    initialized[id] <- True
+    1. initialized[id] <- True
+    2. counters'[id_curr] += 1
 ```
 
 ---
 
-# 4. UTXO Operations
+# 4. Effect Handler Operations
+
+## Install Handler
+
+Pushes the current program ID onto the handler stack for a given interface. This operation is restricted to coordination scripts.
+
+```text
+Rule: Install Handler
+=====================
+    op = InstallHandler(interface_id)
+
+    1. is_utxo[id_curr] == False
+
+    (Only coordination scripts can install handlers)
+
+    2. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <InstallHandler, interface_id>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. handler_stack'[interface_id].push(id_curr)
+    2. counters'[id_curr] += 1
+```
+
+## Uninstall Handler
+
+Pops a program ID from the handler stack for a given interface. This operation is restricted to coordination scripts.
+
+```text
+Rule: Uninstall Handler
+=======================
+    op = UninstallHandler(interface_id)
+
+    1. is_utxo[id_curr] == False
+
+    (Only coordination scripts can uninstall handlers)
+
+    2. handler_stack[interface_id].top() == id_curr
+
+    (Only the installer can uninstall)
+
+    3. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <UninstallHandler, interface_id>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. handler_stack'[interface_id].pop()
+    2. counters[id_curr] += 1
+```
+
+## Get Handler For
+
+Retrieves the handler for a given interface without altering the handler stack.
+
+```text
+Rule: Get Handler For
+=====================
+    op = GetHandlerFor(interface_id) -> handler_id
+
+    1. handler_id == handler_stack[interface_id].top()
+
+    (The returned handler_id must match the one on top of the stack)
+
+    2. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <GetHandlerFor, interface_id, handler_id>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. counters'[id_curr] += 1
+```
+
+---
+
+# 5. UTXO Operations
 
 ## Burn
 
@@ -290,8 +380,10 @@ Destroys the UTXO state.
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-is_initialized'[id_curr] <- False
-safe_to_ledger'[id_curr] <- True
+    1. is_initialized'[id_curr] <- False
+    2. safe_to_ledger'[id_curr] <- True
+    3. counters'[id_curr] += 1
+
 ```
 
 # Verification
