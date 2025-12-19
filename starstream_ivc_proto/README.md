@@ -103,7 +103,11 @@ commitment to all the lookup tables used in the other proofs.
 the above as a circuit (with PCD for the wasm proofs, probably?), this is the
 unaggregated scheme.
 
-The basic "ledger" operations that we care about are:
+What follows is a high level description of the operations a program can do in a
+transaction, that involve interacting with the environment.
+
+For a more specific breakdown of the semantics there is a description
+[here](SEMANTICS.md).
 
 ### Shared
 
@@ -153,6 +157,20 @@ has one entry per wasm program in the transaction, and it stores a hash of the
 wasm module. To verify the transaction this table has to be used as the public
 instance for the respective wasm proof.
 
+#### Yield
+
+- **yield() -> (Value, Continuation)**
+
+Pause execution of the current program and move control flow to the previous
+coordination script if any. If not, when called from a utxo, this may create a
+new transaction output, with the PC = current pc and the coroutine state with
+the current variables.
+
+The difference with `resume` is that it doesn't take a continuation as a target.
+
+Because of this, only `yield` can be used as the last operation for a utxo in a
+transaction.
+
 #### Coordination script
 
 ##### new utxo
@@ -181,19 +199,6 @@ in memory. When checking the aggregated proofs, the verifier needs to use the
 same inputs to verify the coordination script wasm proof.
 
 #### Utxo
-
-##### Yield
-
-- **yield() -> (Value, Continuation)**
-
-Pause execution of the current utxo and move control flow to the previous
-coordination script if any. If not, this creates a new utxo entry, with the PC =
-current pc and the coroutine state with the current variables.
-
-The difference with `resume` is that it doesn't take a continuation as a target.
-
-Because of this, only `yield` can be used as the last operation for a utxo in a
-transaction.
 
 ##### Burn
 
@@ -282,7 +287,7 @@ In this case this means that all of these hold:
 
 2. The exchanged values match the ones in the individual original traces.
 
-For this we get a single proof, and two commitments: 
+For this we get a single proof, and two commitments:
 
 - `C_coord_coom'`
 - `C_utxo_coom'`
@@ -311,7 +316,7 @@ fn coord1(input: Data, u1: Utxo1, u2: Utxo2) {
   let v_04 = coord2(v_03);
 
   let v_05 = h(v_04);
- 
+
   let v_06 = resume u_2 v_05;
   resume u2 nil;
 
@@ -525,13 +530,44 @@ thing we care about here is about interleaving consistency.
 The general outline follows.
 
 Each effectul function receives a dictionary mapping effects to coroutines.
-This can be just encoded through parameter passing. So a function with type: `()
--> () / { singleton_effect }` is compiled into a function of (wasm) type `(k:
-coroutine_id) -> ()`. This is sometimes called implicit capability passing.
+This can be just encoded through parameter passing. So a function with type:
+`() -> () / { singleton_effect }` is compiled into a function of (wasm) type
+`(k: Continuation) -> ()`.
 
-This is most likely simpler to prove, but the alternative is to have the the
-interleaving proof machinery keep track of the dictionary of installed handlers
-(and uninstalling them). The trade-off is a slightly more complicated ABI.
+This is sometimes called implicit capability passing.
+
+This is most likely simpler to prove, but harder to do codegen for. The
+alternative is to have the the interleaving proof machinery keep track of the
+dictionary of installed handlers (and uninstalling them). The tradeoff is
+whether we want to spend more time on codegen, or make the interleaving proof
+more complex by keeping track of this dictionary.
+
+For example, in the alternative design a coordination script would do:
+
+```rust
+fn coord(k: Continuation<MyInterface>) {
+  starstream::install_handler(MyInterface::hash);
+
+  starstream::resume(k);
+
+  starstream::uninstall_handler(MyInterface::hash);
+}
+```
+
+```rust
+fn utxo() {
+  let k = starstream::get_handler_for(MyInterface::hash); // fails if not installed
+
+  starstream::resume(k, MyInterface::foo);
+}
+```
+
+>**Thought**: This may also be better for dynamic imports, since it's arguably a
+simpler abi.
+
+I'm going to assume the former design in the rest of the document, but I'm not
+closed to this option neither. It just requires figuring out the best way of
+encoding this map of stacks in the circuit.
 
 Invoking a handler is _resuming_ a specific coroutine (received as an argument).
 The operation to perform can be passed as an argument encoded as a tagged union.
@@ -604,8 +640,13 @@ encoding the control flow and communication rules into the interleaving circuit
 accept a transaction). That also makes it easier to port Starstream to different
 ledgers.
 
-An example (may be buggy, treat as pseudocode) of how this would work in our
-case:
+The only constraint is that effect handlers only give you cooperative
+multithreading, since preemption requires actual hardware interrupts. But this
+probably doesn't matter for our use-case, since we actually want utxos to run
+until their predefined points, instead of arbitrarily getting stuck in
+inconvenient states.
+
+An example (treat as pseudocode) of how this would work in our case:
 
 ** DISCLAIMER: ** I'm going to use a mix of low level and high level syntax to
 try to make things less magic. I'm going to use the high-level syntax for effect
@@ -643,8 +684,10 @@ mod concurrent {
       let conditions = empty_map();
 
       queue.insert(|| f.resume());
+
       // which lowers to:
-      // queue.insert(|| starstream::resume(f));
+      // let thread_handler = starstream::pid();
+      // queue.insert(|| starstream::resume(f, thread_handler));
 
       while let Some(next) = queue.pop() {
         try {
@@ -694,15 +737,28 @@ mod concurrent {
     }
 
     // actual high-level definition
-    fn with_channels(f: () => () / { Channel });
+    //
+    // read this as:
+    //
+    // 1. This function receives a coroutine that requires a channel handler,
+    // and provides one (since otherwise it would be part of the effects of this
+    // function).
+    //
+    // 2. This function requires the Scheduler capability.
+    fn with_channels(f: () => () / { Channel }) / { Scheduler };
 
     // low-level representation
-    fn with_channels(f: Continuation) {
+    fn with_channels(f: Continuation, threads_handler: Continuation) {
       let channels: Map<ChannelId, Queue<Any>> = empty_map();
       let channel_id = 0;
 
       try {
-        resume(f, ());
+        f.resume();
+
+        // which compiles to:
+
+        // let channels_handler = starstream::pid();
+        // starstream::resume(f, channels_handler);
       }
       with Channel {
         fn new_chan(): ChannelId {
@@ -713,7 +769,13 @@ mod concurrent {
         fn send(channel_id, msg) {
           channels[channel_id].push(msg);
           do signal(channel_id);
+          // low level:
+          // resume(threads_handler, Scheduler::Signal(channel_id))
+
           do suspend();
+
+          // low level:
+          // resume(threads_handler, Scheduler::Suspend)
         }
         fn recv(channel_id): Any {
           if let Some(msg) = channels[channel_id].pop() {
@@ -738,6 +800,19 @@ mod concurrent {
 ```rust
 data Action = Add Int | End
 
+// a utxo that can be created by users under some condition (checked at insert),
+// and that allows a collector (probably under some other condition) to iterate
+// on these actions and fold them into an accumulator.
+//
+// in this example, actions are just numbers, and the accumulator just adds them
+// together
+//
+// while this models something like a stream, it's implemented on top of less
+// restrictive channels instead.
+//
+// the channel is used as an mpsc, there can be multiple instances of this
+// contract writing to the same channel in this transaction, and there is only
+// one reader (the accumulator).
 utxo Streamable {
   storage {
     // SIDE NOTE: this doesn't need to be an actual list
@@ -850,22 +925,60 @@ script {
   import concurrent;
   import streamable;
 
+  fn main(consumer: Consumer) {
+    with_threads { // here the required effect set is empty, so this can be run
+      with_channels { // with_channel requires the Scheduler capability
+        aggregate_on(consumer); // aggregate_on requires the Channel and Scheduler capabilities
+      }
+    }
+  }
+}
+```
+
+But what does the above compile to?
+
+It depends on how do we choose to implement effects.
+
+In the implicit capability style (which is the harder one from codegen point of
+view), the only issue is that we need partial application to be able to compose
+things properly. We can simulate that through a shim with suspensions. Also this
+may require static linking.
+
+```rust
+script {
+  import concurrent;
+  import streamable;
+
+  // ths compiler should generate this shim from the structure above (which may
+  // be complex, not sure)
+  fn aggregate_on_shim(consumer: Consumer) {
+    // suspends and wait for `resume`.
+    // this effectively simulates currying or partial application.
+
+    // the order here matters
+    let (scheduler_handler, _) = starstream::yield();
+    let (channel_handler, _) = starstream::yield();
+
+    // remember, we need to pass handlers as implicit capabilities
+    // but the actual function signature just takes a single argument
+    streamable::aggregate_on(consumer, channel_handler, scheduler_handler);
+  }
+
   // or main
   fn main(consumer: Consumer) {
-    // disclaimer: low level code, ideally it should be desugared from something
-    // that makes the wrapping easier to see.
-
-    // this is equivalent to (in effekt-like syntax):
-    //
-    // with_threads {
-    //  with_channels {
-    //    aggregate_on(consumer);
-    //  }
-    // }
-    //
-    let aggregation_script = starstream::new_coord(streamable::aggregate_on, consumer);
+    // we partially apply consumer here
+    let aggregation_script = starstream::new_coord(aggregate_on_shim, consumer);
     let channel_handler = starstream::new_coord(concurrent::with_channels, aggregation_script);
     let thread_handler = starstream::new_coord(concurrent::with_threads, channel_handler);
+
+    // with_channels takes a continuation that *only* requires the channel
+    // capability, so we need to bind this here.
+    //
+    // this is similar to effekt, although it may be implemented differently
+    //
+    // we don't need to pass `channel_handler` because channel_handler does
+    // that.
+    aggregation_script.resume(thread_handler);
 
     // remember that new_coord doesn't run anything, it just gives an id to a
     // new instance, and binds (curry) the arguments.
@@ -873,11 +986,26 @@ script {
     // you can also think that every coordination script just has a yield as the
     // first instruction.
     resume(thread_handler, ());
+
     // actual syntax:
     // thread_handler.resume(());
   }
 }
 ```
+
+In the other model where effect handlers just call a registration function it's
+simpler to see the transformation (but more complex the proof).
+
+The shim is not needed because `aggregate_on` will just ask for the installed
+handlers by name, so it's just a function with one argument.
+
+The `with_threads` and `with_channels` handlers would be modified to include the
+installation before calling resume, and the main coordination script would be
+the same as above, but without the shim and the partial application of the
+`thread_handler`.
+
+The decision here comes more to ABI, codegen complexity, whether we need dynamic
+loading of scripts, and how much more complex is the circuit.
 
 ## Attestation
 
