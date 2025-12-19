@@ -2,83 +2,120 @@
 //! Component model canonical ABI implementation.
 //!
 //! Spec: https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md
+#![allow(unused_variables)]
 
-use wasm_encoder::{ComponentValType, PrimitiveValType};
+use std::rc::Rc;
 
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#alignment
-pub fn alignment(ty: &ComponentValType) -> u32 {
-    match ty {
-        ComponentValType::Primitive(p) => alignment_primitive(p),
-        ComponentValType::Type(_) => todo!(),
-    }
+/// Despecialized component type.
+#[derive(Hash, PartialEq, Eq)]
+pub enum ComponentAbiType {
+    Bool,
+    S8,
+    U8,
+    S16,
+    U16,
+    S32,
+    U32,
+    S64,
+    U64,
+    F32,
+    F64,
+    Char,
+    String,
+    ErrorContext,
+    List {
+        ty: Rc<ComponentAbiType>,
+        len: Option<u32>,
+    },
+    Record {
+        fields: Vec<(String, Rc<ComponentAbiType>)>,
+    },
+    // TODO: Tuple
+    Variant {
+        cases: Vec<(String, Rc<ComponentAbiType>)>,
+    },
+    // TODO: Enum
+    // TODO: Option
+    // TODO: Result
+    Flags {
+        labels: Vec<String>,
+    },
+    Own,
+    Borrow,
+    Stream,
+    Future,
 }
 
-pub fn alignment_primitive(ty: &PrimitiveValType) -> u32 {
-    match ty {
-        PrimitiveValType::Bool => 1,
-        PrimitiveValType::S8 | PrimitiveValType::U8 => 1,
-        PrimitiveValType::S16 | PrimitiveValType::U16 => 2,
-        PrimitiveValType::S32 | PrimitiveValType::U32 => 4,
-        PrimitiveValType::S64 | PrimitiveValType::U64 => 8,
-        PrimitiveValType::F32 => 4,
-        PrimitiveValType::F64 => 8,
-        PrimitiveValType::Char => 4,
-        PrimitiveValType::String => 4,
-        PrimitiveValType::ErrorContext => 4,
+impl ComponentAbiType {
+    pub fn size_align(&self) -> (u32, u32) {
+        (self.elem_size(), self.alignment())
     }
-}
 
-pub fn alignment_record(fields: &[ComponentValType]) -> u32 {
-    let mut a = 1;
-    for f in fields {
-        a = a.max(alignment(f));
+    // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#alignment
+    pub fn alignment(&self) -> u32 {
+        match self {
+            ComponentAbiType::Bool => 1,
+            ComponentAbiType::S8 | ComponentAbiType::U8 => 1,
+            ComponentAbiType::S16 | ComponentAbiType::U16 => 2,
+            ComponentAbiType::S32 | ComponentAbiType::U32 => 4,
+            ComponentAbiType::S64 | ComponentAbiType::U64 => 8,
+            ComponentAbiType::F32 => 4,
+            ComponentAbiType::F64 => 8,
+            ComponentAbiType::Char => 4,
+            ComponentAbiType::String => 4,
+            ComponentAbiType::ErrorContext => 4,
+            ComponentAbiType::List { ty, len } => todo!(),
+            ComponentAbiType::Record { fields } => {
+                Self::alignment_record(fields.iter().map(|x| &*x.1))
+            }
+            ComponentAbiType::Variant { cases } => todo!(),
+            ComponentAbiType::Flags { labels } => todo!(),
+            ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
+            ComponentAbiType::Stream | ComponentAbiType::Future => 4,
+        }
     }
-    a
-}
 
-// https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#element-size
-pub fn elem_size(ty: &ComponentValType) -> u32 {
-    match ty {
-        ComponentValType::Primitive(p) => elem_size_primitive(p),
-        ComponentValType::Type(_) => todo!(),
+    fn alignment_record<'a>(fields: impl Iterator<Item = &'a ComponentAbiType>) -> u32 {
+        let mut a = 1;
+        for f in fields {
+            a = a.max(f.alignment());
+        }
+        a
     }
-}
 
-pub fn elem_size_primitive(ty: &PrimitiveValType) -> u32 {
-    match ty {
-        PrimitiveValType::Bool => 1,
-        PrimitiveValType::S8 | PrimitiveValType::U8 => 1,
-        PrimitiveValType::S16 | PrimitiveValType::U16 => 2,
-        PrimitiveValType::S32 | PrimitiveValType::U32 => 4,
-        PrimitiveValType::S64 | PrimitiveValType::U64 => 8,
-        PrimitiveValType::F32 => 4,
-        PrimitiveValType::F64 => 8,
-        PrimitiveValType::Char => 4,
-        PrimitiveValType::String => 8,
-        PrimitiveValType::ErrorContext => 4,
+    // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#element-size
+    pub fn elem_size(&self) -> u32 {
+        match self {
+            ComponentAbiType::Bool => 1,
+            ComponentAbiType::S8 | ComponentAbiType::U8 => 1,
+            ComponentAbiType::S16 | ComponentAbiType::U16 => 2,
+            ComponentAbiType::S32 | ComponentAbiType::U32 => 4,
+            ComponentAbiType::S64 | ComponentAbiType::U64 => 8,
+            ComponentAbiType::F32 => 4,
+            ComponentAbiType::F64 => 8,
+            ComponentAbiType::Char => 4,
+            ComponentAbiType::String => 8,
+            ComponentAbiType::ErrorContext => 4,
+            ComponentAbiType::List { ty, len } => todo!(),
+            ComponentAbiType::Record { fields } => {
+                Self::elem_size_record(fields.iter().map(|x| &*x.1))
+            }
+            ComponentAbiType::Variant { cases } => todo!(),
+            ComponentAbiType::Flags { labels } => todo!(),
+            ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
+            ComponentAbiType::Stream | ComponentAbiType::Future => 4,
+        }
     }
-}
 
-pub fn elem_size_record(fields: &[ComponentValType]) -> u32 {
-    let mut s = 0u32;
-    for f in fields {
-        s = s.next_multiple_of(alignment(f));
-        s += elem_size(f);
+    fn elem_size_record<'a>(fields: impl Iterator<Item = &'a ComponentAbiType> + Clone) -> u32 {
+        let mut s = 0u32;
+        for f in fields.clone() {
+            s = s.next_multiple_of(f.alignment());
+            s += f.elem_size();
+        }
+        assert!(s > 0);
+        s.next_multiple_of(Self::alignment_record(fields))
     }
-    assert!(s > 0);
-    s.next_multiple_of(alignment_record(fields))
-}
-
-pub fn layout_record(fields: &[ComponentValType]) -> (u32, u32) {
-    let mut s = 0u32;
-    for f in fields {
-        s = s.next_multiple_of(alignment(f));
-        s += elem_size(f);
-    }
-    assert!(s > 0);
-    let a = alignment_record(fields);
-    s = s.next_multiple_of(a);
-    (s, a)
 }
 
 // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#flattening

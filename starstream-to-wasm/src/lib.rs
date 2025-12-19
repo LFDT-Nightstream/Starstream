@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap},
+    rc::Rc,
 };
 
 use miette::{Diagnostic, LabeledSpan};
@@ -8,7 +9,7 @@ use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
 
-use crate::component_abi::{MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
+use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
 
 mod component_abi;
 
@@ -101,7 +102,8 @@ struct Compiler {
         )
     */
     world_type: ComponentType,
-    wit_types: HashMap<Type, ComponentValType>,
+    star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
+    component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
 
     // Diagnostics.
     fatal: bool,
@@ -353,24 +355,70 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Component table management
 
-    fn add_component_type(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
+    fn add_component_type_raw(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
         let idx = self.world_type.type_count();
         (idx, self.world_type.ty())
     }
 
-    fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
+    fn add_component_type_fn(&mut self, function: &TypedFunctionDef) -> u32 {
         let mut params = Vec::with_capacity(function.params.len());
         for p in &function.params {
             if let Some(ty) = self.star_to_component_type(&p.ty) {
-                params.push((p.name.as_str(), ty));
+                params.push((p.name.as_str(), self.encode_component_type(&ty)));
             }
         }
 
-        let result = self.star_to_component_type(&function.return_type);
+        let result = self
+            .star_to_component_type(&function.return_type)
+            .map(|ty| self.encode_component_type(&ty));
 
-        let (idx, ty) = self.add_component_type();
+        let (idx, ty) = self.add_component_type_raw();
         ty.function().params(params).result(result);
         idx
+    }
+
+    fn encode_component_type(&mut self, ty: &Rc<ComponentAbiType>) -> ComponentValType {
+        if let Some(&cvt) = self.component_to_encoded.get(ty) {
+            return cvt;
+        }
+
+        let cvt = match &**ty {
+            ComponentAbiType::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
+            ComponentAbiType::S8 => ComponentValType::Primitive(PrimitiveValType::S8),
+            ComponentAbiType::U8 => ComponentValType::Primitive(PrimitiveValType::U8),
+            ComponentAbiType::S16 => ComponentValType::Primitive(PrimitiveValType::S16),
+            ComponentAbiType::U16 => ComponentValType::Primitive(PrimitiveValType::U16),
+            ComponentAbiType::S32 => ComponentValType::Primitive(PrimitiveValType::S32),
+            ComponentAbiType::U32 => ComponentValType::Primitive(PrimitiveValType::U32),
+            ComponentAbiType::S64 => ComponentValType::Primitive(PrimitiveValType::S64),
+            ComponentAbiType::U64 => ComponentValType::Primitive(PrimitiveValType::U64),
+            ComponentAbiType::F32 => ComponentValType::Primitive(PrimitiveValType::F32),
+            ComponentAbiType::F64 => ComponentValType::Primitive(PrimitiveValType::F64),
+            ComponentAbiType::Char => ComponentValType::Primitive(PrimitiveValType::Char),
+            ComponentAbiType::String => ComponentValType::Primitive(PrimitiveValType::String),
+            ComponentAbiType::ErrorContext => {
+                ComponentValType::Primitive(PrimitiveValType::ErrorContext)
+            }
+            ComponentAbiType::List { .. } => todo!(),
+            ComponentAbiType::Record { fields } => {
+                let fields: Vec<_> = fields
+                    .iter()
+                    .map(|f| (f.0.as_str(), self.encode_component_type(&f.1)))
+                    .collect();
+                let (idx, ty) = self.add_component_type_raw();
+                ty.defined_type().record(fields);
+                ComponentValType::Type(idx)
+            }
+            ComponentAbiType::Variant { .. } => todo!(),
+            ComponentAbiType::Flags { .. } => todo!(),
+            ComponentAbiType::Own => todo!(),
+            ComponentAbiType::Borrow => todo!(),
+            ComponentAbiType::Stream => todo!(),
+            ComponentAbiType::Future => todo!(),
+        };
+
+        self.component_to_encoded.insert(ty.clone(), cvt);
+        cvt
     }
 
     fn export_component_fn(
@@ -379,21 +427,19 @@ impl Compiler {
         func_idx: u32,
         params: &[ValType],
         core_results: &[ValType],
-        component_result: Option<&ComponentValType>,
     ) {
         let name = to_kebab_case(function.name.as_str());
 
         if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
             self.export_core_fn(&name, func_idx);
-            let type_idx = self.add_component_func_type(function);
+            let type_idx = self.add_component_type_fn(function);
             self.world_type
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else if params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
-            let (size, align) =
-                component_abi::layout_record(std::slice::from_ref(component_result.unwrap()));
-            // TODO: let ^ know about record types so it doesn't blow up
+            let result = self.star_to_component_type(&function.return_type).unwrap();
+            let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
             let mut wrapper_func = Function::from_params(params);
@@ -402,7 +448,7 @@ impl Compiler {
                 wrapper_func.instructions().local_get(i as u32);
             }
             wrapper_func.instructions().call(func_idx);
-            // TODO: write to our return slot.
+            // TODO: Write to our return slot.
             // Return our return slot.
             wrapper_func.instructions().i32_const(return_slot as i32);
             wrapper_func.instructions().end();
@@ -413,7 +459,7 @@ impl Compiler {
             );
 
             self.export_core_fn(&name, wrapper_func_idx);
-            let type_idx = self.add_component_func_type(function);
+            let type_idx = self.add_component_type_fn(function);
             self.world_type
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else {
@@ -436,45 +482,37 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Type conversion
 
-    fn star_to_component_type(&mut self, ty: &Type) -> Option<ComponentValType> {
-        if let Some(&cvt) = self.wit_types.get(ty) {
-            Some(cvt)
-        } else {
-            let cvt = match ty {
-                Type::Var(_) => todo!(),
-                Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
-                Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
-                Type::Unit => {
-                    return None;
-                }
-                Type::Function(_, _) => todo!(),
-                Type::Tuple(items) => {
-                    let children: Vec<_> = items
-                        .iter()
-                        .flat_map(|ty| self.star_to_component_type(ty))
-                        .collect();
-                    let (idx, ty) = self.add_component_type();
-                    ty.defined_type().tuple(children);
-                    ComponentValType::Type(idx)
-                }
-                Type::Record(record) => {
-                    let fields: Vec<_> = record
-                        .fields
-                        .iter()
-                        .flat_map(|f| {
-                            self.star_to_component_type(&f.ty)
-                                .map(|ty| (f.name.as_str(), ty))
-                        })
-                        .collect();
-                    let (idx, ty) = self.add_component_type();
-                    ty.defined_type().record(fields);
-                    ComponentValType::Type(idx)
-                }
-                Type::Enum(_enum_variant_types) => todo!(),
-            };
-            self.wit_types.insert(ty.clone(), cvt);
-            Some(cvt)
+    fn star_to_component_type(&mut self, ty: &Type) -> Option<Rc<ComponentAbiType>> {
+        if let Some(cat) = self.star_to_component.get(ty) {
+            return Some(cat.clone());
         }
+
+        let cat = match ty {
+            Type::Var(_) => todo!(),
+            Type::Int => ComponentAbiType::S64,
+            Type::Bool => ComponentAbiType::Bool,
+            Type::Unit => {
+                return None;
+            }
+            Type::Function(_, _) => todo!(),
+            Type::Tuple(_) => todo!(),
+            Type::Record(record) => {
+                let fields = record
+                    .fields
+                    .iter()
+                    .flat_map(|f| {
+                        self.star_to_component_type(&f.ty)
+                            .map(|ty| (f.name.as_str().to_owned(), ty))
+                    })
+                    .collect();
+                ComponentAbiType::Record { fields }
+            }
+            Type::Enum(_enum_variant_types) => todo!(),
+        };
+
+        let cat = Rc::new(cat);
+        self.star_to_component.insert(ty.clone(), cat.clone());
+        Some(cat)
     }
 
     fn star_to_core_types(&self, dest: &mut Vec<ValType>, ty: &Type) -> bool {
@@ -560,7 +598,6 @@ impl Compiler {
         let mut func = Function::from_params(&params);
 
         let mut results = Vec::with_capacity(1);
-        let component_results = self.star_to_component_type(&function.return_type);
         if !self.star_to_core_types(&mut results, &function.return_type) {
             self.push_error(
                 function.name.span.unwrap_or(Span::from(0..0)),
@@ -581,13 +618,7 @@ impl Compiler {
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.export_component_fn(
-                    function,
-                    idx,
-                    &params,
-                    &results,
-                    component_results.as_ref(),
-                );
+                self.export_component_fn(function, idx, &params, &results);
             }
             None => {}
         }
@@ -595,7 +626,8 @@ impl Compiler {
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
         // Export to WIT.
-        let Some(ComponentValType::Type(idx)) = self.star_to_component_type(&struct_.ty) else {
+        let component_ty = self.star_to_component_type(&struct_.ty).unwrap();
+        let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
             unreachable!()
         };
         // "Exporting" a type consists of importing it with an equality constraint.
@@ -605,8 +637,8 @@ impl Compiler {
             ComponentTypeRef::Type(TypeBounds::Eq(idx)),
         );
         // Future uses must also refer to the imported version.
-        self.wit_types
-            .insert(struct_.ty.clone(), ComponentValType::Type(new_idx));
+        self.component_to_encoded
+            .insert(component_ty, ComponentValType::Type(new_idx));
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
