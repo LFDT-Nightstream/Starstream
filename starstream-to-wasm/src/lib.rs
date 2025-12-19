@@ -111,6 +111,9 @@ struct Compiler {
     raw_func_type_cache: HashMap<FuncType, u32>,
     global_vars: HashMap<String, u32>,
     global_record_type: Vec<TypedStructField>,
+
+    // Memory building.
+    bump_ptr: u32,
 }
 
 impl Compiler {
@@ -122,6 +125,18 @@ impl Compiler {
 
         // Generate suspend/resume functions.
         self.generate_storage_exports();
+
+        // Generate memory.
+        const PAGE_SIZE: u32 = 64 * 1024;
+        self.memory.memory(MemoryType {
+            minimum: std::cmp::min(u64::from(self.bump_ptr.div_ceil(PAGE_SIZE)), 1),
+            maximum: None,
+            memory64: false,
+            shared: false,
+            page_size_log2: None,
+        });
+        self.exports
+            .export("memory", wasm_encoder::ExportKind::Memory, 0);
 
         // Verify
         assert_eq!(self.functions.len(), self.code.len());
@@ -380,6 +395,15 @@ impl Compiler {
                 "TODO: Component ABI for function with too many params or results",
             );
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // Memory management
+
+    fn alloc_static(&mut self, size: u32, align: u32) -> u32 {
+        let addr = self.bump_ptr.max(16).next_multiple_of(align);
+        self.bump_ptr = self.bump_ptr + size;
+        addr
     }
 
     // ------------------------------------------------------------------------

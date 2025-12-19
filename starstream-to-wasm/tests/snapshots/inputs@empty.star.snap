@@ -68,7 +68,9 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func))
+  (memory (;0;) 0)
   (export "main" (func 0))
+  (export "memory" (memory 0))
   (func (;0;) (type 0))
   (@custom "component-type"
     (component

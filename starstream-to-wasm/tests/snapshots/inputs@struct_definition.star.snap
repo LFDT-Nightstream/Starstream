@@ -115,6 +115,8 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
+  (memory (;0;) 0)
+  (export "memory" (memory 0))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")
@@ -131,7 +133,8 @@ TypedProgram {
       )
       (export (;1;) "x" (type 0))
     )
-  ))
+  )
+)
 
 ==== WIT ====
 package root:component;
