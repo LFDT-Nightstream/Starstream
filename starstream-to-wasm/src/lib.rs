@@ -515,8 +515,6 @@ impl Compiler {
     }
 
     fn visit_function(&mut self, function: &TypedFunctionDef) {
-        let mut func = Function::default();
-
         let mut locals = HashMap::<String, u32>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
@@ -531,7 +529,8 @@ impl Compiler {
                 );
             }
         }
-        func.num_locals = params.len() as u32;
+
+        let mut func = Function::from_params(&params);
 
         let mut results = Vec::with_capacity(1);
         if !self.star_to_core_types(&mut results, &function.return_type) {
@@ -1347,26 +1346,10 @@ struct Function {
 }
 
 impl Function {
-    #[allow(dead_code)]
-    fn new(params: &[ValType]) -> Function {
+    fn from_params(params: &[ValType]) -> Function {
         let mut this = Function::default();
-        for param in params {
-            this.add_local(*param);
-        }
+        this.num_locals = u32::try_from(params.len()).unwrap();
         this
-    }
-
-    fn add_local(&mut self, ty: ValType) -> u32 {
-        let id = self.num_locals;
-        self.num_locals += 1;
-        if let Some((last_count, last_type)) = self.locals.last_mut()
-            && ty == *last_type
-        {
-            *last_count += 1;
-            return id;
-        }
-        self.locals.push((1, ty));
-        id
     }
 
     fn add_locals(&mut self, types: impl IntoIterator<Item = ValType>) -> u32 {
@@ -1377,9 +1360,9 @@ impl Function {
                 && ty == *last_type
             {
                 *last_count += 1;
-                return id;
+            } else {
+                self.locals.push((1, ty));
             }
-            self.locals.push((1, ty));
         }
         id
     }
