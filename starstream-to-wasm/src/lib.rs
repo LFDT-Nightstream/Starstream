@@ -359,14 +359,12 @@ impl Compiler {
     fn add_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
         let mut params = Vec::with_capacity(function.params.len());
         for p in &function.params {
-            params.push((p.name.as_str(), self.star_to_component_type(&p.ty)));
+            if let Some(ty) = self.star_to_component_type(&p.ty) {
+                params.push((p.name.as_str(), ty));
+            }
         }
 
-        let result = match &function.return_type {
-            // tuple<> is not a valid return type, so return none
-            Type::Unit => None,
-            other => Some(self.star_to_component_type(other)),
-        };
+        let result = self.star_to_component_type(&function.return_type);
 
         let (idx, ty) = self.add_component_type();
         ty.function().params(params).result(result);
@@ -409,25 +407,22 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Type conversion
 
-    fn star_to_component_type(&mut self, ty: &Type) -> ComponentValType {
+    fn star_to_component_type(&mut self, ty: &Type) -> Option<ComponentValType> {
         if let Some(&cvt) = self.wit_types.get(ty) {
-            cvt
+            Some(cvt)
         } else {
             let cvt = match ty {
                 Type::Var(_) => todo!(),
                 Type::Int => ComponentValType::Primitive(PrimitiveValType::S64),
                 Type::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
                 Type::Unit => {
-                    let (idx, ty) = self.add_component_type();
-                    ty.defined_type()
-                        .tuple(std::iter::empty::<ComponentValType>());
-                    ComponentValType::Type(idx)
+                    return None;
                 }
                 Type::Function(_, _) => todo!(),
                 Type::Tuple(items) => {
                     let children: Vec<_> = items
                         .iter()
-                        .map(|ty| self.star_to_component_type(ty))
+                        .flat_map(|ty| self.star_to_component_type(ty))
                         .collect();
                     let (idx, ty) = self.add_component_type();
                     ty.defined_type().tuple(children);
@@ -437,7 +432,10 @@ impl Compiler {
                     let fields: Vec<_> = record
                         .fields
                         .iter()
-                        .map(|f| (f.name.as_str(), self.star_to_component_type(&f.ty)))
+                        .flat_map(|f| {
+                            self.star_to_component_type(&f.ty)
+                                .map(|ty| (f.name.as_str(), ty))
+                        })
                         .collect();
                     let (idx, ty) = self.add_component_type();
                     ty.defined_type().record(fields);
@@ -446,7 +444,7 @@ impl Compiler {
                 Type::Enum(_enum_variant_types) => todo!(),
             };
             self.wit_types.insert(ty.clone(), cvt);
-            cvt
+            Some(cvt)
         }
     }
 
@@ -561,8 +559,7 @@ impl Compiler {
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
         // Export to WIT.
-        let ty = self.star_to_component_type(&struct_.ty);
-        let ComponentValType::Type(idx) = ty else {
+        let Some(ComponentValType::Type(idx)) = self.star_to_component_type(&struct_.ty) else {
             unreachable!()
         };
         // "Exporting" a type consists of importing it with an equality constraint.
