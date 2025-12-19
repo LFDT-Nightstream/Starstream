@@ -127,16 +127,18 @@ impl Compiler {
         self.generate_storage_exports();
 
         // Generate memory.
-        const PAGE_SIZE: u32 = 64 * 1024;
-        self.memory.memory(MemoryType {
-            minimum: std::cmp::min(u64::from(self.bump_ptr.div_ceil(PAGE_SIZE)), 1),
-            maximum: None,
-            memory64: false,
-            shared: false,
-            page_size_log2: None,
-        });
-        self.exports
-            .export("memory", wasm_encoder::ExportKind::Memory, 0);
+        if self.bump_ptr > 0 {
+            const PAGE_SIZE: u32 = 64 * 1024;
+            self.memory.memory(MemoryType {
+                minimum: std::cmp::min(u64::from(self.bump_ptr.div_ceil(PAGE_SIZE)), 1),
+                maximum: None,
+                memory64: false,
+                shared: false,
+                page_size_log2: None,
+            });
+            self.exports
+                .export("memory", wasm_encoder::ExportKind::Memory, 0);
+        }
 
         // Verify
         assert_eq!(self.functions.len(), self.code.len());

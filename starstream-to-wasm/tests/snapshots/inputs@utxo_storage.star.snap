@@ -274,12 +274,10 @@ TypedProgram {
 (module
   (type (;0;) (func (result i64)))
   (type (;1;) (func (param i64)))
-  (memory (;0;) 0)
   (global (;0;) (mut i64) (i64.const 0))
   (export "increment" (func 0))
   (export "get-storage" (func 1))
   (export "set-storage" (func 2))
-  (export "memory" (memory 0))
   (func (;0;) (type 0) (result i64)
     (global.set 0
       (i64.add
