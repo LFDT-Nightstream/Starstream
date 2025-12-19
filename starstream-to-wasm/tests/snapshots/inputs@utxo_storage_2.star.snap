@@ -1,0 +1,600 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_storage_2.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: Some(
+                            5..11,
+                        ),
+                    },
+                    parts: [
+                        Storage(
+                            [
+                                UtxoGlobal {
+                                    name: Identifier {
+                                        name: "counter",
+                                        span: Some(
+                                            44..51,
+                                        ),
+                                    },
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                53..56,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                },
+                                UtxoGlobal {
+                                    name: Identifier {
+                                        name: "multiplier",
+                                        span: Some(
+                                            74..84,
+                                        ),
+                                    },
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                86..89,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                },
+                            ],
+                        ),
+                    ],
+                },
+            ),
+            span: 0..100,
+            comments_before: [],
+            comments_after: [],
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "increment",
+                        span: Some(
+                            110..119,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    125..128,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Assignment {
+                                    target: Identifier {
+                                        name: "counter",
+                                        span: Some(
+                                            135..142,
+                                        ),
+                                    },
+                                    value: Spanned {
+                                        node: Binary {
+                                            op: Add,
+                                            left: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "counter",
+                                                        span: Some(
+                                                            145..152,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 145..153,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            right: Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                                span: 155..156,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                        },
+                                        span: 145..156,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 135..162,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Binary {
+                                    op: Multiply,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "counter",
+                                                span: Some(
+                                                    162..169,
+                                                ),
+                                            },
+                                        ),
+                                        span: 162..170,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "multiplier",
+                                                span: Some(
+                                                    172..182,
+                                                ),
+                                            },
+                                        ),
+                                        span: 172..183,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 162..183,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    },
+                },
+            ),
+            span: 100..186,
+            comments_before: [],
+            comments_after: [],
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "increment_mult",
+                        span: Some(
+                            196..210,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    216..219,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Assignment {
+                                    target: Identifier {
+                                        name: "multiplier",
+                                        span: Some(
+                                            226..236,
+                                        ),
+                                    },
+                                    value: Spanned {
+                                        node: Binary {
+                                            op: Add,
+                                            left: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "multiplier",
+                                                        span: Some(
+                                                            239..249,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 239..250,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                            right: Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                                span: 252..253,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                        },
+                                        span: 239..253,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 226..259,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Binary {
+                                    op: Multiply,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "counter",
+                                                span: Some(
+                                                    259..266,
+                                                ),
+                                            },
+                                        ),
+                                        span: 259..267,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "multiplier",
+                                                span: Some(
+                                                    269..279,
+                                                ),
+                                            },
+                                        ),
+                                        span: 269..280,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 259..280,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    },
+                },
+            ),
+            span: 186..282,
+            comments_before: [],
+            comments_after: [],
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Fn: increment => i64
+  T-Assign: {counter: i64, multiplier: i64} ⊢ counter = counter + 1; ⇒ i64
+    T-Bin-Add: {counter: i64, multiplier: i64} ⊢ counter + 1 ⇒ i64
+      T-Var: {counter: i64, multiplier: i64} ⊢ counter ⇒ i64
+      T-Int: {counter: i64, multiplier: i64} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+  T-ReturnTail: counter * multiplier => i64
+    T-Bin-Mul: {counter: i64, multiplier: i64} ⊢ counter * multiplier ⇒ i64
+      T-Var: {counter: i64, multiplier: i64} ⊢ counter ⇒ i64
+      T-Var: {counter: i64, multiplier: i64} ⊢ multiplier ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: increment_mult => i64
+  T-Assign: {counter: i64, multiplier: i64} ⊢ multiplier = multiplier + 1; ⇒ i64
+    T-Bin-Add: {counter: i64, multiplier: i64} ⊢ multiplier + 1 ⇒ i64
+      T-Var: {counter: i64, multiplier: i64} ⊢ multiplier ⇒ i64
+      T-Int: {counter: i64, multiplier: i64} ⊢ 1 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+  T-ReturnTail: counter * multiplier => i64
+    T-Bin-Mul: {counter: i64, multiplier: i64} ⊢ counter * multiplier ⇒ i64
+      T-Var: {counter: i64, multiplier: i64} ⊢ counter ⇒ i64
+      T-Var: {counter: i64, multiplier: i64} ⊢ multiplier ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: Some(
+                        5..11,
+                    ),
+                },
+                parts: [
+                    Storage(
+                        [
+                            TypedUtxoGlobal {
+                                name: Identifier {
+                                    name: "counter",
+                                    span: Some(
+                                        44..51,
+                                    ),
+                                },
+                                ty: Int,
+                            },
+                            TypedUtxoGlobal {
+                                name: Identifier {
+                                    name: "multiplier",
+                                    span: Some(
+                                        74..84,
+                                    ),
+                                },
+                                ty: Int,
+                            },
+                        ],
+                    ),
+                ],
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "increment",
+                    span: Some(
+                        110..119,
+                    ),
+                },
+                params: [],
+                return_type: Int,
+                body: TypedBlock {
+                    statements: [
+                        Assignment {
+                            target: Identifier {
+                                name: "counter",
+                                span: Some(
+                                    135..142,
+                                ),
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Binary {
+                                        op: Add,
+                                        left: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "counter",
+                                                        span: Some(
+                                                            145..152,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 145..153,
+                                            comments_before: [],
+                                            comments_after: [],
+                                        },
+                                        right: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Literal(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                            },
+                                            span: 155..156,
+                                            comments_before: [],
+                                            comments_after: [],
+                                        },
+                                    },
+                                },
+                                span: 145..156,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Binary {
+                                    op: Multiply,
+                                    left: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "counter",
+                                                    span: Some(
+                                                        162..169,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 162..170,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "multiplier",
+                                                    span: Some(
+                                                        172..182,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 172..183,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                            },
+                            span: 162..183,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "increment_mult",
+                    span: Some(
+                        196..210,
+                    ),
+                },
+                params: [],
+                return_type: Int,
+                body: TypedBlock {
+                    statements: [
+                        Assignment {
+                            target: Identifier {
+                                name: "multiplier",
+                                span: Some(
+                                    226..236,
+                                ),
+                            },
+                            value: Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Binary {
+                                        op: Add,
+                                        left: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "multiplier",
+                                                        span: Some(
+                                                            239..249,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 239..250,
+                                            comments_before: [],
+                                            comments_after: [],
+                                        },
+                                        right: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Literal(
+                                                    Integer(
+                                                        1,
+                                                    ),
+                                                ),
+                                            },
+                                            span: 252..253,
+                                            comments_before: [],
+                                            comments_after: [],
+                                        },
+                                    },
+                                },
+                                span: 239..253,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        },
+                    ],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Binary {
+                                    op: Multiply,
+                                    left: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "counter",
+                                                    span: Some(
+                                                        259..266,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 259..267,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "multiplier",
+                                                    span: Some(
+                                                        269..279,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 269..280,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                            },
+                            span: 259..280,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+  x TODO: Component ABI for function with too many params or results
+   ,-[1:1]
+ 1 | utxo MyUtxo {
+   : ^
+   : `-- TODO: Component ABI for function with too many params or results
+ 2 |     storage {
+   `----
