@@ -6,8 +6,10 @@
 
 use std::rc::Rc;
 
+use wasm_encoder::{InstructionSink, MemArg};
+
 /// Despecialized component type.
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Debug)]
 pub enum ComponentAbiType {
     Bool,
     S8,
@@ -116,9 +118,74 @@ impl ComponentAbiType {
         assert!(s > 0);
         s.next_multiple_of(Self::alignment_record(fields))
     }
+
+    // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#storing
+    pub fn get_store_fns(
+        &self,
+        memory_index: u32,
+        offset: u64,
+        out: &mut Vec<Box<dyn Fn(InstructionSink)>>,
+    ) {
+        let mem_arg = MemArg {
+            offset,
+            align: log2(self.alignment()),
+            memory_index,
+        };
+        dbg!(self, mem_arg);
+        match self {
+            ComponentAbiType::Bool => {
+                out.push(Box::new(move |mut i| {
+                    i.i32_store8(mem_arg);
+                }));
+            }
+            ComponentAbiType::S8 => todo!(),
+            ComponentAbiType::U8 => todo!(),
+            ComponentAbiType::S16 => todo!(),
+            ComponentAbiType::U16 => todo!(),
+            ComponentAbiType::S32 => todo!(),
+            ComponentAbiType::U32 => todo!(),
+            ComponentAbiType::S64 => {
+                out.push(Box::new(move |mut i: InstructionSink<'_>| {
+                    i.i64_store(mem_arg);
+                }));
+            }
+            ComponentAbiType::U64 => todo!(),
+            ComponentAbiType::F32 => todo!(),
+            ComponentAbiType::F64 => todo!(),
+            ComponentAbiType::Char => todo!(),
+            ComponentAbiType::String => todo!(),
+            ComponentAbiType::ErrorContext => todo!(),
+            ComponentAbiType::List { .. } => todo!(),
+            ComponentAbiType::Record { fields } => {
+                let mut o = 0u64;
+                for (_, f) in fields {
+                    o = o.next_multiple_of(u64::from(f.alignment()));
+                    f.get_store_fns(memory_index, offset + o, out);
+                    o += u64::from(f.elem_size());
+                }
+            }
+            ComponentAbiType::Variant { .. } => todo!(),
+            ComponentAbiType::Flags { .. } => todo!(),
+            ComponentAbiType::Own => todo!(),
+            ComponentAbiType::Borrow => todo!(),
+            ComponentAbiType::Stream => todo!(),
+            ComponentAbiType::Future => todo!(),
+        }
+    }
 }
 
 // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#flattening
 pub const MAX_FLAT_PARAMS: usize = 16;
 pub const MAX_FLAT_ASYNC_PARAMS: usize = 4;
 pub const MAX_FLAT_RESULTS: usize = 1;
+
+// Misc
+fn log2(alignment: u32) -> u32 {
+    match alignment {
+        1 => 0,
+        2 => 1,
+        4 => 2,
+        8 => 3,
+        _ => panic!("alignment too big or not a power of 2: {alignment}"),
+    }
+}

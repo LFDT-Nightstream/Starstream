@@ -443,12 +443,14 @@ impl Compiler {
             let return_slot = self.alloc_static(size, align);
 
             let mut wrapper_func = Function::from_params(params);
+            wrapper_func.instructions().i32_const(return_slot as i32);
             // Push parameters and call inner function.
             for i in 0..params.len() {
                 wrapper_func.instructions().local_get(i as u32);
             }
             wrapper_func.instructions().call(func_idx);
-            // TODO: Write to our return slot.
+            // Write to our return slot.
+            self.component_store(&mut wrapper_func, &result, 0);
             // Return our return slot.
             wrapper_func.instructions().i32_const(return_slot as i32);
             wrapper_func.instructions().end();
@@ -474,9 +476,41 @@ impl Compiler {
     // Memory management
 
     fn alloc_static(&mut self, size: u32, align: u32) -> u32 {
-        let addr = self.bump_ptr.max(16).next_multiple_of(align);
+        const MINIMUM_ADDR: u32 = 4;
+        let addr = self.bump_ptr.max(MINIMUM_ADDR).next_multiple_of(align);
         self.bump_ptr = self.bump_ptr + size;
         addr
+    }
+
+    // Expects address then values on the stack.
+    // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#storing
+    fn component_store(&mut self, func: &mut Function, ty: &ComponentAbiType, offset: u64) {
+        let mut core_types = Vec::new();
+        self.component_to_core_types(&mut core_types, ty);
+
+        let mut store_fns = Vec::new();
+        ty.get_store_fns(0, offset, &mut store_fns);
+
+        assert_eq!(core_types.len(), store_fns.len());
+
+        if let [only] = &store_fns[..] {
+            only(func.instructions());
+        } else if store_fns.len() > 1 {
+            // Pop values then address into locals.
+            let addr_local = func.add_locals([ValType::I32]);
+            let value_local = func.add_locals(core_types.iter().copied());
+            for i in (0..core_types.len()).rev() {
+                func.instructions().local_set(value_local + (i as u32));
+            }
+            func.instructions().local_set(addr_local);
+
+            // Store each thing one by one.
+            for (i, store) in store_fns.iter().enumerate() {
+                func.instructions().local_get(addr_local);
+                func.instructions().local_get(value_local + (i as u32));
+                store(func.instructions());
+            }
+        }
     }
 
     // ------------------------------------------------------------------------
@@ -534,6 +568,21 @@ impl Compiler {
             Type::Enum(_enum_variant_types) => ok = false,
             Type::Function(_, _) => ok = false,
             Type::Var(_) => ok = false,
+        }
+        ok
+    }
+
+    fn component_to_core_types(&self, dest: &mut Vec<ValType>, ty: &ComponentAbiType) -> bool {
+        let mut ok = true;
+        match ty {
+            ComponentAbiType::Bool => dest.push(ValType::I32),
+            ComponentAbiType::S64 => dest.push(ValType::I64),
+            ComponentAbiType::Record { fields } => {
+                for (_, f) in fields {
+                    ok = self.component_to_core_types(dest, f) && ok;
+                }
+            }
+            _ => ok = false,
         }
         ok
     }
