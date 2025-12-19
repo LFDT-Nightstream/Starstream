@@ -374,23 +374,50 @@ impl Compiler {
     fn export_component_fn(
         &mut self,
         function: &TypedFunctionDef,
-        idx: u32,
+        func_idx: u32,
         params: &[ValType],
-        results: &[ValType],
+        core_results: &[ValType],
+        component_result: Option<&ComponentValType>,
     ) {
         let name = to_kebab_case(function.name.as_str());
 
-        if params.len() <= MAX_FLAT_PARAMS && results.len() <= MAX_FLAT_RESULTS {
+        if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
-            self.export_core_fn(&name, idx);
+            self.export_core_fn(&name, func_idx);
+            let type_idx = self.add_component_func_type(function);
+            self.world_type
+                .export(&name, ComponentTypeRef::Func(type_idx));
+        } else if params.len() <= MAX_FLAT_PARAMS {
+            // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
+            let (size, align) =
+                component_abi::layout_record(std::slice::from_ref(component_result.unwrap()));
+            // TODO: let ^ know about record types so it doesn't blow up
+            let return_slot = self.alloc_static(size, align);
 
+            let mut wrapper_func = Function::from_params(params);
+            // Push parameters and call inner function.
+            for i in 0..params.len() {
+                wrapper_func.instructions().local_get(i as u32);
+            }
+            wrapper_func.instructions().call(func_idx);
+            // TODO: write to our return slot.
+            // Return our return slot.
+            wrapper_func.instructions().i32_const(return_slot as i32);
+            wrapper_func.instructions().end();
+
+            let wrapper_func_idx = self.add_function(
+                FuncType::new(params.iter().copied(), [ValType::I32]),
+                wrapper_func,
+            );
+
+            self.export_core_fn(&name, wrapper_func_idx);
             let type_idx = self.add_component_func_type(function);
             self.world_type
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else {
             self.push_error(
                 function.name.span.unwrap_or(Span::from(0..0)),
-                "TODO: Component ABI for function with too many params or results",
+                "TODO: Component ABI for function with too many params",
             );
         }
     }
@@ -531,6 +558,7 @@ impl Compiler {
         let mut func = Function::from_params(&params);
 
         let mut results = Vec::with_capacity(1);
+        let component_results = self.star_to_component_type(&function.return_type);
         if !self.star_to_core_types(&mut results, &function.return_type) {
             self.push_error(
                 function.name.span.unwrap_or(Span::from(0..0)),
@@ -551,7 +579,13 @@ impl Compiler {
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.export_component_fn(function, idx, &params, &results);
+                self.export_component_fn(
+                    function,
+                    idx,
+                    &params,
+                    &results,
+                    component_results.as_ref(),
+                );
             }
             None => {}
         }
