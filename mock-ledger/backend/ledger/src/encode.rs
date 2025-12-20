@@ -1,10 +1,12 @@
+use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wrpc_runtime_wasmtime::{SharedResourceTable, WrpcCtxView, WrpcView};
 use wrpc_transport::Invoke;
 use core::time::Duration;
+use wrpc_transport::frame::Oneshot;
 
-pub type ChainContext = ();
+pub type InMemoryTransport = Oneshot<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>;
 
 pub struct WrpcCtx<C: Invoke> {
     pub wrpc: C,
@@ -15,7 +17,7 @@ pub struct WrpcCtx<C: Invoke> {
 
 pub struct Ctx<C: Invoke> {
     pub table: ResourceTable,
-    // pub wasi: WasiCtx,
+    pub wasi: WasiCtx,
     pub wrpc: WrpcCtx<C>,
 }
 
@@ -56,27 +58,27 @@ where
     }
 }
 
-pub fn gen_ctx<C: Invoke>(
-    wrpc: C,
-    cx: C::Context,
-) -> Ctx<C> {
+impl<C> WasiView for Ctx<C>
+where
+    C: Invoke,
+{
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
+    }
+}
+
+pub fn gen_ctx<C: Invoke>(wrpc: C, cx: C::Context) -> Ctx<C> {
     Ctx {
         table: ResourceTable::new(),
-        // wasi: WasiCtxBuilder::new()
-        //     .inherit_env()
-        //     .inherit_stdio()
-        //     .inherit_network()
-        //     .allow_ip_name_lookup(true)
-        //     .allow_tcp(true)
-        //     .allow_udp(true)
-        //     .args(&["your-program.wasm"]) // or whatever arg you need
-        //     .build(),
-        // http: WasiHttpCtx::new(),
+        wasi: WasiCtxBuilder::new().build(),
         wrpc: WrpcCtx {
             wrpc,
             cx,
             shared_resources: SharedResourceTable::default(),
-            timeout: Duration::from_secs(10), // TODO
+            timeout: Duration::from_secs(10),
         },
     }
 }

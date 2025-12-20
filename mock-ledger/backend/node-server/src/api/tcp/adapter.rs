@@ -10,7 +10,7 @@ impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for H
         function: String,
         params: wit_bindgen_wrpc::bytes::Bytes,
     ) -> anyhow::Result<wit_bindgen_wrpc::bytes::Bytes> {
-        self.call(contract_hash, function, params.to_vec())
+        self.call(contract_hash, function, params)
             .await
             .map(|v| v.into())
     }

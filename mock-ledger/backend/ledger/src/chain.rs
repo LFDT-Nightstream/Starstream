@@ -1,18 +1,17 @@
 use std::{collections::HashMap};
 use std::sync::Arc;
-use std::sync::Mutex;
 use anyhow::{Context, anyhow};
 
 use wasmtime::*;
 use wasmtime::component::{Component, Linker};
 use p3_field::PrimeField64;
 
-use crate::encode::ChainContext;
 use crate::utxo::{UtxoId, UtxoInstance, UtxoRegistry};
 use crate::utils::hash::poseidon2_hash_bytes;
 
 pub struct Chain {
     utxos: UtxoRegistry,
+    engine: Arc<Engine>,
 }
 
 type WasmComponent = Vec<u8>;
@@ -21,22 +20,19 @@ impl Chain {
   pub fn new(genesis_block: &Vec<WasmComponent>) -> anyhow::Result<Self> {
       let mut utxos = HashMap::new();
 
+      let mut config = wasmtime::Config::default();
+      config.async_support(true);
+      let engine = Engine::new(&config)?;
+
       // load genesis block
       {
-        // Load the no-args component dynamically
-        let engine = Engine::default();
-        
         for component_bytes in genesis_block {
           let component = Component::new(&engine, component_bytes)
               .context("failed to parse component")?;
 
           // TODO: inject context imports into linker: inject_context_imports
           let linker = Linker::new(&engine);
-          let mut store = Store::new(&engine, ChainContext::default());
-          
-          let instance = linker
-              .instantiate(&mut store, &component)
-              .context("failed to instantiate component")?;
+          let instance_pre = linker.instantiate_pre(&component)?;
           
           let digest = poseidon2_hash_bytes(component_bytes);
           let contract_hash = format!("0x{:016X}{:016X}{:016X}{:016X}", digest[0].as_canonical_u64(), digest[1].as_canonical_u64(), digest[2].as_canonical_u64(), digest[3].as_canonical_u64());
@@ -45,17 +41,21 @@ impl Chain {
           utxos.insert(
               UtxoId::new(contract_hash, 0),
               UtxoInstance {
-                  wasm_component: Arc::new(component),
-                  wasm_instance: Arc::new(Mutex::new(instance)),
-                  wasm_store: Arc::new(Mutex::new(store)),
+                  wasm_instance: Arc::new(instance_pre),
+                  datum: vec![] // TODO: maybe some genesis UTXOs require storage initialization
               },
           );
         }
       }
 
       Ok(Self {
+        engine: Arc::new(engine),
         utxos: tokio::sync::RwLock::new(utxos),
     })
+  }
+
+  pub fn engine(&self) -> Arc<Engine> {
+    self.engine.clone()
   }
 
   pub async fn get_utxo(&self, contract_hash: String, serial: u64) -> anyhow::Result<UtxoInstance> {

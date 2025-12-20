@@ -1,22 +1,17 @@
-use std::sync::Mutex;
 use std::sync::Arc;
 use std::collections::HashMap;
 use wasmtime::Store;
-use wasmtime::component::{Instance, Component};
+use wasmtime::component::{InstancePre, Component};
 
-use crate::encode::ChainContext;
-
+use crate::encode::{InMemoryTransport, Ctx};
 
 #[derive(Clone)]
 pub struct UtxoInstance {
-  /// The component that was instantiated
-  /// TODO: does this need a Mutex? Can this be derived from other data?
-  pub wasm_component: Arc<Component>,
-  /// The component instance that can be invoked
-  pub wasm_instance: Arc<Mutex<Instance>>,
-  /// The store for the component instance.
-  /// Contains the ChainContext which holds host state (ledger context, etc.)
-  pub wasm_store: Arc<Mutex<Store<ChainContext>>>,
+  /// Cached setup for hydrating a UTXO. Combine it with the datum to initialize
+  /// InstancePre is immutable and cloneable, so Arc is sufficient for shared ownership
+  pub wasm_instance: Arc<InstancePre<Ctx<InMemoryTransport>>>,
+  /// UTXO datum encoded using the WASM Component value encoding
+  pub datum: Vec<u8>
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
