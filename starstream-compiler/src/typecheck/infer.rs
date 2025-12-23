@@ -2562,9 +2562,7 @@ impl Inferencer {
                         TypeErrorKind::RaiseRequiresEffectful,
                         inner_expr.span,
                     )
-                    .with_help(
-                        "`raise` should wrap an effectful function call",
-                    ));
+                    .with_help("`raise` should wrap an effectful function call"));
                 }
 
                 let result_ty = typed_inner.node.ty.clone();
@@ -2616,9 +2614,7 @@ impl Inferencer {
                         TypeErrorKind::RuntimeRequiresRuntime,
                         inner_expr.span,
                     )
-                    .with_help(
-                        "`runtime` should wrap a runtime function call",
-                    ));
+                    .with_help("`runtime` should wrap a runtime function call"));
                 }
 
                 let result_ty = typed_inner.node.ty.clone();
