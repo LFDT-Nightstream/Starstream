@@ -83,7 +83,7 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             out.insert(*id);
         }
-        Type::Function(params, result) => {
+        Type::Function { params, result, .. } => {
             for ty in params {
                 free_type_vars_type(ty, out);
             }

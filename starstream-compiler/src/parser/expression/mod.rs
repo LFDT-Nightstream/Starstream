@@ -191,4 +191,14 @@ mod tests {
             "#
         );
     }
+
+    #[test]
+    fn raise_call() {
+        assert_expression_snapshot!("raise blockHeight()");
+    }
+
+    #[test]
+    fn raise_namespaced_call() {
+        assert_expression_snapshot!("raise context::blockHeight()");
+    }
 }

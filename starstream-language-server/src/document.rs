@@ -330,6 +330,9 @@ impl DocumentState {
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         match definition {
+            TypedDefinition::Import(_) => {
+                // TODO: Collect import references for go-to-definition support
+            }
             TypedDefinition::Function(function) => self.collect_function(function, scopes),
             TypedDefinition::Struct(definition) => self.collect_struct(definition),
             TypedDefinition::Enum(definition) => self.collect_enum(definition),
@@ -719,6 +722,12 @@ impl DocumentState {
                     self.collect_expr(arg, scopes);
                 }
             }
+            TypedExprKind::Raise { expr: inner } => {
+                self.collect_expr(inner, scopes);
+            }
+            TypedExprKind::Runtime { expr: inner } => {
+                self.collect_expr(inner, scopes);
+            }
         }
     }
 
@@ -1074,6 +1083,9 @@ impl DocumentState {
                         }
                     }
                 }
+                untyped_ast::Definition::Import(_) => {
+                    // Imports don't have type annotations to collect
+                }
             }
         }
     }
@@ -1230,6 +1242,7 @@ impl DocumentState {
             .definitions
             .iter()
             .filter_map(|definition| match definition {
+                TypedDefinition::Import(_) => None,
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),

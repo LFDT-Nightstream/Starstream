@@ -1,0 +1,7 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nimport {   blockHeight,   now   } from starstream:std/cardano;\n\nfn main() {}\n"
+---
+import { blockHeight, now } from starstream:std/cardano;
+
+fn main() { }

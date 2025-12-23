@@ -528,7 +528,7 @@ impl Compiler {
             Type::Unit => {
                 return None;
             }
-            Type::Function(_, _) => todo!(),
+            Type::Function { .. } => todo!(),
             Type::Tuple(_) => todo!(),
             Type::Record(record) => {
                 let fields = record
@@ -566,7 +566,7 @@ impl Compiler {
                 }
             }
             Type::Enum(_enum_variant_types) => ok = false,
-            Type::Function(_, _) => ok = false,
+            Type::Function { .. } => ok = false,
             Type::Var(_) => ok = false,
         }
         ok
@@ -599,7 +599,7 @@ impl Compiler {
                 .map(|f| self.star_count_core_types(&f.ty))
                 .sum(),
             Type::Enum(_variants) => todo!(),
-            Type::Function(_, _) => todo!(),
+            Type::Function { .. } => todo!(),
             Type::Var(_) => todo!(),
         }
     }
@@ -623,6 +623,10 @@ impl Compiler {
                 TypedDefinition::Abi(_) => {
                     // ABI definitions don't produce Wasm code directly;
                     // events are handled at emit sites.
+                }
+                // TODO: Implement imports in Wasm codegen.
+                TypedDefinition::Import(_) => {
+                    // Imports are resolved at type-check time; no Wasm output yet.
                 }
             }
         }
@@ -951,6 +955,13 @@ impl Compiler {
             // Events will likely become calls to imported host functions.
             TypedExprKind::Emit { .. } => {
                 return Err(self.todo("event emission is not supported in Wasm yet".into()));
+            }
+            // TODO: Implement raise (effectful calls) in Wasm codegen.
+            TypedExprKind::Raise { .. } => {
+                return Err(self.todo("raise is not supported in Wasm yet".into()));
+            }
+            TypedExprKind::Runtime { .. } => {
+                todo!()
             }
         }
         Ok(())
@@ -1424,6 +1435,13 @@ impl Compiler {
             // Events will likely become calls to imported host functions.
             TypedExprKind::Emit { .. } => {
                 Err(self.todo("event emission is not supported in Wasm yet".into()))
+            }
+            // TODO: Implement raise (effectful calls) in Wasm codegen.
+            TypedExprKind::Raise { .. } => {
+                Err(self.todo("raise is not supported in Wasm yet".into()))
+            }
+            TypedExprKind::Runtime { .. } => {
+                todo!()
             }
         }
     }

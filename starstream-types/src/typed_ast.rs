@@ -20,11 +20,37 @@ pub struct TypedProgram {
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum TypedDefinition {
+    Import(TypedImportDef),
     Function(TypedFunctionDef),
     Struct(TypedStructDef),
     Enum(TypedEnumDef),
     Utxo(TypedUtxoDef),
     Abi(TypedAbiDef),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedImportDef {
+    pub items: TypedImportItems,
+    pub from: TypedImportSource,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypedImportItems {
+    Named(Vec<TypedImportNamedItem>),
+    Namespace(Identifier),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedImportNamedItem {
+    pub imported: Identifier,
+    pub local: Identifier,
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedImportSource {
+    pub namespace: Identifier,
+    pub package: Identifier,
+    pub interface: Option<Identifier>,
 }
 
 #[derive(Clone, Debug)]
@@ -199,6 +225,14 @@ pub enum TypedExprKind {
     Emit {
         event: Identifier,
         args: Vec<Spanned<TypedExpr>>,
+    },
+    /// Effectful call: `raise some_effectful_fn(...)`
+    Raise {
+        expr: Box<Spanned<TypedExpr>>,
+    },
+    /// Runtime call: `runtime some_runtime_fn(...)`
+    Runtime {
+        expr: Box<Spanned<TypedExpr>>,
     },
 }
 

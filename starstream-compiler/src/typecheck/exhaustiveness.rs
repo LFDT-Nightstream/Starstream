@@ -80,7 +80,7 @@ impl CtorSet {
             // A wildcard pattern always covers these types completely.
             // We represent this as an empty constructor set.
             Type::Int | Type::Unit | Type::Var(_) => Some(Self::infinite()),
-            Type::Function(_, _) | Type::Tuple(_) => Some(Self::infinite()),
+            Type::Function { .. } | Type::Tuple(_) => Some(Self::infinite()),
         }
     }
 

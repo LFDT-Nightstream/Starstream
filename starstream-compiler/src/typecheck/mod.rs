@@ -1,3 +1,4 @@
+mod builtins;
 mod env;
 mod errors;
 mod exhaustiveness;

@@ -10,6 +10,18 @@ use std::fmt;
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
+/// Effect kind for functions - tracks whether a function performs side effects.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum EffectKind {
+    /// Pure function with no side effects.
+    #[default]
+    Pure,
+    /// Effectful function that interacts with blockchain state (requires `raise`).
+    Effectful,
+    /// Runtime function that calls external runtime/host functions (requires `runtime`).
+    Runtime,
+}
+
 /// Identifier for a type variable.
 ///
 /// During inference we generate fresh type variables to represent unknown
@@ -38,12 +50,16 @@ pub enum Type {
     /// Unit `()` value used for statement expressions and other places that
     /// conceptually return nothing.
     Unit,
-    /// Function type `params -> result`.
+    /// Function type `params -> result` with an optional effect.
     ///
     /// We don't expose user-defined functions yet but code generation already
     /// relies on the concept of callable blocks. Keeping this variant gives us
     /// a convenient hook for when functions land.
-    Function(Vec<Type>, Box<Type>),
+    Function {
+        params: Vec<Type>,
+        result: Box<Type>,
+        effect: EffectKind,
+    },
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
     /// Struct/record type with named fields.
@@ -80,6 +96,33 @@ impl Type {
             variants,
         })
     }
+
+    /// Pure function type helper.
+    pub fn function(params: Vec<Type>, result: Type) -> Self {
+        Type::Function {
+            params,
+            result: Box::new(result),
+            effect: EffectKind::Pure,
+        }
+    }
+
+    /// Effectful function type helper.
+    pub fn effectful_function(params: Vec<Type>, result: Type) -> Self {
+        Type::Function {
+            params,
+            result: Box::new(result),
+            effect: EffectKind::Effectful,
+        }
+    }
+
+    /// Runtime function type helper.
+    pub fn runtime_function(params: Vec<Type>, result: Type) -> Self {
+        Type::Function {
+            params,
+            result: Box::new(result),
+            effect: EffectKind::Runtime,
+        }
+    }
 }
 
 impl fmt::Display for Type {
@@ -100,7 +143,11 @@ impl Type {
             Type::Int => RcDoc::text("i64"),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
-            Type::Function(params, result) => {
+            Type::Function {
+                params,
+                result,
+                effect,
+            } => {
                 let params_doc = if params.is_empty() {
                     RcDoc::text("()")
                 } else {
@@ -111,7 +158,13 @@ impl Type {
                         .append(RcDoc::text(")"))
                 };
 
-                RcDoc::text("fn")
+                let effect_prefix = match effect {
+                    EffectKind::Pure => RcDoc::text("fn"),
+                    EffectKind::Effectful => RcDoc::text("effectful fn"),
+                    EffectKind::Runtime => RcDoc::text("runtime fn"),
+                };
+
+                effect_prefix
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
                     .append(result.to_doc_mode(TypeDocMode::Compact))
