@@ -478,7 +478,7 @@ impl Compiler {
     fn alloc_static(&mut self, size: u32, align: u32) -> u32 {
         const MINIMUM_ADDR: u32 = 4;
         let addr = self.bump_ptr.max(MINIMUM_ADDR).next_multiple_of(align);
-        self.bump_ptr = self.bump_ptr + size;
+        self.bump_ptr += size;
         addr
     }
 
