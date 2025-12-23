@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport { nonexistent } from starstream:std/cardano;\n\nfn main() {}\n"
+---
+E0037 (https://starstream.nightstream.dev/errors/E0037)
+
+  x unknown function `nonexistent` in `starstream:std/cardano`
+   ,-[test.star:1:10]
+ 1 | import { nonexistent } from starstream:std/cardano;
+   :          ^^^^^^^^^^^
+ 2 | 
+   `----

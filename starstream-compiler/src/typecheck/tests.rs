@@ -966,3 +966,75 @@ fn emit_type_mismatch_error() {
         "#
     );
 }
+
+#[test]
+fn unknown_import_package_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import { something } from foo:bar/baz;
+
+        fn main() {}
+        "#
+    );
+}
+
+#[test]
+fn unknown_import_interface_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import { something } from starstream:std/nonexistent;
+
+        fn main() {}
+        "#
+    );
+}
+
+#[test]
+fn unknown_import_function_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import { nonexistent } from starstream:std/cardano;
+
+        fn main() {}
+        "#
+    );
+}
+
+#[test]
+fn raise_requires_effectful_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main() {
+            let x = raise 42;
+        }
+        "#
+    );
+}
+
+#[test]
+fn runtime_requires_runtime_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn pure_fn() -> i64 {
+            42
+        }
+
+        fn main() {
+            let x = runtime pure_fn();
+        }
+        "#
+    );
+}
+
+#[test]
+fn runtime_without_keyword_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import { blockHeight } from starstream:std/cardano;
+
+        fn main() {
+            let x = blockHeight();
+        }
+        "#
+    );
+}

@@ -2544,16 +2544,26 @@ impl Inferencer {
                 ctx.inside_raise = was_inside_raise;
 
                 // Validate that the inner expression is an effectful call
-                // The inner expression should be a Call to an effectful function
-                // For now we just check that something was called - the effect check
-                // happens in the Call handling
-                if !matches!(typed_inner.node.kind, TypedExprKind::Call { .. }) {
+                let is_effectful_call =
+                    if let TypedExprKind::Call { callee, .. } = &typed_inner.node.kind {
+                        matches!(
+                            callee.node.ty,
+                            Type::Function {
+                                effect: EffectKind::Effectful,
+                                ..
+                            }
+                        )
+                    } else {
+                        false
+                    };
+
+                if !is_effectful_call {
                     return Err(TypeError::new(
                         TypeErrorKind::RaiseRequiresEffectful,
                         inner_expr.span,
                     )
                     .with_help(
-                        "`raise` should wrap a function call, e.g., `raise blockHeight()`",
+                        "`raise` should wrap an effectful function call",
                     ));
                 }
 
@@ -2588,13 +2598,26 @@ impl Inferencer {
                 ctx.inside_runtime = was_inside_runtime;
 
                 // Validate that the inner expression is a runtime call
-                if !matches!(typed_inner.node.kind, TypedExprKind::Call { .. }) {
+                let is_runtime_call =
+                    if let TypedExprKind::Call { callee, .. } = &typed_inner.node.kind {
+                        matches!(
+                            callee.node.ty,
+                            Type::Function {
+                                effect: EffectKind::Runtime,
+                                ..
+                            }
+                        )
+                    } else {
+                        false
+                    };
+
+                if !is_runtime_call {
                     return Err(TypeError::new(
                         TypeErrorKind::RuntimeRequiresRuntime,
                         inner_expr.span,
                     )
                     .with_help(
-                        "`runtime` should wrap a function call, e.g., `runtime blockHeight()`",
+                        "`runtime` should wrap a runtime function call",
                     ));
                 }
 
