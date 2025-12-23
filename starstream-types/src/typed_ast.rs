@@ -37,13 +37,19 @@ pub struct TypedImportDef {
 #[derive(Clone, Debug)]
 pub enum TypedImportItems {
     Named(Vec<TypedImportNamedItem>),
-    Namespace(Identifier),
+    /// Namespace import with alias and the functions available in that namespace.
+    Namespace {
+        alias: Identifier,
+        functions: Vec<TypedImportNamedItem>,
+    },
 }
 
 #[derive(Clone, Debug)]
 pub struct TypedImportNamedItem {
     pub imported: Identifier,
     pub local: Identifier,
+    /// The type of the imported item (typically a function type).
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]

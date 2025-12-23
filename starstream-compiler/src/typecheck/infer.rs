@@ -767,17 +767,54 @@ impl Inferencer {
     fn build_typed_import(&self, def: &ImportDef) -> TypedImportDef {
         use starstream_types::ast::ImportItems;
 
+        let namespace = &def.from.namespace.name;
+        let package = &def.from.package.name;
+        let interface_name = def.from.interface.as_ref().map(|i| i.name.as_str());
+
         let items = match &def.items {
             ImportItems::Named(named) => TypedImportItems::Named(
                 named
                     .iter()
-                    .map(|item| TypedImportNamedItem {
-                        imported: item.imported.clone(),
-                        local: item.local.clone(),
+                    .map(|item| {
+                        // Look up the function type from the builtins registry
+                        let ty = interface_name
+                            .and_then(|iface| {
+                                self.builtins
+                                    .get_interface(namespace, package, iface)
+                                    .and_then(|funcs| funcs.get(&item.imported.name))
+                                    .map(|f| f.to_function_type())
+                            })
+                            .unwrap_or(Type::Unit);
+
+                        TypedImportNamedItem {
+                            imported: item.imported.clone(),
+                            local: item.local.clone(),
+                            ty,
+                        }
                     })
                     .collect(),
             ),
-            ImportItems::Namespace(ident) => TypedImportItems::Namespace(ident.clone()),
+            ImportItems::Namespace(alias) => {
+                // Build the list of functions available in this namespace
+                let functions = interface_name
+                    .and_then(|iface| self.builtins.get_interface(namespace, package, iface))
+                    .map(|funcs| {
+                        funcs
+                            .iter()
+                            .map(|(name, builtin)| TypedImportNamedItem {
+                                imported: Identifier::anon(name),
+                                local: Identifier::anon(name),
+                                ty: builtin.to_function_type(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                TypedImportItems::Namespace {
+                    alias: alias.clone(),
+                    functions,
+                }
+            }
         };
 
         let from = TypedImportSource {
@@ -2157,7 +2194,7 @@ impl Inferencer {
                         expr.span,
                     );
 
-                    let result_repr = self.maybe_string(|| self.format_type(&return_type));
+                    let result_repr = self.maybe_string(|| self.format_type(return_type));
                     let tree = self.make_trace(
                         "T-NamespaceCall",
                         env_context,
