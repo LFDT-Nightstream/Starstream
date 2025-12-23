@@ -1038,3 +1038,53 @@ fn runtime_without_keyword_error() {
         "#
     );
 }
+
+#[test]
+fn namespace_import_runtime_call() {
+    assert_typecheck_snapshot!(
+        r#"
+        import cardano from starstream:std/cardano;
+
+        fn main() {
+            let x = runtime cardano::blockHeight();
+        }
+        "#
+    );
+}
+
+#[test]
+fn namespace_import_without_runtime_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import cardano from starstream:std/cardano;
+
+        fn main() {
+            let x = cardano::blockHeight();
+        }
+        "#
+    );
+}
+
+#[test]
+fn namespace_unknown_function_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        import cardano from starstream:std/cardano;
+
+        fn main() {
+            let x = cardano::nonexistent();
+        }
+        "#
+    );
+}
+
+#[test]
+fn unknown_namespace_lowercase_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main() {
+            let x = cardano::blockHeight();
+        }
+        "#
+    );
+}

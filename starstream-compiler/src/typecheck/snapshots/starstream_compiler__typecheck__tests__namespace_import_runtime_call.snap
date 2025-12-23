@@ -1,0 +1,8 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport cardano from starstream:std/cardano;\n\nfn main() {\n    let x = runtime cardano::blockHeight();\n}\n"
+---
+T-Fn: main => ()
+  T-Let: {} ⊢ let x = runtime cardano::blockHeight(); ⇒ i64
+    T-Runtime: {} ⊢ runtime cardano::blockHeight() ⇒ i64
+      T-NamespaceCall: {} ⊢ cardano::blockHeight() ⇒ i64

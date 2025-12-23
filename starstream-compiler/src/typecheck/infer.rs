@@ -209,6 +209,7 @@ struct Inferencer {
     types: TypeRegistry,
     functions: FunctionRegistry,
     events: EventRegistry,
+    namespaces: NamespaceRegistry,
     builtins: BuiltinRegistry,
 }
 
@@ -269,6 +270,32 @@ struct EventInfo {
     name_span: Span,
 }
 
+/// Registry for namespace imports like `import cardano from starstream:std/cardano;`
+struct NamespaceRegistry {
+    /// Maps namespace alias -> (function_name -> FunctionInfo)
+    entries: HashMap<String, HashMap<String, FunctionInfo>>,
+}
+
+impl NamespaceRegistry {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, namespace: String, functions: HashMap<String, FunctionInfo>) {
+        self.entries.insert(namespace, functions);
+    }
+
+    fn get(&self, namespace: &str) -> Option<&HashMap<String, FunctionInfo>> {
+        self.entries.get(namespace)
+    }
+
+    fn contains(&self, namespace: &str) -> bool {
+        self.entries.contains_key(namespace)
+    }
+}
+
 struct FunctionCtx {
     expected_return: Type,
     return_span: Span,
@@ -291,6 +318,7 @@ impl Inferencer {
             types: TypeRegistry::new(),
             functions: FunctionRegistry::new(),
             events: EventRegistry::new(),
+            namespaces: NamespaceRegistry::new(),
             builtins: BuiltinRegistry::new(),
         }
     }
@@ -431,10 +459,50 @@ impl Inferencer {
                     );
                 }
             }
-            ImportItems::Namespace(_alias) => {
-                // Namespace import: `import context from starstream:std;`
-                // For now, we don't fully support this - you need to use interface imports
-                // We could add a namespace type in the future
+            ImportItems::Namespace(alias) => {
+                // Namespace import: `import cardano from starstream:std/cardano;`
+                let interface = import.from.interface.as_ref().ok_or_else(|| {
+                    TypeError::new(
+                        TypeErrorKind::UnknownImportInterface {
+                            namespace: namespace.clone(),
+                            package: package.clone(),
+                            interface: "".to_string(),
+                        },
+                        import.from.package.span.unwrap_or_else(dummy_span),
+                    )
+                    .with_help("namespace imports require an interface, e.g., `import cardano from starstream:std/cardano;`")
+                })?;
+
+                let interface_funcs = self
+                    .builtins
+                    .get_interface(namespace, package, &interface.name)
+                    .ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownImportInterface {
+                                namespace: namespace.clone(),
+                                package: package.clone(),
+                                interface: interface.name.clone(),
+                            },
+                            interface.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                // Build a map of all functions in this interface
+                let mut functions = HashMap::new();
+                for (name, builtin) in interface_funcs {
+                    functions.insert(
+                        name.clone(),
+                        FunctionInfo {
+                            param_types: builtin.params.clone(),
+                            param_spans: vec![],
+                            return_type: builtin.return_type.clone(),
+                            effect: builtin.effect,
+                            name_span: alias.span.unwrap_or_else(dummy_span),
+                        },
+                    );
+                }
+
+                self.namespaces.insert(alias.name.clone(), functions);
             }
         }
 
@@ -1958,7 +2026,190 @@ impl Inferencer {
                 variant,
                 payload,
             } => {
-                let info = self.lookup_enum_info(enum_name)?;
+                // First, check if this is a namespace-qualified function call
+                // e.g., `cardano::blockHeight()` where `cardano` is an imported namespace
+                let ns_func_info = self
+                    .namespaces
+                    .get(&enum_name.name)
+                    .and_then(|funcs| funcs.get(&variant.name))
+                    .cloned();
+
+                if let Some(func_info) = ns_func_info {
+                    // This is a namespace call
+                    // Found the function in the namespace
+                    let args: &[Spanned<Expr>] = match payload {
+                        EnumConstructorPayload::Tuple(args) => args,
+                        EnumConstructorPayload::Unit => {
+                            // Unit payload means no-arg call: `cardano::blockHeight`
+                            // Treat as zero-arg call
+                            &[]
+                        }
+                        EnumConstructorPayload::Struct(_) => {
+                            return Err(TypeError::new(
+                                TypeErrorKind::ArityMismatch {
+                                    expected: func_info.param_types.len(),
+                                    found: 0,
+                                },
+                                expr.span,
+                            )
+                            .with_help(
+                                "namespace functions use tuple-style arguments, not struct syntax",
+                            ));
+                        }
+                    };
+
+                    let param_types = &func_info.param_types;
+                    let return_type = &func_info.return_type;
+                    let effect = func_info.effect;
+
+                    // Check effect: runtime functions need `runtime` keyword
+                    if effect == EffectKind::Runtime && !ctx.inside_runtime {
+                        return Err(TypeError::new(
+                            TypeErrorKind::RuntimeWithoutKeyword {
+                                function_name: variant.name.clone(),
+                            },
+                            variant.span.unwrap_or(expr.span),
+                        )
+                        .with_help(format!(
+                            "use `runtime` to call runtime functions, e.g., `runtime {}::{}()`",
+                            enum_name.name, variant.name
+                        )));
+                    }
+
+                    // Check effect: effectful functions need `raise` keyword
+                    if effect == EffectKind::Effectful && !ctx.inside_raise {
+                        return Err(TypeError::new(
+                            TypeErrorKind::EffectfulWithoutRaise {
+                                function_name: variant.name.clone(),
+                            },
+                            variant.span.unwrap_or(expr.span),
+                        )
+                        .with_help(format!(
+                            "use `raise` to call effectful functions, e.g., `raise {}::{}()`",
+                            enum_name.name, variant.name
+                        )));
+                    }
+
+                    // Check arity
+                    if args.len() != param_types.len() {
+                        return Err(TypeError::new(
+                            TypeErrorKind::ArityMismatch {
+                                expected: param_types.len(),
+                                found: args.len(),
+                            },
+                            expr.span,
+                        ));
+                    }
+
+                    // Typecheck arguments
+                    let mut children = Vec::new();
+                    let mut typed_args = Vec::with_capacity(args.len());
+
+                    for (index, (arg, expected_ty)) in
+                        args.iter().zip(param_types.iter()).enumerate()
+                    {
+                        let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+                        let actual_ty = typed_arg.node.ty.clone();
+
+                        let (_, unify_trace) = self.unify(
+                            actual_ty.clone(),
+                            expected_ty.clone(),
+                            arg.span,
+                            arg.span,
+                            TypeErrorKind::ArgumentTypeMismatch {
+                                expected: expected_ty.clone(),
+                                found: self.apply(&actual_ty),
+                                position: index + 1,
+                                param_span: None,
+                            },
+                        )?;
+
+                        children.push(arg_trace);
+                        children.push(unify_trace);
+                        typed_args.push(typed_arg);
+                    }
+
+                    // Build the typed call - we use TypedExprKind::Call with a synthetic callee
+                    let callee_ty = Type::Function {
+                        params: param_types.clone(),
+                        result: Box::new(return_type.clone()),
+                        effect,
+                    };
+
+                    let callee_ident = Identifier {
+                        name: format!("{}::{}", enum_name.name, variant.name),
+                        span: variant.span,
+                    };
+
+                    let typed_callee = Spanned::new(
+                        TypedExpr::new(callee_ty, TypedExprKind::Identifier(callee_ident)),
+                        variant.span.unwrap_or(expr.span),
+                    );
+
+                    let typed = Spanned::new(
+                        TypedExpr::new(
+                            return_type.clone(),
+                            TypedExprKind::Call {
+                                callee: Box::new(typed_callee),
+                                args: typed_args,
+                            },
+                        ),
+                        expr.span,
+                    );
+
+                    let result_repr = self.maybe_string(|| self.format_type(&return_type));
+                    let tree = self.make_trace(
+                        "T-NamespaceCall",
+                        env_context,
+                        subject_repr,
+                        result_repr,
+                        || children,
+                    );
+
+                    return Ok((typed, tree));
+                } else if self.namespaces.contains(&enum_name.name) {
+                    // Namespace exists but function not found
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownImportFunction {
+                            path: enum_name.name.clone(),
+                            name: variant.name.clone(),
+                        },
+                        variant.span.unwrap_or_else(dummy_span),
+                    ));
+                }
+
+                // Not a namespace - check for enum
+                // Use casing heuristic for better error messages
+                let is_likely_namespace = enum_name
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_lowercase())
+                    .unwrap_or(false);
+
+                let info = self.types.enum_info(&enum_name.name).ok_or_else(|| {
+                    if is_likely_namespace {
+                        TypeError::new(
+                            TypeErrorKind::UnknownImportPackage {
+                                namespace: enum_name.name.clone(),
+                                package: "".to_string(),
+                            },
+                            enum_name.span.unwrap_or_else(dummy_span),
+                        )
+                        .with_primary_message(format!("unknown namespace `{}`", enum_name.name))
+                        .with_help(format!(
+                            "did you forget to import? try: `import {} from starstream:std/{};`",
+                            enum_name.name, enum_name.name
+                        ))
+                    } else {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEnum {
+                                name: enum_name.name.clone(),
+                            },
+                            enum_name.span.unwrap_or_else(dummy_span),
+                        )
+                    }
+                })?;
                 let variant_info = info
                     .variants
                     .iter()
