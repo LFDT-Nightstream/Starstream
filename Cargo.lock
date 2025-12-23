@@ -3015,6 +3015,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "starstream_mock_ledger"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "starstream_nova"
 version = "0.0.0"
 dependencies = [

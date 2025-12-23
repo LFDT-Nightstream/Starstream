@@ -227,11 +227,31 @@ state) from the ledger state. It's equivalent to a coroutine return.
 
 ##### Tokens
 
-- bind(token: Continuation)
-- unbind(token: Continuation)
+- **bind(owner: Continuation)**
+- **unbind(token: Continuation)**
+- **is_owned_by(token: Continuation, utxo: Continuation) -> bool**
+- **tokens(utxo: Continuation) -> Stream<Continuation>**
 
 Relational arguments. The ledger state has to keep relations of inclusion, where
 tokens can be included in utxos.
+
+This of these as the ledger having an sql table of utxo relations (pairs).
+
+**bind** requires the token to be unbound, and in that case, it binds a
+continuation to its caller (which has to be a utxo).
+
+**unbind** this has to be called from the owner's context. The token has to be
+owned by this utxo.
+
+**is_owned_by** lookup check into the ownership table.
+
+**tokens** the other lookup.
+
+Note that `Continuation` implies that the tokens are included as inputs to the
+transaction. They are not blockchain id's.
+
+You can think of tokens as being part of the utxo storage, but this simplifies
+the management of ids.
 
 ### Proving the interleaving
 

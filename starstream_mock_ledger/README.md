@@ -1,6 +1,6 @@
 This document describes operational semantics for the
 interleaving/transaction/communication circuit in a somewhat formal way (but
-abstract). The [README](README.md) has a high-level description of the general architecture and how this things are used (and the motivation).
+abstract).
 
 Each opcode corresponds to an operation that a wasm program can do in a
 transaction and involves communication with another program (utxo -> coord,
@@ -27,12 +27,13 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack)
+σ = (id_curr, id_prev, M, arg, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
 
 Where:
   id_curr        : ID of the currently executing VM. In the range [0..#coord + #utxo]
   id_prev        : ID of the VM that called the current one (return address).
   M              : A map {ProcessID -> Value}
+  arg            : A map {ProcessID -> Option<(Value, ProcessID)>}
   process_table  : Read-only map {ID -> ProgramHash} for attestation.
   host_calls     : A map {ProcessID -> Host-calls lookup table}
   counters       : A map {ProcessID -> Counter}
@@ -40,6 +41,8 @@ Where:
   is_utxo        : Read-only map {ProcessID -> Bool}
   initialized    : A map {ProcessID -> Bool}
   handler_stack  : A map {InterfaceID -> Stack<ProcessID>}
+  ownership      : A map {ProcessID -> Option<ProcessID>} (token -> owner)
+  is_burned      : A map {ProcessID -> Bool}
 ```
 
 Note that the maps are used here for convenience of notation. In practice they
@@ -111,8 +114,24 @@ Rule: Resume
     3. id_prev'                 <- id_curr   (Save "caller" for yield)
     4. id_curr'                 <- target    (Switch)
     5. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
-
+    6. arg'[target]             <- Some(val, id_curr)
 ```
+
+## Input
+
+Rule: Input
+===========
+    op = Input() -> (val, caller)
+
+    1. arg[id_curr] == Some(val, caller)
+
+    2. let t = CC[id_curr] in
+       let c = counters[id_curr] in
+           t[c] == <Input, val, caller>
+
+-----------------------------------------------------------------------
+    1. counters'[id_curr] += 1
+
 
 ## Yield
 
@@ -148,6 +167,7 @@ Rule: Yield (resumed)
     3. id_curr'                 <- id_prev   (Switch to parent)
     4. id_prev'                 <- id_curr   (Save "caller")
     5. safe_to_ledger'[id_curr] <- False     (This is not the final yield for this utxo in this transaction)
+    6. arg'[id_curr]            <- None
 ```
 
 ```text
@@ -168,6 +188,7 @@ Rule: Yield (end transaction)
     2. id_curr'                 <- id_prev  (Switch to parent)
     3. id_prev'                 <- id_curr  (Save "caller")
     4. safe_to_ledger'[id_curr] <- True     (This utxo creates a transacition output)
+    5. arg'[id_curr]            <- None
 ```
 
 ## Program Hash
@@ -185,7 +206,7 @@ Rule: Program Hash
     let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <NewUtxo, program_hash, val, id>
+            t[c] == <ProgramHash, program_hash>
 
     (Host call lookup condition)
 
@@ -232,7 +253,9 @@ Assigns a new (transaction-local) ID for a UTXO program.
 
 -----------------------------------------------------------------------
     1. initialized[id] <- True
-    2. counters'[id_curr] += 1
+    2. M[id]           <- val
+    3. arg'[id]         <- None
+    4. counters'[id_curr] += 1
 ```
 
 ## New Coordination Script (Spawn)
@@ -273,7 +296,9 @@ handler) instance.
 
 -----------------------------------------------------------------------
     1. initialized[id] <- True
-    2. counters'[id_curr] += 1
+    2. M[id]           <- val
+    3. arg'[id]         <- None
+    4. counters'[id_curr] += 1
 ```
 
 ---
@@ -368,23 +393,94 @@ Rule: Burn
 ==========
 Destroys the UTXO state.
 
-    op = Burn()
+    op = Burn(val)
 
     1. is_utxo[id_curr]
     2. is_initialized[id_curr]
+    3. is_burned[id_curr]
 
-    3. let
+    4. M[id_prev] == val
+
+    (Resume receives val)
+
+    4. let
         t = CC[id_curr] in
         c = counters[id_curr] in
             t[c] == <Burn>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. is_initialized'[id_curr] <- False
-    2. safe_to_ledger'[id_curr] <- True
-    3. counters'[id_curr] += 1
+    1. safe_to_ledger'[id_curr] <- True
+    2. id_curr'                 <- id_prev
 
+    (Control flow goes to caller)
+
+    3. initialized'[id_curr]    <- False
+
+    (It's not possible to return to this, maybe it should be a different flag though)
+
+    4. counters'[id_curr]       += 1
+
+    5. arg'[id_curr]            <- None
 ```
+
+# 6. Tokens
+
+## Bind
+
+```text
+Rule: Bind (token calls)
+========================
+    op = Bind(owner_id)
+
+    token_id = id_curr
+
+    1. is_utxo[token_id] == True
+       (Only UTXOs can be tokens)
+
+    2. is_utxo[owner_id] == True
+       (Owners are UTXOs)
+
+    3. initialized[token_id] == True
+       initialized[owner_id] == True
+       (Both exist in this transaction's process set)
+
+    4. ownership[token_id] == ⊥
+       (Token must currently be unbound)
+
+    5. let t = CC[token_id] in
+       let c = counters[token_id] in
+           t[c] == <Bind, owner_id>
+       (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. ownership'[token_id] <- owner_id
+    2. counters'[token_id]  += 1
+```
+
+## Unbind
+
+Rule: Unbind (owner calls)
+==========================
+    op = Unbind(token_id)
+
+    owner_id = id_curr
+
+    1. is_utxo[owner_id] == True
+
+    2. is_utxo[token_id] == True
+       initialized[token_id] == True
+       (Token exists in this transaction's process set)
+
+    3. ownership[token_id] == owner_id
+       (Authorization: only current owner may unbind)
+
+    4. let t = CC[owner_id] in
+       let c = counters[owner_id] in
+           t[c] == <Unbind, token_id>
+-----------------------------------------------------------------------
+    1. ownership'[token_id] <- ⊥
+    2. counters'[owner_id]  += 1
+
 
 # Verification
 

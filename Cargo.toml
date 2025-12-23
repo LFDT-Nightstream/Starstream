@@ -10,6 +10,7 @@ members = [
     "starstream_nova",
     "starstream_lsp",
     "starstream_ivc_proto",
+    "starstream_mock_ledger"
 ]
 resolver = "2"
 
