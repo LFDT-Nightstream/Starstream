@@ -33,11 +33,20 @@ program ::= definition*
 (* Definitions *)
 
 definition ::=
+  | import_definition
   | function_definition
   | struct_definition
   | enum_definition
   | utxo_definition
   | abi_definition
+
+import_definition ::=
+  | "import" "{" import_named_item ( "," import_named_item )* "}" "from" import_source ";"
+  | "import" identifier "from" import_source ";"
+
+import_named_item ::= identifier ( "as" identifier )?
+
+import_source ::= identifier ":" identifier "/" identifier
 
 function_definition ::=
   ( function_export )?
@@ -136,12 +145,21 @@ primary_expression ::=
   | unit_literal
   | struct_literal
   | enum_construction
+  | namespace_call
   | emit_expression
+  | raise_expression
+  | runtime_expression
   | block
   | if_expression
   | match_expression
 
 emit_expression ::= "emit" identifier "(" ( expression ( "," expression )* )? ")"
+
+raise_expression ::= "raise" expression
+
+runtime_expression ::= "runtime" expression
+
+namespace_call ::= identifier "::" identifier "(" ( expression ( "," expression )* )? ")"
 
 struct_literal ::= identifier "{" ( struct_field_initializer ( "," struct_field_initializer )* )? "}"
 
@@ -234,6 +252,10 @@ The following reserved words may not be used as identifiers:
 - `abi`
 - `event`
 - `emit`
+- `import`
+- `from`
+- `raise`
+- `runtime`
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -272,6 +294,48 @@ visibility modifier:
 - `script fn` exports a coordination script. It can be the root of a transaction
   or called by another coordination script.
 
+## Imports
+
+Imports bring external functions into scope from WIT-style interface paths.
+
+### Named imports
+
+Named imports bring specific functions into the local scope:
+
+```starstream
+import { blockHeight } from starstream:std/cardano;
+import { foo, bar as baz } from starstream:std/utils;
+```
+
+The imported functions can be called directly by name. Functions can be renamed using `as`.
+
+### Namespace imports
+
+Namespace imports bring all functions from an interface under a namespace alias:
+
+```starstream
+import cardano from starstream:std/cardano;
+```
+
+Functions are accessed using namespace-qualified syntax: `cardano::blockHeight()`.
+
+### Effect annotations
+
+Some imported functions have effect annotations that require special call syntax:
+
+- **Runtime functions** access runtime-only information (e.g., block height) and must be called with the `runtime` keyword:
+  ```starstream
+  let height = runtime blockHeight();
+  let height = runtime cardano::blockHeight();
+  ```
+
+- **Effectful functions** have side effects and must be called with the `raise` keyword:
+  ```starstream
+  let result = raise someEffectfulFunction();
+  ```
+
+Calling an effectful or runtime function without the appropriate keyword is a type error.
+
 ## Scopes
 
 - Every expression exists within a stack of scopes, in the traditional static scoping sense.
@@ -288,6 +352,9 @@ visibility modifier:
 - `match` expressions evaluate the scrutinee first, then test arms sequentially. The first pattern whose shape matches the scrutinee executes. Pattern matching is exhaustive: all possible cases must be covered, and unreachable patterns are reported as errors. The wildcard pattern `_` matches any value without introducing a binding.
 - Function calls `f(arg1, arg2, ...)` evaluate the callee (which must be a function name), then evaluate arguments left-to-right, then execute the function body with parameters bound to argument values. The call expression evaluates to the function's return value.
 - Emit expressions `emit EventName(arg1, arg2, ...)` emit an event declared in an `abi` block. The event name must refer to an event definition in scope. Arguments are evaluated left-to-right and typechecked against the event's parameter types. The expression's type is always `()` (Unit). Unknown event names are type errors.
+- Namespace-qualified calls `namespace::function(args...)` call a function from an imported namespace. The namespace must have been imported via `import namespace from ...;`.
+- `raise expr` wraps an effectful function call. The inner expression must be a call to an effectful function. Using `raise` on a non-effectful call is a type error.
+- `runtime expr` wraps a runtime function call. Runtime functions access runtime-only information (e.g., block height) and must be explicitly marked at the call site. Using `runtime` on a non-runtime call is a type error.
 - Variable names refer to a `let` declaration earlier in the current scope or
   one of its parents, but not child scopes.
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual

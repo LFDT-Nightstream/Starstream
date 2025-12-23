@@ -135,6 +135,22 @@ pub fn parser<'a>(
         .map(|(event, args)| Expr::Emit { event, args })
         .spanned();
 
+    let raise_expression = just("raise")
+        .padded()
+        .ignore_then(expression.clone())
+        .map(|expr| Expr::Raise {
+            expr: Box::new(expr),
+        })
+        .spanned();
+
+    let runtime_expression = just("runtime")
+        .padded()
+        .ignore_then(expression.clone())
+        .map(|expr| Expr::Runtime {
+            expr: Box::new(expr),
+        })
+        .spanned();
+
     choice((
         grouping,
         integer_literal,
@@ -143,6 +159,8 @@ pub fn parser<'a>(
         struct_literal,
         enum_constructor,
         emit_expression,
+        raise_expression,
+        runtime_expression,
         block,
         if_expression,
         match_expression,

@@ -5,8 +5,8 @@ use starstream_types::{
     UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
-        Identifier, MatchArm, Pattern, Program, StructDef, StructField, StructLiteralField,
-        StructPatternField,
+        Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
+        Program, StructDef, StructField, StructLiteralField, StructPatternField,
     },
 };
 use std::fmt;
@@ -36,16 +36,30 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
 }
 
 fn program_to_doc<'a>(program: &Program, source: &'a str) -> RcDoc<'a, ()> {
+    // Partition definitions: imports first, then everything else
+    let (imports, rest): (Vec<_>, Vec<_>) = program
+        .definitions
+        .iter()
+        .partition(|def| matches!(def.node, Definition::Import(_)));
+
+    let import_docs = imports
+        .iter()
+        .map(|x| spanned(x, source, |node| definition_to_doc(node, source)));
+
+    let rest_docs = rest
+        .iter()
+        .map(|x| spanned(x, source, |node| definition_to_doc(node, source)));
+
+    // Combine: imports, then a blank line separator (if both exist), then the rest
+    let all_docs: Vec<_> = import_docs.chain(rest_docs).collect();
+
     (if let Some(shebang) = &program.shebang {
         comment_to_doc(shebang, source)
     } else {
         RcDoc::nil()
     })
     .append(RcDoc::intersperse(
-        program
-            .definitions
-            .iter()
-            .map(|x| spanned(x, source, |node| definition_to_doc(node, source))),
+        all_docs,
         RcDoc::hardline().append(RcDoc::hardline()),
     ))
     .append(RcDoc::hardline())
@@ -71,12 +85,70 @@ fn spanned<'a, T, F: FnOnce(&T) -> RcDoc<'a, ()>>(
 
 fn definition_to_doc<'a>(definition: &Definition, source: &'a str) -> RcDoc<'a, ()> {
     match definition {
+        Definition::Import(import) => import_to_doc(import, source),
         Definition::Function(function) => function_to_doc(function, source),
         Definition::Struct(definition) => struct_definition_to_doc(definition, source),
         Definition::Enum(definition) => enum_definition_to_doc(definition, source),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source),
         Definition::Abi(definition) => abi_definition_to_doc(definition, source),
     }
+}
+
+fn import_to_doc<'a>(import: &ImportDef, source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::text("import")
+        .append(RcDoc::space())
+        .append(import_items_to_doc(&import.items, source))
+        .append(RcDoc::space())
+        .append(RcDoc::text("from"))
+        .append(RcDoc::space())
+        .append(import_source_to_doc(&import.from, source))
+        .append(RcDoc::text(";"))
+}
+
+fn import_items_to_doc<'a>(items: &ImportItems, source: &'a str) -> RcDoc<'a, ()> {
+    match items {
+        ImportItems::Named(named) => {
+            if named.is_empty() {
+                RcDoc::text("{ }")
+            } else {
+                RcDoc::text("{ ")
+                    .append(RcDoc::intersperse(
+                        named
+                            .iter()
+                            .map(|item| import_named_item_to_doc(item, source)),
+                        RcDoc::text(", "),
+                    ))
+                    .append(RcDoc::text(" }"))
+            }
+        }
+        ImportItems::Namespace(ident) => identifier_to_doc(ident, source),
+    }
+}
+
+fn import_named_item_to_doc<'a>(item: &ImportNamedItem, source: &'a str) -> RcDoc<'a, ()> {
+    if item.imported.name == item.local.name {
+        identifier_to_doc(&item.imported, source)
+    } else {
+        identifier_to_doc(&item.imported, source)
+            .append(RcDoc::space())
+            .append(RcDoc::text("as"))
+            .append(RcDoc::space())
+            .append(identifier_to_doc(&item.local, source))
+    }
+}
+
+fn import_source_to_doc<'a>(source_path: &ImportSource, source: &'a str) -> RcDoc<'a, ()> {
+    let mut doc = identifier_to_doc(&source_path.namespace, source)
+        .append(RcDoc::text(":"))
+        .append(identifier_to_doc(&source_path.package, source));
+
+    if let Some(interface) = &source_path.interface {
+        doc = doc
+            .append(RcDoc::text("/"))
+            .append(identifier_to_doc(interface, source));
+    }
+
+    doc
 }
 
 fn function_to_doc<'a>(function: &FunctionDef, source: &'a str) -> RcDoc<'a, ()> {
@@ -711,6 +783,18 @@ fn expr_with_prec<'a>(
                         .append(args_doc)
                         .append(RcDoc::text(")"))
                 }
+                Expr::Raise { expr } => RcDoc::text("raise").append(RcDoc::space()).append(
+                    spanned(expr, source, |node| {
+                        expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source)
+                    }),
+                ),
+                Expr::Runtime { expr } => {
+                    RcDoc::text("runtime")
+                        .append(RcDoc::space())
+                        .append(spanned(expr, source, |node| {
+                            expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source)
+                        }))
+                }
             };
 
             if needs_parentheses(prec, parent_prec, position) {
@@ -761,7 +845,9 @@ fn precedence(expr: &Expr) -> u8 {
         | Expr::Identifier(_)
         | Expr::StructLiteral { .. }
         | Expr::EnumConstructor { .. }
-        | Expr::Emit { .. } => PREC_PRIMARY,
+        | Expr::Emit { .. }
+        | Expr::Raise { .. }
+        | Expr::Runtime { .. } => PREC_PRIMARY,
         Expr::Grouping(inner) => precedence(&inner.node),
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),
@@ -1076,6 +1162,50 @@ mod tests {
             fn main() {
                 let b = Builder { value: 5 };
                 let result = build(b);
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn import_named() {
+        assert_format_snapshot!(
+            r#"
+            import {   blockHeight,   now   } from starstream:std/cardano;
+
+            fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn import_with_alias() {
+        assert_format_snapshot!(
+            r#"
+            import {   blockHeight   as   height   } from starstream:std/cardano;
+
+            fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn import_namespace() {
+        assert_format_snapshot!(
+            r#"
+            import context from starstream:std;
+
+            fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn raise_expression() {
+        assert_format_snapshot!(
+            r#"
+            fn main() {
+                let height = raise   blockHeight();
             }
             "#,
         );

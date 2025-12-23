@@ -31,6 +31,10 @@
       "members": [
         {
           "type": "SYMBOL",
+          "name": "import_definition"
+        },
+        {
+          "type": "SYMBOL",
           "name": "function_definition"
         },
         {
@@ -48,6 +52,190 @@
         {
           "type": "SYMBOL",
           "name": "abi_definition"
+        }
+      ]
+    },
+    "import_definition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "import"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "import_named_items"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "import_namespace"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "from"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "import_source"
+        },
+        {
+          "type": "STRING",
+          "value": ";"
+        }
+      ]
+    },
+    "import_named_items": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "import_named_item"
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": ","
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "import_named_item"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": ","
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
+    },
+    "import_named_item": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "imported",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "as"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "local",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "identifier"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "import_namespace": {
+      "type": "SYMBOL",
+      "name": "identifier"
+    },
+    "import_source": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "FIELD",
+          "name": "namespace",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "FIELD",
+          "name": "package",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "STRING",
+                  "value": "/"
+                },
+                {
+                  "type": "FIELD",
+                  "name": "interface",
+                  "content": {
+                    "type": "SYMBOL",
+                    "name": "identifier"
+                  }
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         }
       ]
     },
@@ -1488,6 +1676,14 @@
         },
         {
           "type": "SYMBOL",
+          "name": "raise_expression"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "runtime_expression"
+        },
+        {
+          "type": "SYMBOL",
           "name": "block"
         },
         {
@@ -1497,6 +1693,40 @@
         {
           "type": "SYMBOL",
           "name": "match_expression"
+        }
+      ]
+    },
+    "raise_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "raise"
+        },
+        {
+          "type": "FIELD",
+          "name": "call",
+          "content": {
+            "type": "SYMBOL",
+            "name": "call_expression"
+          }
+        }
+      ]
+    },
+    "runtime_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "runtime"
+        },
+        {
+          "type": "FIELD",
+          "name": "call",
+          "content": {
+            "type": "SYMBOL",
+            "name": "call_expression"
+          }
         }
       ]
     },
@@ -2236,6 +2466,14 @@
   "conflicts": [
     [
       "enum_constructor"
+    ],
+    [
+      "field_expression",
+      "raise_expression"
+    ],
+    [
+      "field_expression",
+      "runtime_expression"
     ]
   ],
   "precedences": [],

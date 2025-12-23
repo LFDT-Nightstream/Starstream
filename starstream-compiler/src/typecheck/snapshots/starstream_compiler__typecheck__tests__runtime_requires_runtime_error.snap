@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn pure_fn() -> i64 {\n    42\n}\n\nfn main() {\n    let x = runtime pure_fn();\n}\n"
+---
+E0040 (https://starstream.nightstream.dev/errors/E0040)
+
+  x `runtime` can only be used with runtime function calls
+   ,-[test.star:6:21]
+ 5 | fn main() {
+ 6 |     let x = runtime pure_fn();
+   :                     ^^^^^^^^^
+ 7 | }
+   `----
+  help: `runtime` should wrap a runtime function call

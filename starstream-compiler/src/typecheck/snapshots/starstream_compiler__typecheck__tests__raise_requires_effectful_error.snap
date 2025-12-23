@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main() {\n    let x = raise 42;\n}\n"
+---
+E0038 (https://starstream.nightstream.dev/errors/E0038)
+
+  x `raise` can only be used with effectful function calls
+   ,-[test.star:2:19]
+ 1 | fn main() {
+ 2 |     let x = raise 42;
+   :                   ^^
+ 3 | }
+   `----
+  help: `raise` should wrap an effectful function call

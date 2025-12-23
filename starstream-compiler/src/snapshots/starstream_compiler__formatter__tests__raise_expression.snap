@@ -1,0 +1,7 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn main() {\n    let height = raise   blockHeight();\n}\n"
+---
+fn main() {
+    let height = raise blockHeight();
+}

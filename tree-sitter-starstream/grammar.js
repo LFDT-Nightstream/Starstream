@@ -20,11 +20,45 @@ module.exports = grammar({
 
     _definition: ($) =>
       choice(
+        $.import_definition,
         $.function_definition,
         $.struct_definition,
         $.enum_definition,
         $.utxo_definition,
         $.abi_definition,
+      ),
+
+    import_definition: ($) =>
+      seq(
+        "import",
+        choice($.import_named_items, $.import_namespace),
+        "from",
+        $.import_source,
+        ";",
+      ),
+
+    import_named_items: ($) =>
+      seq(
+        "{",
+        optional(seq($.import_named_item, repeat(seq(",", $.import_named_item)))),
+        optional(","),
+        "}",
+      ),
+
+    import_named_item: ($) =>
+      seq(
+        field("imported", $.identifier),
+        optional(seq("as", field("local", $.identifier))),
+      ),
+
+    import_namespace: ($) => $.identifier,
+
+    import_source: ($) =>
+      seq(
+        field("namespace", $.identifier),
+        ":",
+        field("package", $.identifier),
+        optional(seq("/", field("interface", $.identifier))),
       ),
 
     function_definition: ($) =>
@@ -237,11 +271,19 @@ module.exports = grammar({
         $.struct_literal,
         $.enum_constructor,
         $.emit_expression,
+        $.raise_expression,
+        $.runtime_expression,
 
         $.block,
         $.if_expression,
         $.match_expression,
       ),
+
+    raise_expression: ($) =>
+      seq("raise", field("call", $.call_expression)),
+
+    runtime_expression: ($) =>
+      seq("runtime", field("call", $.call_expression)),
 
     emit_expression: ($) =>
       seq(
@@ -390,6 +432,10 @@ module.exports = grammar({
         choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
       ),
   },
-  conflicts: ($) => [[$.enum_constructor]],
+  conflicts: ($) => [
+    [$.enum_constructor],
+    [$.field_expression, $.raise_expression],
+    [$.field_expression, $.runtime_expression],
+  ],
   extras: ($) => [/\s/, $.comment],
 });

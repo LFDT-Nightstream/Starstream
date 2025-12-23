@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport { something } from foo:bar/baz;\n\nfn main() {}\n"
+---
+E0035 (https://starstream.nightstream.dev/errors/E0035)
+
+  x unknown package `foo:bar`
+   ,-[test.star:1:27]
+ 1 | import { something } from foo:bar/baz;
+   :                           ^^^
+ 2 | 
+   `----

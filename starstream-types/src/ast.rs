@@ -102,11 +102,47 @@ pub struct Program {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Definition {
+    Import(ImportDef),
     Function(FunctionDef),
     Struct(StructDef),
     Enum(EnumDef),
     Utxo(UtxoDef),
     Abi(AbiDef),
+}
+
+/// `import { blockHeight } from starstream:std/cardano;`
+/// `import context from starstream:std;`
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ImportDef {
+    pub items: ImportItems,
+    pub from: ImportSource,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum ImportItems {
+    /// `import { blockHeight, foo as bar } from ...;`
+    Named(Vec<ImportNamedItem>),
+    /// `import context from starstream:std;` — brings in a namespace alias.
+    Namespace(Identifier),
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ImportNamedItem {
+    /// Original name in the interface.
+    pub imported: Identifier,
+    /// Local binding name (equals `imported` if no `as`).
+    pub local: Identifier,
+}
+
+/// WIT-style source path: `namespace:package/interface`
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ImportSource {
+    /// e.g. `starstream`
+    pub namespace: Identifier,
+    /// e.g. `std`
+    pub package: Identifier,
+    /// e.g. `Some("cardano")` for `starstream:std/cardano`, `None` for `starstream:std`
+    pub interface: Option<Identifier>,
 }
 
 /// `fn` definition.
@@ -288,6 +324,14 @@ pub enum Expr {
     Emit {
         event: Identifier,
         args: Vec<Spanned<Expr>>,
+    },
+    /// Effectful call: `raise some_effectful_fn(...)`
+    Raise {
+        expr: Box<Spanned<Expr>>,
+    },
+    /// Runtime call: `runtime some_runtime_fn(...)`
+    Runtime {
+        expr: Box<Spanned<Expr>>,
     },
 }
 

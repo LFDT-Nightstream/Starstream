@@ -1,0 +1,33 @@
+---
+source: starstream-compiler/src/parser/expression/mod.rs
+description: "Code:\n\nraise context::blockHeight()"
+---
+Spanned {
+    node: Raise {
+        expr: Spanned {
+            node: EnumConstructor {
+                enum_name: Identifier {
+                    name: "context",
+                    span: Some(
+                        6..13,
+                    ),
+                },
+                variant: Identifier {
+                    name: "blockHeight",
+                    span: Some(
+                        15..26,
+                    ),
+                },
+                payload: Tuple(
+                    [],
+                ),
+            },
+            span: 6..28,
+            comments_before: [],
+            comments_after: [],
+        },
+    },
+    span: 0..28,
+    comments_before: [],
+    comments_after: [],
+}

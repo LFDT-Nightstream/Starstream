@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport { something } from starstream:std/nonexistent;\n\nfn main() {}\n"
+---
+E0036 (https://starstream.nightstream.dev/errors/E0036)
+
+  x unknown interface `starstream:std/nonexistent`
+   ,-[test.star:1:42]
+ 1 | import { something } from starstream:std/nonexistent;
+   :                                          ^^^^^^^^^^^
+ 2 | 
+   `----

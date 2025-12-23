@@ -277,6 +277,34 @@ pub enum TypeErrorKind {
         position: usize,
         param_span: Option<Span>,
     },
+    /// Unknown package in import.
+    UnknownImportPackage {
+        namespace: String,
+        package: String,
+    },
+    /// Unknown interface in import.
+    UnknownImportInterface {
+        namespace: String,
+        package: String,
+        interface: String,
+    },
+    /// Unknown function in import.
+    UnknownImportFunction {
+        path: String,
+        name: String,
+    },
+    /// Raise must wrap an effectful function call.
+    RaiseRequiresEffectful,
+    /// Effectful function called without raise.
+    EffectfulWithoutRaise {
+        function_name: String,
+    },
+    /// Runtime keyword must wrap a runtime function call.
+    RuntimeRequiresRuntime,
+    /// Runtime function called without runtime keyword.
+    RuntimeWithoutKeyword {
+        function_name: String,
+    },
 }
 
 impl TypeErrorKind {
@@ -317,6 +345,13 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownEvent { .. } => "E0032",
             TypeErrorKind::EventArityMismatch { .. } => "E0033",
             TypeErrorKind::EventArgumentTypeMismatch { .. } => "E0034",
+            TypeErrorKind::UnknownImportPackage { .. } => "E0035",
+            TypeErrorKind::UnknownImportInterface { .. } => "E0036",
+            TypeErrorKind::UnknownImportFunction { .. } => "E0037",
+            TypeErrorKind::RaiseRequiresEffectful => "E0038",
+            TypeErrorKind::EffectfulWithoutRaise { .. } => "E0039",
+            TypeErrorKind::RuntimeRequiresRuntime => "E0040",
+            TypeErrorKind::RuntimeWithoutKeyword { .. } => "E0041",
         }
     }
 }
@@ -595,6 +630,37 @@ impl fmt::Display for TypeErrorKind {
                     "event `{event_name}` argument {position} has type `{}` but `{}` was expected",
                     found.to_compact_string(),
                     expected.to_compact_string()
+                )
+            }
+            TypeErrorKind::UnknownImportPackage { namespace, package } => {
+                write!(f, "unknown package `{namespace}:{package}`")
+            }
+            TypeErrorKind::UnknownImportInterface {
+                namespace,
+                package,
+                interface,
+            } => {
+                write!(f, "unknown interface `{namespace}:{package}/{interface}`")
+            }
+            TypeErrorKind::UnknownImportFunction { path, name } => {
+                write!(f, "unknown function `{name}` in `{path}`")
+            }
+            TypeErrorKind::RaiseRequiresEffectful => {
+                write!(f, "`raise` can only be used with effectful function calls")
+            }
+            TypeErrorKind::EffectfulWithoutRaise { function_name } => {
+                write!(
+                    f,
+                    "effectful function `{function_name}` must be called with `raise`"
+                )
+            }
+            TypeErrorKind::RuntimeRequiresRuntime => {
+                write!(f, "`runtime` can only be used with runtime function calls")
+            }
+            TypeErrorKind::RuntimeWithoutKeyword { function_name } => {
+                write!(
+                    f,
+                    "runtime function `{function_name}` must be called with `runtime`"
                 )
             }
         }

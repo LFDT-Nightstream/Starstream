@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main() {\n    let x = cardano::blockHeight();\n}\n"
+---
+E0035 (https://starstream.nightstream.dev/errors/E0035)
+
+  x unknown package `cardano:`
+   ,-[test.star:2:13]
+ 1 | fn main() {
+ 2 |     let x = cardano::blockHeight();
+   :             ^^^|^^^
+   :                `-- unknown namespace `cardano`
+ 3 | }
+   `----
+  help: did you forget to import? try: `import cardano from starstream:std/cardano;`
