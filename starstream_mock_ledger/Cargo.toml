@@ -1,0 +1,8 @@
+[package]
+name = "starstream_mock_ledger"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+thiserror = "2.0.17"

@@ -9,7 +9,8 @@ members = [
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
-  "starstream_ivc_proto"
+  "starstream_ivc_proto",
+  "starstream_mock_ledger"
 ]
 exclude = ["old"]
 
