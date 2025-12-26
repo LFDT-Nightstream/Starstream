@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 hex = "0.4.3"
+imbl = "6.1.0"
 thiserror = "2.0.17"

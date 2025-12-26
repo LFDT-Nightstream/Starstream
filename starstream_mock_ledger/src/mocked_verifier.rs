@@ -8,80 +8,25 @@
 //!
 //! It's mainly a direct translation of the algorithm in the README
 
+use crate::{
+    Hash, InterleavingInstance, Value, WasmModule,
+    transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
+};
 use std::collections::HashMap;
 use thiserror;
 
-use crate::{Hash, InterleavingInstance, Value, WasmModule};
-
-// ---------------------------- basic types ----------------------------
-
-pub type ProcessId = usize;
-pub type InterfaceId = u64;
-
-/// One entry in the per-process host-call trace.
-/// This corresponds to "t[c] == <Opcode, ...>" checks in the semantics.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HostCall {
-    Resume {
-        target: ProcessId,
-        val: Value,
-        ret: Value,
-        id_prev: Option<ProcessId>,
-    },
-    Yield {
-        val: Value,
-        ret: Option<Value>,
-        id_prev: Option<ProcessId>,
-    },
-    ProgramHash {
-        target: ProcessId,
-        program_hash: Hash<WasmModule>,
-    },
-    NewUtxo {
-        program_hash: Hash<WasmModule>,
-        val: Value,
-        id: ProcessId,
-    },
-    NewCoord {
-        program_hash: Hash<WasmModule>,
-        val: Value,
-        id: ProcessId,
-    },
-    InstallHandler {
-        interface_id: InterfaceId,
-    },
-    UninstallHandler {
-        interface_id: InterfaceId,
-    },
-    GetHandlerFor {
-        interface_id: InterfaceId,
-        handler_id: ProcessId,
-    },
-
-    // UTXO-only
-    Burn {
-        ret: Value,
-    },
-
-    Input {
-        val: Value,
-        caller: ProcessId,
-    },
-
-    // Tokens
-    Bind {
-        owner_id: ProcessId,
-    },
-    Unbind {
-        token_id: ProcessId,
-    },
+#[derive(Clone, PartialEq, Eq)]
+pub struct MockedLookupTableCommitment {
+    // obviously the actual commitment shouldn't have this
+    // but this is used for the mocked circuit
+    pub(crate) trace: Vec<WitLedgerEffect>,
 }
 
 /// A “proof input” for tests: provide per-process traces directly.
 #[derive(Clone, Debug)]
 pub struct InterleavingWitness {
     /// One trace per process in canonical order: inputs ++ new_outputs ++ coord scripts
-    pub traces: Vec<Vec<HostCall>>,
+    pub traces: Vec<Vec<WitLedgerEffect>>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -89,11 +34,11 @@ pub enum InterleavingError {
     #[error("instance shape mismatch: {0}")]
     Shape(&'static str),
 
-    #[error("invalid process id {0}")]
+    #[error("unknown process id {0}")]
     BadPid(ProcessId),
 
     #[error("host call index out of bounds: pid={pid} counter={counter} len={len}")]
-    HostCallOob {
+    CounterOutOfBounds {
         pid: ProcessId,
         counter: usize,
         len: usize,
@@ -105,8 +50,8 @@ pub enum InterleavingError {
     HostCallMismatch {
         pid: ProcessId,
         counter: usize,
-        expected: HostCall,
-        got: HostCall,
+        expected: WitLedgerEffect,
+        got: WitLedgerEffect,
     },
 
     #[error("resume self-resume forbidden (pid={0})")]
@@ -148,15 +93,14 @@ pub enum InterleavingError {
     #[error("utxo-only op used by coord (pid={0})")]
     UtxoOnly(ProcessId),
 
-    #[error("uninstall handler not top: interface={interface_id} top={top:?} pid={pid}")]
-    HandlerNotTop {
+    #[error("uninstall handler not top: interface={interface_id:?} pid={pid}")]
+    HandlerNotFound {
         interface_id: InterfaceId,
-        top: Option<ProcessId>,
         pid: ProcessId,
     },
 
     #[error(
-        "get_handler_for returned wrong handler: interface={interface_id} expected={expected:?} got={got}"
+        "get_handler_for returned wrong handler: interface={interface_id:?} expected={expected:?} got={got}"
     )]
     HandlerGetMismatch {
         interface_id: InterfaceId,
@@ -180,6 +124,12 @@ pub enum InterleavingError {
         caller: ProcessId,
     },
 
+    #[error("yield called without a parent process (pid={pid})")]
+    YieldWithNoParent { pid: ProcessId },
+
+    #[error("burn called without a parent process (pid={pid})")]
+    BurnWithNoParent { pid: ProcessId },
+
     #[error("verification: counters mismatch for pid={pid}: counter={counter} len={len}")]
     CounterLenMismatch {
         pid: ProcessId,
@@ -187,8 +137,14 @@ pub enum InterleavingError {
         len: usize,
     },
 
-    #[error("verification: utxo not finalized (safe_to_ledger=false) pid={0}")]
+    #[error("verification: utxo not finalized (finalized=false) pid={0}")]
     UtxoNotFinalized(ProcessId),
+
+    #[error("verification: utxo does not have a continuation but it did not call Burn pid={0}")]
+    UtxoShouldBurn(ProcessId),
+
+    #[error("verification: utxo does have a continuation but it did call Burn pid={0}")]
+    UtxoShouldNotBurn(ProcessId),
 
     #[error("verification: finished in utxo (id_curr={0})")]
     FinishedInUtxo(ProcessId),
@@ -205,10 +161,22 @@ pub enum InterleavingError {
         got: Option<ProcessId>,
     },
     #[error("a process was not initialized {pid}")]
-    ProcessNotInitialized { pid: usize },
+    ProcessNotInitialized { pid: ProcessId },
+
+    #[error("resume target already has arg (re-entrancy): target={0}")]
+    ReentrantResume(ProcessId),
 }
 
 // ---------------------------- verifier ----------------------------
+
+pub struct ROM {
+    process_table: Vec<Hash<WasmModule>>,
+    must_burn: Vec<bool>,
+    is_utxo: Vec<bool>,
+
+    // mocked, this should be only a commitment
+    traces: Vec<Vec<WitLedgerEffect>>,
+}
 
 #[derive(Clone, Debug)]
 pub struct InterleavingState {
@@ -220,19 +188,21 @@ pub struct InterleavingState {
 
     arg: Vec<Option<(Value, ProcessId)>>,
 
-    process_table: Vec<Hash<WasmModule>>,
-    traces: Vec<Vec<HostCall>>,
     counters: Vec<usize>,
-    safe_to_ledger: Vec<bool>,
-    is_utxo: Vec<bool>,
-    initialized: Vec<bool>,
 
-    handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
+    /// If a new output or coordination script is created, it must be through a
+    /// spawn from a coordinator script
+    initialized: Vec<bool>,
+    /// Whether the last instruction in that utxo was Yield or Burn
+    finalized: Vec<bool>,
+    /// Keep track of whether Burn is called
+    did_burn: Vec<bool>,
 
     /// token -> owner (both ProcessId). None => unowned.
     ownership: Vec<Option<ProcessId>>,
 
-    burned: Vec<bool>,
+    /// A stack per possible interface
+    handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
 }
 
 pub fn verify_interleaving_semantics(
@@ -240,53 +210,43 @@ pub fn verify_interleaving_semantics(
     wit: &InterleavingWitness,
     input_states: &[crate::CoroutineState],
 ) -> Result<(), InterleavingError> {
-    // ---------- shape checks ----------
-    // TODO: a few of these may be redundant
-    //
-    // the data layout is still a bit weird
-    let n = inst.process_table.len();
-    if inst.is_utxo.len() != n {
-        return Err(InterleavingError::Shape("is_utxo len != process_table len"));
-    }
-    if inst.ownership_in.len() != n || inst.ownership_out.len() != n {
-        return Err(InterleavingError::Shape(
-            "ownership_* len != process_table len",
-        ));
-    }
+    inst.check_shape()?;
+
+    let n = inst.n_inputs + inst.n_new + inst.n_coords;
+
     if wit.traces.len() != n {
         return Err(InterleavingError::Shape(
             "witness traces len != process_table len",
         ));
     }
-    if inst.entrypoint >= n {
-        return Err(InterleavingError::BadPid(inst.entrypoint));
-    }
-
-    if inst.burned.len() != inst.n_inputs {
-        return Err(InterleavingError::Shape("burned len != n_inputs"));
-    }
 
     // a utxo that did yield at the end of a previous transaction, gets
     // initialized with the same data.
+    //
+    // TODO: maybe we also need to assert/prove that it starts with a Yield
     let mut claims_memory = vec![Value::nil(); n];
     for i in 0..inst.n_inputs {
         claims_memory[i] = input_states[i].last_yield.clone();
     }
 
+    let rom = ROM {
+        process_table: inst.process_table.clone(),
+        must_burn: inst.must_burn.clone(),
+        is_utxo: inst.is_utxo.clone(),
+        traces: wit.traces.clone(),
+    };
+
     let mut state = InterleavingState {
-        id_curr: inst.entrypoint,
+        id_curr: ProcessId(inst.entrypoint.into()),
         id_prev: None,
         expected_input: claims_memory,
         arg: vec![None; n],
-        process_table: inst.process_table.clone(),
-        traces: wit.traces.clone(),
         counters: vec![0; n],
-        safe_to_ledger: vec![false; n],
-        is_utxo: inst.is_utxo.clone(),
-        initialized: vec![false; n],
         handler_stack: HashMap::new(),
         ownership: inst.ownership_in.clone(),
-        burned: inst.burned.clone(),
+        initialized: vec![false; n],
+        finalized: vec![false; n],
+        did_burn: vec![false; n],
     };
 
     // Inputs exist already (on-ledger) so they start initialized.
@@ -297,22 +257,24 @@ pub fn verify_interleaving_semantics(
         state.initialized[pid] = pid < inst.n_inputs;
     }
 
-    state.initialized[inst.entrypoint] = true;
+    state.initialized[inst.entrypoint.0] = true;
 
     // ---------- run until current trace ends ----------
     // This is deterministic: at each step, read the next host call of id_curr at counters[id_curr].
+    let mut current_state = state;
     loop {
-        let pid = state.id_curr;
-        let c = state.counters[pid];
+        let pid = current_state.id_curr;
+        let c = current_state.counters[pid.0];
 
-        let trace = &state.traces[pid];
+        let trace = &rom.traces[pid.0];
         if c >= trace.len() {
             break;
         }
 
         let op = trace[c].clone();
-        step(&mut state, op)?;
+        current_state = state_transition(current_state, &rom, op)?;
     }
+    let state = current_state;
 
     // ---------- final verification conditions ----------
     // 1) counters match per-process host call lengths
@@ -320,61 +282,83 @@ pub fn verify_interleaving_semantics(
     // (so we didn't just prove a prefix)
     for pid in 0..n {
         let counter = state.counters[pid];
-        let len = state.traces[pid].len();
+        let len = rom.traces[pid].len();
         if counter != len {
-            return Err(InterleavingError::CounterLenMismatch { pid, counter, len });
+            return Err(InterleavingError::CounterLenMismatch {
+                pid: ProcessId(pid),
+                counter,
+                len,
+            });
         }
     }
 
     // 2) process called burn but it has a continuation output in the tx
     for i in 0..inst.n_inputs {
-        if state.burned[i] {
-            let has_burn = state.traces[i]
+        if rom.must_burn[i] {
+            let has_burn = rom.traces[i]
                 .iter()
-                .any(|hc| matches!(hc, HostCall::Burn { ret: _ }));
+                .any(|hc| matches!(hc, WitLedgerEffect::Burn { ret: _ }));
             if !has_burn {
-                return Err(InterleavingError::BurnedInputNoBurn { pid: i });
+                return Err(InterleavingError::BurnedInputNoBurn { pid: ProcessId(i) });
             }
         }
     }
 
-    // 3) all utxos finalize (safe_to_ledger true)
-    for pid in 0..n {
-        if state.is_utxo[pid] {
-            if !state.safe_to_ledger[pid] {
-                return Err(InterleavingError::UtxoNotFinalized(pid));
-            }
+    // 3) all utxos finalize
+    for pid in 0..(inst.n_inputs + inst.n_new) {
+        if !state.finalized[pid] {
+            return Err(InterleavingError::UtxoNotFinalized(ProcessId(pid)));
         }
     }
 
-    // 4) finish in a coordination script
-    if state.is_utxo[state.id_curr] {
+    // 4) all utxos without continuation did call Burn
+    for pid in 0..inst.n_inputs {
+        if rom.must_burn[pid] && !state.did_burn[pid] {
+            return Err(InterleavingError::UtxoShouldBurn(ProcessId(pid)));
+        }
+    }
+
+    // 5) finish in a coordination script
+    if rom.is_utxo[state.id_curr.0] {
         return Err(InterleavingError::FinishedInUtxo(state.id_curr));
     }
 
-    // 5) ownership_out matches computed end state
-    for pid in 0..n {
+    // 6) ownership_out matches computed end state
+    for pid in 0..(inst.n_inputs + inst.n_new) {
         let expected = inst.ownership_out[pid];
         let got = state.ownership[pid];
         if expected != got {
-            return Err(InterleavingError::OwnershipOutMismatch { pid, expected, got });
+            return Err(InterleavingError::OwnershipOutMismatch {
+                pid: ProcessId(pid),
+                expected,
+                got,
+            });
         }
     }
 
     // every object had a constructor called by a coordination script.
+    //
+    // TODO: this may be redundant, since resume should not work on unitialized
+    // programs, and without resuming then the trace counter will catch this
     for pid in 0..n {
-        if !state.initialized[pid] && !state.burned[pid] {
-            return Err(InterleavingError::ProcessNotInitialized { pid });
+        if !state.initialized[pid] {
+            return Err(InterleavingError::ProcessNotInitialized {
+                pid: ProcessId(pid),
+            });
         }
     }
 
     Ok(())
 }
 
-pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), InterleavingError> {
+pub fn state_transition(
+    mut state: InterleavingState,
+    rom: &ROM,
+    op: WitLedgerEffect,
+) -> Result<InterleavingState, InterleavingError> {
     let id_curr = state.id_curr;
-    let c = state.counters[id_curr];
-    let trace = &state.traces[id_curr];
+    let c = state.counters[id_curr.0];
+    let trace = &rom.traces[id_curr.0];
 
     // For every rule, enforce "host call lookup condition" by checking op ==
     // t[c].
@@ -383,7 +367,7 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
     // doesn't do any zk, it's just trace, but in the circuit this would be a
     // lookup constraint into the right table.
     if c >= trace.len() {
-        return Err(InterleavingError::HostCallOob {
+        return Err(InterleavingError::CounterOutOfBounds {
             pid: id_curr,
             counter: c,
             len: trace.len(),
@@ -399,10 +383,10 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
         });
     }
 
-    state.counters[id_curr] += 1;
+    state.counters[id_curr.0] += 1;
 
     match op {
-        HostCall::Resume {
+        WitLedgerEffect::Resume {
             target,
             val,
             ret,
@@ -412,52 +396,49 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
                 return Err(InterleavingError::SelfResume(id_curr));
             }
 
-            if state.is_utxo[id_curr] && state.is_utxo[target] {
+            if rom.is_utxo[id_curr.0] && rom.is_utxo[target.0] {
                 return Err(InterleavingError::UtxoResumesUtxo {
                     caller: id_curr,
                     target,
                 });
             }
 
-            if !state.initialized[target] {
+            if !state.initialized[target.0] {
                 return Err(InterleavingError::TargetNotInitialized(target));
             }
 
-            if state.arg[target].is_some() {
-                return Err(InterleavingError::Shape(
-                    "target already has arg (re-entrancy)",
-                ));
+            if state.arg[target.0].is_some() {
+                return Err(InterleavingError::ReentrantResume(target));
             }
 
-            state.arg[id_curr] = None;
+            state.arg[id_curr.0] = None;
 
-            let expected = state.expected_input[target].clone();
-            if expected != val {
+            if state.expected_input[target.0].clone() != val {
                 return Err(InterleavingError::ResumeClaimMismatch {
                     target,
-                    expected,
+                    expected: state.expected_input[target.0].clone(),
                     got: val,
                 });
             }
 
-            state.arg[target] = Some((val.clone(), id_curr));
+            state.arg[target.0] = Some((val.clone(), id_curr));
 
-            state.expected_input[id_curr] = ret;
+            state.expected_input[id_curr.0] = ret;
 
             if id_prev != state.id_prev {
                 return Err(InterleavingError::HostCallMismatch {
                     pid: id_curr,
                     counter: c,
-                    expected: HostCall::Resume {
+                    expected: WitLedgerEffect::Resume {
                         target,
-                        val: expected, // not perfect, but avoids adding another type
-                        ret: state.expected_input[id_curr].clone(),
+                        val: state.expected_input[target.0].clone(),
+                        ret: state.expected_input[id_curr.0].clone(),
                         id_prev: state.id_prev,
                     },
-                    got: HostCall::Resume {
+                    got: WitLedgerEffect::Resume {
                         target,
-                        val: state.expected_input[target].clone(),
-                        ret: state.expected_input[id_curr].clone(),
+                        val: state.expected_input[target.0].clone(),
+                        ret: state.expected_input[id_curr.0].clone(),
                         id_prev,
                     },
                 });
@@ -467,37 +448,37 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
 
             state.id_curr = target;
 
-            state.safe_to_ledger[target] = false;
+            state.finalized[target.0] = false;
         }
 
-        HostCall::Yield { val, ret, id_prev } => {
+        WitLedgerEffect::Yield { val, ret, id_prev } => {
             if id_prev != state.id_prev {
                 return Err(InterleavingError::HostCallMismatch {
                     pid: id_curr,
                     counter: c,
-                    expected: HostCall::Yield {
+                    expected: WitLedgerEffect::Yield {
                         val: val.clone(),
                         ret: ret.clone(),
                         id_prev: state.id_prev,
                     },
-                    got: HostCall::Yield { val, ret, id_prev },
+                    got: WitLedgerEffect::Yield { val, ret, id_prev },
                 });
             }
 
             let parent = state
                 .id_prev
-                .expect("end-tx yield should have parent or sentinel");
+                .ok_or(InterleavingError::YieldWithNoParent { pid: id_curr })?;
 
             match ret {
                 Some(retv) => {
-                    state.expected_input[id_curr] = retv;
+                    state.expected_input[id_curr.0] = retv;
 
                     state.id_prev = Some(id_curr);
 
-                    state.safe_to_ledger[id_curr] = false;
+                    state.finalized[id_curr.0] = false;
 
                     if let Some(prev) = state.id_prev {
-                        let expected = state.expected_input[prev].clone();
+                        let expected = state.expected_input[prev.0].clone();
                         if expected != val {
                             return Err(InterleavingError::YieldClaimMismatch {
                                 id_prev: state.id_prev,
@@ -510,20 +491,20 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
                 None => {
                     state.id_prev = Some(id_curr);
 
-                    state.safe_to_ledger[id_curr] = true;
+                    state.finalized[id_curr.0] = true;
                 }
             }
 
-            state.arg[id_curr] = None;
+            state.arg[id_curr.0] = None;
             state.id_curr = parent;
         }
 
-        HostCall::ProgramHash {
+        WitLedgerEffect::ProgramHash {
             target,
             program_hash,
         } => {
             // check lookup against process_table
-            let expected = state.process_table[target].clone();
+            let expected = rom.process_table[target.0].clone();
             if expected != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target,
@@ -533,74 +514,73 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
             }
         }
 
-        HostCall::NewUtxo {
+        WitLedgerEffect::NewUtxo {
             program_hash,
             val,
             id,
         } => {
-            if state.is_utxo[id_curr] {
+            if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
-            if !state.is_utxo[id] {
-                // in your rule NewUtxo requires is_utxo[id]
+            if !rom.is_utxo[id.0] {
                 return Err(InterleavingError::Shape("NewUtxo id must be utxo"));
             }
-            if state.process_table[id] != program_hash {
+            if rom.process_table[id.0] != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target: id,
-                    expected: state.process_table[id].clone(),
+                    expected: rom.process_table[id.0].clone(),
                     got: program_hash,
                 });
             }
-            if state.counters[id] != 0 {
+            if state.counters[id.0] != 0 {
                 return Err(InterleavingError::Shape("NewUtxo requires counters[id]==0"));
             }
-            if state.initialized[id] {
+            if state.initialized[id.0] {
                 return Err(InterleavingError::Shape(
                     "NewUtxo requires initialized[id]==false",
                 ));
             }
-            state.initialized[id] = true;
-            state.expected_input[id] = val;
+            state.initialized[id.0] = true;
+            state.expected_input[id.0] = val;
 
-            state.arg[id] = None;
+            state.arg[id.0] = None;
         }
 
-        HostCall::NewCoord {
+        WitLedgerEffect::NewCoord {
             program_hash,
             val,
             id,
         } => {
-            if state.is_utxo[id_curr] {
+            if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
-            if state.is_utxo[id] {
+            if rom.is_utxo[id.0] {
                 return Err(InterleavingError::Shape("NewCoord id must be coord"));
             }
-            if state.process_table[id] != program_hash {
+            if rom.process_table[id.0] != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target: id,
-                    expected: state.process_table[id].clone(),
+                    expected: rom.process_table[id.0].clone(),
                     got: program_hash,
                 });
             }
-            if state.counters[id] != 0 {
+            if state.counters[id.0] != 0 {
                 return Err(InterleavingError::Shape(
                     "NewCoord requires counters[id]==0",
                 ));
             }
-            if state.initialized[id] {
+            if state.initialized[id.0] {
                 return Err(InterleavingError::Shape(
                     "NewCoord requires initialized[id]==false",
                 ));
             }
 
-            state.initialized[id] = true;
-            state.expected_input[id] = val;
+            state.initialized[id.0] = true;
+            state.expected_input[id.0] = val;
         }
 
-        HostCall::InstallHandler { interface_id } => {
-            if state.is_utxo[id_curr] {
+        WitLedgerEffect::InstallHandler { interface_id } => {
+            if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
             state
@@ -610,27 +590,24 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
                 .push(id_curr);
         }
 
-        HostCall::UninstallHandler { interface_id } => {
-            if state.is_utxo[id_curr] {
+        WitLedgerEffect::UninstallHandler { interface_id } => {
+            if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
-            let stack = state.handler_stack.entry(interface_id).or_default();
-            let top = stack.last().copied();
-            if top != Some(id_curr) {
-                return Err(InterleavingError::HandlerNotTop {
+            let stack = state.handler_stack.entry(interface_id.clone()).or_default();
+            let Some(_) = stack.pop() else {
+                return Err(InterleavingError::HandlerNotFound {
                     interface_id,
-                    top,
                     pid: id_curr,
                 });
-            }
-            stack.pop();
+            };
         }
 
-        HostCall::GetHandlerFor {
+        WitLedgerEffect::GetHandlerFor {
             interface_id,
             handler_id,
         } => {
-            let stack = state.handler_stack.entry(interface_id).or_default();
+            let stack = state.handler_stack.entry(interface_id.clone()).or_default();
             let expected = stack.last().copied();
             if expected != Some(handler_id) {
                 return Err(InterleavingError::HandlerGetMismatch {
@@ -641,10 +618,10 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
             }
         }
 
-        HostCall::Input { val, caller } => {
+        WitLedgerEffect::Input { val, caller } => {
             let curr = state.id_curr;
 
-            let Some((v, c)) = &state.arg[curr] else {
+            let Some((v, c)) = &state.arg[curr.0] else {
                 return Err(InterleavingError::Shape("Input called with no arg set"));
             };
 
@@ -653,65 +630,70 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
             }
         }
 
-        HostCall::Burn { ret } => {
-            if !state.is_utxo[id_curr] {
+        WitLedgerEffect::Burn { ret } => {
+            if !rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::UtxoOnly(id_curr));
             }
 
-            let prev = state.id_prev.unwrap();
-            let expected = state.expected_input[prev].clone();
-            if expected != ret {
+            if !rom.must_burn[id_curr.0] {
+                return Err(InterleavingError::UtxoShouldNotBurn(id_curr));
+            }
+
+            let parent = state
+                .id_prev
+                .ok_or(InterleavingError::BurnWithNoParent { pid: id_curr })?;
+
+            if state.expected_input[parent.0].clone() != ret {
                 // Burn is the final return of the coroutine
                 return Err(InterleavingError::YieldClaimMismatch {
                     id_prev: state.id_prev,
-                    expected,
+                    expected: state.expected_input[parent.0].clone(),
                     got: ret,
                 });
             }
 
-            state.arg[id_curr] = None;
-            state.safe_to_ledger[id_curr] = true;
-            state.initialized[id_curr] = false;
-            state.expected_input[id_curr] = ret;
-            let parent = state.id_prev.unwrap();
+            state.arg[id_curr.0] = None;
+            state.finalized[id_curr.0] = true;
+            state.did_burn[id_curr.0] = true;
+            state.expected_input[id_curr.0] = ret;
             state.id_prev = Some(id_curr);
             state.id_curr = parent;
         }
 
-        HostCall::Bind { owner_id } => {
+        WitLedgerEffect::Bind { owner_id } => {
             let token_id = id_curr;
 
-            if !state.is_utxo[token_id] {
+            if !rom.is_utxo[token_id.0] {
                 return Err(InterleavingError::Shape("Bind: token_id must be utxo"));
             }
-            if !state.is_utxo[owner_id] {
+            if !rom.is_utxo[owner_id.0] {
                 return Err(InterleavingError::OwnerNotUtxo(owner_id));
             }
-            if !state.initialized[token_id] || !state.initialized[owner_id] {
+            if !state.initialized[token_id.0] || !state.initialized[owner_id.0] {
                 return Err(InterleavingError::Shape("Bind: both must be initialized"));
             }
-            if state.ownership[token_id].is_some() {
+            if state.ownership[token_id.0].is_some() {
                 return Err(InterleavingError::TokenAlreadyOwned {
                     token: token_id,
-                    owner: state.ownership[token_id],
+                    owner: state.ownership[token_id.0],
                 });
             }
 
-            state.ownership[token_id] = Some(owner_id);
+            state.ownership[token_id.0] = Some(owner_id);
         }
 
-        HostCall::Unbind { token_id } => {
+        WitLedgerEffect::Unbind { token_id } => {
             let owner_id = id_curr;
 
-            if !state.is_utxo[owner_id] {
+            if !rom.is_utxo[owner_id.0] {
                 return Err(InterleavingError::Shape("Unbind: caller must be utxo"));
             }
-            if !state.is_utxo[token_id] || !state.initialized[token_id] {
+            if !rom.is_utxo[token_id.0] || !state.initialized[token_id.0] {
                 return Err(InterleavingError::Shape(
                     "Unbind: token must exist and be utxo",
                 ));
             }
-            let cur_owner = state.ownership[token_id];
+            let cur_owner = state.ownership[token_id.0];
             if cur_owner != Some(owner_id) {
                 return Err(InterleavingError::UnbindNotOwner {
                     token: token_id,
@@ -720,9 +702,9 @@ pub fn step(state: &mut InterleavingState, op: HostCall) -> Result<(), Interleav
                 });
             }
 
-            state.ownership[token_id] = None;
+            state.ownership[token_id.0] = None;
         }
     }
 
-    Ok(())
+    Ok(state)
 }
