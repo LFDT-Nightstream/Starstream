@@ -1,18 +1,24 @@
-mod interleaving_semantic_verifier;
+mod mocked_verifier;
+mod transaction_effects;
 
-use std::{
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
+#[cfg(test)]
+mod tests;
+
+use crate::{
+    mocked_verifier::MockedLookupTableCommitment,
+    transaction_effects::{ProcessId, instance::InterleavingInstance},
 };
+use imbl::{HashMap, HashSet};
+use std::{hash::Hasher, marker::PhantomData};
 
-use crate::interleaving_semantic_verifier::HostCall;
-
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq)]
 pub struct Hash<T>([u8; 32], PhantomData<T>);
 
-impl<T> std::fmt::Debug for Hash<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Hash({})", hex::encode(&self.0))
+impl<T> Copy for Hash<T> {}
+
+impl<T> Clone for Hash<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.clone())
     }
 }
 
@@ -46,7 +52,9 @@ pub struct CoroutineState {
     //
     // It's still TBD whether the module would yield its own continuation
     // state (making last_yield just the state), and always executed from the
-    // entry-point, or whether those should actually be different things.
+    // entry-point, or whether those should actually be different things (in
+    // which case last_yield could be used to persist the storage, and pc could
+    // be instead the call stack).
     pc: u64,
     last_yield: Value,
 }
@@ -65,9 +73,9 @@ impl ZkTransactionProof {
             .map(|lt| lt.trace.clone())
             .collect();
 
-        let wit = interleaving_semantic_verifier::InterleavingWitness { traces };
+        let wit = mocked_verifier::InterleavingWitness { traces };
 
-        Ok(interleaving_semantic_verifier::verify_interleaving_semantics(
+        Ok(mocked_verifier::verify_interleaving_semantics(
             inst,
             &wit,
             input_states,
@@ -76,7 +84,7 @@ impl ZkTransactionProof {
 }
 
 pub struct ZkWasmProof {
-    pub host_calls_root: LookupTableCommitment,
+    pub host_calls_root: MockedLookupTableCommitment,
 }
 
 impl ZkWasmProof {
@@ -97,13 +105,6 @@ impl ZkWasmProof {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct LookupTableCommitment {
-    // obviously the actual commitment shouldn't have this
-    // but this is used for the mocked circuit
-    trace: Vec<HostCall>,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum VerificationError {
     #[error("Input continuation size mismatch")]
@@ -113,11 +114,13 @@ pub enum VerificationError {
     #[error("Owner has no stable identity")]
     OwnerHasNoStableIdentity,
     #[error("Interleaving proof error: {0}")]
-    InterleavingProofError(#[from] interleaving_semantic_verifier::InterleavingError),
+    InterleavingProofError(#[from] mocked_verifier::InterleavingError),
+    #[error("Transaction input not found")]
+    InputNotFound,
 }
 
 /// The actual utxo identity.
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct UtxoId {
     pub contract_hash: Hash<WasmModule>,
     /// A Global Sequence Number for this specific contract code.
@@ -145,11 +148,7 @@ pub struct CoroutineId {
     pub creation_output_index: u64,
 }
 
-/// an index into a table with all the coroutines that are iterated in the
-/// current transaction
-pub type ProcessId = usize;
-
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TransactionBody {
     pub inputs: Vec<UtxoId>,
 
@@ -167,18 +166,20 @@ pub struct TransactionBody {
 
     /// Final ownership snapshot for utxos IN THE TRANSACTION.
     ///
-    /// This has len == process_table.len() where process_table is
-    /// inputs ++ new_outputs ++ coord scripts.
-    ///
     /// ownership_out[p] == Some(q) means process p (token) is owned by process q at the end.
-    /// None means unowned.
     ///
-    /// (Coord scripts should always be None, and any illegal edges are rejected by the interleaving proof.)
-    pub ownership_out: Vec<Option<ProcessId>>,
+    /// Note that absence here means the token shouldn't have an owner.
+    ///
+    /// So this is a delta, where None means "remove the owner".
+    pub ownership_out: HashMap<OutputRef, OutputRef>,
 
     pub coordination_scripts_keys: Vec<Hash<WasmModule>>,
     pub entrypoint: usize,
 }
+
+// and OutputRef is an index into the output segment of the transaction
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OutputRef(usize);
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct NewOutput {
@@ -190,7 +191,7 @@ pub struct NewOutput {
 pub struct WasmInstance {
     /// Commitment to the ordered list of host calls performed by this vm. Each
     /// entry encodes opcode + args + return.
-    pub host_calls_root: LookupTableCommitment,
+    pub host_calls_root: MockedLookupTableCommitment,
 
     /// Number of host calls (length of the list committed by host_calls_root).
     pub host_calls_len: u32,
@@ -231,6 +232,8 @@ pub struct ProvenTransaction {
     pub witness: TransactionWitness,
 }
 
+#[derive(Clone)]
+#[must_use]
 pub struct Ledger {
     pub utxos: HashMap<UtxoId, UtxoEntry>,
 
@@ -252,7 +255,9 @@ pub struct UtxoEntry {
 }
 
 impl Ledger {
-    pub fn apply_transaction(&mut self, tx: &ProvenTransaction) -> Result<(), VerificationError> {
+    pub fn apply_transaction(&self, tx: &ProvenTransaction) -> Result<Ledger, VerificationError> {
+        let mut new_ledger = self.clone();
+
         self.verify_witness(&tx.body, &tx.witness)?;
 
         let tx_hash = tx.body.hash();
@@ -261,8 +266,6 @@ impl Ledger {
         // processes = inputs ++ new_outputs ++ coordination_scripts_keys
         let n_inputs = tx.body.inputs.len();
         let n_new = tx.body.new_outputs.len();
-        let n_coords = tx.body.coordination_scripts_keys.len();
-        let n_processes = n_inputs + n_new + n_coords;
 
         // For translating ProcessId -> stable CoroutineId when applying ownership changes.
         // Coord scripts have no stable identity, so we store None for those slots.
@@ -283,7 +286,7 @@ impl Ledger {
         //
         // But there is no reason to go and change all the links instead of just
         // changing a pointer.
-        let mut process_to_coroutine: Vec<Option<CoroutineId>> = vec![None; n_processes];
+        let mut process_to_coroutine: Vec<Option<CoroutineId>> = vec![None; n_inputs + n_new];
 
         // Pre-state stable ids for inputs (aligned with inputs/process ids 0..n_inputs-1).
         for (i, utxo_id) in tx.body.inputs.iter().enumerate() {
@@ -316,7 +319,7 @@ impl Ledger {
                 parent_utxo_id.clone()
             } else {
                 // Allocate new UtxoId for the continued output
-                let counter = self
+                let counter = new_ledger
                     .contract_counters
                     .entry(contract_hash.clone())
                     .or_insert(0);
@@ -336,10 +339,12 @@ impl Ledger {
                 .expect("input must have coroutine id");
 
             // update index
-            self.utxo_to_coroutine.insert(utxo_id.clone(), coroutine_id);
+            new_ledger
+                .utxo_to_coroutine
+                .insert(utxo_id.clone(), coroutine_id);
 
             // actual utxo entry
-            self.utxos.insert(
+            new_ledger.utxos.insert(
                 utxo_id,
                 UtxoEntry {
                     state: cont.clone(),
@@ -352,7 +357,7 @@ impl Ledger {
         for (j, out) in tx.body.new_outputs.iter().enumerate() {
             // note that the nonce is not 0, this counts instances of the same
             // code, not just resumptions of the same coroutine
-            let counter = self
+            let counter = new_ledger
                 .contract_counters
                 .entry(out.contract_hash.clone())
                 .or_insert(0);
@@ -372,8 +377,10 @@ impl Ledger {
             // ProcessId(inputs.len() + j)
             process_to_coroutine[n_inputs + j] = Some(coroutine_id.clone());
 
-            self.utxo_to_coroutine.insert(utxo_id.clone(), coroutine_id);
-            self.utxos.insert(
+            new_ledger
+                .utxo_to_coroutine
+                .insert(utxo_id.clone(), coroutine_id);
+            new_ledger.utxos.insert(
                 utxo_id,
                 UtxoEntry {
                     state: out.state.clone(),
@@ -390,25 +397,35 @@ impl Ledger {
         // We only translate ProcessId -> stable CoroutineId for utxo processes
         // (inputs and new_outputs). Coord scripts have None and thus can't appear in
         // the on-ledger ownership_registry.
-        assert_eq!(tx.body.ownership_out.len(), n_processes);
+        // assert_eq!(tx.body.ownership_out.len(), n_processes);
 
-        for (token_pid, owner_pid_opt) in tx.body.ownership_out.iter().enumerate() {
-            // Ignore coord scripts segment (no stable identity).
-            let Some(token_cid) = process_to_coroutine[token_pid].clone() else {
-                continue;
-            };
+        for token_pid in 0..n_inputs + n_new {
+            let token_cid = process_to_coroutine[token_pid].clone().unwrap();
 
-            if let Some(owner_pid) = owner_pid_opt {
-                let Some(owner_cid) = process_to_coroutine[*owner_pid].clone() else {
-                    // the proof should reject this in theory
-                    return Err(VerificationError::OwnerHasNoStableIdentity);
-                };
+            if let Some(owner_pid) = tx.body.ownership_out.get(&OutputRef(token_pid)) {
+                let owner_cid = process_to_coroutine[owner_pid.0].clone().unwrap();
 
-                self.ownership_registry.insert(token_cid, owner_cid);
+                new_ledger.ownership_registry.insert(token_cid, owner_cid);
             } else {
-                self.ownership_registry.remove(&token_cid);
+                new_ledger.ownership_registry.remove(&token_cid);
             }
         }
+
+        // for (token_pid, owner_pid_opt) in tx.body.ownership_out.iter().enumerate() {
+        //     let Some(token_cid) = process_to_coroutine[token_pid].clone() else {
+        //         panic!("coordination scripts can't own or be owned")
+        //     };
+
+        //     if let Some(owner_pid) = owner_pid_opt {
+        //         let Some(owner_cid) = process_to_coroutine[owner_pid.0].clone() else {
+        //             // the proof should reject this in theory
+        //             return Err(VerificationError::OwnerHasNoStableIdentity);
+        //         };
+
+        //         self.ownership_registry.insert(token_cid, owner_cid);
+        //     } else {
+        //     }
+        // }
 
         // 4) Remove spent inputs
         for (i, input_id) in tx.body.inputs.iter().enumerate() {
@@ -416,11 +433,16 @@ impl Ledger {
                 continue;
             }
 
-            self.utxos.remove(input_id);
-            self.utxo_to_coroutine.remove(input_id);
+            dbg!(&input_id);
+
+            if let None = new_ledger.utxos.remove(input_id) {
+                return Err(VerificationError::InputNotFound);
+            }
+
+            new_ledger.utxo_to_coroutine.remove(input_id);
         }
 
-        Ok(())
+        Ok(new_ledger)
     }
 
     pub fn verify_witness(
@@ -439,10 +461,6 @@ impl Ledger {
         let n_coords = body.coordination_scripts_keys.len();
         let n_processes = n_inputs + n_new + n_coords;
 
-        if body.ownership_out.len() != n_processes {
-            return Err(VerificationError::OwnershipSizeMismatch);
-        }
-
         // if a utxo doesn't have a continuation state, we explicitly need to
         // check that it has a call to "burn".
         let mut burned = Vec::with_capacity(n_inputs);
@@ -453,13 +471,23 @@ impl Ledger {
 
             burned.push(cont.is_none());
 
-            let utxo_entry = self.utxos[utxo_id].clone();
+            let Some(utxo_entry) = self.utxos.get(utxo_id) else {
+                return Err(VerificationError::InputNotFound);
+            };
 
             proof.verify(
-                Some(utxo_entry.state),
+                Some(utxo_entry.state.clone()),
                 &utxo_entry.contract_hash,
                 cont.clone(),
             )?;
+        }
+
+        for (proof, entry) in witness
+            .new_output_proofs
+            .iter()
+            .zip(body.new_outputs.iter())
+        {
+            proof.verify(None, &entry.contract_hash, Some(entry.state.clone()))?;
         }
 
         // verify all the coordination script proofs
@@ -469,14 +497,6 @@ impl Ledger {
             .zip(body.coordination_scripts_keys.iter())
         {
             proof.verify(None, key, None)?;
-        }
-
-        for (proof, entry) in witness
-            .new_output_proofs
-            .iter()
-            .zip(body.new_outputs.iter())
-        {
-            proof.verify(None, &entry.contract_hash, Some(entry.state.clone()))?;
         }
 
         // Canonical process kind flags (used by the interleaving public instance).
@@ -504,7 +524,7 @@ impl Ledger {
         // the transaction-local processes that correspond to stable ids.
         //
         // (The circuit enforces that ownership_out is derived legally from this.)
-        let mut ownership_in: Vec<Option<ProcessId>> = vec![None; n_processes];
+        let mut ownership_in: Vec<Option<ProcessId>> = vec![None; n_inputs + n_new];
 
         // Build ProcessId -> stable CoroutineId map for inputs/new_outputs.
         // - Inputs: stable ids from ledger
@@ -520,7 +540,7 @@ impl Ledger {
         let mut coroutine_to_process: HashMap<CoroutineId, ProcessId> = HashMap::new();
         for (pid, cid_opt) in process_to_coroutine.iter().enumerate() {
             if let Some(cid) = cid_opt {
-                coroutine_to_process.insert(cid.clone(), pid);
+                coroutine_to_process.insert(cid.clone(), ProcessId(pid));
             }
         }
 
@@ -533,7 +553,7 @@ impl Ledger {
             let Some(&owner_pid) = coroutine_to_process.get(owner_cid) else {
                 continue;
             };
-            ownership_in[token_pid] = Some(owner_pid);
+            ownership_in[token_pid.0] = Some(owner_pid);
         }
 
         // Build wasm instances in the same canonical order as process_table:
@@ -544,98 +564,60 @@ impl Ledger {
             &witness.coordination_scripts,
         )?;
 
-        verify_interleaving_public(
-            &process_table,
-            &is_utxo,
-            &burned,
-            &ownership_in,
-            &body.ownership_out,
-            &wasm_instances,
-            &witness.interleaving_proof,
-            body.inputs.len(),
-            body.entrypoint,
-            body,
-            self,
-        )?;
+        let ownership_out = (0..witness.spending_proofs.len() + witness.new_output_proofs.len())
+            .map(|i| {
+                body.ownership_out
+                    .get(&OutputRef(i))
+                    .copied()
+                    .map(ProcessId::from)
+            })
+            .collect::<Vec<_>>();
+
+        let inst = InterleavingInstance {
+            n_inputs,
+            n_new,
+            n_coords,
+
+            host_calls_roots: wasm_instances
+                .iter()
+                .map(|w| w.host_calls_root.clone())
+                .collect(),
+            host_calls_lens: wasm_instances.iter().map(|w| w.host_calls_len).collect(),
+
+            process_table: process_table.to_vec(),
+            is_utxo: is_utxo.to_vec(),
+            must_burn: burned.to_vec(),
+
+            ownership_in: ownership_in.to_vec(),
+            ownership_out: ownership_out.to_vec(),
+
+            entrypoint: ProcessId(body.entrypoint),
+        };
+
+        let interleaving_proof: &ZkTransactionProof = &witness.interleaving_proof;
+
+        let input_states: Vec<CoroutineState> = body
+            .inputs
+            .iter()
+            .map(|utxo_id| self.utxos[utxo_id].state.clone())
+            .collect();
+
+        // note however that this is mocked right now, and it's using a non-zk
+        // verifier.
+        //
+        // but the circuit in theory in theory encode the same machine
+        interleaving_proof.verify(&inst, &input_states)?;
 
         Ok(())
     }
 }
 
-// this mirrors the configuration described in SEMANTICS.md
-pub struct InterleavingInstance {
-    /// Digest of all per-process host call tables the circuit is wired to.
-    /// One per wasm proof.
-    pub host_calls_roots: Vec<LookupTableCommitment>,
-    #[allow(dead_code)]
-    pub host_calls_lens: Vec<u32>,
-
-    /// Process table in canonical order: inputs, new_outputs, coord scripts.
-    process_table: Vec<Hash<WasmModule>>,
-    is_utxo: Vec<bool>,
-
-    /// Burned/continuation mask for inputs (length = #inputs).
-    burned: Vec<bool>,
-    n_inputs: usize,
-
-    /// Initial ownership snapshot for inputs IN THE TRANSACTION.
-    ///
-    /// This has len == process_table
-    ///
-    /// process[i] == Some(j) means that utxo i is owned by j at the beginning of
-    /// the transaction.
-    ///
-    /// None means not owned.
-    ownership_in: Vec<Option<ProcessId>>,
-
-    /// Final ownership snapshot for utxos IN THE TRANSACTION.
-    ///
-    /// This has len == process_table
-    ///
-    /// final state of the ownership graph (new ledger state).
-    ownership_out: Vec<Option<ProcessId>>,
-
-    entrypoint: usize,
-}
-
 pub fn verify_interleaving_public(
-    process_table: &[Hash<WasmModule>],
-    is_utxo: &[bool],
-    burned: &[bool],
-    ownership_in: &[Option<ProcessId>],
-    ownership_out: &[Option<ProcessId>],
-    wasm_instances: &[WasmInstance],
     interleaving_proof: &ZkTransactionProof,
-    n_inputs: usize,
-    entrypoint: usize,
     body: &TransactionBody,
     ledger: &Ledger,
+    inst: InterleavingInstance,
 ) -> Result<(), VerificationError> {
-    // ---------- derive the public instance that the interleaving proof MUST be verified against ----------
-    // We bind the interleaving proof to:
-    // - the vector of per-process host call commitments and lengths
-    // - process_table (program hashes),
-    // - is_utxo
-    // - burned/present mask and new_outputs_len
-    // - ownership_in and ownership_changes
-    let inst = InterleavingInstance {
-        host_calls_roots: wasm_instances
-            .iter()
-            .map(|w| w.host_calls_root.clone())
-            .collect(),
-        host_calls_lens: wasm_instances.iter().map(|w| w.host_calls_len).collect(),
-
-        process_table: process_table.to_vec(),
-        is_utxo: is_utxo.to_vec(),
-
-        burned: burned.to_vec(),
-
-        ownership_in: ownership_in.to_vec(),
-        ownership_out: ownership_out.to_vec(),
-        n_inputs,
-        entrypoint,
-    };
-
     // Collect input states for the interleaving proof
     let input_states: Vec<CoroutineState> = body
         .inputs
@@ -658,26 +640,17 @@ pub fn verify_interleaving_public(
     Ok(())
 }
 
-// ---------- helper glue (still pseudocode) ----------
-
 pub fn build_wasm_instances_in_canonical_order(
     spending: &[ZkWasmProof],
     new_outputs: &[ZkWasmProof],
     coords: &[ZkWasmProof],
 ) -> Result<Vec<WasmInstance>, VerificationError> {
-    let mut out = Vec::with_capacity(spending.len() + new_outputs.len() + coords.len());
-
-    for p in spending {
-        out.push(p.public_instance()); // returns WasmInstance { host_calls_root, host_calls_len }
-    }
-    for p in new_outputs {
-        out.push(p.public_instance());
-    }
-    for p in coords {
-        out.push(p.public_instance());
-    }
-
-    Ok(out)
+    Ok(spending
+        .iter()
+        .map(|p| p.public_instance())
+        .chain(new_outputs.iter().map(|p| p.public_instance()))
+        .chain(coords.iter().map(|p| p.public_instance()))
+        .collect())
 }
 
 impl TransactionBody {
@@ -686,484 +659,20 @@ impl TransactionBody {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::interleaving_semantic_verifier::{HostCall, InterleavingWitness};
-
-    pub fn h(n: u8) -> Hash<WasmModule> {
-        // TODO: actual hashing
-        let mut bytes = [0u8; 32];
-        bytes[0] = n;
-        Hash(bytes, std::marker::PhantomData)
+impl From<OutputRef> for ProcessId {
+    fn from(val: OutputRef) -> Self {
+        ProcessId(val.0)
     }
+}
 
-    pub fn v(data: &[u8]) -> Value {
-        Value(data.to_vec())
+impl<T> std::hash::Hash for Hash<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
+}
 
-    fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
-        let input_hash_1 = h(10);
-        let input_hash_2 = h(11);
-
-        // Create input UTXO IDs
-        let input_utxo_1 = UtxoId {
-            contract_hash: input_hash_1.clone(),
-            nonce: 0,
-        };
-        let input_utxo_2 = UtxoId {
-            contract_hash: input_hash_2.clone(),
-            nonce: 0,
-        };
-
-        let mut ledger = Ledger {
-            utxos: HashMap::new(),
-            contract_counters: HashMap::new(),
-            utxo_to_coroutine: HashMap::new(),
-            ownership_registry: HashMap::new(),
-        };
-
-        let input_1_coroutine = CoroutineId {
-            creation_tx_hash: Hash([1u8; 32], PhantomData),
-            creation_output_index: 0,
-        };
-
-        let input_2_coroutine = CoroutineId {
-            creation_tx_hash: Hash([1u8; 32], PhantomData),
-            creation_output_index: 1,
-        };
-
-        ledger.utxos.insert(
-            input_utxo_1.clone(),
-            UtxoEntry {
-                state: CoroutineState {
-                    pc: 0,
-                    last_yield: v(b"spend_input_1"),
-                },
-                contract_hash: input_hash_1.clone(),
-            },
-        );
-        ledger.utxos.insert(
-            input_utxo_2.clone(),
-            UtxoEntry {
-                state: CoroutineState {
-                    pc: 0,
-                    last_yield: v(b"spend_input_2"),
-                },
-                contract_hash: input_hash_2.clone(),
-            },
-        );
-
-        ledger
-            .utxo_to_coroutine
-            .insert(input_utxo_1.clone(), input_1_coroutine.clone());
-        ledger
-            .utxo_to_coroutine
-            .insert(input_utxo_2.clone(), input_2_coroutine.clone());
-
-        // Set up contract counters
-        ledger.contract_counters.insert(input_hash_1.clone(), 1);
-        ledger.contract_counters.insert(input_hash_2.clone(), 1);
-        ledger.contract_counters.insert(h(1), 0); // coord_hash
-        ledger.contract_counters.insert(h(2), 0); // utxo_hash_a
-        ledger.contract_counters.insert(h(3), 0); // utxo_hash_b
-
-        (
-            ledger,
-            input_utxo_1,
-            input_utxo_2,
-            input_1_coroutine,
-            input_2_coroutine,
-        )
-    }
-
-    #[test]
-    fn test_transaction_with_coord_and_utxos() {
-        // This test simulates a complex transaction involving 2 input UTXOs, 2 new UTXOs,
-        // and 1 coordination script that orchestrates the control flow.
-        // The diagram below shows the lifecycle of each process: `(input)` marks a UTXO
-        // that is consumed by the transaction, and `(output)` marks one that is
-        // created by the transaction. P1 is burned, so it is an input but not an output.
-        //
-        //  P4 (Coord)      P0 (In 1)         P1 (In 2)       P2 (New)        P3 (New)
-        //      |           (input)           (input)             |               |
-        // (entrypoint)       |                 |                 |               |
-        //      |---NewUtxo---|-----------------|--------------->(created)      |
-        //      |---NewUtxo---|-----------------|-----------------|------------->(created)
-        //      |             |                 |                 |               |
-        //      |---Resume--->| (spend)         |                 |               |
-        //      |<--Yield-----| (continue)      |                 |               |
-        //      |             |                 |                 |               |
-        //      |---Resume-------------------->| (spend)         |               |
-        //      |<--Burn----------------------|                 |               |
-        //      |             |                 |                 |               |
-        //      |---Resume-------------------------------------->|               |
-        //      |<--Yield---------------------------------------|               |
-        //      |             |                 |                 |               |
-        //      |---Resume------------------------------------------------------>|
-        //      |<--Yield-------------------------------------------------------|
-        //      |             |                 |                 |               |
-        //    (end)        (output)             X (burned)       (output)        (output)
-
-        // Create a transaction with:
-        // - 2 input UTXOs to spend (processes 0, 1)
-        // - 2 new UTXOs (processes 2, 3)
-        // - 1 coordination script (process 4)
-
-        let input_hash_1 = h(10);
-        let input_hash_2 = h(11);
-        let coord_hash = h(1);
-        let utxo_hash_a = h(2);
-        let utxo_hash_b = h(3);
-
-        // Create input UTXO IDs
-        let input_utxo_1 = UtxoId {
-            contract_hash: input_hash_1.clone(),
-            nonce: 0,
-        };
-        let input_utxo_2 = UtxoId {
-            contract_hash: input_hash_2.clone(),
-            nonce: 0,
-        };
-
-        // Transaction body
-        let tx_body = TransactionBody {
-            inputs: vec![input_utxo_1.clone(), input_utxo_2.clone()],
-            continuations: vec![
-                Some(CoroutineState {
-                    pc: 1, // Modified state for input 1
-                    last_yield: v(b"continued_1"),
-                }),
-                None, // Input 2 is burned
-            ],
-            new_outputs: vec![
-                NewOutput {
-                    state: CoroutineState {
-                        pc: 0,
-                        last_yield: v(b"utxo_a_state"),
-                    },
-                    contract_hash: utxo_hash_a.clone(),
-                },
-                NewOutput {
-                    state: CoroutineState {
-                        pc: 0,
-                        last_yield: v(b"utxo_b_state"),
-                    },
-                    contract_hash: utxo_hash_b.clone(),
-                },
-            ],
-            ownership_out: vec![
-                None,    // process 0 (input_1 continuation) - unowned
-                None,    // process 1 (input_2 burned) - N/A
-                Some(3), // process 2 (utxo_a) owned by utxo 3 (utxo_b)
-                None,    // process 3 (utxo_b) - unowned
-                None,    // process 4 (coord) - no ownership
-            ],
-            coordination_scripts_keys: vec![coord_hash.clone()],
-            entrypoint: 4, // Coordination script is now process 4
-        };
-
-        // Host call traces for each process in canonical order: inputs ++ new_outputs ++ coord_scripts
-        // Process 0: Input 1, Process 1: Input 2, Process 2: UTXO A (spawn), Process 3: UTXO B (spawn), Process 4: Coordination script
-
-        let input_1_trace = vec![HostCall::Yield {
-            val: v(b"continued_1"),
-            ret: None,
-            id_prev: Some(4), // Coordination script is process 4
-        }];
-
-        let input_2_trace = vec![HostCall::Burn {
-            ret: v(b"burned_2"),
-        }];
-
-        let utxo_a_trace = vec![
-            // UTXO A binds itself to UTXO B (making B the owner)
-            HostCall::Bind { owner_id: 3 }, // UTXO B is now process 3
-            // Yield back to coordinator (end-of-transaction)
-            HostCall::Yield {
-                val: v(b"done_a"),
-                ret: None,
-                id_prev: Some(4), // Coordination script is now process 4
-            },
-        ];
-
-        let utxo_b_trace = vec![
-            // UTXO B just yields back (end-of-transaction)
-            HostCall::Yield {
-                val: v(b"done_b"),
-                ret: None,
-                id_prev: Some(4), // Coordination script is now process 4
-            },
-        ];
-
-        let coord_trace = vec![
-            // Coordination script creates the two UTXOs
-            HostCall::NewUtxo {
-                program_hash: h(2),
-                val: v(b"init_a"),
-                id: 2, // UTXO A
-            },
-            HostCall::NewUtxo {
-                program_hash: h(3),
-                val: v(b"init_b"),
-                id: 3, // UTXO B
-            },
-            HostCall::Resume {
-                target: 0, // Input 1
-                val: v(b"spend_input_1"),
-                ret: v(b"continued_1"),
-                id_prev: None,
-            },
-            HostCall::Resume {
-                target: 1, // Input 2
-                val: v(b"spend_input_2"),
-                ret: v(b"burned_2"),
-                id_prev: Some(0), // Input 1
-            },
-            HostCall::Resume {
-                target: 2, // UTXO A
-                val: v(b"init_a"),
-                ret: v(b"done_a"),
-                id_prev: Some(1), // Input 2
-            },
-            HostCall::Resume {
-                target: 3, // UTXO B
-                val: v(b"init_b"),
-                ret: v(b"done_b"),
-                id_prev: Some(2), // UTXO A
-            },
-        ];
-
-        let witness = InterleavingWitness {
-            traces: vec![
-                input_1_trace,
-                input_2_trace,
-                utxo_a_trace,
-                utxo_b_trace,
-                coord_trace,
-            ],
-        };
-
-        let mock_proofs = TransactionWitness {
-            spending_proofs: vec![
-                ZkWasmProof {
-                    host_calls_root: LookupTableCommitment {
-                        trace: witness.traces[0].clone(), // Input 1 trace
-                    },
-                },
-                ZkWasmProof {
-                    host_calls_root: LookupTableCommitment {
-                        trace: witness.traces[1].clone(), // Input 2 trace
-                    },
-                },
-            ],
-            new_output_proofs: vec![
-                ZkWasmProof {
-                    host_calls_root: LookupTableCommitment {
-                        trace: witness.traces[2].clone(), // UTXO A trace
-                    },
-                },
-                ZkWasmProof {
-                    host_calls_root: LookupTableCommitment {
-                        trace: witness.traces[3].clone(), // UTXO B trace
-                    },
-                },
-            ],
-            interleaving_proof: ZkTransactionProof {},
-            coordination_scripts: vec![ZkWasmProof {
-                host_calls_root: LookupTableCommitment {
-                    trace: witness.traces[4].clone(), // Coordination script trace
-                },
-            }],
-        };
-
-        let proven_tx = ProvenTransaction {
-            body: tx_body,
-            witness: mock_proofs,
-        };
-
-        let (mut ledger, _input_utxo_1, _input_utxo_2, _input_1_coroutine, _input_2_coroutine) =
-            mock_genesis();
-
-        ledger.apply_transaction(&proven_tx).unwrap();
-
-        // Verify final ledger state
-        assert_eq!(ledger.utxos.len(), 3); // 1 continuation + 2 new outputs
-        assert_eq!(ledger.ownership_registry.len(), 1); // UTXO A is owned by UTXO B
-    }
-
-    #[test]
-    fn test_effect_handlers() {
-        // Create a transaction with:
-        // - 1 coordination script (process 1) that acts as an effect handler
-        // - 1 new UTXO (process 0) that calls the effect handler
-        //
-        // Roughly models this:
-        //
-        // interface Interface {
-        //   Effect(int): int
-        // }
-        //
-        // utxo Utxo {
-        //   main {
-        //     raise Interface::Effect(42);
-        //   }
-        // }
-        //
-        // script {
-        //   fn main() {
-        //     let utxo = Utxo::new();
-        //
-        //     try {
-        //       utxo.resume(utxo);
-        //     }
-        //     with Interface {
-        //       do Effect(x) = {
-        //         resume(43)
-        //       }
-        //     }
-        //   }
-        // }
-        //
-        // This test simulates a coordination script acting as an algebraic effect handler
-        // for a UTXO. The UTXO "raises" an effect by calling the handler, and the
-        // handler resumes the UTXO with the result.
-        //
-        //  P1 (Coord/Handler)     P0 (UTXO)
-        //        |                    |
-        //   (entrypoint)              |
-        //        |                    |
-        // InstallHandler (self)       |
-        //        |                    |
-        //    NewUtxo ---------------->(P0 created)
-        //   (val="init_utxo")         |
-        //        |                    |
-        //    Resume ---------------->|
-        //   (val="init_utxo")         |
-        //        |               Input (val="init_utxo", caller=P1)
-        //        |               ProgramHash(P1) -> (attest caller)
-        //        |               GetHandlerFor -> P1
-        //        |<----------------- Resume (Effect call)
-        //        |        (val="Interface::Effect(42)")
-        //(handles effect)             |
-        //        |                    |
-        //    Resume ---------------->| (Resume with result)
-        //(val="Interface::EffectResponse(43)")
-        //        |                    |
-        //        |<----------------- Yield
-        //        |            (val="utxo_final")
-        //UninstallHandler (self)      |
-        //        |                    |
-        //      (end)                  |
-
-        let coord_hash = h(1);
-        let utxo_hash = h(2);
-        let interface_id = 42u64;
-
-        // Transaction body
-        let tx_body = TransactionBody {
-            inputs: vec![],
-            continuations: vec![],
-            new_outputs: vec![NewOutput {
-                state: CoroutineState {
-                    pc: 0,
-                    last_yield: v(b"utxo_state"),
-                },
-                contract_hash: utxo_hash.clone(),
-            }],
-            ownership_out: vec![
-                None, // process 0 (utxo) - unowned
-                None, // process 1 (coord) - no ownership (this can be optimized out)
-            ],
-            coordination_scripts_keys: vec![coord_hash.clone()],
-            entrypoint: 1,
-        };
-
-        // Host call traces for each process in canonical order: (no inputs) ++ new_outputs ++ coord_scripts
-        // Process 0: UTXO, Process 1: Coordination script
-
-        let coord_trace = vec![
-            HostCall::InstallHandler { interface_id },
-            HostCall::NewUtxo {
-                program_hash: h(2),
-                val: v(b"init_utxo"),
-                id: 0,
-            },
-            HostCall::Resume {
-                target: 0,
-                val: v(b"init_utxo"),
-                ret: v(b"Interface::Effect(42)"), // expected request
-                id_prev: None,
-            },
-            HostCall::Resume {
-                target: 0,
-                val: v(b"Interface::EffectResponse(43)"), // response sent
-                ret: v(b"utxo_final"),
-                id_prev: Some(0),
-            },
-            HostCall::UninstallHandler { interface_id },
-        ];
-
-        let utxo_trace = vec![
-            HostCall::Input {
-                val: v(b"init_utxo"),
-                caller: 1,
-            },
-            HostCall::ProgramHash {
-                target: 1,
-                program_hash: coord_hash.clone(), // assert coord_script hash == h(1)
-            },
-            HostCall::GetHandlerFor {
-                interface_id,
-                handler_id: 1,
-            },
-            HostCall::Resume {
-                target: 1,
-                val: v(b"Interface::Effect(42)"),         // request
-                ret: v(b"Interface::EffectResponse(43)"), // expected response
-                id_prev: Some(1),
-            },
-            HostCall::Yield {
-                val: v(b"utxo_final"),
-                ret: None,
-                id_prev: Some(1),
-            },
-        ];
-
-        let witness = InterleavingWitness {
-            traces: vec![utxo_trace, coord_trace],
-        };
-
-        let mock_proofs = TransactionWitness {
-            spending_proofs: vec![],
-            new_output_proofs: vec![ZkWasmProof {
-                host_calls_root: LookupTableCommitment {
-                    trace: witness.traces[0].clone(),
-                },
-            }],
-            interleaving_proof: ZkTransactionProof {},
-            coordination_scripts: vec![ZkWasmProof {
-                host_calls_root: LookupTableCommitment {
-                    trace: witness.traces[1].clone(),
-                },
-            }],
-        };
-
-        let proven_tx = ProvenTransaction {
-            body: tx_body,
-            witness: mock_proofs,
-        };
-
-        let mut ledger = Ledger {
-            utxos: HashMap::new(),
-            contract_counters: HashMap::new(),
-            utxo_to_coroutine: HashMap::new(),
-            ownership_registry: HashMap::new(),
-        };
-
-        ledger.apply_transaction(&proven_tx).unwrap();
-
-        assert_eq!(ledger.utxos.len(), 1); // 1 new UTXO
-        assert_eq!(ledger.ownership_registry.len(), 0); // No ownership relationships
+impl<T> std::fmt::Debug for Hash<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Hash({})", hex::encode(&self.0))
     }
 }
