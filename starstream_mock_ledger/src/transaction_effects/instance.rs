@@ -1,9 +1,10 @@
 use crate::{
-    Hash, MockedLookupTableCommitment, WasmModule, mocked_verifier::InterleavingError,
-    transaction_effects::ProcessId,
+    CoroutineState, Hash, MockedLookupTableCommitment, WasmModule,
+    mocked_verifier::InterleavingError, transaction_effects::ProcessId,
 };
 
 // this mirrors the configuration described in SEMANTICS.md
+#[derive(Clone)]
 pub struct InterleavingInstance {
     /// Digest of all per-process host call tables the circuit is wired to.
     /// One per wasm proof.
@@ -42,6 +43,8 @@ pub struct InterleavingInstance {
 
     /// First coordination script
     pub entrypoint: ProcessId,
+
+    pub input_states: Vec<CoroutineState>,
 }
 
 impl InterleavingInstance {
