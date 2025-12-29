@@ -1,6 +1,7 @@
 use super::Address;
 use super::IVCMemory;
 use super::IVCMemoryAllocated;
+use crate::memory::AllocatedAddress;
 use ark_ff::PrimeField;
 use ark_r1cs_std::GR1CSVar as _;
 use ark_r1cs_std::alloc::AllocVar as _;
@@ -112,16 +113,16 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
     fn conditional_read(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
+        address: &AllocatedAddress,
     ) -> Result<Vec<FpVar<F>>, SynthesisError> {
         let _guard = tracing::debug_span!("conditional_read").entered();
 
-        let mem = self.mems.get(&address.tag).copied().unwrap();
+        let mem = self.mems.get(&address.tag_value()).copied().unwrap();
 
         if cond.value().unwrap() {
             let address = Address {
-                addr: address.addr.value().unwrap().into_bigint().as_ref()[0],
-                tag: address.tag,
+                addr: address.address_value(),
+                tag: address.tag_value(),
             };
 
             let vals = self.reads.get_mut(&address).unwrap();
@@ -156,15 +157,15 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
     fn conditional_write(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
+        address: &AllocatedAddress,
         vals: &[FpVar<F>],
     ) -> Result<(), SynthesisError> {
         let _guard = tracing::debug_span!("conditional_write").entered();
 
         if cond.value().unwrap() {
             let address = Address {
-                addr: address.addr.value().unwrap().into_bigint().as_ref()[0],
-                tag: address.tag,
+                addr: address.address_value(),
+                tag: address.tag_value(),
             };
 
             let writes = self.writes.get_mut(&address).unwrap();

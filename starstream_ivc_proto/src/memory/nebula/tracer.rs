@@ -11,7 +11,7 @@ use crate::memory::nebula::gadget::FingerPrintPreWires;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
-pub struct NebulaMemory {
+pub struct NebulaMemory<const SCAN_BATCH_SIZE: usize = 1> {
     pub(crate) rs: BTreeMap<Address<u64>, VecDeque<MemOp<F>>>,
     pub(crate) ws: BTreeMap<Address<u64>, VecDeque<MemOp<F>>>,
     pub(crate) is: BTreeMap<Address<u64>, MemOp<F>>,
@@ -25,7 +25,7 @@ pub struct NebulaMemory {
     params: NebulaMemoryParams,
 }
 
-impl NebulaMemory {
+impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
     fn perform_memory_operation(
         &mut self,
         cond: bool,
@@ -36,15 +36,13 @@ impl NebulaMemory {
             self.ts += 1;
         }
 
-        let segment_size = self.mems.get(&address.tag).unwrap().0;
-
         let rv = if cond {
             self.ws
                 .get(address)
                 .and_then(|writes| writes.back().cloned())
                 .unwrap_or_else(|| self.is.get(address).unwrap().clone())
         } else {
-            MemOp::padding(segment_size)
+            MemOp::padding()
         };
 
         assert!(!cond || rv.timestamp < self.ts);
@@ -55,15 +53,27 @@ impl NebulaMemory {
                 timestamp: self.ts,
             }
         } else {
-            MemOp::padding(segment_size)
+            MemOp::padding()
         };
 
         // println!(
         //     "Tracing: incrementing ic_rs_ws with rv: {:?}, wv: {:?}",
         //     rv, wv
         // );
-        self.ic_rs_ws.increment(address, &rv).unwrap();
-        self.ic_rs_ws.increment(address, &wv).unwrap();
+        self.ic_rs_ws
+            .increment(
+                address,
+                &rv,
+                self.params.unsound_disable_poseidon_commitment,
+            )
+            .unwrap();
+        self.ic_rs_ws
+            .increment(
+                address,
+                &wv,
+                self.params.unsound_disable_poseidon_commitment,
+            )
+            .unwrap();
         // println!(
         //     "Tracing: ic_rs_ws after increment: {:?}",
         //     self.ic_rs_ws.comm
@@ -91,10 +101,18 @@ impl NebulaMemory {
 }
 
 pub struct NebulaMemoryParams {
-    pub scan_batch_size: usize,
+    pub unsound_disable_poseidon_commitment: bool,
 }
 
-impl IVCMemory<F> for NebulaMemory {
+impl Default for NebulaMemoryParams {
+    fn default() -> Self {
+        Self {
+            unsound_disable_poseidon_commitment: false,
+        }
+    }
+}
+
+impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE> {
     type Allocator = NebulaMemoryConstraints<F>;
 
     type Params = NebulaMemoryParams;
@@ -162,11 +180,16 @@ impl IVCMemory<F> for NebulaMemory {
         for (addr, is_v) in self.is.iter() {
             let fs_v = fs.get(addr).unwrap_or(is_v);
 
-            ic_is_fs.increment(addr, is_v).unwrap();
-            ic_is_fs.increment(addr, fs_v).unwrap();
+            ic_is_fs
+                .increment(addr, is_v, self.params.unsound_disable_poseidon_commitment)
+                .unwrap();
+            ic_is_fs
+                .increment(addr, fs_v, self.params.unsound_disable_poseidon_commitment)
+                .unwrap();
         }
 
-        assert_eq!(self.is.len() % self.params.scan_batch_size, 0);
+        assert_eq!(self.is.len() % SCAN_BATCH_SIZE, 0);
+
         NebulaMemoryConstraints {
             cs: None,
             reads: self.rs,
@@ -182,9 +205,10 @@ impl IVCMemory<F> for NebulaMemory {
             is: self.is,
             current_step: 0,
             params: self.params,
+            scan_batch_size: SCAN_BATCH_SIZE,
             step_ic_rs_ws: None,
             step_ic_is_fs: None,
-            // TODO:
+            // TODO: fiat-shamir, these are derived by hashing the multisets
             c0: F::from(1),
             c1: F::from(2),
             c0_wire: None,
@@ -198,6 +222,9 @@ impl IVCMemory<F> for NebulaMemory {
             fingerprint_wires: None,
 
             debug_sets: Default::default(),
+            c1_powers_cache: None,
+            scan_monotonic_last_addr: None,
+            scan_monotonic_last_addr_wires: None,
         }
     }
 }

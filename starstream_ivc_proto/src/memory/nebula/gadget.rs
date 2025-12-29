@@ -1,19 +1,22 @@
 use super::Address;
-use super::MemOp;
 use super::ic::{IC, ICPlain};
+use super::{MemOp, MemOpAllocated};
 use crate::F;
-use crate::memory::IVCMemoryAllocated;
+use crate::goldilocks::FpGoldilocks;
 use crate::memory::nebula::tracer::NebulaMemoryParams;
+use crate::memory::{AllocatedAddress, IVCMemoryAllocated};
 use ark_ff::Field;
 use ark_ff::PrimeField;
 use ark_r1cs_std::GR1CSVar as _;
 use ark_r1cs_std::alloc::AllocVar as _;
+use ark_r1cs_std::eq::EqGadget;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::ConstraintSystemRef;
 use ark_relations::gr1cs::SynthesisError;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
+use std::iter::repeat_with;
 
 pub struct NebulaMemoryConstraints<F: PrimeField> {
     pub(crate) cs: Option<ConstraintSystemRef<F>>,
@@ -39,14 +42,19 @@ pub struct NebulaMemoryConstraints<F: PrimeField> {
 
     pub(crate) current_step: usize,
     pub(crate) params: NebulaMemoryParams,
+    pub(crate) scan_batch_size: usize,
 
     pub(crate) c0: F,
     pub(crate) c0_wire: Option<FpVar<F>>,
     pub(crate) c1: F,
     pub(crate) c1_wire: Option<FpVar<F>>,
+    pub(crate) c1_powers_cache: Option<Vec<FpVar<F>>>,
 
     pub(crate) multiset_fingerprints: FingerPrintPreWires,
     pub(crate) fingerprint_wires: Option<FingerPrintWires>,
+
+    pub(crate) scan_monotonic_last_addr: Option<Address<u64, u64>>,
+    pub(crate) scan_monotonic_last_addr_wires: Option<AllocatedAddress>,
 
     pub(crate) debug_sets: Multisets,
 }
@@ -152,6 +160,24 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         self.c1_wire
             .replace(FpVar::new_witness(cs.clone(), || Ok(self.c1))?);
 
+        // Precompute and cache c1 powers
+        let max_segment_size = self.max_segment_size() as usize;
+        let c1_wire = self.c1_wire.as_ref().unwrap();
+        let mut c1_powers = Vec::with_capacity(max_segment_size);
+        let mut c1_p = c1_wire.clone();
+        for _ in 0..max_segment_size {
+            c1_p = c1_p * c1_wire;
+            c1_powers.push(c1_p.clone());
+        }
+        self.c1_powers_cache = Some(c1_powers);
+
+        self.scan_monotonic_last_addr_wires.replace(
+            self.scan_monotonic_last_addr
+                .clone()
+                .unwrap_or(Address { addr: 0, tag: 0 })
+                .allocate(cs.clone())?,
+        );
+
         self.scan(cs)?;
 
         Ok(())
@@ -159,6 +185,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
 
     fn finish_step(&mut self, is_last_step: bool) -> Result<(), SynthesisError> {
         self.cs = None;
+        self.c1_powers_cache = None;
 
         self.current_step += 1;
 
@@ -166,6 +193,9 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         self.ic_is_fs = self.step_ic_is_fs.take().unwrap().values();
 
         self.multiset_fingerprints = self.fingerprint_wires.take().unwrap().values()?;
+
+        self.scan_monotonic_last_addr
+            .replace(self.scan_monotonic_last_addr_wires.take().unwrap().values());
 
         if is_last_step {
             assert!(
@@ -209,7 +239,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
     fn conditional_read(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
+        address: &AllocatedAddress,
     ) -> Result<Vec<FpVar<F>>, SynthesisError> {
         let _guard = tracing::debug_span!("nebula_conditional_read").entered();
 
@@ -240,7 +270,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
     fn conditional_write(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
+        address: &AllocatedAddress,
         vals: &[FpVar<F>],
     ) -> Result<(), SynthesisError> {
         let _guard = tracing::debug_span!("nebula_conditional_write").entered();
@@ -263,8 +293,12 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
 
         self.update_ic_with_ops(cond, address, &rv, &wv)?;
 
-        for ((_, val), expected) in vals.iter().enumerate().zip(wv.values.iter()) {
-            assert_eq!(val.value().unwrap(), expected.value().unwrap());
+        for ((index, val), expected) in vals.iter().enumerate().zip(wv.values.iter()) {
+            assert_eq!(
+                val.value().unwrap(),
+                expected.value().unwrap(),
+                "write doesn't match expectation at index {index}."
+            );
         }
 
         tracing::debug!(
@@ -288,15 +322,15 @@ impl NebulaMemoryConstraints<F> {
         Ok(())
     }
 
-    fn get_address_val(&self, address: &Address<FpVar<F>>) -> Address<u64> {
+    fn get_address_val(&self, address: &AllocatedAddress) -> Address<u64> {
         Address {
-            addr: address.addr.value().unwrap().into_bigint().as_ref()[0],
-            tag: address.tag,
+            addr: address.address_value(),
+            tag: address.tag_value(),
         }
     }
 
-    fn get_mem_info(&self, address: &Address<FpVar<F>>) -> (u64, &'static str) {
-        self.mems.get(&address.tag).copied().unwrap()
+    fn get_mem_info(&self, address: &AllocatedAddress) -> (u64, &'static str) {
+        self.mems.get(&address.tag_value()).copied().unwrap()
     }
 
     fn get_read_op(
@@ -304,7 +338,7 @@ impl NebulaMemoryConstraints<F> {
         cond: &Boolean<F>,
         address_val: &Address<u64>,
         mem_size: u64,
-    ) -> Result<MemOp<FpVar<F>>, SynthesisError> {
+    ) -> Result<MemOpAllocated<F>, SynthesisError> {
         let cs = self.get_cs();
 
         if cond.value()? {
@@ -312,9 +346,9 @@ impl NebulaMemoryConstraints<F> {
             a_reads
                 .pop_front()
                 .expect("no entry in read set")
-                .allocate(cs)
+                .allocate(cs, mem_size as usize)
         } else {
-            MemOp::padding(mem_size).allocate(cs)
+            MemOp::padding().allocate(cs, mem_size as usize)
         }
     }
 
@@ -323,7 +357,7 @@ impl NebulaMemoryConstraints<F> {
         cond: &Boolean<F>,
         address_val: &Address<u64>,
         mem_size: u64,
-    ) -> Result<MemOp<FpVar<F>>, SynthesisError> {
+    ) -> Result<MemOpAllocated<F>, SynthesisError> {
         let cs = self.get_cs();
 
         if cond.value()? {
@@ -331,87 +365,110 @@ impl NebulaMemoryConstraints<F> {
             a_writes
                 .pop_front()
                 .expect("no entry in write set")
-                .allocate(cs)
+                .allocate(cs, mem_size as usize)
         } else {
-            MemOp::padding(mem_size).allocate(cs)
+            MemOp::padding().allocate(cs, mem_size as usize)
         }
     }
 
     fn update_ic_with_ops(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
-        rv: &MemOp<FpVar<F>>,
-        wv: &MemOp<FpVar<F>>,
+        address: &AllocatedAddress,
+        rv: &MemOpAllocated<F>,
+        wv: &MemOpAllocated<F>,
     ) -> Result<(), SynthesisError> {
-        let cs = self.get_cs();
-
         Self::hash_avt(
             cond,
             &mut self.fingerprint_wires.as_mut().unwrap().rs,
             self.c0_wire.as_ref().unwrap(),
-            self.c1_wire.as_ref().unwrap(),
-            &cs,
+            self.c1_powers_cache.as_ref().unwrap(),
             &address,
             rv,
             &mut self.debug_sets.rs,
         )?;
 
-        self.step_ic_rs_ws
-            .as_mut()
-            .unwrap()
-            .increment(address, rv)?;
+        self.step_ic_rs_ws.as_mut().unwrap().increment(
+            address,
+            &rv,
+            self.params.unsound_disable_poseidon_commitment,
+        )?;
 
         Self::hash_avt(
             cond,
             &mut self.fingerprint_wires.as_mut().unwrap().ws,
             self.c0_wire.as_ref().unwrap(),
-            self.c1_wire.as_ref().unwrap(),
-            &cs,
+            self.c1_powers_cache.as_ref().unwrap(),
             &address,
             wv,
             &mut self.debug_sets.ws,
         )?;
 
-        self.step_ic_rs_ws
-            .as_mut()
-            .unwrap()
-            .increment(address, wv)?;
+        self.step_ic_rs_ws.as_mut().unwrap().increment(
+            address,
+            &wv,
+            self.params.unsound_disable_poseidon_commitment,
+        )?;
 
         Ok(())
     }
 
+    fn max_segment_size(&mut self) -> u64 {
+        let max_segment_size = self.mems.values().map(|(sz, _)| sz).max().unwrap();
+        *max_segment_size
+    }
+
     fn scan(&mut self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
+        let address_padding = Address { addr: 0, tag: 0 };
+        let mem_padding = MemOp::padding();
+        let max_segment_size = self.max_segment_size() as usize;
+
         Ok(
             for (addr, is_v) in self
                 .is
                 .iter()
-                .skip(self.params.scan_batch_size * self.current_step)
-                .take(self.params.scan_batch_size)
+                .skip(self.scan_batch_size * self.current_step)
+                .chain(std::iter::repeat((&address_padding, &mem_padding)))
+                // TODO: padding
+                .take(self.scan_batch_size)
             {
-                let fs_v = self.fs.get(addr).unwrap();
+                let fs_v = self.fs.get(addr).unwrap_or(&mem_padding);
 
                 let address = addr.allocate(cs.clone())?;
-                let is_entry = is_v.allocate(cs.clone())?;
 
-                self.step_ic_is_fs
-                    .as_mut()
-                    .unwrap()
-                    .increment(&address, &is_entry)?;
+                // ensure commitment is monotonic
+                // so that it's not possible to insert an address twice
+                //
+                // we get disjoint ranges anyway because of the segments so we
+                // can have different memories with different sizes, but each
+                // segment is contiguous
+                let last_addr = self.scan_monotonic_last_addr_wires.as_mut().unwrap();
 
-                let fs_entry = fs_v.allocate(cs.clone())?;
+                enforce_monotonic_commitment(&cs, &address, last_addr)?;
 
-                self.step_ic_is_fs
-                    .as_mut()
-                    .unwrap()
-                    .increment(&address, &fs_entry)?;
+                *last_addr = address.clone();
+
+                let is_entry = is_v.allocate(cs.clone(), max_segment_size)?;
+
+                self.step_ic_is_fs.as_mut().unwrap().increment(
+                    &address,
+                    &is_entry,
+                    self.params.unsound_disable_poseidon_commitment,
+                )?;
+
+                let fs_entry = fs_v.allocate(cs.clone(), max_segment_size)?;
+
+                self.step_ic_is_fs.as_mut().unwrap().increment(
+                    &address,
+                    &fs_entry,
+                    self.params.unsound_disable_poseidon_commitment,
+                )?;
 
                 Self::hash_avt(
                     &Boolean::constant(true),
                     &mut self.fingerprint_wires.as_mut().unwrap().is,
                     self.c0_wire.as_ref().unwrap(),
-                    self.c1_wire.as_ref().unwrap(),
-                    &cs,
+                    self.c1_powers_cache.as_ref().unwrap(),
                     &address,
                     &is_entry,
                     &mut self.debug_sets.is,
@@ -421,8 +478,7 @@ impl NebulaMemoryConstraints<F> {
                     &Boolean::constant(true),
                     &mut self.fingerprint_wires.as_mut().unwrap().fs,
                     self.c0_wire.as_ref().unwrap(),
-                    self.c1_wire.as_ref().unwrap(),
-                    &cs,
+                    self.c1_powers_cache.as_ref().unwrap(),
                     &address,
                     &fs_entry,
                     &mut self.debug_sets.fs,
@@ -435,25 +491,28 @@ impl NebulaMemoryConstraints<F> {
         cond: &Boolean<F>,
         wire: &mut FpVar<F>,
         c0: &FpVar<F>,
-        c1: &FpVar<F>,
-        cs: &ConstraintSystemRef<F>,
-        address: &Address<FpVar<F>>,
-        vt: &MemOp<FpVar<F>>,
-        debug_set: &mut BTreeMap<Address<F>, MemOp<F>>,
+        c1_powers: &[FpVar<F>],
+        address: &AllocatedAddress,
+        vt: &MemOpAllocated<F>,
+        debug_set: &mut BTreeMap<Address<F, u64>, MemOp<F>>,
     ) -> Result<(), SynthesisError> {
-        // TODO: I think this is incorrect, why isn't this allocated before?
-        let ts = FpVar::new_witness(cs.clone(), || Ok(F::from(vt.timestamp))).unwrap();
-        let fingerprint = fingerprint(c0, c1, &ts, &address.addr, vt.values.as_ref())?;
+        let fingerprint = fingerprint_with_cached_powers(
+            c0,
+            c1_powers,
+            &vt.timestamp,
+            &address.addr,
+            vt.values.as_ref(),
+        )?;
 
         if cond.value()? {
             debug_set.insert(
                 Address {
                     addr: address.addr.value()?,
-                    tag: address.tag,
+                    tag: address.tag_value(),
                 },
                 MemOp {
                     values: vt.debug_values(),
-                    timestamp: vt.timestamp,
+                    timestamp: vt.timestamp.value()?.into_bigint().as_ref()[0],
                 },
             );
         }
@@ -464,21 +523,53 @@ impl NebulaMemoryConstraints<F> {
     }
 }
 
-fn fingerprint(
+fn enforce_monotonic_commitment(
+    cs: &ConstraintSystemRef<FpGoldilocks>,
+    address: &Address<FpVar<F>, FpVar<F>>,
+    last_addr: &mut Address<FpVar<F>, FpVar<F>>,
+) -> Result<(), SynthesisError> {
+    let same_segment = &address.tag.is_eq(&last_addr.tag)?;
+
+    let next_segment = address
+        .tag
+        .is_eq(&(&last_addr.tag + FpVar::new_constant(cs.clone(), F::from(1))?))?;
+
+    let is_padding = address
+        .tag
+        .is_eq(&FpVar::new_constant(cs.clone(), F::from(0))?)?;
+
+    let segment_monotonic_constraint = same_segment | &next_segment | &is_padding;
+
+    address.addr.conditional_enforce_equal(
+        &(&last_addr.addr + FpVar::new_constant(cs.clone(), F::from(1))?),
+        &(same_segment & !is_padding),
+    )?;
+
+    segment_monotonic_constraint.enforce_equal(&Boolean::TRUE)?;
+
+    Ok(())
+}
+
+fn fingerprint_with_cached_powers(
     c0: &FpVar<F>,
-    c1: &FpVar<F>,
+    c1_powers: &[FpVar<F>],
     timestamp: &FpVar<F>,
     addr: &FpVar<F>,
     values: &[FpVar<F>],
 ) -> Result<FpVar<F>, SynthesisError> {
-    let mut x = timestamp + c1 * addr;
+    let cs = c0.cs();
 
-    let mut c1_p = c1.clone();
+    let mut x = timestamp + &c1_powers[0] * addr;
 
-    for v in values {
-        c1_p = c1_p * c1;
-
-        x += v * &c1_p;
+    for (v, c1_p) in values
+        .iter()
+        .cloned()
+        .chain(repeat_with(|| {
+            FpVar::new_witness(cs.clone(), || Ok(F::from(0))).unwrap()
+        }))
+        .zip(c1_powers.iter())
+    {
+        x += v * c1_p;
     }
 
     Ok(c0 - x)

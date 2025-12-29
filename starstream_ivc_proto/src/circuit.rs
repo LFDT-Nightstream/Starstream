@@ -16,14 +16,14 @@ use std::marker::PhantomData;
 use tracing::debug_span;
 
 /// The RAM part is an array of ProgramState
-pub const RAM_SEGMENT: u64 = 9u64;
+pub const RAM_SEGMENT: u64 = 1u64;
 /// Utxos don't have contiguous ids, so we use these to map ids to contiguous
 /// addresses.
-pub const UTXO_INDEX_MAPPING_SEGMENT: u64 = 10u64;
+pub const UTXO_INDEX_MAPPING_SEGMENT: u64 = 2u64;
 /// The expected output for each utxo.
 /// This is public, so the verifier can just set the ROM to the values it
 /// expects.
-pub const OUTPUT_CHECK_SEGMENT: u64 = 11u64;
+pub const OUTPUT_CHECK_SEGMENT: u64 = 3u64;
 
 pub const PROGRAM_STATE_SIZE: u64 =
     4u64 // state
@@ -288,7 +288,7 @@ impl Wires {
             &(yield_resume_switch | utxo_yield_switch),
             &Address {
                 addr: coord_address.clone(),
-                tag: RAM_SEGMENT,
+                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
             },
         )?;
 
@@ -298,7 +298,7 @@ impl Wires {
             check_utxo_output_switch,
             &Address {
                 addr: utxo_address.clone(),
-                tag: RAM_SEGMENT,
+                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
             },
         )?;
 
@@ -315,7 +315,7 @@ impl Wires {
             coord_conditional_write_switch,
             &Address {
                 addr: coord_address.clone(),
-                tag: RAM_SEGMENT,
+                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
             },
             &coord_write_wires.to_var_vec(),
         )?;
@@ -327,7 +327,7 @@ impl Wires {
             &utxo_conditional_write_switch,
             &Address {
                 addr: utxo_address.clone(),
-                tag: RAM_SEGMENT,
+                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
             },
             &utxo_write_wires.to_var_vec(),
         )?;
@@ -344,7 +344,7 @@ impl Wires {
             &!nop_switch,
             &Address {
                 addr: (&utxo_address + &utxos_len),
-                tag: UTXO_INDEX_MAPPING_SEGMENT,
+                tag: FpVar::new_constant(cs.clone(), F::from(UTXO_INDEX_MAPPING_SEGMENT))?,
             },
         )?;
 
@@ -356,7 +356,7 @@ impl Wires {
             check_utxo_output_switch,
             &Address {
                 addr: utxo_output_address,
-                tag: OUTPUT_CHECK_SEGMENT,
+                tag: FpVar::new_constant(cs.clone(), F::from(OUTPUT_CHECK_SEGMENT))?,
             },
         )?;
 
