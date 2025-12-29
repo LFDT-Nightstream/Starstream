@@ -23,15 +23,16 @@ where
 
 impl<M> StepCircuitNeo<M>
 where
-    M: IVCMemory<crate::F, Params = ()>,
+    M: IVCMemory<crate::F>,
 {
     pub fn new(
         mut circuit_builder: StepCircuitBuilder<M>,
         shape_ccs: CcsStructure<neo_math::F>,
+        params: M::Params,
     ) -> Self {
         let irw = InterRoundWires::new(circuit_builder.rom_offset());
 
-        let mb = circuit_builder.trace_memory_ops(());
+        let mb = circuit_builder.trace_memory_ops(params);
 
         Self {
             shape_ccs,
@@ -173,11 +174,14 @@ fn ark_matrix_to_neo(
 pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
     let original_u64 = col_v.into_bigint().0[0];
     let result = neo_math::F::from_u64(original_u64);
-    
+
     // Assert that we can convert back and get the same element
     let converted_back = FpGoldilocks::from(original_u64);
-    assert_eq!(*col_v, converted_back, "Field element conversion is not reversible");
-    
+    assert_eq!(
+        *col_v, converted_back,
+        "Field element conversion is not reversible"
+    );
+
     result
 }
 

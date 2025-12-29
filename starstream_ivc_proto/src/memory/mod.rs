@@ -1,6 +1,6 @@
 use crate::F;
 use ark_ff::PrimeField;
-use ark_r1cs_std::{alloc::AllocVar, fields::fp::FpVar, prelude::Boolean};
+use ark_r1cs_std::{GR1CSVar as _, alloc::AllocVar, fields::fp::FpVar, prelude::Boolean};
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 pub use dummy::DummyMemory;
 
@@ -8,20 +8,39 @@ mod dummy;
 pub mod nebula;
 
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug, Clone)]
-pub struct Address<F> {
-    pub addr: F,
-    pub tag: u64,
+pub struct Address<A = u64, T = u64> {
+    pub tag: T,
+    pub addr: A,
 }
 
-impl Address<u64> {
+pub type AllocatedAddress = Address<FpVar<F>, FpVar<F>>;
+
+impl Address {
     pub(crate) fn allocate(
         &self,
         cs: ConstraintSystemRef<F>,
-    ) -> Result<Address<FpVar<F>>, SynthesisError> {
+    ) -> Result<AllocatedAddress, SynthesisError> {
         Ok(Address {
-            addr: FpVar::new_witness(cs, || Ok(F::from(self.addr)))?,
-            tag: self.tag,
+            addr: FpVar::new_witness(cs.clone(), || Ok(F::from(self.addr)))?,
+            tag: FpVar::new_witness(cs, || Ok(F::from(self.tag)))?,
         })
+    }
+}
+
+impl AllocatedAddress {
+    pub fn address_value(&self) -> u64 {
+        self.addr.value().unwrap().into_bigint().as_ref()[0]
+    }
+
+    pub fn tag_value(&self) -> u64 {
+        self.tag.value().unwrap().into_bigint().as_ref()[0]
+    }
+
+    pub fn values(&self) -> Address<u64, u64> {
+        Address {
+            tag: self.tag_value(),
+            addr: self.address_value(),
+        }
     }
 }
 
@@ -49,13 +68,13 @@ pub trait IVCMemoryAllocated<F: PrimeField> {
     fn conditional_read(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
+        address: &AllocatedAddress,
     ) -> Result<Vec<FpVar<F>>, SynthesisError>;
 
     fn conditional_write(
         &mut self,
         cond: &Boolean<F>,
-        address: &Address<FpVar<F>>,
+        address: &AllocatedAddress,
         vals: &[FpVar<F>],
     ) -> Result<(), SynthesisError>;
 }
