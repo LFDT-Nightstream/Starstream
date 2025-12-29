@@ -4,12 +4,13 @@ pub mod tracer;
 
 use super::Address;
 use crate::F;
-use ark_ff::{AdditiveGroup as _, PrimeField};
+use ark_ff::PrimeField;
 use ark_r1cs_std::GR1CSVar as _;
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 pub use gadget::NebulaMemoryConstraints;
+use std::iter::repeat;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemOp<F> {
@@ -17,34 +18,56 @@ pub struct MemOp<F> {
     pub timestamp: u64,
 }
 
+pub struct MemOpAllocated<F: PrimeField> {
+    pub values: Vec<FpVar<F>>,
+    pub timestamp: FpVar<F>,
+}
+
 impl MemOp<F> {
-    pub fn allocate(&self, cs: ConstraintSystemRef<F>) -> Result<MemOp<FpVar<F>>, SynthesisError>
+    pub fn padding() -> MemOp<F> {
+        MemOp {
+            values: vec![],
+            timestamp: 0,
+        }
+    }
+
+    pub fn allocate(
+        &self,
+        cs: ConstraintSystemRef<F>,
+        pad_to: usize,
+    ) -> Result<MemOpAllocated<F>, SynthesisError>
     where
         F: PrimeField,
     {
-        Ok(MemOp {
+        let fp = F::from(0);
+        Ok(MemOpAllocated {
             values: self
                 .values
                 .iter()
+                .chain(repeat(&fp))
+                .take(pad_to)
                 .map(|v| FpVar::new_witness(cs.clone(), || Ok(*v)))
                 .collect::<Result<Vec<_>, _>>()?,
-            timestamp: self.timestamp,
+            timestamp: FpVar::new_witness(cs.clone(), || Ok(F::from(self.timestamp)))?,
         })
     }
 }
 
-impl MemOp<FpVar<F>>
+impl MemOpAllocated<F>
 where
     F: PrimeField,
 {
-    pub fn padding(segment_size: u64) -> MemOp<F> {
-        MemOp {
-            values: std::iter::repeat_with(|| F::ZERO)
-                .take(segment_size as usize)
-                .collect::<Vec<_>>(),
-            timestamp: 0,
-        }
-    }
+    // pub fn padding(
+    //     cs: ConstraintSystemRef<F>,
+    //     segment_size: u64,
+    // ) -> Result<MemOpAllocated<F>, SynthesisError> {
+    //     Ok(MemOpAllocated {
+    //         values: std::iter::repeat_with(|| FpVar::new_witness(cs.clone(), || Ok(F::ZERO)))
+    //             .take(segment_size as usize)
+    //             .collect::<Result<Vec<_>, _>>()?,
+    //         timestamp: FpVar::new_witness(cs, || Ok(F::from(0)))?,
+    //     })
+    // }
 
     pub fn debug_values(&self) -> Vec<F> {
         self.values.iter().map(|v| v.value().unwrap()).collect()
@@ -68,7 +91,9 @@ mod tests {
     fn test_nebula_memory_constraints_satisfiability() {
         init_test_logging();
 
-        let mut memory = NebulaMemory::new(NebulaMemoryParams { scan_batch_size: 1 });
+        let mut memory = NebulaMemory::<1>::new(NebulaMemoryParams {
+            unsound_disable_poseidon_commitment: false,
+        });
 
         memory.register_mem(1, 2, "test_segment");
 
@@ -96,11 +121,7 @@ mod tests {
 
         constraints.start_step(cs.clone()).unwrap();
 
-        let addr_var = FpVar::new_witness(cs.clone(), || Ok(F::from(10))).unwrap();
-        let address_var = Address {
-            addr: addr_var,
-            tag: 1,
-        };
+        let address_var = Address { addr: 10, tag: 1 }.allocate(cs.clone()).unwrap();
 
         let true_cond = Boolean::new_witness(cs.clone(), || Ok(true)).unwrap();
         let false_cond = Boolean::new_witness(cs.clone(), || Ok(false)).unwrap();
@@ -152,7 +173,9 @@ mod tests {
             read_cond: bool,
             write_cond: bool,
         ) -> ark_relations::gr1cs::ConstraintSystemRef<F> {
-            let mut memory = NebulaMemory::new(NebulaMemoryParams { scan_batch_size: 1 });
+            let mut memory = NebulaMemory::<1>::new(NebulaMemoryParams {
+                unsound_disable_poseidon_commitment: false,
+            });
             memory.register_mem(1, 2, "test_segment");
 
             let address = Address { addr: 10, tag: 1 };
@@ -171,11 +194,7 @@ mod tests {
 
             constraints.start_step(cs.clone()).unwrap();
 
-            let addr_var = FpVar::new_witness(cs.clone(), || Ok(F::from(10))).unwrap();
-            let address_var = Address {
-                addr: addr_var,
-                tag: 1,
-            };
+            let address_var = Address { addr: 10, tag: 1 }.allocate(cs.clone()).unwrap();
 
             let cond_read = Boolean::new_witness(cs.clone(), || Ok(read_cond)).unwrap();
             let cond_write = Boolean::new_witness(cs.clone(), || Ok(write_cond)).unwrap();
@@ -260,11 +279,11 @@ mod tests {
     fn test_scan_batch_size_multi_step() {
         init_test_logging();
 
-        let scan_batch_size = 2;
+        const SCAN_BATCH_SIZE: usize = 2;
         let num_steps = 3;
-        let total_addresses = scan_batch_size * num_steps; // 6 addresses
+        let total_addresses = SCAN_BATCH_SIZE * num_steps; // 6 addresses
 
-        let mut memory = NebulaMemory::new(NebulaMemoryParams { scan_batch_size });
+        let mut memory = NebulaMemory::<SCAN_BATCH_SIZE>::new(NebulaMemoryParams::default());
         memory.register_mem(1, 2, "test_segment");
 
         let addresses: Vec<Address<u64>> = (0..total_addresses)
@@ -296,11 +315,12 @@ mod tests {
             let cs = ConstraintSystem::<F>::new_ref();
             constraints.start_step(cs.clone()).unwrap();
 
-            let addr_var = FpVar::new_witness(cs.clone(), || Ok(F::from(step as u64))).unwrap();
             let address_var = Address {
-                addr: addr_var,
+                addr: step as u64,
                 tag: 1,
-            };
+            }
+            .allocate(cs.clone())
+            .unwrap();
 
             let true_cond = Boolean::new_witness(cs.clone(), || Ok(true)).unwrap();
 
@@ -329,7 +349,7 @@ mod tests {
 
         println!(
             "Multi-step scan batch test completed: {} addresses, {} steps, batch size {}",
-            total_addresses, num_steps, scan_batch_size
+            total_addresses, num_steps, SCAN_BATCH_SIZE
         );
     }
 }

@@ -17,6 +17,7 @@ use neo_params::NeoParams;
 
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
+use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
 use crate::neo::arkworks_to_neo_ccs;
 use crate::{memory::DummyMemory, neo::StepCircuitNeo};
 use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
@@ -132,9 +133,9 @@ impl Transaction<Vec<LedgerOperation<F>>> {
     }
 
     pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
-        let shape_ccs = ccs_step_shape()?;
+        let shape_ccs = ccs_step_shape(self.utxo_deltas.clone())?;
 
-        let tx = StepCircuitBuilder::<DummyMemory<F>>::new(
+        let tx = StepCircuitBuilder::<NebulaMemory<5>>::new(
             self.utxo_deltas.clone(),
             self.proof_like.clone(),
         );
@@ -143,23 +144,32 @@ impl Transaction<Vec<LedgerOperation<F>>> {
 
         let n = shape_ccs.n.max(shape_ccs.m);
 
-        let mut f_circuit = StepCircuitNeo::new(tx, shape_ccs.clone());
+        let mut f_circuit = StepCircuitNeo::new(
+            tx,
+            shape_ccs.clone(),
+            NebulaMemoryParams {
+                // the proof system is still too slow to run the poseidon commitments, especially when iterating.
+                unsound_disable_poseidon_commitment: true,
+            },
+        );
 
         // since we are using square matrices, n = m
         neo::setup_ajtai_for_dims(n);
 
         let l = AjtaiSModule::from_global_for_dims(neo_math::D, n).expect("AjtaiSModule init");
 
-        let params = NeoParams::goldilocks_auto_r1cs_ccs(n)
+        let mut params = NeoParams::goldilocks_auto_r1cs_ccs(n)
             .expect("goldilocks_auto_r1cs_ccs should find valid params");
 
-        let mut session = FoldingSession::new(FoldingMode::PaperExact, params, l.clone());
+        params.b = 3;
+
+        let mut session = FoldingSession::new(FoldingMode::Optimized, params, l.clone());
 
         for _i in 0..num_iters {
-            session.prove_step(&mut f_circuit, &()).unwrap();
+            session.add_step(&mut f_circuit, &()).unwrap();
         }
 
-        let run = session.finalize(&shape_ccs).unwrap();
+        let run = session.fold_and_prove(&shape_ccs).unwrap();
 
         let mcss_public = session.mcss_public();
         let ok = session
@@ -174,7 +184,9 @@ impl Transaction<Vec<LedgerOperation<F>>> {
     }
 }
 
-fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
+fn ccs_step_shape(
+    utxo_deltas: BTreeMap<ProgramId, UtxoChange>,
+) -> Result<CcsStructure<neo_math::F>, SynthesisError> {
     let _span = tracing::debug_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
@@ -182,12 +194,19 @@ fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
     let cs = ConstraintSystem::new_ref();
     cs.set_optimization_goal(ark_relations::gr1cs::OptimizationGoal::Constraints);
 
-    let mut dummy_tx = StepCircuitBuilder::<DummyMemory<F>>::new(
-        Default::default(),
-        vec![LedgerOperation::Nop {}],
-    );
+    // let mut dummy_tx = StepCircuitBuilder::<DummyMemory<F>>::new(
+    //     Default::default(),
+    //     vec![LedgerOperation::Nop {}],
+    // );
+    //
+    let mut dummy_tx =
+        StepCircuitBuilder::<NebulaMemory<5>>::new(utxo_deltas, vec![LedgerOperation::Nop {}]);
 
-    let mb = dummy_tx.trace_memory_ops(());
+    // let mb = dummy_tx.trace_memory_ops(());
+    let mb = dummy_tx.trace_memory_ops(NebulaMemoryParams {
+        unsound_disable_poseidon_commitment: true,
+    });
+
     let irw = InterRoundWires::new(dummy_tx.rom_offset());
     dummy_tx.make_step_circuit(0, &mut mb.constraints(), cs.clone(), irw)?;
 
