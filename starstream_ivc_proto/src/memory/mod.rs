@@ -2,9 +2,8 @@ use crate::F;
 use ark_ff::PrimeField;
 use ark_r1cs_std::{GR1CSVar as _, alloc::AllocVar, fields::fp::FpVar, prelude::Boolean};
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
-pub use dummy::DummyMemory;
 
-mod dummy;
+pub mod dummy;
 pub mod nebula;
 
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug, Clone)]

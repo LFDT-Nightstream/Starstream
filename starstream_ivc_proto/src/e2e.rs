@@ -259,6 +259,7 @@ impl MockedProgram {
 #[derive(Clone, Debug)]
 pub struct UtxoState {
     output: crate::F,
+    #[allow(dead_code)]
     memory: crate::F,
 }
 

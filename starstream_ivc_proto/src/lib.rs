@@ -19,7 +19,7 @@ use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
 use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
 use crate::neo::arkworks_to_neo_ccs;
-use crate::{memory::DummyMemory, neo::StepCircuitNeo};
+use crate::neo::StepCircuitNeo;
 use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
 use circuit::StepCircuitBuilder;
 use goldilocks::FpGoldilocks;

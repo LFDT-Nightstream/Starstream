@@ -166,7 +166,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         let mut c1_powers = Vec::with_capacity(max_segment_size);
         let mut c1_p = c1_wire.clone();
         for _ in 0..max_segment_size {
-            c1_p = c1_p * c1_wire;
+            c1_p *= c1_wire;
             c1_powers.push(c1_p.clone());
         }
         self.c1_powers_cache = Some(c1_powers);
@@ -252,7 +252,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         let rv = self.get_read_op(cond, &address_val, mem.0)?;
         let wv = self.get_write_op(cond, &address_val, mem.0)?;
 
-        self.update_ic_with_ops(&cond, address, &rv, &wv)?;
+        self.update_ic_with_ops(cond, address, &rv, &wv)?;
 
         tracing::debug!(
             "nebula read {:?} at address {} in segment {}",
@@ -383,14 +383,14 @@ impl NebulaMemoryConstraints<F> {
             &mut self.fingerprint_wires.as_mut().unwrap().rs,
             self.c0_wire.as_ref().unwrap(),
             self.c1_powers_cache.as_ref().unwrap(),
-            &address,
+            address,
             rv,
             &mut self.debug_sets.rs,
         )?;
 
         self.step_ic_rs_ws.as_mut().unwrap().increment(
             address,
-            &rv,
+            rv,
             self.params.unsound_disable_poseidon_commitment,
         )?;
 
@@ -399,14 +399,14 @@ impl NebulaMemoryConstraints<F> {
             &mut self.fingerprint_wires.as_mut().unwrap().ws,
             self.c0_wire.as_ref().unwrap(),
             self.c1_powers_cache.as_ref().unwrap(),
-            &address,
+            address,
             wv,
             &mut self.debug_sets.ws,
         )?;
 
         self.step_ic_rs_ws.as_mut().unwrap().increment(
             address,
-            &wv,
+            wv,
             self.params.unsound_disable_poseidon_commitment,
         )?;
 
@@ -423,67 +423,68 @@ impl NebulaMemoryConstraints<F> {
         let mem_padding = MemOp::padding();
         let max_segment_size = self.max_segment_size() as usize;
 
+        let _: () = for (addr, is_v) in self
+            .is
+            .iter()
+            .skip(self.scan_batch_size * self.current_step)
+            .chain(std::iter::repeat((&address_padding, &mem_padding)))
+            // TODO: padding
+            .take(self.scan_batch_size)
+        {
+            let fs_v = self.fs.get(addr).unwrap_or(&mem_padding);
+
+            let address = addr.allocate(cs.clone())?;
+
+            // ensure commitment is monotonic
+            // so that it's not possible to insert an address twice
+            //
+            // we get disjoint ranges anyway because of the segments so we
+            // can have different memories with different sizes, but each
+            // segment is contiguous
+            let last_addr = self.scan_monotonic_last_addr_wires.as_mut().unwrap();
+
+            enforce_monotonic_commitment(&cs, &address, last_addr)?;
+
+            *last_addr = address.clone();
+
+            let is_entry = is_v.allocate(cs.clone(), max_segment_size)?;
+
+            self.step_ic_is_fs.as_mut().unwrap().increment(
+                &address,
+                &is_entry,
+                self.params.unsound_disable_poseidon_commitment,
+            )?;
+
+            let fs_entry = fs_v.allocate(cs.clone(), max_segment_size)?;
+
+            self.step_ic_is_fs.as_mut().unwrap().increment(
+                &address,
+                &fs_entry,
+                self.params.unsound_disable_poseidon_commitment,
+            )?;
+
+            Self::hash_avt(
+                &Boolean::constant(true),
+                &mut self.fingerprint_wires.as_mut().unwrap().is,
+                self.c0_wire.as_ref().unwrap(),
+                self.c1_powers_cache.as_ref().unwrap(),
+                &address,
+                &is_entry,
+                &mut self.debug_sets.is,
+            )?;
+
+            Self::hash_avt(
+                &Boolean::constant(true),
+                &mut self.fingerprint_wires.as_mut().unwrap().fs,
+                self.c0_wire.as_ref().unwrap(),
+                self.c1_powers_cache.as_ref().unwrap(),
+                &address,
+                &fs_entry,
+                &mut self.debug_sets.fs,
+            )?;
+        };
         Ok(
-            for (addr, is_v) in self
-                .is
-                .iter()
-                .skip(self.scan_batch_size * self.current_step)
-                .chain(std::iter::repeat((&address_padding, &mem_padding)))
-                // TODO: padding
-                .take(self.scan_batch_size)
-            {
-                let fs_v = self.fs.get(addr).unwrap_or(&mem_padding);
-
-                let address = addr.allocate(cs.clone())?;
-
-                // ensure commitment is monotonic
-                // so that it's not possible to insert an address twice
-                //
-                // we get disjoint ranges anyway because of the segments so we
-                // can have different memories with different sizes, but each
-                // segment is contiguous
-                let last_addr = self.scan_monotonic_last_addr_wires.as_mut().unwrap();
-
-                enforce_monotonic_commitment(&cs, &address, last_addr)?;
-
-                *last_addr = address.clone();
-
-                let is_entry = is_v.allocate(cs.clone(), max_segment_size)?;
-
-                self.step_ic_is_fs.as_mut().unwrap().increment(
-                    &address,
-                    &is_entry,
-                    self.params.unsound_disable_poseidon_commitment,
-                )?;
-
-                let fs_entry = fs_v.allocate(cs.clone(), max_segment_size)?;
-
-                self.step_ic_is_fs.as_mut().unwrap().increment(
-                    &address,
-                    &fs_entry,
-                    self.params.unsound_disable_poseidon_commitment,
-                )?;
-
-                Self::hash_avt(
-                    &Boolean::constant(true),
-                    &mut self.fingerprint_wires.as_mut().unwrap().is,
-                    self.c0_wire.as_ref().unwrap(),
-                    self.c1_powers_cache.as_ref().unwrap(),
-                    &address,
-                    &is_entry,
-                    &mut self.debug_sets.is,
-                )?;
-
-                Self::hash_avt(
-                    &Boolean::constant(true),
-                    &mut self.fingerprint_wires.as_mut().unwrap().fs,
-                    self.c0_wire.as_ref().unwrap(),
-                    self.c1_powers_cache.as_ref().unwrap(),
-                    &address,
-                    &fs_entry,
-                    &mut self.debug_sets.fs,
-                )?;
-            },
+            (),
         )
     }
 

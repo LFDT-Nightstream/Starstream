@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 
+#[allow(dead_code)]
 pub struct DummyMemory<F> {
     pub(crate) phantom: PhantomData<F>,
     pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
@@ -86,6 +87,7 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
     }
 }
 
+#[allow(dead_code)]
 pub struct DummyMemoryConstraints<F: PrimeField> {
     pub(crate) cs: Option<ConstraintSystemRef<F>>,
     pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
