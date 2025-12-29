@@ -30,7 +30,7 @@ where
         shape_ccs: CcsStructure<neo_math::F>,
         params: M::Params,
     ) -> Self {
-        let irw = InterRoundWires::new(circuit_builder.rom_offset());
+        let irw = InterRoundWires::new(crate::F::from(circuit_builder.p_len() as u64));
 
         let mb = circuit_builder.trace_memory_ops(params);
 
@@ -81,6 +81,7 @@ where
 
         let mut step = arkworks_to_neo(cs.clone());
 
+        dbg!(cs.which_is_unsatisfied().unwrap());
         assert!(cs.is_satisfied().unwrap());
 
         let padded_witness_len = step.ccs.n.max(step.ccs.m);

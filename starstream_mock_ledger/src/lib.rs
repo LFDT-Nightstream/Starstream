@@ -4,15 +4,13 @@ mod transaction_effects;
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    mocked_verifier::MockedLookupTableCommitment,
-    transaction_effects::{ProcessId, instance::InterleavingInstance},
-};
+pub use crate::{mocked_verifier::MockedLookupTableCommitment, transaction_effects::ProcessId};
 use imbl::{HashMap, HashSet};
 use std::{hash::Hasher, marker::PhantomData};
+pub use transaction_effects::{instance::InterleavingInstance, witness::WitLedgerEffect};
 
 #[derive(PartialEq, Eq)]
-pub struct Hash<T>([u8; 32], PhantomData<T>);
+pub struct Hash<T>(pub [u8; 32], pub PhantomData<T>);
 
 impl<T> Copy for Hash<T> {}
 
@@ -56,17 +54,13 @@ pub struct CoroutineState {
     // which case last_yield could be used to persist the storage, and pc could
     // be instead the call stack).
     pc: u64,
-    last_yield: Value,
+    pub last_yield: Value,
 }
 
 pub struct ZkTransactionProof {}
 
 impl ZkTransactionProof {
-    pub fn verify(
-        &self,
-        inst: &InterleavingInstance,
-        input_states: &[CoroutineState],
-    ) -> Result<(), VerificationError> {
+    pub fn verify(&self, inst: &InterleavingInstance) -> Result<(), VerificationError> {
         let traces = inst
             .host_calls_roots
             .iter()
@@ -75,11 +69,7 @@ impl ZkTransactionProof {
 
         let wit = mocked_verifier::InterleavingWitness { traces };
 
-        Ok(mocked_verifier::verify_interleaving_semantics(
-            inst,
-            &wit,
-            input_states,
-        )?)
+        Ok(mocked_verifier::verify_interleaving_semantics(inst, &wit)?)
     }
 }
 
@@ -573,71 +563,44 @@ impl Ledger {
             })
             .collect::<Vec<_>>();
 
-        let inst = InterleavingInstance {
-            n_inputs,
-            n_new,
-            n_coords,
-
-            host_calls_roots: wasm_instances
-                .iter()
-                .map(|w| w.host_calls_root.clone())
-                .collect(),
-            host_calls_lens: wasm_instances.iter().map(|w| w.host_calls_len).collect(),
-
-            process_table: process_table.to_vec(),
-            is_utxo: is_utxo.to_vec(),
-            must_burn: burned.to_vec(),
-
-            ownership_in: ownership_in.to_vec(),
-            ownership_out: ownership_out.to_vec(),
-
-            entrypoint: ProcessId(body.entrypoint),
-        };
-
-        let interleaving_proof: &ZkTransactionProof = &witness.interleaving_proof;
-
         let input_states: Vec<CoroutineState> = body
             .inputs
             .iter()
             .map(|utxo_id| self.utxos[utxo_id].state.clone())
             .collect();
 
+        let inst = InterleavingInstance {
+            host_calls_roots: wasm_instances
+                .iter()
+                .map(|w| w.host_calls_root.clone())
+                .collect(),
+            host_calls_lens: wasm_instances.iter().map(|w| w.host_calls_len).collect(),
+            process_table: process_table.to_vec(),
+
+            is_utxo: is_utxo.to_vec(),
+            must_burn: burned.to_vec(),
+
+            n_inputs,
+            n_new,
+            n_coords,
+
+            ownership_in: ownership_in.to_vec(),
+            ownership_out: ownership_out.to_vec(),
+
+            entrypoint: ProcessId(body.entrypoint),
+            input_states,
+        };
+
+        let interleaving_proof: &ZkTransactionProof = &witness.interleaving_proof;
+
         // note however that this is mocked right now, and it's using a non-zk
         // verifier.
         //
         // but the circuit in theory in theory encode the same machine
-        interleaving_proof.verify(&inst, &input_states)?;
+        interleaving_proof.verify(&inst)?;
 
         Ok(())
     }
-}
-
-pub fn verify_interleaving_public(
-    interleaving_proof: &ZkTransactionProof,
-    body: &TransactionBody,
-    ledger: &Ledger,
-    inst: InterleavingInstance,
-) -> Result<(), VerificationError> {
-    // Collect input states for the interleaving proof
-    let input_states: Vec<CoroutineState> = body
-        .inputs
-        .iter()
-        .map(|utxo_id| ledger.utxos[utxo_id].state.clone())
-        .collect();
-
-    // ---------- verify interleaving proof ----------
-    // All semantics (resume/yield matching, ownership authorization, attestation, etc.)
-    // are enforced inside the interleaving circuit relative to inst + the committed tables.
-    //
-    // See the README.md for the high level description.
-    //
-    // NOTE: however that this is mocked right now, and it's using a non-zk
-    // verifier.
-    //
-    // but the circuit in theory in theory encode the same machine
-    interleaving_proof.verify(&inst, &input_states)?;
-
-    Ok(())
 }
 
 pub fn build_wasm_instances_in_canonical_order(
