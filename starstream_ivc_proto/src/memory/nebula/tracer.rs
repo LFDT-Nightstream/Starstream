@@ -100,17 +100,11 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
     }
 }
 
+#[derive(Default)]
 pub struct NebulaMemoryParams {
     pub unsound_disable_poseidon_commitment: bool,
 }
 
-impl Default for NebulaMemoryParams {
-    fn default() -> Self {
-        Self {
-            unsound_disable_poseidon_commitment: false,
-        }
-    }
-}
 
 impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE> {
     type Allocator = NebulaMemoryConstraints<F>;
@@ -172,7 +166,7 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
                 .iter()
                 .flat_map(|(addr, queue)| queue.iter().map(move |vt| (addr, vt))),
         ) {
-            if !self.rs.get(addr).map_or(false, |vals| vals.contains(vt)) {
+            if !self.rs.get(addr).is_some_and(|vals| vals.contains(vt)) {
                 fs.insert(addr.clone(), vt.clone());
             }
         }
@@ -201,7 +195,7 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
             step_ts: None,
             expected_rw_ws: self.ic_rs_ws,
             expected_is_fs: ic_is_fs,
-            fs: fs,
+            fs,
             is: self.is,
             current_step: 0,
             params: self.params,
