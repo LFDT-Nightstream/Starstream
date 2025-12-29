@@ -19,7 +19,7 @@ use thiserror;
 pub struct MockedLookupTableCommitment {
     // obviously the actual commitment shouldn't have this
     // but this is used for the mocked circuit
-    pub(crate) trace: Vec<WitLedgerEffect>,
+    pub trace: Vec<WitLedgerEffect>,
 }
 
 /// A “proof input” for tests: provide per-process traces directly.
@@ -208,7 +208,6 @@ pub struct InterleavingState {
 pub fn verify_interleaving_semantics(
     inst: &InterleavingInstance,
     wit: &InterleavingWitness,
-    input_states: &[crate::CoroutineState],
 ) -> Result<(), InterleavingError> {
     inst.check_shape()?;
 
@@ -226,7 +225,7 @@ pub fn verify_interleaving_semantics(
     // TODO: maybe we also need to assert/prove that it starts with a Yield
     let mut claims_memory = vec![Value::nil(); n];
     for i in 0..inst.n_inputs {
-        claims_memory[i] = input_states[i].last_yield.clone();
+        claims_memory[i] = inst.input_states[i].last_yield.clone();
     }
 
     let rom = ROM {

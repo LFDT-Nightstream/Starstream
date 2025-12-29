@@ -1,6 +1,8 @@
 mod circuit;
 #[cfg(test)]
-mod e2e;
+mod circuit_test;
+// #[cfg(test)]
+// mod e2e;
 mod goldilocks;
 mod memory;
 mod neo;
@@ -8,108 +10,77 @@ mod poseidon2;
 #[cfg(test)]
 mod test_utils;
 
+use std::collections::HashMap;
+
+use crate::circuit::InterRoundWires;
+use crate::memory::IVCMemory;
+use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
+use crate::neo::StepCircuitNeo;
+use crate::neo::arkworks_to_neo_ccs;
+use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
+use circuit::StepCircuitBuilder;
+use goldilocks::FpGoldilocks;
 pub use memory::nebula;
 use neo_ajtai::AjtaiSModule;
 use neo_ccs::CcsStructure;
 use neo_fold::pi_ccs::FoldingMode;
 use neo_fold::session::FoldingSession;
 use neo_params::NeoParams;
-
-use crate::circuit::InterRoundWires;
-use crate::memory::IVCMemory;
-use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
-use crate::neo::arkworks_to_neo_ccs;
-use crate::neo::StepCircuitNeo;
-use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
-use circuit::StepCircuitBuilder;
-use goldilocks::FpGoldilocks;
-use std::collections::BTreeMap;
+use starstream_mock_ledger::InterleavingInstance;
 
 type F = FpGoldilocks;
-
-#[derive(Debug)]
-pub struct Transaction<P> {
-    pub utxo_deltas: BTreeMap<ProgramId, UtxoChange>,
-    /// An unproven transaction would have here a vector of utxo 'opcodes',
-    /// which are encoded in the `Instruction` enum.
-    ///
-    /// That gets used to generate a proof that validates the list of utxo deltas.
-    proof_like: P,
-    // TODO: we also need here an incremental commitment per wasm program, so
-    // that the trace can be bound to the zkvm proof. Ideally this has to be
-    // done in a way that's native to the proof system, so it's not computed
-    // yet.
-    //
-    // Then at the end of the interleaving proof, we have 1 opening per program
-    // (coordination script | utxo).
-}
 
 pub type ProgramId = F;
 
 #[derive(Debug, Clone)]
-pub struct UtxoChange {
-    // we don't need the input
-    //
-    // we could add the input and output frames here, but the proof for that is external.
-    //
-    /// the value (a commitment to) of the last yield (in a previous tx).
-    pub output_before: F,
-    /// the value (a commitment to) of the last yield for this utxo (in this tx).
-    pub output_after: F,
-
-    /// whether the utxo dies at the end of the transaction.
-    /// if this is true, then there as to be a DropUtxo instruction in the
-    /// transcript somewhere.
-    pub consumed: bool,
-}
-
-// NOTE: see https://github.com/PaimaStudios/Starstream/issues/49#issuecomment-3294246321
-#[derive(Debug, Clone)]
 pub enum LedgerOperation<F> {
-    /// A call to starstream_resume from a coordination script.
+    /// A call to starstream_resume.
     ///
     /// This stores the input and outputs in memory, and sets the
     /// current_program for the next iteration to `utxo_id`.
     ///
     /// Then, when evaluating Yield and YieldResume, we match the input/output
     /// with the corresponding value.
-    Resume { utxo_id: F, input: F, output: F },
+    Resume {
+        target: F,
+        val: F,
+        ret: F,
+        id_prev: Option<F>,
+    },
     /// Called by utxo to yield.
     ///
-    /// There is no output, since that's expected to be in YieldResume.
-    ///
-    /// This operation has to follow a `Resume` with the same value for
-    /// `utxo_id`, and it needs to hold that `yield.input == resume.output`.
-    Yield { utxo_id: F, input: F },
-    /// Called by a utxo to get the coordination script input after a yield.
-    ///
-    /// The reason for the split is mostly so that all host calls can be atomic
-    /// per transaction.
-    YieldResume { utxo_id: F, output: F },
-    /// Explicit drop.
-    ///
-    /// This should be called by a utxo that doesn't yield, and ends its
-    /// lifetime.
-    ///
-    /// This moves control back to the coordination script.
-    DropUtxo { utxo_id: F },
+    Yield {
+        val: F,
+        ret: Option<F>,
+        id_prev: Option<F>,
+    },
+    ProgramHash {
+        target: F,
+        program_hash: F,
+    },
+    NewUtxo {
+        program_hash: F,
+        val: F,
+        target: F,
+    },
+    NewCoord {
+        program_hash: F,
+        val: F,
+        target: F,
+    },
+    Burn {
+        ret: F,
+    },
+    Input {
+        val: F,
+        caller: F,
+    },
 
     /// Auxiliary instructions.
     ///
     /// Nop is used as a dummy instruction to build the circuit layout on the
     /// verifier side.
     Nop {},
-
-    /// Checks that the current output of the utxo matches the expected value in
-    /// the public ROM.
-    ///
-    /// It also increases a counter.
-    ///
-    /// The verifier then checks that all the utxos were verified, so that they
-    /// match the values in the ROM.
-    ///
-    // NOTE: There are other ways of doing this check.
-    CheckUtxoOutput { utxo_id: F },
 }
 
 pub struct ProverOutput {
@@ -117,76 +88,170 @@ pub struct ProverOutput {
     pub proof: (),
 }
 
-impl Transaction<Vec<LedgerOperation<F>>> {
-    pub fn new_unproven(
-        changes: BTreeMap<ProgramId, UtxoChange>,
-        mut ops: Vec<LedgerOperation<F>>,
-    ) -> Self {
-        for utxo_id in changes.keys() {
-            ops.push(LedgerOperation::CheckUtxoOutput { utxo_id: *utxo_id });
-        }
+const SCAN_BATCH_SIZE: usize = 9;
 
-        Self {
-            utxo_deltas: changes,
-            proof_like: ops,
-        }
+pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
+    let shape_ccs = ccs_step_shape(inst.clone())?;
+
+    // map all the disjoints vectors of traces (one per process) into a single
+    // list, which is simpler to think about for ivc.
+    let ops = make_interleaved_trace(&inst);
+
+    println!("making proof, steps {}", ops.len());
+
+    let circuit_builder = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(inst, ops);
+
+    let num_iters = circuit_builder.ops.len();
+
+    let n = shape_ccs.n.max(shape_ccs.m);
+
+    let mut f_circuit = StepCircuitNeo::new(
+        circuit_builder,
+        shape_ccs.clone(),
+        NebulaMemoryParams {
+            // the proof system is still too slow to run the poseidon commitments, especially when iterating.
+            unsound_disable_poseidon_commitment: true,
+        },
+    );
+
+    // since we are using square matrices, n = m
+    neo::setup_ajtai_for_dims(n);
+
+    let l = AjtaiSModule::from_global_for_dims(neo_math::D, n).expect("AjtaiSModule init");
+
+    let mut params = NeoParams::goldilocks_auto_r1cs_ccs(n)
+        .expect("goldilocks_auto_r1cs_ccs should find valid params");
+
+    params.b = 3;
+
+    let mut session = FoldingSession::new(FoldingMode::Optimized, params, l.clone());
+
+    for _i in 0..num_iters {
+        session.add_step(&mut f_circuit, &()).unwrap();
     }
 
-    pub fn prove(&self) -> Result<Transaction<ProverOutput>, SynthesisError> {
-        let shape_ccs = ccs_step_shape(self.utxo_deltas.clone())?;
+    let run = session.fold_and_prove(&shape_ccs).unwrap();
 
-        let tx = StepCircuitBuilder::<NebulaMemory<5>>::new(
-            self.utxo_deltas.clone(),
-            self.proof_like.clone(),
-        );
+    let mcss_public = session.mcss_public();
+    let ok = session
+        .verify(&shape_ccs, &mcss_public, &run)
+        .expect("verify should run");
+    assert!(ok, "optimized verification should pass");
 
-        let num_iters = tx.ops.len();
-
-        let n = shape_ccs.n.max(shape_ccs.m);
-
-        let mut f_circuit = StepCircuitNeo::new(
-            tx,
-            shape_ccs.clone(),
-            NebulaMemoryParams {
-                // the proof system is still too slow to run the poseidon commitments, especially when iterating.
-                unsound_disable_poseidon_commitment: true,
-            },
-        );
-
-        // since we are using square matrices, n = m
-        neo::setup_ajtai_for_dims(n);
-
-        let l = AjtaiSModule::from_global_for_dims(neo_math::D, n).expect("AjtaiSModule init");
-
-        let mut params = NeoParams::goldilocks_auto_r1cs_ccs(n)
-            .expect("goldilocks_auto_r1cs_ccs should find valid params");
-
-        params.b = 3;
-
-        let mut session = FoldingSession::new(FoldingMode::Optimized, params, l.clone());
-
-        for _i in 0..num_iters {
-            session.add_step(&mut f_circuit, &()).unwrap();
-        }
-
-        let run = session.fold_and_prove(&shape_ccs).unwrap();
-
-        let mcss_public = session.mcss_public();
-        let ok = session
-            .verify(&shape_ccs, &mcss_public, &run)
-            .expect("verify should run");
-        assert!(ok, "optimized verification should pass");
-
-        Ok(Transaction {
-            utxo_deltas: self.utxo_deltas.clone(),
-            proof_like: ProverOutput { proof: () },
-        })
-    }
+    // TODO: extract the actual proof
+    Ok(ProverOutput { proof: () })
 }
 
-fn ccs_step_shape(
-    utxo_deltas: BTreeMap<ProgramId, UtxoChange>,
-) -> Result<CcsStructure<neo_math::F>, SynthesisError> {
+fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<crate::F>> {
+    let mut ops = vec![];
+    let mut id_curr = inst.entrypoint.0;
+    let mut id_prev: Option<usize> = None;
+    let mut counters: HashMap<usize, usize> = HashMap::new();
+
+    loop {
+        let c = counters.entry(id_curr).or_insert(0);
+
+        let Some(trace) = inst.host_calls_roots.get(id_curr) else {
+            // No trace for this process, this indicates the end of the transaction
+            // as the entrypoint script has finished and not jumped to another process.
+            break;
+        };
+
+        if *c >= trace.trace.len() {
+            // We've reached the end of the current trace. This is the end.
+            break;
+        }
+
+        let instr = trace.trace[*c].clone();
+        *c += 1;
+
+        let op = match dbg!(instr) {
+            starstream_mock_ledger::WitLedgerEffect::Resume {
+                target,
+                val,
+                ret,
+                id_prev: op_id_prev,
+            } => {
+                id_prev = Some(id_curr);
+                id_curr = target.0;
+
+                LedgerOperation::Resume {
+                    target: (target.0 as u64).into(),
+                    // TODO: figure out how to manage these
+                    // maybe for now just assume that these are short/fixed size
+                    val: value_to_field(val),
+                    ret: value_to_field(ret),
+                    id_prev: op_id_prev.map(|p| (p.0 as u64).into()),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::Yield {
+                val,
+                ret,
+                id_prev: op_id_prev,
+            } => {
+                let parent = id_prev.expect("Yield called without a parent process");
+                let old_id_curr = id_curr;
+                id_curr = parent;
+                id_prev = Some(old_id_curr);
+
+                LedgerOperation::Yield {
+                    val: value_to_field(val),
+                    ret: ret.map(value_to_field),
+                    id_prev: op_id_prev.map(|p| (p.0 as u64).into()),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::Burn { ret } => {
+                let parent = id_prev.expect("Burn called without a parent process");
+                let old_id_curr = id_curr;
+                id_curr = parent;
+                id_prev = Some(old_id_curr);
+
+                LedgerOperation::Burn {
+                    ret: value_to_field(ret),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::NewUtxo {
+                program_hash,
+                val,
+                id,
+            } => LedgerOperation::NewUtxo {
+                program_hash: F::from(program_hash.0[0] as u64),
+                val: value_to_field(val),
+                target: (id.0 as u64).into(),
+            },
+            starstream_mock_ledger::WitLedgerEffect::NewCoord {
+                program_hash,
+                val,
+                id,
+            } => LedgerOperation::NewCoord {
+                program_hash: F::from(program_hash.0[0] as u64),
+                val: value_to_field(val),
+                target: (id.0 as u64).into(),
+            },
+            starstream_mock_ledger::WitLedgerEffect::Input { val, caller } => {
+                LedgerOperation::Input {
+                    val: value_to_field(val),
+                    caller: (caller.0 as u64).into(),
+                }
+            }
+            // For opcodes not yet handled by the circuit, we just skip them
+            // and they won't be included in the final `ops` list.
+            _ => continue,
+        };
+
+        ops.push(op);
+    }
+
+    ops
+}
+
+fn value_to_field(
+    val: starstream_mock_ledger::Value,
+) -> ark_ff::Fp<ark_ff::MontBackend<goldilocks::FpGoldilocksConfig, 1>, 1> {
+    F::from(val.0[0])
+}
+
+fn ccs_step_shape(inst: InterleavingInstance) -> Result<CcsStructure<neo_math::F>, SynthesisError> {
     let _span = tracing::debug_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
@@ -199,15 +264,17 @@ fn ccs_step_shape(
     //     vec![LedgerOperation::Nop {}],
     // );
     //
-    let mut dummy_tx =
-        StepCircuitBuilder::<NebulaMemory<5>>::new(utxo_deltas, vec![LedgerOperation::Nop {}]);
+    let mut dummy_tx = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(
+        inst,
+        vec![LedgerOperation::Nop {}],
+    );
 
     // let mb = dummy_tx.trace_memory_ops(());
     let mb = dummy_tx.trace_memory_ops(NebulaMemoryParams {
         unsound_disable_poseidon_commitment: true,
     });
 
-    let irw = InterRoundWires::new(dummy_tx.rom_offset());
+    let irw = InterRoundWires::new(F::from(dummy_tx.p_len() as u64));
     dummy_tx.make_step_circuit(0, &mut mb.constraints(), cs.clone(), irw)?;
 
     cs.finalize();
@@ -215,208 +282,188 @@ fn ccs_step_shape(
     Ok(arkworks_to_neo_ccs(&cs))
 }
 
-impl Transaction<ProverOutput> {
-    pub fn verify(&self, _changes: BTreeMap<ProgramId, UtxoChange>) {
-        // TODO: fill
-        //
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{
-        F, LedgerOperation, ProgramId, Transaction, UtxoChange, test_utils::init_test_logging,
-    };
-    use std::collections::BTreeMap;
+    // use crate::{F, LedgerOperation, ProgramId, test_utils::init_test_logging};
+    // use std::collections::BTreeMap;
 
-    #[test]
-    fn test_nop() {
-        init_test_logging();
+    // #[test]
+    // fn test_starstream_tx_success() {
+    //     init_test_logging();
 
-        let changes = vec![].into_iter().collect::<BTreeMap<_, _>>();
-        let tx = Transaction::new_unproven(changes.clone(), vec![LedgerOperation::Nop {}]);
-        let proof = tx.prove().unwrap();
+    //     let utxo_id1: ProgramId = ProgramId::from(110);
+    //     let utxo_id2: ProgramId = ProgramId::from(300);
+    //     let utxo_id3: ProgramId = ProgramId::from(400);
 
-        proof.verify(changes);
-    }
+    //     let changes = vec![
+    //         (
+    //             utxo_id1,
+    //             UtxoChange {
+    //                 output_before: F::from(5),
+    //                 output_after: F::from(5),
+    //                 consumed: false,
+    //             },
+    //         ),
+    //         (
+    //             utxo_id2,
+    //             UtxoChange {
+    //                 output_before: F::from(4),
+    //                 output_after: F::from(0),
+    //                 consumed: true,
+    //             },
+    //         ),
+    //         (
+    //             utxo_id3,
+    //             UtxoChange {
+    //                 output_before: F::from(5),
+    //                 output_after: F::from(43),
+    //                 consumed: false,
+    //             },
+    //         ),
+    //     ]
+    //     .into_iter()
+    //     .collect::<BTreeMap<_, _>>();
 
-    #[test]
-    fn test_starstream_tx_success() {
-        init_test_logging();
+    //     let tx = Transaction::new_unproven(
+    //         changes.clone(),
+    //         vec![
+    //             LedgerOperation::Nop {},
+    //             LedgerOperation::Resume {
+    //                 target: utxo_id2,
+    //                 val: F::from(0),
+    //                 ret: F::from(0),
+    //             },
+    //             LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
+    //             LedgerOperation::Resume {
+    //                 target: utxo_id3,
+    //                 val: F::from(42),
+    //                 ret: F::from(43),
+    //             },
+    //             LedgerOperation::YieldResume {
+    //                 utxo_id: utxo_id3,
+    //                 output: F::from(42),
+    //             },
+    //             LedgerOperation::Yield {
+    //                 utxo_id: utxo_id3,
+    //                 input: F::from(43),
+    //             },
+    //         ],
+    //     );
 
-        let utxo_id1: ProgramId = ProgramId::from(110);
-        let utxo_id2: ProgramId = ProgramId::from(300);
-        let utxo_id3: ProgramId = ProgramId::from(400);
+    //     let proof = tx.prove().unwrap();
 
-        let changes = vec![
-            (
-                utxo_id1,
-                UtxoChange {
-                    output_before: F::from(5),
-                    output_after: F::from(5),
-                    consumed: false,
-                },
-            ),
-            (
-                utxo_id2,
-                UtxoChange {
-                    output_before: F::from(4),
-                    output_after: F::from(0),
-                    consumed: true,
-                },
-            ),
-            (
-                utxo_id3,
-                UtxoChange {
-                    output_before: F::from(5),
-                    output_after: F::from(43),
-                    consumed: false,
-                },
-            ),
-        ]
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
+    //     proof.verify(changes);
+    // }
 
-        let tx = Transaction::new_unproven(
-            changes.clone(),
-            vec![
-                LedgerOperation::Nop {},
-                LedgerOperation::Resume {
-                    utxo_id: utxo_id2,
-                    input: F::from(0),
-                    output: F::from(0),
-                },
-                LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
-                LedgerOperation::Resume {
-                    utxo_id: utxo_id3,
-                    input: F::from(42),
-                    output: F::from(43),
-                },
-                LedgerOperation::YieldResume {
-                    utxo_id: utxo_id3,
-                    output: F::from(42),
-                },
-                LedgerOperation::Yield {
-                    utxo_id: utxo_id3,
-                    input: F::from(43),
-                },
-            ],
-        );
+    // #[test]
+    // #[should_panic]
+    // fn test_fail_starstream_tx_resume_mismatch() {
+    //     let utxo_id1: ProgramId = ProgramId::from(110);
 
-        let proof = tx.prove().unwrap();
+    //     let changes = vec![(
+    //         utxo_id1,
+    //         UtxoChange {
+    //             output_before: F::from(0),
+    //             output_after: F::from(43),
+    //             consumed: false,
+    //         },
+    //     )]
+    //     .into_iter()
+    //     .collect::<BTreeMap<_, _>>();
 
-        proof.verify(changes);
-    }
+    //     let tx = Transaction::new_unproven(
+    //         changes.clone(),
+    //         vec![
+    //             LedgerOperation::Nop {},
+    //             LedgerOperation::Resume {
+    //                 target: utxo_id1,
+    //                 val: F::from(42),
+    //                 ret: F::from(43),
+    //             },
+    //             LedgerOperation::YieldResume {
+    //                 utxo_id: utxo_id1,
+    //                 output: F::from(42000),
+    //             },
+    //             LedgerOperation::Yield {
+    //                 utxo_id: utxo_id1,
+    //                 input: F::from(43),
+    //             },
+    //         ],
+    //     );
 
-    #[test]
-    #[should_panic]
-    fn test_fail_starstream_tx_resume_mismatch() {
-        let utxo_id1: ProgramId = ProgramId::from(110);
+    //     let proof = tx.prove().unwrap();
 
-        let changes = vec![(
-            utxo_id1,
-            UtxoChange {
-                output_before: F::from(0),
-                output_after: F::from(43),
-                consumed: false,
-            },
-        )]
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
+    //     proof.verify(changes);
+    // }
 
-        let tx = Transaction::new_unproven(
-            changes.clone(),
-            vec![
-                LedgerOperation::Nop {},
-                LedgerOperation::Resume {
-                    utxo_id: utxo_id1,
-                    input: F::from(42),
-                    output: F::from(43),
-                },
-                LedgerOperation::YieldResume {
-                    utxo_id: utxo_id1,
-                    output: F::from(42000),
-                },
-                LedgerOperation::Yield {
-                    utxo_id: utxo_id1,
-                    input: F::from(43),
-                },
-            ],
-        );
+    // #[test]
+    // #[should_panic]
+    // fn test_starstream_tx_invalid_witness() {
+    //     init_test_logging();
 
-        let proof = tx.prove().unwrap();
+    //     let utxo_id1: ProgramId = ProgramId::from(110);
+    //     let utxo_id2: ProgramId = ProgramId::from(300);
+    //     let utxo_id3: ProgramId = ProgramId::from(400);
 
-        proof.verify(changes);
-    }
+    //     let changes = vec![
+    //         (
+    //             utxo_id1,
+    //             UtxoChange {
+    //                 output_before: F::from(5),
+    //                 output_after: F::from(5),
+    //                 consumed: false,
+    //             },
+    //         ),
+    //         (
+    //             utxo_id2,
+    //             UtxoChange {
+    //                 output_before: F::from(4),
+    //                 output_after: F::from(0),
+    //                 consumed: true,
+    //             },
+    //         ),
+    //         (
+    //             utxo_id3,
+    //             UtxoChange {
+    //                 output_before: F::from(5),
+    //                 output_after: F::from(43),
+    //                 consumed: false,
+    //             },
+    //         ),
+    //     ]
+    //     .into_iter()
+    //     .collect::<BTreeMap<_, _>>();
 
-    #[test]
-    #[should_panic]
-    fn test_starstream_tx_invalid_witness() {
-        init_test_logging();
+    //     let tx = Transaction::new_unproven(
+    //         changes.clone(),
+    //         vec![
+    //             LedgerOperation::Nop {},
+    //             LedgerOperation::Resume {
+    //                 target: utxo_id2,
+    //                 val: F::from(0),
+    //                 ret: F::from(0),
+    //             },
+    //             LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
+    //             LedgerOperation::Resume {
+    //                 target: utxo_id3,
+    //                 val: F::from(42),
+    //                 // Invalid: output should be F::from(43) to match output_after,
+    //                 // but we're providing a mismatched value
+    //                 ret: F::from(999),
+    //             },
+    //             LedgerOperation::YieldResume {
+    //                 utxo_id: utxo_id3,
+    //                 output: F::from(42),
+    //             },
+    //             LedgerOperation::Yield {
+    //                 utxo_id: utxo_id3,
+    //                 // Invalid: input should match Resume output but doesn't
+    //                 input: F::from(999),
+    //             },
+    //         ],
+    //     );
 
-        let utxo_id1: ProgramId = ProgramId::from(110);
-        let utxo_id2: ProgramId = ProgramId::from(300);
-        let utxo_id3: ProgramId = ProgramId::from(400);
-
-        let changes = vec![
-            (
-                utxo_id1,
-                UtxoChange {
-                    output_before: F::from(5),
-                    output_after: F::from(5),
-                    consumed: false,
-                },
-            ),
-            (
-                utxo_id2,
-                UtxoChange {
-                    output_before: F::from(4),
-                    output_after: F::from(0),
-                    consumed: true,
-                },
-            ),
-            (
-                utxo_id3,
-                UtxoChange {
-                    output_before: F::from(5),
-                    output_after: F::from(43),
-                    consumed: false,
-                },
-            ),
-        ]
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
-
-        let tx = Transaction::new_unproven(
-            changes.clone(),
-            vec![
-                LedgerOperation::Nop {},
-                LedgerOperation::Resume {
-                    utxo_id: utxo_id2,
-                    input: F::from(0),
-                    output: F::from(0),
-                },
-                LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
-                LedgerOperation::Resume {
-                    utxo_id: utxo_id3,
-                    input: F::from(42),
-                    // Invalid: output should be F::from(43) to match output_after,
-                    // but we're providing a mismatched value
-                    output: F::from(999),
-                },
-                LedgerOperation::YieldResume {
-                    utxo_id: utxo_id3,
-                    output: F::from(42),
-                },
-                LedgerOperation::Yield {
-                    utxo_id: utxo_id3,
-                    // Invalid: input should match Resume output but doesn't
-                    input: F::from(999),
-                },
-            ],
-        );
-
-        // This should fail during proving because the witness is invalid
-        tx.prove().unwrap();
-    }
+    //     // This should fail during proving because the witness is invalid
+    //     tx.prove().unwrap();
+    // }
 }

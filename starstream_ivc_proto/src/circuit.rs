@@ -1,43 +1,193 @@
 use crate::memory::{self, Address, IVCMemory};
-use crate::poseidon2::{compress, compress_trace};
-use crate::{F, LedgerOperation, ProgramId, UtxoChange, memory::IVCMemoryAllocated};
-use ark_ff::AdditiveGroup as _;
+use crate::value_to_field;
+use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
+use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::alloc::AllocationMode;
+use ark_r1cs_std::fields::FieldVar;
 use ark_r1cs_std::{
     GR1CSVar as _, alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean,
 };
+use ark_relations::gr1cs;
 use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
     ns,
 };
-use std::array;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use starstream_mock_ledger::InterleavingInstance;
 use std::marker::PhantomData;
 use tracing::debug_span;
 
-/// The RAM part is an array of ProgramState
-pub const RAM_SEGMENT: u64 = 1u64;
-/// Utxos don't have contiguous ids, so we use these to map ids to contiguous
-/// addresses.
-pub const UTXO_INDEX_MAPPING_SEGMENT: u64 = 2u64;
-/// The expected output for each utxo.
-/// This is public, so the verifier can just set the ROM to the values it
-/// expects.
-pub const OUTPUT_CHECK_SEGMENT: u64 = 3u64;
+#[derive(Clone, Debug, Default)]
+pub struct RomSwitchboard {
+    pub read_is_utxo_curr: bool,
+    pub read_is_utxo_target: bool,
+    pub read_must_burn_curr: bool,
+    pub read_program_hash_target: bool,
+}
 
-pub const PROGRAM_STATE_SIZE: u64 =
-    4u64 // state
-    + 4u64 // commitment
-;
+#[derive(Clone)]
+pub struct RomSwitchboardWires {
+    pub read_is_utxo_curr: Boolean<F>,
+    pub read_is_utxo_target: Boolean<F>,
+    pub read_must_burn_curr: Boolean<F>,
+    pub read_program_hash_target: Boolean<F>,
+}
 
-pub const UTXO_INDEX_MAPPING_SIZE: u64 = 1u64;
-pub const OUTPUT_CHECK_SIZE: u64 = 2u64;
+impl RomSwitchboardWires {
+    pub fn allocate(
+        cs: ConstraintSystemRef<F>,
+        switches: &RomSwitchboard,
+    ) -> Result<Self, SynthesisError> {
+        Ok(Self {
+            read_is_utxo_curr: Boolean::new_witness(cs.clone(), || Ok(switches.read_is_utxo_curr))?,
+            read_is_utxo_target: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_is_utxo_target)
+            })?,
+            read_must_burn_curr: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_must_burn_curr)
+            })?,
+            read_program_hash_target: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_program_hash_target)
+            })?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MemSwitchboard {
+    pub expected_input: bool,
+    pub arg: bool,
+    pub counters: bool,
+    pub initialized: bool,
+    pub finalized: bool,
+    pub did_burn: bool,
+    pub ownership: bool,
+}
+
+#[derive(Clone)]
+pub struct MemSwitchboardWires {
+    pub expected_input: Boolean<F>,
+    pub arg: Boolean<F>,
+    pub counters: Boolean<F>,
+    pub initialized: Boolean<F>,
+    pub finalized: Boolean<F>,
+    pub did_burn: Boolean<F>,
+    pub ownership: Boolean<F>,
+}
+
+impl MemSwitchboardWires {
+    pub fn allocate(
+        cs: ConstraintSystemRef<F>,
+        switches: &MemSwitchboard,
+    ) -> Result<Self, SynthesisError> {
+        Ok(Self {
+            expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
+            arg: Boolean::new_witness(cs.clone(), || Ok(switches.arg))?,
+            counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,
+            initialized: Boolean::new_witness(cs.clone(), || Ok(switches.initialized))?,
+            finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
+            did_burn: Boolean::new_witness(cs.clone(), || Ok(switches.did_burn))?,
+            ownership: Boolean::new_witness(cs.clone(), || Ok(switches.ownership))?,
+        })
+    }
+}
+
+pub const ROM_PROCESS_TABLE: u64 = 1u64;
+pub const ROM_MUST_BURN: u64 = 2u64;
+pub const ROM_IS_UTXO: u64 = 3u64;
+
+pub const RAM_EXPECTED_INPUT: u64 = 4u64;
+pub const RAM_ARG: u64 = 5u64;
+pub const RAM_COUNTERS: u64 = 6u64;
+pub const RAM_INITIALIZED: u64 = 7u64;
+pub const RAM_FINALIZED: u64 = 8u64;
+pub const RAM_DID_BURN: u64 = 9u64;
+pub const RAM_OWNERSHIP: u64 = 10u64;
+
+// TODO: this is not implemented yet, since it's the only one with a dynamic
+// memory size, I'll implement this at last
+pub const RAM_HANDLER_STACK: u64 = 11u64;
+
+impl MemSwitchboard {
+    pub fn any(&self) -> bool {
+        self.expected_input
+            || self.arg
+            || self.counters
+            || self.initialized
+            || self.finalized
+            || self.did_burn
+            || self.ownership
+    }
+}
+
+pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, MemSwitchboard) {
+    let mut curr_s = MemSwitchboard::default();
+    let mut target_s = MemSwitchboard::default();
+
+    // All ops increment counter of the current process, except Nop
+    curr_s.counters = !matches!(instr, LedgerOperation::Nop {});
+
+    match instr {
+        LedgerOperation::Resume { .. } => {
+            curr_s.arg = true;
+            curr_s.expected_input = true;
+
+            target_s.arg = true;
+            target_s.finalized = true;
+        }
+        LedgerOperation::Yield { ret, .. } => {
+            curr_s.arg = true;
+            if ret.is_some() {
+                curr_s.expected_input = true;
+            }
+            curr_s.finalized = true;
+        }
+        LedgerOperation::Burn { .. } => {
+            curr_s.arg = true;
+            curr_s.finalized = true;
+            curr_s.did_burn = true;
+            curr_s.expected_input = true;
+        }
+        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
+            // New* ops initialize the target process
+            target_s.initialized = true;
+            target_s.expected_input = true;
+            target_s.counters = true; // sets counter to 0
+        }
+        _ => {
+            // Other ops like ProgramHash or Input are read-only or have no side-effects tracked here.
+        }
+    }
+    (curr_s, target_s)
+}
+
+pub fn opcode_to_rom_switches(instr: &LedgerOperation<F>) -> RomSwitchboard {
+    let mut rom_s = RomSwitchboard::default();
+    match instr {
+        LedgerOperation::Resume { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_is_utxo_target = true;
+        }
+        LedgerOperation::Burn { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_must_burn_curr = true;
+        }
+        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_is_utxo_target = true;
+            rom_s.read_program_hash_target = true;
+        }
+        _ => {}
+    }
+    rom_s
+}
 
 pub struct StepCircuitBuilder<M> {
-    pub utxos: BTreeMap<ProgramId, UtxoChange>,
+    pub instance: InterleavingInstance,
+    pub last_yield: Vec<F>,
     pub ops: Vec<LedgerOperation<crate::F>>,
     write_ops: Vec<(ProgramState, ProgramState)>,
-    utxo_order_mapping: HashMap<F, usize>,
+    mem_switches: Vec<(MemSwitchboard, MemSwitchboard)>,
+    rom_switches: Vec<RomSwitchboard>,
 
     mem: PhantomData<M>,
 }
@@ -46,36 +196,45 @@ pub struct StepCircuitBuilder<M> {
 #[derive(Clone)]
 pub struct Wires {
     // irw
-    current_program: FpVar<F>,
+    id_curr: FpVar<F>,
+    id_prev: FpVar<F>,
+
     utxos_len: FpVar<F>,
-    n_finalized: FpVar<F>,
 
     // switches
-    utxo_yield_switch: Boolean<F>,
-    yield_resume_switch: Boolean<F>,
     resume_switch: Boolean<F>,
+    yield_switch: Boolean<F>,
+    program_hash_switch: Boolean<F>,
+    new_utxo_switch: Boolean<F>,
+    new_coord_switch: Boolean<F>,
+    burn_switch: Boolean<F>,
+    input_switch: Boolean<F>,
+
     check_utxo_output_switch: Boolean<F>,
-    drop_utxo_switch: Boolean<F>,
 
-    utxo_id: FpVar<F>,
-    input: FpVar<F>,
-    output: FpVar<F>,
+    target: FpVar<F>,
+    val: FpVar<F>,
+    ret: FpVar<F>,
+    program_hash: FpVar<F>,
+    caller: FpVar<F>,
 
-    utxo_read_wires: ProgramStateWires,
-    coord_read_wires: ProgramStateWires,
+    curr_read_wires: ProgramStateWires,
+    curr_write_wires: ProgramStateWires,
 
-    utxo_write_wires: ProgramStateWires,
+    target_read_wires: ProgramStateWires,
+    target_write_wires: ProgramStateWires,
 
-    // TODO: for now there can only be a single coordination script, with the
-    // address 1.
-    //
-    // this can be lifted, but it requires a bit of logic.
-    coordination_script: FpVar<F>,
+    curr_mem_switches: MemSwitchboardWires,
+    target_mem_switches: MemSwitchboardWires,
 
-    // variables in the ROM part that has the expected 'output' or final state
-    // for a utxo
-    utxo_final_output: FpVar<F>,
-    utxo_final_consumed: FpVar<F>,
+    // ROM lookup results
+    is_utxo_curr: FpVar<F>,
+    is_utxo_target: FpVar<F>,
+    must_burn_curr: FpVar<F>,
+    rom_program_hash: FpVar<F>,
+
+    // ROM read switches
+    rom_switches: RomSwitchboardWires,
 
     constant_false: Boolean<F>,
     constant_true: Boolean<F>,
@@ -85,41 +244,54 @@ pub struct Wires {
 /// these are the mcc witnesses
 #[derive(Clone)]
 pub struct ProgramStateWires {
-    consumed: FpVar<F>,
-    finalized: FpVar<F>,
-    input: FpVar<F>,
-    output: FpVar<F>,
-    commitment: [FpVar<F>; 4],
+    expected_input: FpVar<F>,
+    arg: FpVar<F>,
+    counters: FpVar<F>,
+    initialized: Boolean<F>,
+    finalized: Boolean<F>,
+    did_burn: Boolean<F>,
+    owned_by: FpVar<F>, // an index into the process table
 }
 
 // helper so that we always allocate witnesses in the same order
 pub struct PreWires {
-    utxo_address: F,
+    target: F,
+    val: F,
+    ret: F,
+    id_prev: F,
 
-    coord_address: F,
+    program_hash: F,
 
-    utxo_id: F,
-    input: F,
-    output: F,
+    new_process_id: F,
+    caller: F,
 
     // switches
-    yield_start_switch: bool,
-    yield_end_switch: bool,
+    yield_switch: bool,
     resume_switch: bool,
     check_utxo_output_switch: bool,
     nop_switch: bool,
-    drop_utxo_switch: bool,
+    burn_switch: bool,
+    program_hash_switch: bool,
+    new_utxo_switch: bool,
+    new_coord_switch: bool,
+    input_switch: bool,
+
+    curr_mem_switches: MemSwitchboard,
+    target_mem_switches: MemSwitchboard,
+    rom_switches: RomSwitchboard,
 
     irw: InterRoundWires,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProgramState {
-    consumed: bool,
+    expected_input: F,
+    arg: F,
+    counters: F,
+    initialized: bool,
     finalized: bool,
-    input: F,
-    output: F,
-    commitment: [F; 4],
+    did_burn: bool,
+    owned_by: F, // an index into the process table
 }
 
 /// IVC wires (state between steps)
@@ -127,94 +299,26 @@ pub struct ProgramState {
 /// these get input and output variables
 #[derive(Clone)]
 pub struct InterRoundWires {
-    current_program: F,
-    utxos_len: F,
+    id_curr: F,
+    id_prev: F,
+
+    p_len: F,
     n_finalized: F,
 }
 
 impl ProgramStateWires {
-    const CONSUMED: &str = "consumed";
-    const FINALIZED: &str = "finalized";
-    const INPUT: &str = "input";
-    const OUTPUT: &str = "output";
-
-    fn to_var_vec(&self) -> Vec<FpVar<F>> {
-        [
-            vec![
-                self.consumed.clone(),
-                self.finalized.clone(),
-                self.input.clone(),
-                self.output.clone(),
-            ],
-            self.commitment.to_vec(),
-        ]
-        .concat()
-    }
-
-    fn conditionally_enforce_equal(
-        &self,
-        other: &Self,
-        should_enforce: &Boolean<F>,
-        except: HashSet<&'static str>,
-    ) -> Result<(), SynthesisError> {
-        if !except.contains(Self::CONSUMED) {
-            // dbg!(&self.consumed.value().unwrap());
-            // dbg!(&other.consumed.value().unwrap());
-            self.consumed
-                .conditional_enforce_equal(&other.consumed, should_enforce)?;
-        }
-        if !except.contains(Self::FINALIZED) {
-            // dbg!(&self.finalized.value().unwrap());
-            // dbg!(&other.finalized.value().unwrap());
-            self.finalized
-                .conditional_enforce_equal(&other.finalized, should_enforce)?;
-        }
-        if !except.contains(Self::INPUT) {
-            // dbg!(&self.input.value().unwrap());
-            // dbg!(&other.input.value().unwrap());
-            self.input
-                .conditional_enforce_equal(&other.input, should_enforce)?;
-        }
-        if !except.contains(Self::OUTPUT) {
-            // dbg!(&self.output.value().unwrap());
-            // dbg!(&other.output.value().unwrap());
-
-            self.output
-                .conditional_enforce_equal(&other.output, should_enforce)?;
-        }
-        Ok(())
-    }
-
-    fn from_vec(utxo_read_wires: Vec<FpVar<F>>) -> ProgramStateWires {
-        ProgramStateWires {
-            consumed: utxo_read_wires[0].clone(),
-            finalized: utxo_read_wires[1].clone(),
-            input: utxo_read_wires[2].clone(),
-            output: utxo_read_wires[3].clone(),
-            commitment: array::from_fn(|i| utxo_read_wires[i + 4].clone()),
-        }
-    }
-
     fn from_write_values(
         cs: ConstraintSystemRef<F>,
-        utxo_write_values: &ProgramState,
+        write_values: &ProgramState,
     ) -> Result<ProgramStateWires, SynthesisError> {
-        let commitment = utxo_write_values
-            .commitment
-            .iter()
-            .map(|comm_limb| FpVar::new_witness(cs.clone(), || Ok(comm_limb)))
-            .collect::<Result<Vec<_>, _>>()?;
-
         Ok(ProgramStateWires {
-            consumed: FpVar::from(Boolean::new_witness(cs.clone(), || {
-                Ok(utxo_write_values.consumed)
-            })?),
-            finalized: FpVar::from(Boolean::new_witness(cs.clone(), || {
-                Ok(utxo_write_values.finalized)
-            })?),
-            input: FpVar::new_witness(cs.clone(), || Ok(utxo_write_values.input))?,
-            output: FpVar::new_witness(cs.clone(), || Ok(utxo_write_values.output))?,
-            commitment: commitment.try_into().unwrap(),
+            expected_input: FpVar::new_witness(cs.clone(), || Ok(write_values.expected_input))?,
+            arg: FpVar::new_witness(cs.clone(), || Ok(write_values.arg))?,
+            counters: FpVar::new_witness(cs.clone(), || Ok(write_values.counters))?,
+            initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
+            finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
+            did_burn: Boolean::new_witness(cs.clone(), || Ok(write_values.did_burn))?,
+            owned_by: FpVar::new_witness(cs.clone(), || Ok(write_values.owned_by))?,
         })
     }
 }
@@ -223,26 +327,28 @@ impl Wires {
     pub fn from_irw<M: IVCMemoryAllocated<F>>(
         vals: &PreWires,
         rm: &mut M,
-        utxo_write_values: &ProgramState,
-        coord_write_values: &ProgramState,
+        current_write_values: &ProgramState,
+        target_write_values: &ProgramState,
     ) -> Result<Wires, SynthesisError> {
         vals.debug_print();
 
         let cs = rm.get_cs();
 
         // io vars
-        let current_program = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.current_program))?;
-        let utxos_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.utxos_len))?;
-        let n_finalized = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.n_finalized))?;
+        let id_curr = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
+        let utxos_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
 
         // switches
         let switches = [
             vals.resume_switch,
-            vals.yield_end_switch,
-            vals.yield_start_switch,
+            vals.yield_switch,
             vals.check_utxo_output_switch,
             vals.nop_switch,
-            vals.drop_utxo_switch,
+            vals.burn_switch,
+            vals.program_hash_switch,
+            vals.new_utxo_switch,
+            vals.new_coord_switch,
+            vals.input_switch,
         ];
 
         let allocated_switches: Vec<_> = switches
@@ -252,11 +358,14 @@ impl Wires {
 
         let [
             resume_switch,
-            yield_resume_switch,
-            utxo_yield_switch,
+            yield_switch,
             check_utxo_output_switch,
             nop_switch,
-            drop_utxo_switch,
+            burn_switch,
+            program_hash_switch,
+            new_utxo_switch,
+            new_coord_switch,
+            input_switch,
         ] = allocated_switches.as_slice()
         else {
             unreachable!()
@@ -276,149 +385,424 @@ impl Wires {
         )
         .unwrap();
 
-        let utxo_id = FpVar::<F>::new_witness(ns!(cs.clone(), "utxo_id"), || Ok(vals.utxo_id))?;
+        let target = FpVar::<F>::new_witness(ns!(cs.clone(), "target"), || Ok(vals.target))?;
 
-        let input = FpVar::<F>::new_witness(ns!(cs.clone(), "input"), || Ok(vals.input))?;
-        let output = FpVar::<F>::new_witness(ns!(cs.clone(), "output"), || Ok(vals.output))?;
+        let val = FpVar::<F>::new_witness(ns!(cs.clone(), "val"), || Ok(vals.val))?;
+        let ret = FpVar::<F>::new_witness(ns!(cs.clone(), "ret"), || Ok(vals.ret))?;
 
-        let utxo_address = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.utxo_address))?;
-        let coord_address = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.coord_address))?;
+        let id_prev = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.id_prev))?;
+        let program_hash = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.program_hash))?;
 
-        let coord_read_wires = rm.conditional_read(
-            &(yield_resume_switch | utxo_yield_switch),
+        let new_process_id = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.new_process_id))?;
+        let caller = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.caller))?;
+
+        let curr_mem_switches = MemSwitchboardWires::allocate(cs.clone(), &vals.curr_mem_switches)?;
+        let target_mem_switches =
+            MemSwitchboardWires::allocate(cs.clone(), &vals.target_mem_switches)?;
+
+        let curr_address = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
+        let curr_read_wires =
+            program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
+
+        // TODO: make conditional for opcodes without target
+        let target_address = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.target))?;
+        let target_read_wires =
+            program_state_read_wires(rm, &cs, target_address.clone(), &target_mem_switches)?;
+
+        let curr_write_wires =
+            ProgramStateWires::from_write_values(cs.clone(), current_write_values)?;
+
+        let target_write_wires =
+            ProgramStateWires::from_write_values(cs.clone(), target_write_values)?;
+
+        program_state_write_wires(
+            rm,
+            &cs,
+            curr_address.clone(),
+            curr_write_wires.clone(),
+            &curr_mem_switches,
+        )?;
+        program_state_write_wires(
+            rm,
+            &cs,
+            target_address.clone(),
+            target_write_wires.clone(),
+            &target_mem_switches,
+        )?;
+
+        let rom_switches = RomSwitchboardWires::allocate(cs.clone(), &vals.rom_switches)?;
+
+        let is_utxo_curr = rm.conditional_read(
+            &rom_switches.read_is_utxo_curr,
             &Address {
-                addr: coord_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
+                addr: id_curr.clone(),
+                tag: FpVar::new_constant(cs.clone(), F::from(ROM_IS_UTXO))?,
             },
-        )?;
+        )?[0]
+            .clone();
 
-        let coord_read_wires = ProgramStateWires::from_vec(coord_read_wires);
-
-        let utxo_read_wires = rm.conditional_read(
-            check_utxo_output_switch,
+        let is_utxo_target = rm.conditional_read(
+            &rom_switches.read_is_utxo_target,
             &Address {
-                addr: utxo_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
+                addr: target_address.clone(),
+                tag: FpVar::new_constant(cs.clone(), F::from(ROM_IS_UTXO))?,
             },
-        )?;
+        )?[0]
+            .clone();
 
-        let utxo_read_wires = ProgramStateWires::from_vec(utxo_read_wires);
-
-        let utxo_write_wires = ProgramStateWires::from_write_values(cs.clone(), utxo_write_values)?;
-
-        let coord_write_wires =
-            ProgramStateWires::from_write_values(cs.clone(), coord_write_values)?;
-
-        let coord_conditional_write_switch = &resume_switch;
-
-        rm.conditional_write(
-            coord_conditional_write_switch,
+        let must_burn_curr = rm.conditional_read(
+            &rom_switches.read_must_burn_curr,
             &Address {
-                addr: coord_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
+                addr: id_curr.clone(),
+                tag: FpVar::new_constant(cs.clone(), F::from(ROM_MUST_BURN))?,
             },
-            &coord_write_wires.to_var_vec(),
-        )?;
+        )?[0]
+            .clone();
 
-        let utxo_conditional_write_switch =
-            utxo_yield_switch | resume_switch | yield_resume_switch | check_utxo_output_switch;
-
-        rm.conditional_write(
-            &utxo_conditional_write_switch,
+        let rom_program_hash = rm.conditional_read(
+            &rom_switches.read_program_hash_target,
             &Address {
-                addr: utxo_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(RAM_SEGMENT))?,
+                addr: target_address.clone(),
+                tag: FpVar::new_constant(cs.clone(), F::from(ROM_PROCESS_TABLE))?,
             },
-            &utxo_write_wires.to_var_vec(),
-        )?;
-
-        constraint_incremental_commitment(
-            &utxo_read_wires,
-            &utxo_write_wires,
-            &(utxo_conditional_write_switch & !check_utxo_output_switch),
-        )?;
-
-        let coordination_script = FpVar::<F>::new_constant(cs.clone(), F::from(1))?;
-
-        let rom_read_wires = rm.conditional_read(
-            &!nop_switch,
-            &Address {
-                addr: (&utxo_address + &utxos_len),
-                tag: FpVar::new_constant(cs.clone(), F::from(UTXO_INDEX_MAPPING_SEGMENT))?,
-            },
-        )?;
-
-        rom_read_wires[0].enforce_equal(&utxo_id)?;
-
-        let utxo_output_address = &utxo_address + &utxos_len + &utxos_len;
-
-        let utxo_rom_output_read = rm.conditional_read(
-            check_utxo_output_switch,
-            &Address {
-                addr: utxo_output_address,
-                tag: FpVar::new_constant(cs.clone(), F::from(OUTPUT_CHECK_SEGMENT))?,
-            },
-        )?;
+        )?[0]
+            .clone();
 
         Ok(Wires {
-            current_program,
-            utxos_len,
-            n_finalized,
+            id_curr,
+            id_prev,
 
-            utxo_yield_switch: utxo_yield_switch.clone(),
-            yield_resume_switch: yield_resume_switch.clone(),
+            utxos_len,
+
+            yield_switch: yield_switch.clone(),
             resume_switch: resume_switch.clone(),
             check_utxo_output_switch: check_utxo_output_switch.clone(),
-            drop_utxo_switch: drop_utxo_switch.clone(),
-
-            utxo_id,
-            input,
-            output,
-            utxo_read_wires,
-            coord_read_wires,
-            coordination_script,
-
-            utxo_write_wires,
-
-            utxo_final_output: utxo_rom_output_read[0].clone(),
-            utxo_final_consumed: utxo_rom_output_read[1].clone(),
+            burn_switch: burn_switch.clone(),
+            program_hash_switch: program_hash_switch.clone(),
+            new_utxo_switch: new_utxo_switch.clone(),
+            new_coord_switch: new_coord_switch.clone(),
+            input_switch: input_switch.clone(),
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
             constant_true: Boolean::new_constant(cs.clone(), true)?,
             constant_one: FpVar::new_constant(cs.clone(), F::from(1))?,
+
+            // wit_wires
+            target,
+            val,
+            ret,
+            program_hash,
+            caller,
+
+            curr_read_wires,
+            curr_write_wires,
+
+            target_read_wires,
+            target_write_wires,
+
+            curr_mem_switches,
+            target_mem_switches,
+            rom_switches,
+
+            is_utxo_curr,
+            is_utxo_target,
+            must_burn_curr,
+            rom_program_hash,
         })
     }
 }
 
-fn constraint_incremental_commitment(
-    utxo_read_wires: &ProgramStateWires,
-    utxo_write_wires: &ProgramStateWires,
-    cond: &Boolean<F>,
-) -> Result<(), SynthesisError> {
-    let result = compress(&array::from_fn(|i| {
-        if i == 0 {
-            utxo_write_wires.input.clone()
-        } else if i == 1 {
-            utxo_write_wires.output.clone()
-        } else if i >= 4 {
-            (utxo_read_wires.commitment[i - 4]).clone()
-        } else {
-            FpVar::Constant(F::from(0))
-        }
-    }))?;
+fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
+    rm: &mut M,
+    cs: &ConstraintSystemRef<F>,
+    address: FpVar<F>,
+    switches: &MemSwitchboardWires,
+) -> Result<ProgramStateWires, SynthesisError> {
+    Ok(ProgramStateWires {
+        expected_input: rm
+            .conditional_read(
+                &switches.expected_input,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_EXPECTED_INPUT))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap(),
+        arg: rm
+            .conditional_read(
+                &switches.arg,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_ARG))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap(),
+        counters: rm
+            .conditional_read(
+                &switches.counters,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_COUNTERS))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap(),
+        initialized: rm
+            .conditional_read(
+                &switches.initialized,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_INITIALIZED))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap()
+            .is_one()?,
+        finalized: rm
+            .conditional_read(
+                &switches.finalized,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_FINALIZED))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap()
+            .is_one()?,
 
-    utxo_write_wires
-        .commitment
-        .conditional_enforce_equal(&result, cond)?;
+        did_burn: rm
+            .conditional_read(
+                &switches.did_burn,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_DID_BURN))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap()
+            .is_one()?,
+        owned_by: rm
+            .conditional_read(
+                &switches.ownership,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_OWNERSHIP))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap(),
+    })
+}
+
+// this is out-of-circuit logic (witness generation)
+fn trace_program_state_reads<M: IVCMemory<F>>(
+    mem: &mut M,
+    pid: u64,
+    switches: &MemSwitchboard,
+) -> ProgramState {
+    ProgramState {
+        expected_input: mem.conditional_read(
+            switches.expected_input,
+            Address {
+                addr: pid,
+                tag: RAM_EXPECTED_INPUT,
+            },
+        )[0],
+        arg: mem.conditional_read(
+            switches.arg,
+            Address {
+                addr: pid,
+                tag: RAM_ARG,
+            },
+        )[0],
+        counters: mem.conditional_read(
+            switches.counters,
+            Address {
+                addr: pid,
+                tag: RAM_COUNTERS,
+            },
+        )[0],
+        initialized: mem.conditional_read(
+            switches.initialized,
+            Address {
+                addr: pid,
+                tag: RAM_INITIALIZED,
+            },
+        )[0] == F::ONE,
+        finalized: mem.conditional_read(
+            switches.finalized,
+            Address {
+                addr: pid,
+                tag: RAM_FINALIZED,
+            },
+        )[0] == F::ONE,
+        did_burn: mem.conditional_read(
+            switches.did_burn,
+            Address {
+                addr: pid,
+                tag: RAM_DID_BURN,
+            },
+        )[0] == F::ONE,
+        owned_by: mem.conditional_read(
+            switches.ownership,
+            Address {
+                addr: pid,
+                tag: RAM_OWNERSHIP,
+            },
+        )[0],
+    }
+}
+
+// this is out-of-circuit logic (witness generation)
+fn trace_program_state_writes<M: IVCMemory<F>>(
+    mem: &mut M,
+    pid: u64,
+    state: &ProgramState,
+    switches: &MemSwitchboard,
+) {
+    mem.conditional_write(
+        switches.expected_input,
+        Address {
+            addr: pid,
+            tag: RAM_EXPECTED_INPUT,
+        },
+        [state.expected_input].to_vec(),
+    );
+    mem.conditional_write(
+        switches.arg,
+        Address {
+            addr: pid,
+            tag: RAM_ARG,
+        },
+        [state.arg].to_vec(),
+    );
+    mem.conditional_write(
+        switches.counters,
+        Address {
+            addr: pid,
+            tag: RAM_COUNTERS,
+        },
+        [state.counters].to_vec(),
+    );
+    mem.conditional_write(
+        switches.initialized,
+        Address {
+            addr: pid,
+            tag: RAM_INITIALIZED,
+        },
+        [F::from(state.initialized)].to_vec(),
+    );
+    mem.conditional_write(
+        switches.finalized,
+        Address {
+            addr: pid,
+            tag: RAM_FINALIZED,
+        },
+        [F::from(state.finalized)].to_vec(),
+    );
+    mem.conditional_write(
+        switches.did_burn,
+        Address {
+            addr: pid,
+            tag: RAM_DID_BURN,
+        },
+        [F::from(state.did_burn)].to_vec(),
+    );
+    mem.conditional_write(
+        switches.ownership,
+        Address {
+            addr: pid,
+            tag: RAM_OWNERSHIP,
+        },
+        [state.owned_by].to_vec(),
+    );
+}
+
+fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
+    rm: &mut M,
+    cs: &ConstraintSystemRef<F>,
+    address: FpVar<F>,
+    state: ProgramStateWires,
+    switches: &MemSwitchboardWires,
+) -> Result<(), SynthesisError> {
+    rm.conditional_write(
+        &switches.expected_input,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_EXPECTED_INPUT))?,
+        },
+        &[state.expected_input.clone()],
+    )?;
+
+    rm.conditional_write(
+        &switches.arg,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_ARG))?,
+        },
+        &[state.arg.clone()],
+    )?;
+    rm.conditional_write(
+        &switches.counters,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_COUNTERS))?,
+        },
+        &[state.counters.clone()],
+    )?;
+    rm.conditional_write(
+        &switches.initialized,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_INITIALIZED))?,
+        },
+        &[state.initialized.clone().into()],
+    )?;
+    rm.conditional_write(
+        &switches.finalized,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_FINALIZED))?,
+        },
+        &[state.finalized.clone().into()],
+    )?;
+
+    rm.conditional_write(
+        &switches.did_burn,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_DID_BURN))?,
+        },
+        &[state.did_burn.clone().into()],
+    )?;
+
+    rm.conditional_write(
+        &switches.ownership,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_OWNERSHIP))?,
+        },
+        &[state.owned_by.clone()],
+    )?;
 
     Ok(())
 }
 
 impl InterRoundWires {
-    pub fn new(rom_offset: F) -> Self {
+    pub fn new(p_len: F) -> Self {
         InterRoundWires {
-            current_program: F::from(1),
-            utxos_len: rom_offset,
+            id_curr: F::from(1),
+            id_prev: F::from(0), // None
+            p_len,
             n_finalized: F::from(0),
         }
     }
@@ -428,166 +812,122 @@ impl InterRoundWires {
 
         tracing::debug!(
             "current_program from {} to {}",
-            self.current_program,
-            res.current_program.value().unwrap()
+            self.id_curr,
+            res.id_curr.value().unwrap()
         );
 
-        self.current_program = res.current_program.value().unwrap();
+        self.id_curr = res.id_curr.value().unwrap();
+
+        tracing::debug!(
+            "prev_program from {} to {}",
+            self.id_prev,
+            res.id_prev.value().unwrap()
+        );
+
+        self.id_curr = res.id_curr.value().unwrap();
 
         tracing::debug!(
             "utxos_len from {} to {}",
-            self.utxos_len,
+            self.p_len,
             res.utxos_len.value().unwrap()
         );
 
-        self.utxos_len = res.utxos_len.value().unwrap();
-
-        tracing::debug!(
-            "n_finalized from {} to {}",
-            self.n_finalized,
-            res.n_finalized.value().unwrap()
-        );
-
-        self.n_finalized = res.n_finalized.value().unwrap();
+        self.p_len = res.utxos_len.value().unwrap();
     }
 }
 
 impl LedgerOperation<crate::F> {
-    pub fn write_values(
+    // state transitions for current and target (next) programs
+    // in general, we only change the state of a most two processes in a single
+    // step.
+    //
+    // this takes the current state for both of those processes, and returns the
+    // new state for each one too.
+    pub fn program_state_transitions(
         &self,
-        coord_read: Vec<F>,
-        utxo_read: Vec<F>,
+        curr_read: ProgramState,
+        target_read: ProgramState,
     ) -> (ProgramState, ProgramState) {
-        match &self {
-            LedgerOperation::Nop {} => (ProgramState::dummy(), ProgramState::dummy()),
-            LedgerOperation::Resume {
-                utxo_id: _,
-                input,
-                output,
+        let mut curr_write = curr_read.clone();
+        let mut target_write = target_read.clone();
+
+        // All operations increment the counter of the current process
+        curr_write.counters += F::ONE;
+
+        match self {
+            LedgerOperation::Nop {} => {
+                // Nop does nothing to the state
+                curr_write.counters -= F::ONE; // revert counter increment
+            }
+            LedgerOperation::Resume { val, ret, .. } => {
+                // Current process gives control to target.
+                // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
+                curr_write.arg = F::ZERO; // Represents None
+                curr_write.expected_input = *ret;
+
+                // Target process receives control.
+                // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
+                target_write.arg = *val;
+                target_write.finalized = false;
+            }
+            LedgerOperation::Yield {
+                // The yielded value `val` is checked against the parent's `expected_input`,
+                // but this doesn't change the parent's state itself.
+                val: _,
+                ret,
+                ..
             } => {
-                let coord = ProgramState {
-                    consumed: coord_read[0] == F::from(1),
-                    finalized: coord_read[1] == F::from(1),
-                    input: *input,
-                    output: *output,
-                    commitment: compress_trace(&array::from_fn(|i| {
-                        if i == 0 {
-                            *input
-                        } else if i == 1 {
-                            *output
-                        } else if i >= 4 {
-                            coord_read[i]
-                        } else {
-                            F::from(0)
-                        }
-                    }))
-                    .unwrap(),
-                };
-
-                let utxo = ProgramState {
-                    consumed: true,
-                    finalized: utxo_read[1] == F::from(1),
-                    input: utxo_read[2],
-                    output: utxo_read[3],
-                    commitment: compress_trace(&array::from_fn(|i| {
-                        if i == 0 {
-                            utxo_read[2]
-                        } else if i == 1 {
-                            utxo_read[3]
-                        } else if i >= 4 {
-                            utxo_read[i]
-                        } else {
-                            F::from(0)
-                        }
-                    }))
-                    .unwrap(),
-                };
-
-                (coord, utxo)
+                // Current process yields control back to its parent (the target of this operation).
+                // Its `arg` is cleared.
+                curr_write.arg = F::ZERO; // Represents None
+                if let Some(r) = ret {
+                    // If Yield returns a value, it expects a new input `r` for the next resume.
+                    curr_write.expected_input = *r;
+                    curr_write.finalized = false;
+                } else {
+                    // If Yield does not return a value, it's a final yield for this UTXO.
+                    curr_write.finalized = true;
+                }
             }
-            LedgerOperation::YieldResume {
-                utxo_id: _,
-                output: _,
-            } => {
-                let coord = ProgramState::dummy();
-
-                let utxo = ProgramState {
-                    consumed: utxo_read[0] == F::from(1),
-                    finalized: utxo_read[1] == F::from(1),
-                    input: utxo_read[2],
-                    output: utxo_read[3],
-                    commitment: compress_trace(&array::from_fn(|i| {
-                        if i == 0 {
-                            utxo_read[2]
-                        } else if i == 1 {
-                            utxo_read[3]
-                        } else if i >= 4 {
-                            utxo_read[i]
-                        } else {
-                            F::from(0)
-                        }
-                    }))
-                    .unwrap(),
-                };
-
-                (coord, utxo)
+            LedgerOperation::Burn { ret } => {
+                // The current UTXO is burned.
+                curr_write.arg = F::ZERO; // Represents None
+                curr_write.finalized = true;
+                curr_write.did_burn = true;
+                curr_write.expected_input = *ret; // Sets its final return value.
             }
-            LedgerOperation::Yield { utxo_id: _, input } => {
-                let coord = ProgramState::dummy();
-
-                let utxo = ProgramState {
-                    consumed: false,
-                    finalized: utxo_read[1] == F::from(1),
-                    input: F::from(0),
-                    output: *input,
-                    commitment: compress_trace(&array::from_fn(|i| {
-                        if i == 0 {
-                            F::from(0)
-                        } else if i == 1 {
-                            *input
-                        } else if i >= 4 {
-                            utxo_read[i]
-                        } else {
-                            F::from(0)
-                        }
-                    }))
-                    .unwrap(),
-                };
-
-                (coord, utxo)
+            LedgerOperation::NewUtxo { val, target: _, .. }
+            | LedgerOperation::NewCoord { val, target: _, .. } => {
+                // The current process is a coordinator creating a new process.
+                // The new process (target) is initialized.
+                target_write.initialized = true;
+                target_write.expected_input = *val;
+                target_write.counters = F::ZERO;
             }
-            LedgerOperation::CheckUtxoOutput { utxo_id: _ } => {
-                let coord = ProgramState::dummy();
-
-                let utxo = ProgramState {
-                    consumed: utxo_read[0] == F::from(1),
-                    finalized: true,
-                    input: utxo_read[2],
-                    output: utxo_read[3],
-                    commitment: array::from_fn(|i| utxo_read[i]),
-                };
-
-                (coord, utxo)
-            }
-            LedgerOperation::DropUtxo { utxo_id: _ } => {
-                let coord = ProgramState::dummy();
-                let utxo = ProgramState::dummy();
-
-                (coord, utxo)
+            _ => {
+                // For other opcodes, we just increment the counter.
             }
         }
+        (curr_write, target_write)
     }
 }
 
 impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
-    pub fn new(utxos: BTreeMap<F, UtxoChange>, ops: Vec<LedgerOperation<crate::F>>) -> Self {
+    pub fn new(instance: InterleavingInstance, ops: Vec<LedgerOperation<crate::F>>) -> Self {
+        let last_yield = instance
+            .input_states
+            .iter()
+            .map(|v| value_to_field(v.last_yield.clone()))
+            .collect();
+
         Self {
-            utxos,
             ops,
             write_ops: vec![],
-            utxo_order_mapping: Default::default(),
-
+            mem_switches: vec![],
+            rom_switches: vec![],
             mem: PhantomData,
+            instance,
+            last_yield,
         }
     }
 
@@ -617,11 +957,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = wires_in.clone();
 
         // per opcode constraints
-        let next_wires = self.visit_utxo_yield(next_wires)?;
-        let next_wires = self.visit_utxo_yield_resume(next_wires)?;
-        let next_wires = self.visit_utxo_resume(next_wires)?;
-        let next_wires = self.visit_utxo_output_check(next_wires)?;
-        let next_wires = self.visit_utxo_drop(next_wires)?;
+        let next_wires = self.visit_yield(next_wires)?;
+        let next_wires = self.visit_resume(next_wires)?;
+        let next_wires = self.visit_burn(next_wires)?;
+        let next_wires = self.visit_new_process(next_wires)?;
+        let next_wires = self.visit_input(next_wires)?;
 
         rm.finish_step(i == self.ops.len() - 1)?;
 
@@ -636,175 +976,224 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
-        let utxos_len = self.utxos.len() as u64;
-        let (mut mb, utxo_order_mapping) = {
+        // initialize all the maps
+        let mut mb = {
             let mut mb = M::new(params);
 
-            mb.register_mem(RAM_SEGMENT, PROGRAM_STATE_SIZE, "RAM");
-            mb.register_mem(
-                UTXO_INDEX_MAPPING_SEGMENT,
-                UTXO_INDEX_MAPPING_SIZE,
-                "UTXO_INDEX_MAPPING",
-            );
-            mb.register_mem(OUTPUT_CHECK_SEGMENT, OUTPUT_CHECK_SIZE, "EXPECTED_OUTPUTS");
+            mb.register_mem(ROM_PROCESS_TABLE, 1, "ROM_PROCESS_TABLE");
+            mb.register_mem(ROM_MUST_BURN, 1, "ROM_MUST_BURN");
+            mb.register_mem(ROM_IS_UTXO, 1, "ROM_IS_UTXO");
+            mb.register_mem(RAM_EXPECTED_INPUT, 1, "RAM_EXPECTED_INPUT");
+            mb.register_mem(RAM_ARG, 1, "RAM_ARG");
+            mb.register_mem(RAM_COUNTERS, 1, "RAM_COUNTERS");
+            mb.register_mem(RAM_INITIALIZED, 1, "RAM_INITIALIZED");
+            mb.register_mem(RAM_FINALIZED, 1, "RAM_FINALIZED");
+            mb.register_mem(RAM_DID_BURN, 1, "RAM_DID_BURN");
+            mb.register_mem(RAM_OWNERSHIP, 1, "RAM_OWNERSHIP");
 
-            let mut utxo_order_mapping: HashMap<F, usize> = Default::default();
-
-            mb.init(
-                Address {
-                    addr: 1,
-                    tag: RAM_SEGMENT,
-                },
-                ProgramState::dummy().to_field_vec(),
-            );
-
-            for (
-                index,
-                (
-                    utxo_id,
-                    UtxoChange {
-                        output_before,
-                        output_after,
-                        consumed,
-                    },
-                ),
-            ) in self.utxos.iter().enumerate()
-            {
+            for (pid, mod_hash) in self.instance.process_table.iter().enumerate() {
                 mb.init(
-                    // 0 is not a valid address
-                    // 1 is the coordination script
-                    // utxos start at 2
                     Address {
-                        addr: index as u64 + 2,
-                        tag: RAM_SEGMENT,
+                        addr: pid as u64,
+                        tag: ROM_PROCESS_TABLE,
                     },
-                    ProgramState {
-                        consumed: false,
-                        finalized: false,
-                        input: F::from(0),
-                        output: *output_before,
-                        commitment: array::from_fn(|_i| F::from(0)),
-                    }
-                    .to_field_vec(),
+                    // TODO: use a proper conversion from hash to val, this is just a placeholder
+                    vec![F::from(mod_hash.0[0] as u64)],
                 );
 
                 mb.init(
                     Address {
-                        addr: index as u64 + 2 + utxos_len,
-                        tag: UTXO_INDEX_MAPPING_SEGMENT,
+                        addr: pid as u64,
+                        tag: RAM_INITIALIZED,
                     },
-                    vec![*utxo_id],
+                    vec![F::from(
+                        if pid < self.instance.n_inputs || pid == self.instance.entrypoint.0 {
+                            1
+                        } else {
+                            0
+                        },
+                    )],
                 );
-
-                utxo_order_mapping.insert(*utxo_id, index + 2);
 
                 mb.init(
                     Address {
-                        addr: index as u64 + 2 + utxos_len * 2,
-                        tag: OUTPUT_CHECK_SEGMENT,
+                        addr: pid as u64,
+                        tag: RAM_COUNTERS,
                     },
-                    vec![*output_after, F::from(if *consumed { 1 } else { 0 })],
+                    vec![F::from(0u64)],
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RAM_FINALIZED,
+                    },
+                    vec![F::from(0u64)], // false
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RAM_DID_BURN,
+                    },
+                    vec![F::from(0u64)], // false
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RAM_EXPECTED_INPUT,
+                    },
+                    vec![if pid >= self.instance.n_inputs {
+                        F::from(0u64)
+                    } else {
+                        self.last_yield[pid]
+                    }],
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RAM_ARG,
+                    },
+                    vec![F::from(0u64)], // None
                 );
             }
 
-            (mb, utxo_order_mapping)
+            for (pid, must_burn) in self.instance.must_burn.iter().enumerate() {
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: ROM_MUST_BURN,
+                    },
+                    vec![F::from(if *must_burn { 1u64 } else { 0 })],
+                );
+            }
+
+            for (pid, is_utxo) in self.instance.is_utxo.iter().enumerate() {
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: ROM_IS_UTXO,
+                    },
+                    vec![F::from(if *is_utxo { 1u64 } else { 0 })],
+                );
+            }
+
+            // TODO: initialize ownership too
+
+            for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: ROM_IS_UTXO,
+                    },
+                    vec![F::from(
+                        owner
+                            .map(|p| p.0)
+                            // probably using 0 for null is better but it would
+                            // mean checking that pids are always greater than
+                            // 0, so review later
+                            .unwrap_or(self.instance.process_table.len())
+                            as u64,
+                    )],
+                );
+            }
+
+            mb
         };
 
-        let utxos_len = self.utxos.len() as u64;
-
-        self.utxo_order_mapping = utxo_order_mapping;
+        let mut curr_pid = self.instance.entrypoint.0 as u64;
+        let mut prev_pid: Option<u64> = None;
 
         // out of circuit memory operations.
         // this is needed to commit to the memory operations before-hand.
+        //
+        // and here we compute the actual write values (for memory operations)
+        //
+        // note however that we don't enforce/check anything, that's done in the
+        // circuit constraints
         for instr in &self.ops {
-            // per step we conditionally:
-            //
-            // 1. read the coordination script state
-            // 2. read a single utxo state
-            // 3. write the new coordination script state
-            // 4. write the new utxo state (for the same utxo)
-            //
-            // Aditionally we read from the ROM
-            //
-            // 5. The expected utxo final state (if the check utxo switch is on).
-            // 6. The utxo id mapping.
-            //
-            // All instructions need to the same number of reads and writes,
-            // since these have to allocate witnesses.
-            //
-            // The witnesses are allocated in Wires::from_irw.
-            //
-            // Each read or write here needs a corresponding witness in that
-            // function, with the same switchboard condition, and the same
-            // address.
-            let (utxo_id, coord_read_cond, utxo_read_cond, coord_write_cond, utxo_write_cond) =
-                match instr {
-                    LedgerOperation::Resume { utxo_id, .. } => (*utxo_id, false, false, true, true),
-                    LedgerOperation::YieldResume { utxo_id, .. }
-                    | LedgerOperation::Yield { utxo_id, .. } => {
-                        (*utxo_id, true, false, false, true)
-                    }
-                    LedgerOperation::CheckUtxoOutput { utxo_id } => {
-                        (*utxo_id, false, true, false, true)
-                    }
-                    LedgerOperation::Nop {} => (F::from(0), false, false, false, false),
-                    LedgerOperation::DropUtxo { utxo_id } => (*utxo_id, false, false, false, false),
-                };
+            let (curr_switches, target_switches) = opcode_to_mem_switches(instr);
+            self.mem_switches
+                .push((curr_switches.clone(), target_switches.clone()));
 
-            let utxo_addr = *self.utxo_order_mapping.get(&utxo_id).unwrap_or(&2);
+            let rom_switches = opcode_to_rom_switches(instr);
+            self.rom_switches.push(rom_switches.clone());
 
-            let coord_read = mb.conditional_read(
-                coord_read_cond,
+            let target_addr = match instr {
+                LedgerOperation::Resume { target, .. } => Some(*target),
+                LedgerOperation::Yield { .. } => prev_pid.map(F::from),
+                LedgerOperation::Burn { .. } => prev_pid.map(F::from),
+                LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
+                LedgerOperation::NewCoord { target: id, .. } => Some(*id),
+                LedgerOperation::ProgramHash { target, .. } => Some(*target),
+                _ => None,
+            };
+
+            let curr_read = trace_program_state_reads(&mut mb, curr_pid, &curr_switches);
+
+            let target_pid = target_addr.map(|t| t.into_bigint().0[0]);
+            let target_read =
+                trace_program_state_reads(&mut mb, target_pid.unwrap_or(0), &target_switches);
+
+            // Trace ROM reads
+            mb.conditional_read(
+                rom_switches.read_is_utxo_curr,
                 Address {
-                    addr: 1,
-                    tag: RAM_SEGMENT,
+                    addr: curr_pid,
+                    tag: ROM_IS_UTXO,
                 },
             );
-            let utxo_read = mb.conditional_read(
-                utxo_read_cond,
+            mb.conditional_read(
+                rom_switches.read_is_utxo_target,
                 Address {
-                    addr: utxo_addr as u64,
-                    tag: RAM_SEGMENT,
+                    addr: target_pid.unwrap_or(0),
+                    tag: ROM_IS_UTXO,
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_must_burn_curr,
+                Address {
+                    addr: curr_pid,
+                    tag: ROM_MUST_BURN,
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_program_hash_target,
+                Address {
+                    addr: target_pid.unwrap_or(0),
+                    tag: ROM_PROCESS_TABLE,
                 },
             );
 
-            let (coord_write, utxo_write) = instr.write_values(coord_read, utxo_read);
+            let (curr_write, target_write) =
+                instr.program_state_transitions(curr_read, target_read);
 
             self.write_ops
-                .push((coord_write.clone(), utxo_write.clone()));
+                .push((curr_write.clone(), target_write.clone()));
 
-            mb.conditional_write(
-                coord_write_cond,
-                Address {
-                    addr: 1,
-                    tag: RAM_SEGMENT,
-                },
-                coord_write.to_field_vec(),
-            );
-            mb.conditional_write(
-                utxo_write_cond,
-                Address {
-                    addr: utxo_addr as u64,
-                    tag: RAM_SEGMENT,
-                },
-                utxo_write.to_field_vec(),
+            trace_program_state_writes(&mut mb, curr_pid, &curr_write, &curr_switches);
+            trace_program_state_writes(
+                &mut mb,
+                target_pid.unwrap_or(0),
+                &target_write,
+                &target_switches,
             );
 
-            mb.conditional_read(
-                !matches!(instr, LedgerOperation::Nop {}),
-                Address {
-                    addr: utxo_addr as u64 + utxos_len,
-                    tag: UTXO_INDEX_MAPPING_SEGMENT,
-                },
-            );
-
-            mb.conditional_read(
-                matches!(instr, LedgerOperation::CheckUtxoOutput { .. }),
-                Address {
-                    addr: utxo_addr as u64 + utxos_len * 2,
-                    tag: OUTPUT_CHECK_SEGMENT,
-                },
-            );
+            // update pids for next iteration
+            match instr {
+                LedgerOperation::Resume { target, .. } => {
+                    prev_pid = Some(curr_pid);
+                    curr_pid = target.into_bigint().0[0];
+                }
+                LedgerOperation::Yield { .. } | LedgerOperation::Burn { .. } => {
+                    let parent = prev_pid.expect("yield/burn must have parent");
+                    prev_pid = Some(curr_pid);
+                    curr_pid = parent;
+                }
+                _ => {}
+            }
         }
 
         mb
@@ -817,7 +1206,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         irw: &InterRoundWires,
     ) -> Result<Wires, SynthesisError> {
         let instruction = &self.ops[i];
-        let (coord_write, utxo_write) = &self.write_ops[i];
+        let (curr_write, target_write) = &self.write_ops[i];
+        let (curr_mem_switches, target_mem_switches) = &self.mem_switches[i];
+        let rom_switches = &self.rom_switches[i];
 
         match instruction {
             LedgerOperation::Nop {} => {
@@ -825,255 +1216,368 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     nop_switch: true,
                     irw: irw.clone(),
 
-                    // the first utxo has address 2
-                    //
-                    // this doesn't matter since the read is unconditionally
-                    // false, it's just for padding purposes
-                    utxo_address: F::from(2_u64),
-
-                    ..PreWires::new(irw.clone())
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
                 };
 
-                Wires::from_irw(&irw, rm, utxo_write, coord_write)
+                Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Resume {
-                utxo_id,
-                input,
-                output,
+                target,
+                val,
+                ret,
+                id_prev,
             } => {
-                let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
-
                 let irw = PreWires {
                     resume_switch: true,
-
-                    utxo_id: *utxo_id,
-                    input: *input,
-                    output: *output,
-
-                    utxo_address: F::from(utxo_addr as u64),
+                    target: *target,
+                    val: val.clone(),
+                    ret: ret.clone(),
+                    id_prev: id_prev.clone().unwrap_or(F::ZERO),
 
                     irw: irw.clone(),
 
-                    ..PreWires::new(irw.clone())
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
                 };
 
-                Wires::from_irw(&irw, rm, utxo_write, coord_write)
+                Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::YieldResume { utxo_id, output } => {
-                let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
-
+            LedgerOperation::Yield { val, ret, id_prev } => {
                 let irw = PreWires {
-                    yield_end_switch: true,
-
-                    utxo_id: *utxo_id,
-                    output: *output,
-
-                    utxo_address: F::from(utxo_addr as u64),
+                    yield_switch: true,
+                    target: irw.id_prev,
+                    val: val.clone(),
+                    ret: ret.clone().unwrap_or(F::ZERO),
+                    id_prev: id_prev.clone().unwrap_or(F::ZERO),
 
                     irw: irw.clone(),
 
-                    ..PreWires::new(irw.clone())
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
                 };
 
-                Wires::from_irw(&irw, rm, utxo_write, coord_write)
+                Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::Yield { utxo_id, input } => {
-                let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
-
+            LedgerOperation::Burn { ret } => {
                 let irw = PreWires {
-                    yield_start_switch: true,
-                    utxo_id: *utxo_id,
-                    input: *input,
-                    utxo_address: F::from(utxo_addr as u64),
+                    burn_switch: true,
+                    target: irw.id_prev,
+                    ret: ret.clone(),
                     irw: irw.clone(),
-
-                    ..PreWires::new(irw.clone())
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
                 };
 
-                Wires::from_irw(&irw, rm, utxo_write, coord_write)
+                Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::CheckUtxoOutput { utxo_id } => {
-                let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
-
+            LedgerOperation::ProgramHash {
+                target,
+                program_hash,
+            } => {
                 let irw = PreWires {
-                    check_utxo_output_switch: true,
-                    utxo_id: *utxo_id,
-                    utxo_address: F::from(utxo_addr as u64),
+                    program_hash_switch: true,
+                    target: *target,
+                    program_hash: *program_hash,
                     irw: irw.clone(),
-                    ..PreWires::new(irw.clone())
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
                 };
-
-                Wires::from_irw(&irw, rm, utxo_write, coord_write)
+                Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::DropUtxo { utxo_id } => {
-                let utxo_addr = *self.utxo_order_mapping.get(utxo_id).unwrap();
-
+            LedgerOperation::NewUtxo {
+                program_hash,
+                val,
+                target,
+            } => {
                 let irw = PreWires {
-                    drop_utxo_switch: true,
-                    utxo_id: *utxo_id,
-                    utxo_address: F::from(utxo_addr as u64),
+                    new_utxo_switch: true,
+                    target: *target,
+                    val: *val,
+                    program_hash: *program_hash,
                     irw: irw.clone(),
-                    ..PreWires::new(irw.clone())
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
                 };
-
-                Wires::from_irw(&irw, rm, utxo_write, coord_write)
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
+            LedgerOperation::NewCoord {
+                program_hash,
+                val,
+                target,
+            } => {
+                let irw = PreWires {
+                    new_coord_switch: true,
+                    target: *target,
+                    val: *val,
+                    program_hash: *program_hash,
+                    irw: irw.clone(),
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
+            LedgerOperation::Input { val, caller } => {
+                let irw = PreWires {
+                    input_switch: true,
+                    val: *val,
+                    caller: *caller,
+                    irw: irw.clone(),
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
             }
         }
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_utxo_resume(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_resume(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.resume_switch;
 
-        wires.utxo_read_wires.conditionally_enforce_equal(
-            &wires.utxo_write_wires,
-            switch,
-            [ProgramStateWires::CONSUMED].into_iter().collect(),
-        )?;
+        // ---
+        // Ckecks from the mocked verifier
+        // ---
 
+        // 1. self-resume check
         wires
-            .current_program
-            .conditional_enforce_equal(&wires.coordination_script, switch)?;
+            .id_curr
+            .conditional_enforce_not_equal(&wires.target, switch)?;
 
+        // 2. UTXO cannot resume UTXO.
+        let is_utxo_curr = wires.is_utxo_curr.is_one()?;
+        let is_utxo_target = wires.is_utxo_target.is_one()?;
+        let both_are_utxos = is_utxo_curr & is_utxo_target;
+        both_are_utxos.conditional_enforce_equal(&Boolean::FALSE, switch)?;
+        // 3. Target must be initialized
         wires
-            .utxo_write_wires
-            .consumed
-            .conditional_enforce_equal(&FpVar::from(wires.constant_true.clone()), switch)?;
+            .target_read_wires
+            .initialized
+            .conditional_enforce_equal(&wires.constant_true.clone().into(), switch)?;
 
-        wires.current_program = switch.select(&wires.utxo_id, &wires.current_program)?;
+        // 4. Re-entrancy check (target's arg must be None/0)
+        wires
+            .target_read_wires
+            .arg
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+
+        // 5. Claim check: val passed in must match target's expected_input.
+        wires
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_equal(&wires.val, switch)?;
+
+        // ---
+        // State update enforcement is implicitly handled by the MemSwitchboard.
+        // We trust that `write_values` computed the correct new state, and the switchboard
+        // correctly determines which fields are written. The circuit only needs to
+        // enforce the checks above and the IVC updates below.
+        // ---
+
+        // ---
+        // IVC state updates
+        // ---
+        // On resume, current program becomes the target, and the old current program
+        // becomes the new previous program.
+        let next_id_curr = switch.select(&wires.target, &wires.id_curr)?;
+        let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+        wires.id_curr = next_id_curr;
+        wires.id_prev = next_id_prev;
 
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_utxo_drop(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.drop_utxo_switch;
+    fn visit_burn(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.burn_switch;
 
-        wires.utxo_read_wires.conditionally_enforce_equal(
-            &wires.utxo_write_wires,
-            switch,
-            [].into_iter().collect(),
-        )?;
+        // ---
+        // Ckecks from the mocked verifier
+        // ---
 
+        // 1. Current process must be a UTXO.
         wires
-            .current_program
-            .conditional_enforce_equal(&wires.utxo_id, switch)?;
+            .is_utxo_curr
+            .is_one()?
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        wires.current_program =
-            switch.select(&wires.coordination_script, &wires.current_program)?;
+        // 2. This UTXO must be marked for burning.
+        wires
+            .must_burn_curr
+            .is_one()?
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // 3. Parent must exist.
+        let parent_is_some = !wires.id_prev.is_zero()?;
+        parent_is_some.conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // 2. Claim check: burned value `ret` must match parent's `expected_input`.
+        // Parent's state is in `target_read_wires`.
+        wires
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_equal(&wires.ret, switch)?;
+
+        // ---
+        // IVC state updates
+        // ---
+        // Like yield, current program becomes the parent, and new prev is the one that burned.
+        let next_id_curr = switch.select(&wires.id_prev, &wires.id_curr)?;
+        let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+        wires.id_curr = next_id_curr;
+        wires.id_prev = next_id_prev;
 
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_utxo_yield_resume(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.yield_resume_switch;
+    fn visit_yield(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.yield_switch;
 
-        wires.utxo_read_wires.conditionally_enforce_equal(
-            &wires.utxo_write_wires,
-            switch,
-            [].into_iter().collect(),
-        )?;
+        // ---
+        // Ckecks from the mocked verifier
+        // ---
 
+        // 1. Must have a parent. id_prev must not be 0.
+        let parent_is_some = !wires.id_prev.is_zero()?;
+        parent_is_some.conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // 2. Claim check: yielded value `val` must match parent's `expected_input`.
+        // The parent's state is in `target_read_wires` because we set `target = irw.id_prev`.
         wires
-            .coord_read_wires
-            .input
-            .conditional_enforce_equal(&wires.output, switch)?;
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_equal(&wires.val, switch)?;
 
+        // ---
+        // State update enforcement
+        // ---
+        // The mock verifier shows that the parent's (target's) state is not modified by a Yield.
+        // Let's enforce that all write switches for the target are false.
         wires
-            .current_program
-            .conditional_enforce_equal(&wires.utxo_id, switch)?;
+            .target_mem_switches
+            .expected_input
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+        wires
+            .target_mem_switches
+            .arg
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+        // ... etc. for all fields of target_mem_switches
+
+        // The state of the current process is updated by `write_values`, and the
+        // `curr_mem_switches` will ensure the correct fields are written. We don't
+        // need to re-enforce those updates here, just the checks.
+
+        // ---
+        // IVC state updates
+        // ---
+        // On yield, the current program becomes the parent (old id_prev),
+        // and the new prev program is the one that just yielded.
+        let next_id_curr = switch.select(&wires.id_prev, &wires.id_curr)?;
+        let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+        wires.id_curr = next_id_curr;
+        wires.id_prev = next_id_prev;
 
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_utxo_yield(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.utxo_yield_switch;
+    fn visit_new_process(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.new_utxo_switch | &wires.new_coord_switch;
 
-        wires.utxo_read_wires.conditionally_enforce_equal(
-            &wires.utxo_write_wires,
-            switch,
-            [
-                ProgramStateWires::CONSUMED,
-                ProgramStateWires::OUTPUT,
-                ProgramStateWires::INPUT,
-            ]
-            .into_iter()
-            .collect(),
-        )?;
+        // The target is the new process being created.
+        // The current process is the coordination script doing the creation.
+        //
+        // 1. Coordinator check: current process must NOT be a UTXO.
 
         wires
-            .utxo_write_wires
-            .consumed
-            .conditional_enforce_equal(&FpVar::from(wires.constant_false.clone()), switch)?;
+            .is_utxo_curr
+            .is_one()?
+            .conditional_enforce_equal(&Boolean::FALSE, &switch)?;
 
-        wires
-            .coord_read_wires
-            .output
-            .conditional_enforce_equal(&wires.input, switch)?;
+        // 2. Target type check
+        // TODO: this is wrong, there is no target in NewUtxo
+        let target_is_utxo = wires.is_utxo_target.is_one()?;
+        dbg!(wires.is_utxo_target.value().unwrap());
+        dbg!(wires.new_utxo_switch.value().unwrap());
+        // if new_utxo_switch is true, target_is_utxo must be true.
+        // if new_utxo_switch is false (i.e. new_coord_switch is true), target_is_utxo must be false.
+        target_is_utxo.conditional_enforce_equal(&wires.new_utxo_switch, &switch)?;
 
-        wires
-            .current_program
-            .conditional_enforce_equal(&wires.utxo_id, switch)?;
+        // 3. Program hash check
+        // wires
+        //     .rom_program_hash
+        //     .conditional_enforce_equal(&wires.program_hash, &switch)?;
 
-        wires.current_program =
-            switch.select(&wires.coordination_script, &wires.current_program)?;
+        // 4. Target counter must be 0.
+        // wires
+        //     .target_read_wires
+        //     .counters
+        //     .conditional_enforce_equal(&FpVar::zero(), &switch)?;
+
+        // 5. Target must not be initialized.
+        // wires
+        //     .target_read_wires
+        //     .initialized
+        //     .conditional_enforce_equal(&wires.constant_false.clone().into(), &switch)?;
 
         Ok(wires)
     }
 
-    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_utxo_output_check(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.check_utxo_output_switch;
+    fn visit_input(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.input_switch;
 
-        wires.utxo_read_wires.conditionally_enforce_equal(
-            &wires.utxo_write_wires,
-            switch,
-            [ProgramStateWires::FINALIZED].into_iter().collect(),
-        )?;
+        // When a process calls `input`, it's reading the argument that was
+        // passed to it when it was resumed.
 
+        // 1. Check that the value from the opcode matches the value in the `arg` register.
         wires
-            .current_program
-            .conditional_enforce_equal(&wires.coordination_script, switch)?;
+            .curr_read_wires
+            .arg
+            .conditional_enforce_equal(&wires.val, switch)?;
 
-        // utxo.output = expected.output
+        // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
         wires
-            .utxo_read_wires
-            .output
-            .conditional_enforce_equal(&wires.utxo_final_output, switch)?;
-
-        // utxo.consumed = expected.consumed
-        wires
-            .utxo_read_wires
-            .consumed
-            .conditional_enforce_equal(&wires.utxo_final_consumed, switch)?;
-
-        // utxo.finalized = true;
-        wires
-            .utxo_write_wires
-            .finalized
-            .enforce_equal(&FpVar::from(switch.clone()))?;
-
-        // Check that we don't have duplicated entries. Otherwise the
-        // finalization counter (n_finalized) will have the right value at the
-        // end, but not all the utxo states will be verified.
-        wires
-            .utxo_read_wires
-            .finalized
-            .conditional_enforce_equal(&FpVar::from(wires.constant_false.clone()), switch)?;
-
-        // n_finalized += 1;
-        wires.n_finalized = switch.select(
-            &(&wires.n_finalized + &wires.constant_one),
-            &wires.n_finalized,
-        )?;
+            .id_prev
+            .conditional_enforce_equal(&wires.caller, switch)?;
 
         Ok(wires)
     }
 
-    pub(crate) fn rom_offset(&self) -> F {
-        F::from(self.utxos.len() as u64)
+    pub(crate) fn p_len(&self) -> usize {
+        self.instance.process_table.len()
     }
 }
 
@@ -1082,127 +1586,100 @@ fn ivcify_wires(
     wires_in: &Wires,
     wires_out: &Wires,
 ) -> Result<(), SynthesisError> {
-    let (current_program_in, current_program_out) = {
-        let f_in = || wires_in.current_program.value();
-        let f_out = || wires_out.current_program.value();
-        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
+    // let (current_program_in, current_program_out) = {
+    //     let f_in = || wires_in.id_curr.value();
+    //     let f_out = || wires_out.id_curr.value();
+    //     let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
+    //     let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
 
-        Ok((alloc_in, alloc_out))
-    }?;
+    //     Ok((alloc_in, alloc_out))
+    // }?;
 
-    wires_in
-        .current_program
-        .enforce_equal(&current_program_in)?;
-    wires_out
-        .current_program
-        .enforce_equal(&current_program_out)?;
+    // wires_in.id_curr.enforce_equal(&current_program_in)?;
+    // wires_out.id_curr.enforce_equal(&current_program_out)?;
 
-    let (current_rom_offset_in, current_rom_offset_out) = {
-        let f_in = || wires_in.utxos_len.value();
-        let f_out = || wires_out.utxos_len.value();
-        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
+    // let (utxos_len_in, utxos_len_out) = {
+    //     let f_in = || wires_in.utxos_len.value();
+    //     let f_out = || wires_out.utxos_len.value();
+    //     let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
+    //     let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
 
-        Ok((alloc_in, alloc_out))
-    }?;
+    //     Ok((alloc_in, alloc_out))
+    // }?;
 
-    wires_in.utxos_len.enforce_equal(&current_rom_offset_in)?;
-    wires_out.utxos_len.enforce_equal(&current_rom_offset_out)?;
+    // wires_in.utxos_len.enforce_equal(&utxos_len_in)?;
+    // wires_out.utxos_len.enforce_equal(&utxos_len_out)?;
 
-    current_rom_offset_in.enforce_equal(&current_rom_offset_out)?;
-
-    let (current_n_finalized_in, current_n_finalized_out) = {
-        let cs = cs.clone();
-        let f_in = || wires_in.n_finalized.value();
-        let f_out = || wires_out.n_finalized.value();
-        let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-        let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
-
-        Ok((alloc_in, alloc_out))
-    }?;
-
-    wires_in
-        .n_finalized
-        .enforce_equal(&current_n_finalized_in)?;
-    wires_out
-        .n_finalized
-        .enforce_equal(&current_n_finalized_out)?;
+    // utxos_len_in.enforce_equal(&utxos_len_out)?;
 
     Ok(())
 }
 
 impl PreWires {
-    pub fn new(irw: InterRoundWires) -> Self {
+    pub fn new(
+        irw: InterRoundWires,
+        curr_mem_switches: MemSwitchboard,
+        target_mem_switches: MemSwitchboard,
+        rom_switches: RomSwitchboard,
+    ) -> Self {
         Self {
-            utxo_address: F::ZERO,
-
-            coord_address: F::from(1),
-
-            // transcript vars
-            utxo_id: F::ZERO,
-            input: F::ZERO,
-            output: F::ZERO,
-
             // switches
-            yield_start_switch: false,
-            yield_end_switch: false,
+            yield_switch: false,
             resume_switch: false,
             check_utxo_output_switch: false,
             nop_switch: false,
-            drop_utxo_switch: false,
+            burn_switch: false,
+            input_switch: false,
 
             // io vars
             irw,
+
+            program_hash_switch: false,
+            new_utxo_switch: false,
+            new_coord_switch: false,
+
+            target: F::ZERO,
+            val: F::ZERO,
+            ret: F::ZERO,
+            id_prev: F::ZERO,
+            program_hash: F::ZERO,
+            new_process_id: F::ZERO,
+            caller: F::ZERO,
+
+            curr_mem_switches,
+            target_mem_switches,
+            rom_switches,
         }
     }
-
     pub fn debug_print(&self) {
         let _guard = debug_span!("witness assignments").entered();
 
-        tracing::debug!("utxo_id={}", self.utxo_id);
-        tracing::debug!("utxo_address={}", self.utxo_address);
-        tracing::debug!("coord_address={}", self.coord_address);
+        tracing::debug!("target={}", self.target);
+        tracing::debug!("val={}", self.val);
+        tracing::debug!("ret={}", self.ret);
+        tracing::debug!("id_prev={}", self.id_prev);
     }
 }
 
 impl ProgramState {
     pub fn dummy() -> Self {
         Self {
-            consumed: false,
             finalized: false,
-            input: F::ZERO,
-            output: F::ZERO,
-            commitment: array::from_fn(|_i| F::from(0)),
+            expected_input: F::ZERO,
+            arg: F::ZERO,
+            counters: F::ZERO,
+            initialized: false,
+            did_burn: false,
+            owned_by: F::ZERO,
         }
     }
 
-    fn to_field_vec(&self) -> Vec<F> {
-        [
-            vec![
-                if self.consumed {
-                    F::from(1)
-                } else {
-                    F::from(0)
-                },
-                if self.finalized {
-                    F::from(1)
-                } else {
-                    F::from(0)
-                },
-                self.input,
-                self.output,
-            ],
-            self.commitment.to_vec(),
-        ]
-        .concat()
-    }
-
     pub fn debug_print(&self) {
-        tracing::debug!("consumed={}", self.consumed);
+        tracing::debug!("expected_input={}", self.expected_input);
+        tracing::debug!("arg={}", self.arg);
+        tracing::debug!("counters={}", self.counters);
         tracing::debug!("finalized={}", self.finalized);
-        tracing::debug!("input={}", self.input);
-        tracing::debug!("output={}", self.output);
-        tracing::debug!("commitment={:?}", self.commitment);
+        tracing::debug!("did_burn={}", self.did_burn);
+        tracing::debug!("owned_by={}", self.owned_by);
     }
 }

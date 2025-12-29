@@ -40,7 +40,12 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
             self.ws
                 .get(address)
                 .and_then(|writes| writes.back().cloned())
-                .unwrap_or_else(|| self.is.get(address).unwrap().clone())
+                .unwrap_or_else(|| {
+                    self.is
+                        .get(address)
+                        .expect("read uninitialized address")
+                        .clone()
+                })
         } else {
             MemOp::padding()
         };
@@ -104,7 +109,6 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
 pub struct NebulaMemoryParams {
     pub unsound_disable_poseidon_commitment: bool,
 }
-
 
 impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE> {
     type Allocator = NebulaMemoryConstraints<F>;
@@ -181,6 +185,8 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
                 .increment(addr, fs_v, self.params.unsound_disable_poseidon_commitment)
                 .unwrap();
         }
+
+        dbg!(self.is.len());
 
         assert_eq!(self.is.len() % SCAN_BATCH_SIZE, 0);
 
