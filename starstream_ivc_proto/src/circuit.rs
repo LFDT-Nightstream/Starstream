@@ -155,9 +155,10 @@ pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, Me
             target_s.expected_input = true;
             target_s.counters = true; // sets counter to 0
         }
-        _ => {
-            // Other ops like ProgramHash or Input are read-only or have no side-effects tracked here.
+        LedgerOperation::Input { .. } => {
+            curr_s.arg = true;
         }
+        _ => {}
     }
     (curr_s, target_s)
 }
@@ -1201,6 +1202,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         mb
     }
 
+    #[tracing::instrument(target = "gr1cs", skip_all)]
     fn allocate_vars(
         &self,
         i: usize,
@@ -1556,6 +1558,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         Ok(wires)
     }
 
+    #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_input(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.input_switch;
 
