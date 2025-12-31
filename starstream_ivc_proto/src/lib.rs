@@ -88,7 +88,7 @@ pub struct ProverOutput {
     pub proof: (),
 }
 
-const SCAN_BATCH_SIZE: usize = 9;
+const SCAN_BATCH_SIZE: usize = 20;
 
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
     let shape_ccs = ccs_step_shape(inst.clone())?;

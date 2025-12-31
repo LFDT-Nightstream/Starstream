@@ -1086,7 +1086,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: ROM_IS_UTXO,
+                        tag: RAM_OWNERSHIP,
                     },
                     vec![F::from(
                         owner
@@ -1528,30 +1528,27 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&Boolean::FALSE, &switch)?;
 
         // 2. Target type check
-        // TODO: this is wrong, there is no target in NewUtxo
         let target_is_utxo = wires.is_utxo_target.is_one()?;
-        dbg!(wires.is_utxo_target.value().unwrap());
-        dbg!(wires.new_utxo_switch.value().unwrap());
         // if new_utxo_switch is true, target_is_utxo must be true.
         // if new_utxo_switch is false (i.e. new_coord_switch is true), target_is_utxo must be false.
         target_is_utxo.conditional_enforce_equal(&wires.new_utxo_switch, &switch)?;
 
         // 3. Program hash check
-        // wires
-        //     .rom_program_hash
-        //     .conditional_enforce_equal(&wires.program_hash, &switch)?;
+        wires
+            .rom_program_hash
+            .conditional_enforce_equal(&wires.program_hash, &switch)?;
 
         // 4. Target counter must be 0.
-        // wires
-        //     .target_read_wires
-        //     .counters
-        //     .conditional_enforce_equal(&FpVar::zero(), &switch)?;
+        wires
+            .target_read_wires
+            .counters
+            .conditional_enforce_equal(&FpVar::zero(), &switch)?;
 
         // 5. Target must not be initialized.
-        // wires
-        //     .target_read_wires
-        //     .initialized
-        //     .conditional_enforce_equal(&wires.constant_false.clone().into(), &switch)?;
+        wires
+            .target_read_wires
+            .initialized
+            .conditional_enforce_equal(&wires.constant_false.clone().into(), &switch)?;
 
         Ok(wires)
     }
