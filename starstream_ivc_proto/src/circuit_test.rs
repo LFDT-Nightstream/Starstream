@@ -33,7 +33,7 @@ fn test_circuit_simple_resume() {
             WitLedgerEffect::NewUtxo {
                 program_hash: h(0),
                 val: val_0.clone(),
-                id: p1,
+                id: p0,
             },
             WitLedgerEffect::Resume {
                 target: p0,
