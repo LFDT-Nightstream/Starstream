@@ -238,6 +238,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         self.cs.as_ref().unwrap().clone()
     }
 
+    #[tracing::instrument(target = "gr1cs", skip(self, cond, address))]
     fn conditional_read(
         &mut self,
         cond: &Boolean<F>,
@@ -270,6 +271,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         Ok(rv.values)
     }
 
+    #[tracing::instrument(target = "gr1cs", skip(self, cond, address, vals))]
     fn conditional_write(
         &mut self,
         cond: &Boolean<F>,
@@ -375,6 +377,7 @@ impl NebulaMemoryConstraints<F> {
         }
     }
 
+    #[tracing::instrument(target = "gr1cs", skip_all)]
     fn update_ic_with_ops(
         &mut self,
         cond: &Boolean<F>,
