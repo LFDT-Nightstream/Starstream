@@ -139,6 +139,7 @@ impl FingerPrintWires {
 }
 
 impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
+    #[tracing::instrument(target = "gr1cs", skip(self, cs))]
     fn start_step(&mut self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         self.cs.replace(cs.clone());
 
@@ -183,6 +184,7 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         Ok(())
     }
 
+    #[tracing::instrument(target = "gr1cs", skip(self))]
     fn finish_step(&mut self, is_last_step: bool) -> Result<(), SynthesisError> {
         self.cs = None;
         self.c1_powers_cache = None;
@@ -255,7 +257,8 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         self.update_ic_with_ops(cond, address, &rv, &wv)?;
 
         tracing::debug!(
-            "nebula read {:?} at address {} in segment {}",
+            "nebula {} read {:?} at address {} in segment {}",
+            cond.value()?,
             rv.values
                 .iter()
                 .map(|v| v.value().unwrap().into_bigint())
@@ -302,7 +305,8 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
         }
 
         tracing::debug!(
-            "nebula write values {:?} at address {} in segment {}",
+            "nebula ({}) write values {:?} at address {} in segment {}",
+            cond.value()?,
             vals.iter()
                 .map(|v| v.value().unwrap().into_bigint())
                 .collect::<Vec<_>>(),
@@ -483,9 +487,7 @@ impl NebulaMemoryConstraints<F> {
                 &mut self.debug_sets.fs,
             )?;
         };
-        Ok(
-            (),
-        )
+        Ok(())
     }
 
     fn hash_avt(
