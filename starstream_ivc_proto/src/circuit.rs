@@ -14,6 +14,7 @@ use ark_relations::{
 };
 use starstream_mock_ledger::InterleavingInstance;
 use std::marker::PhantomData;
+use std::ops::{Mul, Not};
 use tracing::debug_span;
 
 #[derive(Clone, Debug, Default)]
@@ -107,19 +108,11 @@ pub const RAM_OWNERSHIP: u64 = 10u64;
 // memory size, I'll implement this at last
 pub const RAM_HANDLER_STACK: u64 = 11u64;
 
-impl MemSwitchboard {
-    pub fn any(&self) -> bool {
-        self.expected_input
-            || self.arg
-            || self.counters
-            || self.initialized
-            || self.finalized
-            || self.did_burn
-            || self.ownership
-    }
-}
-
 pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, MemSwitchboard) {
+    // TODO: we could actually have more granularity with 4 of theses, for reads
+    // and writes
+    //
+    // it may actually better for correctnes?
     let mut curr_s = MemSwitchboard::default();
     let mut target_s = MemSwitchboard::default();
 
@@ -200,7 +193,8 @@ pub struct StepCircuitBuilder<M> {
 pub struct Wires {
     // irw
     id_curr: FpVar<F>,
-    id_prev: FpVar<F>,
+    id_prev_is_some: Boolean<F>,
+    id_prev_value: FpVar<F>,
 
     utxos_len: FpVar<F>,
 
@@ -219,7 +213,9 @@ pub struct Wires {
     val: FpVar<F>,
     ret: FpVar<F>,
     program_hash: FpVar<F>,
+    new_process_id: FpVar<F>,
     caller: FpVar<F>,
+    ret_is_some: Boolean<F>,
 
     curr_read_wires: ProgramStateWires,
     curr_write_wires: ProgramStateWires,
@@ -261,7 +257,6 @@ pub struct PreWires {
     target: F,
     val: F,
     ret: F,
-    id_prev: F,
 
     program_hash: F,
 
@@ -284,6 +279,10 @@ pub struct PreWires {
     rom_switches: RomSwitchboard,
 
     irw: InterRoundWires,
+
+    id_prev_is_some: bool,
+    id_prev_value: F,
+    ret_is_some: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -303,7 +302,8 @@ pub struct ProgramState {
 #[derive(Clone)]
 pub struct InterRoundWires {
     id_curr: F,
-    id_prev: F,
+    id_prev_is_some: bool,
+    id_prev_value: F,
 
     p_len: F,
     n_finalized: F,
@@ -340,6 +340,8 @@ impl Wires {
         // io vars
         let id_curr = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
         let utxos_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
+        let id_prev_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.irw.id_prev_is_some))?;
+        let id_prev_value = FpVar::new_witness(cs.clone(), || Ok(vals.irw.id_prev_value))?;
 
         // switches
         let switches = [
@@ -393,7 +395,7 @@ impl Wires {
         let val = FpVar::<F>::new_witness(ns!(cs.clone(), "val"), || Ok(vals.val))?;
         let ret = FpVar::<F>::new_witness(ns!(cs.clone(), "ret"), || Ok(vals.ret))?;
 
-        let id_prev = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.id_prev))?;
+        let ret_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.ret_is_some))?;
         let program_hash = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.program_hash))?;
 
         let new_process_id = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.new_process_id))?;
@@ -473,7 +475,8 @@ impl Wires {
 
         Ok(Wires {
             id_curr,
-            id_prev,
+            id_prev_is_some,
+            id_prev_value,
 
             utxos_len,
 
@@ -495,7 +498,9 @@ impl Wires {
             val,
             ret,
             program_hash,
+            new_process_id,
             caller,
+            ret_is_some,
 
             curr_read_wires,
             curr_write_wires,
@@ -804,7 +809,8 @@ impl InterRoundWires {
     pub fn new(p_len: F) -> Self {
         InterRoundWires {
             id_curr: F::from(1),
-            id_prev: F::from(0), // None
+            id_prev_is_some: false,
+            id_prev_value: F::ZERO,
             p_len,
             n_finalized: F::from(0),
         }
@@ -822,12 +828,15 @@ impl InterRoundWires {
         self.id_curr = res.id_curr.value().unwrap();
 
         tracing::debug!(
-            "prev_program from {} to {}",
-            self.id_prev,
-            res.id_prev.value().unwrap()
+            "prev_program from ({}, {}) to ({}, {})",
+            self.id_prev_is_some,
+            self.id_prev_value,
+            res.id_prev_is_some.value().unwrap(),
+            res.id_prev_value.value().unwrap(),
         );
 
-        self.id_curr = res.id_curr.value().unwrap();
+        self.id_prev_is_some = res.id_prev_is_some.value().unwrap();
+        self.id_prev_value = res.id_prev_value.value().unwrap();
 
         tracing::debug!(
             "utxos_len from {} to {}",
@@ -1241,8 +1250,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     target: *target,
                     val: val.clone(),
                     ret: ret.clone(),
-                    id_prev: id_prev.clone().unwrap_or(F::ZERO),
-
+                    id_prev_is_some: id_prev.is_some(),
+                    id_prev_value: id_prev.unwrap_or_default(),
                     irw: irw.clone(),
 
                     ..PreWires::new(
@@ -1258,13 +1267,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             LedgerOperation::Yield { val, ret, id_prev } => {
                 let irw = PreWires {
                     yield_switch: true,
-                    target: irw.id_prev,
+                    target: irw.id_prev_value,
                     val: val.clone(),
-                    ret: ret.clone().unwrap_or(F::ZERO),
-                    id_prev: id_prev.clone().unwrap_or(F::ZERO),
-
+                    ret: ret.unwrap_or_default(),
+                    ret_is_some: ret.is_some(),
+                    id_prev_is_some: id_prev.is_some(),
+                    id_prev_value: id_prev.unwrap_or_default(),
                     irw: irw.clone(),
-
                     ..PreWires::new(
                         irw.clone(),
                         curr_mem_switches.clone(),
@@ -1278,8 +1287,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             LedgerOperation::Burn { ret } => {
                 let irw = PreWires {
                     burn_switch: true,
-                    target: irw.id_prev,
+                    target: irw.id_prev_value,
                     ret: ret.clone(),
+                    id_prev_is_some: irw.id_prev_is_some,
+                    id_prev_value: irw.id_prev_value,
                     irw: irw.clone(),
                     ..PreWires::new(
                         irw.clone(),
@@ -1366,7 +1377,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
         }
     }
-
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_resume(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.resume_switch;
@@ -1400,22 +1410,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.val, switch)?;
 
         // ---
-        // State update enforcement is implicitly handled by the MemSwitchboard.
-        // We trust that `write_values` computed the correct new state, and the switchboard
-        // correctly determines which fields are written. The circuit only needs to
-        // enforce the checks above and the IVC updates below.
-        // ---
-
-        // ---
         // IVC state updates
         // ---
         // On resume, current program becomes the target, and the old current program
         // becomes the new previous program.
         let next_id_curr = switch.select(&wires.target, &wires.id_curr)?;
-        let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+        let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
+        let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
 
         wires.id_curr = next_id_curr;
-        wires.id_prev = next_id_prev;
+        wires.id_prev_is_some = next_id_prev_is_some;
+        wires.id_prev_value = next_id_prev_value;
 
         Ok(wires)
     }
@@ -1441,8 +1446,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // 3. Parent must exist.
-        let parent_is_some = !wires.id_prev.is_zero()?;
-        parent_is_some.conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        wires
+            .id_prev_is_some
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // 2. Claim check: burned value `ret` must match parent's `expected_input`.
         // Parent's state is in `target_read_wires`.
@@ -1455,10 +1461,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // IVC state updates
         // ---
         // Like yield, current program becomes the parent, and new prev is the one that burned.
-        let next_id_curr = switch.select(&wires.id_prev, &wires.id_curr)?;
-        let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+        let next_id_curr = switch.select(&wires.id_prev_value, &wires.id_curr)?;
+        let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
+        let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
         wires.id_curr = next_id_curr;
-        wires.id_prev = next_id_prev;
+        wires.id_prev_is_some = next_id_prev_is_some;
+        wires.id_prev_value = next_id_prev_value;
 
         Ok(wires)
     }
@@ -1467,49 +1475,47 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_yield(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.yield_switch;
 
-        // ---
-        // Ckecks from the mocked verifier
-        // ---
-
-        // 1. Must have a parent. id_prev must not be 0.
-        let parent_is_some = !wires.id_prev.is_zero()?;
-        parent_is_some.conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        // 1. Must have a parent.
+        wires
+            .id_prev_is_some
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // 2. Claim check: yielded value `val` must match parent's `expected_input`.
-        // The parent's state is in `target_read_wires` because we set `target = irw.id_prev`.
+        // The parent's state is in `target_read_wires` because we set `target = irw.id_prev_value`.
         wires
             .target_read_wires
             .expected_input
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.val, &(switch & (&wires.ret_is_some)))?;
 
         // ---
         // State update enforcement
         // ---
-        // The mock verifier shows that the parent's (target's) state is not modified by a Yield.
-        // Let's enforce that all write switches for the target are false.
+        // The state of the current process is updated by `write_values`.
+        // The `finalized` state depends on whether this is the last yield.
+        // `finalized` is true IFF `ret` is None.
         wires
-            .target_mem_switches
-            .expected_input
-            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
-        wires
-            .target_mem_switches
-            .arg
-            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
-        // ... etc. for all fields of target_mem_switches
+            .curr_write_wires
+            .finalized
+            .conditional_enforce_equal(&wires.ret_is_some.clone().not(), switch)?;
 
-        // The state of the current process is updated by `write_values`, and the
-        // `curr_mem_switches` will ensure the correct fields are written. We don't
-        // need to re-enforce those updates here, just the checks.
+        // The next `expected_input` should be `ret_value` if `ret` is Some, and 0 otherwise.
+        let new_expected_input = wires.ret_is_some.select(&wires.ret, &FpVar::zero())?;
+        wires
+            .curr_write_wires
+            .expected_input
+            .conditional_enforce_equal(&new_expected_input, switch)?;
 
         // ---
         // IVC state updates
         // ---
         // On yield, the current program becomes the parent (old id_prev),
         // and the new prev program is the one that just yielded.
-        let next_id_curr = switch.select(&wires.id_prev, &wires.id_curr)?;
-        let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+        let next_id_curr = switch.select(&wires.id_prev_value, &wires.id_curr)?;
+        let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
+        let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
         wires.id_curr = next_id_curr;
-        wires.id_prev = next_id_prev;
+        wires.id_prev_is_some = next_id_prev_is_some;
+        wires.id_prev_value = next_id_prev_value;
 
         Ok(wires)
     }
@@ -1573,7 +1579,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
         wires
-            .id_prev
+            .id_prev_value
             .conditional_enforce_equal(&wires.caller, switch)?;
 
         Ok(wires)
@@ -1645,10 +1651,13 @@ impl PreWires {
             target: F::ZERO,
             val: F::ZERO,
             ret: F::ZERO,
-            id_prev: F::ZERO,
             program_hash: F::ZERO,
             new_process_id: F::ZERO,
             caller: F::ZERO,
+            ret_is_some: false,
+
+            id_prev_is_some: false,
+            id_prev_value: F::ZERO,
 
             curr_mem_switches,
             target_mem_switches,
@@ -1661,7 +1670,7 @@ impl PreWires {
         tracing::debug!("target={}", self.target);
         tracing::debug!("val={}", self.val);
         tracing::debug!("ret={}", self.ret);
-        tracing::debug!("id_prev={}", self.id_prev);
+        tracing::debug!("id_prev=({}, {})", self.id_prev_is_some, self.id_prev_value);
     }
 }
 

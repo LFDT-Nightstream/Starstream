@@ -48,13 +48,18 @@ fn test_circuit_simple_resume() {
         trace: vec![
             WitLedgerEffect::Input {
                 val: val_42.clone(),
-                caller: p0,
+                // maybe rename this to id_prev
+                // TODO: but actually, do I need this? I think probably not
+                //
+                // it's part of the host call constraint, but I could just get
+                // it from the id_prev wire for the lookup
+                caller: p1,
             },
-            // WitLedgerEffect::Yield {
-            //     val: val_0.clone(), // Yielding nothing
-            //     ret: None,          // Not expecting to be resumed again
-            //     id_prev: Some(p0),
-            // },
+            WitLedgerEffect::Yield {
+                val: val_0.clone(), // Yielding nothing
+                ret: None,          // Not expecting to be resumed again
+                id_prev: Some(p1),
+            },
         ],
     };
 
