@@ -132,7 +132,9 @@ pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, Me
             curr_s.expected_input = true;
 
             target_s.arg = true;
+            target_s.expected_input = true;
             target_s.finalized = true;
+            target_s.initialized = true;
         }
         LedgerOperation::Yield { ret, .. } => {
             curr_s.arg = true;
@@ -1367,10 +1369,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_resume(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.resume_switch;
 
-        // ---
-        // Ckecks from the mocked verifier
-        // ---
-
         // 1. self-resume check
         wires
             .id_curr
@@ -1413,6 +1411,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // becomes the new previous program.
         let next_id_curr = switch.select(&wires.target, &wires.id_curr)?;
         let next_id_prev = switch.select(&wires.id_curr, &wires.id_prev)?;
+
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
 
@@ -1514,7 +1513,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
-    fn visit_new_process(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_new_process(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.new_utxo_switch | &wires.new_coord_switch;
 
         // The target is the new process being created.
@@ -1550,6 +1549,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .initialized
             .conditional_enforce_equal(&wires.constant_false.clone().into(), &switch)?;
 
+        // Mark new process as initialized
+        wires.target_write_wires.initialized =
+            switch.select(&wires.constant_true, &wires.target_read_wires.initialized)?;
+
         Ok(wires)
     }
 
@@ -1578,6 +1581,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 }
 
+#[tracing::instrument(target = "gr1cs", skip(cs, wires_in, wires_out))]
 fn ivcify_wires(
     cs: &ConstraintSystemRef<F>,
     wires_in: &Wires,
