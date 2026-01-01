@@ -1,4 +1,4 @@
-package starstream:node-rpc;
+package starstream:wrpc-multiplexer;
 
 /// A generic handler that can forward calls to any component
 interface handler {
@@ -14,6 +14,7 @@ interface handler {
         params: list<u8>,
     ) -> list<u8>;
 }
+
 
 world client {
     import handler;

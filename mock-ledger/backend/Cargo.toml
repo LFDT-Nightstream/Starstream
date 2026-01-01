@@ -10,6 +10,7 @@ repository = "https://github.com/LFDT-Nightstream/Starstream"
 members = [
     "node-server",
     "node-client",
+    "wrpc-multiplexer",
     "ledger",
 ]
 
@@ -32,6 +33,7 @@ p3-field = { version = "0.3", default-features = false }
 rand = { version = "0.9", default-features = false }
 hex = { version = "0.4", default-features = false }
 starstream-ledger = { path = "ledger" }
+wrpc-multiplexer = { path = "wrpc-multiplexer" }
 wit-bindgen-wrpc = { path = "../../../wrpc/crates/wit-bindgen", default-features = false }
 wrpc-transport = { path = "../../../wrpc/crates/transport", default-features = false }
 wrpc-runtime-wasmtime = { path = "../../../wrpc/crates/runtime-wasmtime", default-features = false }

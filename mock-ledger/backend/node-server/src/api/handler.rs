@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 
@@ -7,7 +9,8 @@ use tracing::debug;
 use futures::TryStreamExt;
 use tokio::join;
 use tokio_util::codec::Encoder;
-// use tokio_stream::StreamExt;
+use wasmtime::component::ResourceType;
+use wrpc_runtime_wasmtime::RemoteResource;
 use wrpc_transport::frame::Oneshot;
 use wrpc_transport::Invoke;
 use wrpc_transport::InvokeExt;
@@ -21,7 +24,7 @@ use tokio::sync::Mutex;
 use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
 
 use starstream_ledger::{Chain};
-use wrpc_runtime_wasmtime::{ValEncoder, collect_component_resource_exports};
+use wrpc_runtime_wasmtime::{ValEncoder, collect_component_resource_imports, collect_component_resource_exports};
 use wasmtime::{AsContextMut, Store, Engine};
 
 #[derive(Clone)]
@@ -81,6 +84,21 @@ impl Handler {
             &mut guest_resources_vec,
         );
 
+        let mut host_resources = BTreeMap::new();
+        collect_component_resource_imports(  store.engine(), &component.component_type(), &mut host_resources);
+
+        let host_resources = host_resources
+            .into_iter()
+            .map(|(name, instance)| {
+                let instance = instance
+                    .into_iter()
+                    .map(|(name, ty)| (name, (ty, ResourceType::host::<RemoteResource>())))
+                    .collect::<HashMap<_, _>>();
+                (name, instance)
+            })
+            .collect::<HashMap<_, _>>();
+        let host_resources = Arc::from(host_resources);
+
         let instance_name = "".to_string();
         let pretty_name = if instance_name.is_empty() {
             "root".to_string()
@@ -98,7 +116,7 @@ impl Handler {
                 store_shared,
                 instance,
                 Arc::from(guest_resources_vec.into_boxed_slice()),
-                std::collections::HashMap::default(),
+                host_resources,
                 fun_ty,
                 &instance_name,
                 &function,

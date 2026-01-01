@@ -4,9 +4,11 @@
 
 ```bash
 cargo install wit-deps-cli
-cd node-server && wit-deps && cd ..
-cd node-client/wit/rpc && wit-deps && cd ../../..
-cd node-client/wit/external && wit-deps && cd ../../..
+cd wrpc-multiplexer && wit-deps update && cd ..
+cd wit/node-rpc && wit-deps update && cd ../..
+cd node-server && wit-deps update && cd ..
+cd node-client/wit/rpc && wit-deps update && cd ../../..
+cd node-client/wit/external && wit-deps update && cd ../../..
 cargo build
 ```
 

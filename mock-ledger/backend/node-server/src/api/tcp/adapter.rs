@@ -2,7 +2,7 @@ use core::net::SocketAddr;
 
 use crate::api::{binding::bindings, handler::Handler};
 
-impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for Handler {
+impl bindings::exports::starstream::wrpc_multiplexer::handler::Handler<SocketAddr> for Handler {
     async fn call(
         &self,
         _ctx: SocketAddr,
@@ -15,3 +15,6 @@ impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for H
             .map(|v| v.into())
     }
 }
+// Add back once we have other RPC methods
+// impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for Handler {
+// }

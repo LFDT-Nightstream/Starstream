@@ -1,16 +1,16 @@
 use anyhow::Context as _;
 use clap::Parser;
+use starstream_ledger::encode::gen_ctx;
+use wasmtime::{Engine, Store, component::Linker};
+use wrpc_multiplexer::{MultiplexClient, InvocationContext};
 
 mod bindings {
     wit_bindgen_wrpc::generate!({
         path: "./wit/rpc/wit",
         with: {
             "starstream:node-rpc/handler": generate,
+            "starstream:wrpc-multiplexer/handler": generate,
         }
-    });
-    wit_bindgen_wrpc::generate!({
-        world: "starstream:node-rpc-client-ext/root",
-        path: "./wit/external/wit",
     });
 }
 
@@ -39,14 +39,27 @@ async fn main() -> anyhow::Result<()> {
         function,
     } = Args::parse();
 
-    let wrpc = wrpc_transport::tcp::Client::from(&addr);
+    explicit_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
+    let wrpc = MultiplexClient::new(wrpc_transport::tcp::Client::from(addr.clone()));
 
-    // Call through the dynamic handler
-    // In a real implementation, you'd need to properly encode the parameters
-    // using Component Model value encoding based on the function's signature
-    let params = wit_bindgen_wrpc::bytes::Bytes::new(); // Empty params for hello() function
+    let mut config = wasmtime::Config::default();
+    config.async_support(true);
+    let engine = Engine::new(&config)?;
+    let mut store = Store::new(&engine, gen_ctx(wrpc, InvocationContext::new(())));
+    // let linker = Linker::new(&engine);
+    // TODO: use this wrpc to make a call
+    Ok(())
+}
 
-    let result = bindings::starstream::node_rpc::handler::call(
+async fn explicit_call(
+    addr: String,
+    contract_hash: String,
+    function: String,
+) -> anyhow::Result<()> {
+    let wrpc = wrpc_transport::tcp::Client::from(addr);
+    let params = wit_bindgen_wrpc::bytes::Bytes::new(); // Empty params
+
+    let result = bindings::starstream::wrpc_multiplexer::handler::call(
         &wrpc,
         (),
         &contract_hash.clone(),
@@ -57,13 +70,7 @@ async fn main() -> anyhow::Result<()> {
     .with_context(|| format!("failed to call `{contract_hash}.{function}`"))?;
 
     // print a hex string of the bytes for now
+    // In a real implementation, you'd decode the result based on the function's return type
     println!("Result: {:?}", result);
-    // // In a real implementation, you'd decode the result based on the function's return type
-    // // For this POC, we'll assume it's a string (which hello() returns)
-    // let result_string = String::from_utf8(result.to_vec())
-    //     .context("failed to decode result as UTF-8 string")?;
-
-    // eprintln!("Result: {result_string}");
     Ok(())
 }
-

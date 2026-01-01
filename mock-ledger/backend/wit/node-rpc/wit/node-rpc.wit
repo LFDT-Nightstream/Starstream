@@ -1,0 +1,18 @@
+package starstream:node-rpc;
+
+interface handler {
+    /// TODO: other RPC methods for the ledger
+}
+
+use starstream:wrpc-multiplexer/handler as multiplexer;
+
+world client {
+    import multiplexer;
+    import handler;
+}
+
+world server {
+    export multiplexer;
+    export handler;
+}
+
