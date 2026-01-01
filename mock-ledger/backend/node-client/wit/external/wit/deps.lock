@@ -1,0 +1,4 @@
+[root-component]
+path = "../../../../node-server/genesis/wit/no-args/wit"
+sha256 = "b5f873c6acad501118584e1547d00a6a050c5ed7cd5af81f201e67587f792a8e"
+sha512 = "670c75ace80163e38e6b4bfe730735d0ce23855eb69f7fd5d8059980d86e162d74998bff18e09ca7841131f18576fa689c3461e8e5335ebfb2b9b1023724a918"

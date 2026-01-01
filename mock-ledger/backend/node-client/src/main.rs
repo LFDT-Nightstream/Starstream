@@ -3,11 +3,17 @@ use clap::Parser;
 
 mod bindings {
     wit_bindgen_wrpc::generate!({
+        path: "./wit/rpc/wit",
         with: {
             "starstream:node-rpc/handler": generate,
         }
     });
+    wit_bindgen_wrpc::generate!({
+        world: "starstream:node-rpc-client-ext/root",
+        path: "./wit/external/wit",
+    });
 }
+
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -51,7 +57,6 @@ async fn main() -> anyhow::Result<()> {
     .with_context(|| format!("failed to call `{contract_hash}.{function}`"))?;
 
     // print a hex string of the bytes for now
-
     println!("Result: {:?}", result);
     // // In a real implementation, you'd decode the result based on the function's return type
     // // For this POC, we'll assume it's a string (which hello() returns)

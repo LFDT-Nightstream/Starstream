@@ -12,6 +12,9 @@ use wrpc_transport::frame::Oneshot;
 use wrpc_transport::Invoke;
 use wrpc_transport::InvokeExt;
 use wrpc_runtime_wasmtime::ServeExt;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use futures::StreamExt;
 use wrpc_transport::Accept;
 use core::pin::pin;
 use tokio::sync::Mutex;
@@ -42,7 +45,7 @@ impl Handler {
     ) -> anyhow::Result<Vec<u8>> {
         debug!(contract_hash, function, "forwarding invocation");
 
-        let (oneshot_clt, mut oneshot_srv) = Oneshot::duplex(1024);
+        let (oneshot_clt, oneshot_srv) = Oneshot::duplex(1024);
         let srv: Arc<wrpc_transport::frame::Server<(), ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>> = Arc::new(wrpc_transport::frame::Server::default());
         
         // Look up the component handler
@@ -69,7 +72,7 @@ impl Handler {
 
         // let param_types = func.params(&store);
         let fun_ty = func.ty(&store);
-        let result_len =  fun_ty.results().len();
+        // let result_len =  fun_ty.results().len();
 
         let mut guest_resources_vec = Vec::new();
         collect_component_resource_exports(
@@ -77,8 +80,19 @@ impl Handler {
             &component.component_type(),
             &mut guest_resources_vec,
         );
+
+        let instance_name = "".to_string();
+        let pretty_name = if instance_name.is_empty() {
+            "root".to_string()
+        } else {
+            instance_name.clone()
+        };
         
+        let func_name = function.clone();
+        let pretty_name = pretty_name.clone();
+        let pretty_name_for_server = pretty_name.clone();
         let store_shared = Arc::new(Mutex::new(store));
+        let store_shared_clone = store_shared.clone();
         let invocations_stream = srv
             .serve_function_shared(
                 store_shared,
@@ -86,7 +100,7 @@ impl Handler {
                 Arc::from(guest_resources_vec.into_boxed_slice()),
                 std::collections::HashMap::default(),
                 fun_ty,
-                "",
+                &instance_name,
                 &function,
             )
             .await
@@ -94,60 +108,69 @@ impl Handler {
                 format!("failed to register handler for function `{function}`")
             })?;
         let (result, _) = join!(
-            async {
+            // client side
+            async move {
+                println!("client step 1");
                 let paths: &[&[Option<usize>]] = &[];
-                let result = oneshot_clt
-                    .invoke((), "", &function, params, paths)
+                // Lock the store only to get the wrpc client and invoke
+                // Release the lock immediately after getting the streams
+                let (mut outgoing, mut incoming) = {
+                    let store = store_shared_clone.lock().await;
+                    println!("client step 2");
+                    store.data().wrpc.wrpc
+                        .invoke((), &instance_name, &function, params, paths)
+                        .await
+                        .expect(&format!("failed to invoke {}", function))
+                };
+                // Lock is now released, allowing server to process the invocation
+                println!("client step 3");
+                outgoing.flush().await?;
+                println!("client step 4");
+                let mut buf = vec![];
+                incoming
+                    .read_to_end(&mut buf)
                     .await
-                    .expect(&format!("failed to invoke {}", function));
-                result
+                    .with_context(|| format!("failed to read result for {pretty_name} function `{function}`"))?;
+                println!("result: {:?}", buf);
+                Ok(buf)
             },
-            async {
-                // TODO
+            // server side
+            async move {
+                println!("server step 1");
+                srv.accept(oneshot_srv)
+                    .await
+                    .expect("failed to accept connection");
+
+                println!("server step 2");
+
+                let invocation_handle = tokio::spawn(async move {
+                    println!("server step 3");
+                    let mut invocations = pin!(invocations_stream);
+                    println!("server step 4");
+                    while let Some(invocation) = invocations.as_mut().next().await {
+                        println!("server step 5");
+                        match invocation {
+                            Ok((_, fut)) => {
+                                println!("server step 6");
+                                if let Err(err) = fut.await {
+                                    eprintln!("failed to serve invocation for {pretty_name_for_server} function `{func_name}`: {err:?}");
+                                }
+                                println!("server step 7");
+                            }
+                            Err(err) => {
+                                eprintln!("failed to accept invocation for {pretty_name_for_server} function `{func_name}`: {err:?}");
+                            }
+                        }
+                    }
+                });
+
+                println!("server step 8");
+
+                // invocation_handle.abort();
             }
         );
-        //         srv.accept(oneshot_srv)
-        //             .await
-        //             .expect("failed to accept connection");
-        //         let ((), params, rx, tx) = pin!(invocations)
-        //             .try_next()
-        //             .await
-        //             .expect("failed to accept invocation")
-        //             .expect("unexpected end of stream");
-        //         assert!(rx.is_none());
-
-        //         let mut results = vec![wasmtime::component::Val::Bool(false); result_len];
-        
-        //         func.call_async(&mut store, &params, &mut results)
-        //             .await
-        //             .context("failed to call component function")?;
-                
-        //         // Encode the results Vec<Val> to bytes for transmission
-        //         // The issue: tx expects a tuple that implements TupleEncode, but Vec<Val> doesn't.
-        //         // Solution: Encode the results to bytes using Component Model binary encoding,
-        //         // then send those bytes as a tuple (Bytes implements TupleEncode).
-        //         //
-        //         // Note: ValEncoder requires WrpcView context, but we're using Store<()>.
-        //         // For now, we'll need to manually encode or use a different approach.
-        //         // The proper encoding would follow the Component Model binary encoding spec:
-        //         // https://github.com/WebAssembly/component-model/blob/main/design/mvp/Binary.md
-        //         //
-        //         // This is a placeholder - you'll need to implement proper encoding based on
-        //         // the result_types. Each Val needs to be encoded according to its Type.
-        //         let mut encoded = BytesMut::new();
-        //         // TODO: Implement proper Component Model binary encoding for results
-        //         // For each (val, ty) in results.iter().zip(result_types.iter()):
-        //         //   - Encode val according to ty using Component Model binary format
-        //         //   - Append encoded bytes to encoded buffer
-                
-        //         // Send the encoded bytes as a tuple - Bytes implements TupleEncode
-        //         tx((Bytes::from(encoded),)).await.expect("failed to transmit response");
-        //         Ok(())
-        //     }
-        // );
 
         // let result_bufs = result.0.into_bytes();
-        // Ok(result_bufs)
-        Ok(vec![])
+        result
     }
 }

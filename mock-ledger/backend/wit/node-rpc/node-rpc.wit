@@ -6,8 +6,8 @@ interface handler {
     /// 
     /// - hash: The contract hash
     /// - function: The function name (e.g., "hello")
-    /// - params: Encoded parameters as bytes (using Component Model value encoding)
-    /// - Returns: Encoded results as bytes
+    /// - params: Encoded tuple of parameters as bytes (Component Model value encoding)
+    /// - Returns: Encoded tuple of results as bytes (Component Model value encoding)
     call: func(
         hash: string,
         function: string,

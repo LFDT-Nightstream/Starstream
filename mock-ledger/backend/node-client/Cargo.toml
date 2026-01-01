@@ -25,4 +25,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "fmt"] }
 wit-bindgen-wrpc = { workspace = true }
 wrpc-transport = { workspace = true, features = ["net"] }
-
+wit-bindgen = { workspace = true, features = ["macros"] }

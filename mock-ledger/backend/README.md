@@ -5,7 +5,8 @@
 ```bash
 cargo install wit-deps-cli
 cd node-server && wit-deps && cd ..
-cd node-client && wit-deps && cd ..
+cd node-client/wit/rpc && wit-deps && cd ../../..
+cd node-client/wit/external && wit-deps && cd ../../..
 cargo build
 ```
 

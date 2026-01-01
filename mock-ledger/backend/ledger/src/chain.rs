@@ -14,7 +14,7 @@ pub struct Chain {
     engine: Arc<Engine>,
 }
 
-type WasmComponent = Vec<u8>;
+pub type WasmComponent = Vec<u8>;
 
 impl Chain {
   pub fn new(genesis_block: &Vec<WasmComponent>) -> anyhow::Result<Self> {
