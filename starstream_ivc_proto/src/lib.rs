@@ -75,6 +75,12 @@ pub enum LedgerOperation<F> {
         val: F,
         caller: F,
     },
+    Bind {
+        owner_id: F,
+    },
+    Unbind {
+        token_id: F,
+    },
 
     /// Auxiliary instructions.
     ///
@@ -88,7 +94,7 @@ pub struct ProverOutput {
     pub proof: (),
 }
 
-const SCAN_BATCH_SIZE: usize = 20;
+const SCAN_BATCH_SIZE: usize = 10;
 
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
     let shape_ccs = ccs_step_shape(inst.clone())?;
@@ -234,6 +240,14 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                     caller: (caller.0 as u64).into(),
                 }
             }
+            starstream_mock_ledger::WitLedgerEffect::Bind { owner_id } => LedgerOperation::Bind {
+                owner_id: (owner_id.0 as u64).into(),
+            },
+            starstream_mock_ledger::WitLedgerEffect::Unbind { token_id } => {
+                LedgerOperation::Unbind {
+                    token_id: (token_id.0 as u64).into(),
+                }
+            }
             // For opcodes not yet handled by the circuit, we just skip them
             // and they won't be included in the final `ops` list.
             _ => continue,
@@ -274,7 +288,10 @@ fn ccs_step_shape(inst: InterleavingInstance) -> Result<CcsStructure<neo_math::F
         unsound_disable_poseidon_commitment: true,
     });
 
-    let irw = InterRoundWires::new(F::from(dummy_tx.p_len() as u64));
+    let irw = InterRoundWires::new(
+        F::from(dummy_tx.p_len() as u64),
+        dummy_tx.instance.entrypoint.0 as u64,
+    );
     dummy_tx.make_step_circuit(0, &mut mb.constraints(), cs.clone(), irw)?;
 
     cs.finalize();

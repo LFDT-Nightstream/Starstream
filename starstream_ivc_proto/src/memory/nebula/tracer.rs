@@ -43,7 +43,7 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
                 .unwrap_or_else(|| {
                     self.is
                         .get(address)
-                        .expect("read uninitialized address")
+                        .expect(&format!("read uninitialized address: {address:?}"))
                         .clone()
                 })
         } else {
