@@ -30,7 +30,10 @@ where
         shape_ccs: CcsStructure<neo_math::F>,
         params: M::Params,
     ) -> Self {
-        let irw = InterRoundWires::new(crate::F::from(circuit_builder.p_len() as u64));
+        let irw = InterRoundWires::new(
+            crate::F::from(circuit_builder.p_len() as u64),
+            circuit_builder.instance.entrypoint.0 as u64,
+        );
 
         let mb = circuit_builder.trace_memory_ops(params);
 

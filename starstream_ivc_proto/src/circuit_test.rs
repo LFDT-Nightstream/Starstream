@@ -20,50 +20,74 @@ fn test_circuit_simple_resume() {
     init_test_logging();
 
     let utxo_id = 0;
-    let coord_id = 1;
+    let token_id = 1;
+    let coord_id = 2;
 
     let p0 = ProcessId(utxo_id);
-    let p1 = ProcessId(coord_id);
+    let p1 = ProcessId(token_id);
+    let p2 = ProcessId(coord_id);
 
-    let val_42 = v(b"v42");
-    let val_0 = v(b"v0");
-
-    let coord_trace = MockedLookupTableCommitment {
-        trace: vec![
-            WitLedgerEffect::NewUtxo {
-                program_hash: h(0),
-                val: val_0.clone(),
-                id: p0,
-            },
-            WitLedgerEffect::Resume {
-                target: p0,
-                val: val_42.clone(),
-                ret: val_0.clone(),
-                id_prev: None,
-            },
-        ],
-    };
+    let val_4 = v(&[4]);
+    let val_1 = v(&[1]);
 
     let utxo_trace = MockedLookupTableCommitment {
         trace: vec![
             WitLedgerEffect::Input {
-                val: val_42.clone(),
+                val: val_4.clone(),
                 // maybe rename this to id_prev
                 // TODO: but actually, do I need this? I think probably not
                 //
                 // it's part of the host call constraint, but I could just get
                 // it from the id_prev wire for the lookup
-                caller: p1,
+                caller: p2,
             },
             WitLedgerEffect::Yield {
-                val: val_0.clone(), // Yielding nothing
+                val: val_1.clone(), // Yielding nothing
                 ret: None,          // Not expecting to be resumed again
-                id_prev: Some(p1),
+                id_prev: Some(p2),
             },
         ],
     };
 
-    let traces = vec![utxo_trace, coord_trace];
+    let token_trace = MockedLookupTableCommitment {
+        trace: vec![
+            WitLedgerEffect::Bind { owner_id: p0 },
+            WitLedgerEffect::Yield {
+                val: val_1.clone(), // Yielding nothing
+                ret: None,          // Not expecting to be resumed again
+                id_prev: Some(p2),
+            },
+        ],
+    };
+
+    let coord_trace = MockedLookupTableCommitment {
+        trace: vec![
+            WitLedgerEffect::NewUtxo {
+                program_hash: h(0),
+                val: val_4.clone(),
+                id: p0,
+            },
+            WitLedgerEffect::NewUtxo {
+                program_hash: h(1),
+                val: val_1.clone(),
+                id: p1,
+            },
+            WitLedgerEffect::Resume {
+                target: p1,
+                val: val_1.clone(),
+                ret: val_1.clone(),
+                id_prev: None,
+            },
+            WitLedgerEffect::Resume {
+                target: p0,
+                val: val_4.clone(),
+                ret: val_1.clone(),
+                id_prev: None,
+            },
+        ],
+    };
+
+    let traces = vec![utxo_trace, token_trace, coord_trace];
 
     let trace_lens = traces
         .iter()
@@ -72,14 +96,14 @@ fn test_circuit_simple_resume() {
 
     let instance = InterleavingInstance {
         n_inputs: 0,
-        n_new: 1,
+        n_new: 2,
         n_coords: 1,
-        entrypoint: p1,
-        process_table: vec![h(0), h(1)],
-        is_utxo: vec![true, false],
-        must_burn: vec![false, false],
-        ownership_in: vec![None, None],
-        ownership_out: vec![None, None],
+        entrypoint: p2,
+        process_table: vec![h(0), h(1), h(2)],
+        is_utxo: vec![true, true, false],
+        must_burn: vec![false, false, false],
+        ownership_in: vec![None, None, None],
+        ownership_out: vec![None, Some(ProcessId(0)), None],
         host_calls_roots: traces,
         host_calls_lens: trace_lens,
         input_states: vec![],

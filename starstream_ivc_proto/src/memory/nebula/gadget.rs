@@ -298,14 +298,6 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
 
         self.update_ic_with_ops(cond, address, &rv, &wv)?;
 
-        for ((index, val), expected) in vals.iter().enumerate().zip(wv.values.iter()) {
-            assert_eq!(
-                val.value().unwrap(),
-                expected.value().unwrap(),
-                "write doesn't match expectation at index {index}."
-            );
-        }
-
         tracing::debug!(
             "nebula ({}) write values {:?} at address {} in segment {}",
             cond.value()?,
@@ -315,6 +307,14 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
             address_val.addr,
             mem.1,
         );
+
+        for ((index, val), expected) in vals.iter().enumerate().zip(wv.values.iter()) {
+            assert_eq!(
+                val.value().unwrap(),
+                expected.value().unwrap(),
+                "write doesn't match expectation at index {index}."
+            );
+        }
 
         Ok(())
     }

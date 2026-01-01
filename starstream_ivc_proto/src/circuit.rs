@@ -151,6 +151,13 @@ pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, Me
         LedgerOperation::Input { .. } => {
             curr_s.arg = true;
         }
+        LedgerOperation::Bind { .. } => {
+            target_s.initialized = true;
+            curr_s.ownership = true;
+        }
+        LedgerOperation::Unbind { .. } => {
+            target_s.ownership = true;
+        }
         _ => {}
     }
     (curr_s, target_s)
@@ -171,6 +178,10 @@ pub fn opcode_to_rom_switches(instr: &LedgerOperation<F>) -> RomSwitchboard {
             rom_s.read_is_utxo_curr = true;
             rom_s.read_is_utxo_target = true;
             rom_s.read_program_hash_target = true;
+        }
+        LedgerOperation::Bind { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_is_utxo_target = true;
         }
         _ => {}
     }
@@ -196,7 +207,7 @@ pub struct Wires {
     id_prev_is_some: Boolean<F>,
     id_prev_value: FpVar<F>,
 
-    utxos_len: FpVar<F>,
+    p_len: FpVar<F>,
 
     // switches
     resume_switch: Boolean<F>,
@@ -206,6 +217,8 @@ pub struct Wires {
     new_coord_switch: Boolean<F>,
     burn_switch: Boolean<F>,
     input_switch: Boolean<F>,
+    bind_switch: Boolean<F>,
+    unbind_switch: Boolean<F>,
 
     check_utxo_output_switch: Boolean<F>,
 
@@ -273,6 +286,8 @@ pub struct PreWires {
     new_utxo_switch: bool,
     new_coord_switch: bool,
     input_switch: bool,
+    bind_switch: bool,
+    unbind_switch: bool,
 
     curr_mem_switches: MemSwitchboard,
     target_mem_switches: MemSwitchboard,
@@ -339,7 +354,7 @@ impl Wires {
 
         // io vars
         let id_curr = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
-        let utxos_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
+        let p_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
         let id_prev_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.irw.id_prev_is_some))?;
         let id_prev_value = FpVar::new_witness(cs.clone(), || Ok(vals.irw.id_prev_value))?;
 
@@ -354,6 +369,8 @@ impl Wires {
             vals.new_utxo_switch,
             vals.new_coord_switch,
             vals.input_switch,
+            vals.bind_switch,
+            vals.unbind_switch,
         ];
 
         let allocated_switches: Vec<_> = switches
@@ -371,6 +388,8 @@ impl Wires {
             new_utxo_switch,
             new_coord_switch,
             input_switch,
+            bind_switch,
+            unbind_switch,
         ] = allocated_switches.as_slice()
         else {
             unreachable!()
@@ -420,6 +439,7 @@ impl Wires {
         let target_write_wires =
             ProgramStateWires::from_write_values(cs.clone(), target_write_values)?;
 
+        dbg!(curr_address.value().unwrap());
         program_state_write_wires(
             rm,
             &cs,
@@ -427,6 +447,7 @@ impl Wires {
             curr_write_wires.clone(),
             &curr_mem_switches,
         )?;
+        dbg!(target_address.value().unwrap());
         program_state_write_wires(
             rm,
             &cs,
@@ -478,7 +499,7 @@ impl Wires {
             id_prev_is_some,
             id_prev_value,
 
-            utxos_len,
+            p_len,
 
             yield_switch: yield_switch.clone(),
             resume_switch: resume_switch.clone(),
@@ -488,6 +509,8 @@ impl Wires {
             new_utxo_switch: new_utxo_switch.clone(),
             new_coord_switch: new_coord_switch.clone(),
             input_switch: input_switch.clone(),
+            bind_switch: bind_switch.clone(),
+            unbind_switch: unbind_switch.clone(),
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
             constant_true: Boolean::new_constant(cs.clone(), true)?,
@@ -699,7 +722,7 @@ fn trace_program_state_writes<M: IVCMemory<F>>(
             addr: pid,
             tag: RAM_COUNTERS,
         },
-        [state.counters].to_vec(),
+        [dbg!(state.counters)].to_vec(),
     );
     mem.conditional_write(
         switches.initialized,
@@ -806,9 +829,9 @@ fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
 }
 
 impl InterRoundWires {
-    pub fn new(p_len: F) -> Self {
+    pub fn new(p_len: F, entrypoint: u64) -> Self {
         InterRoundWires {
-            id_curr: F::from(1),
+            id_curr: F::from(entrypoint),
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
             p_len,
@@ -841,10 +864,10 @@ impl InterRoundWires {
         tracing::debug!(
             "utxos_len from {} to {}",
             self.p_len,
-            res.utxos_len.value().unwrap()
+            res.p_len.value().unwrap()
         );
 
-        self.p_len = res.utxos_len.value().unwrap();
+        self.p_len = res.p_len.value().unwrap();
     }
 }
 
@@ -866,7 +889,7 @@ impl LedgerOperation<crate::F> {
         // All operations increment the counter of the current process
         curr_write.counters += F::ONE;
 
-        match self {
+        match dbg!(self) {
             LedgerOperation::Nop {} => {
                 // Nop does nothing to the state
                 curr_write.counters -= F::ONE; // revert counter increment
@@ -974,6 +997,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_new_process(next_wires)?;
         let next_wires = self.visit_input(next_wires)?;
+        let next_wires = self.visit_bind(next_wires)?;
+        let next_wires = self.visit_unbind(next_wires)?;
 
         rm.finish_step(i == self.ops.len() - 1)?;
 
@@ -1092,8 +1117,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 );
             }
 
-            // TODO: initialize ownership too
-
             for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
                 mb.init(
                     Address {
@@ -1185,10 +1208,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             self.write_ops
                 .push((curr_write.clone(), target_write.clone()));
 
-            trace_program_state_writes(&mut mb, curr_pid, &curr_write, &curr_switches);
+            trace_program_state_writes(&mut mb, dbg!(curr_pid), &curr_write, &curr_switches);
             trace_program_state_writes(
                 &mut mb,
-                target_pid.unwrap_or(0),
+                dbg!(target_pid.unwrap_or(0)),
                 &target_write,
                 &target_switches,
             );
@@ -1375,6 +1398,36 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
+            LedgerOperation::Bind { owner_id } => {
+                let irw = PreWires {
+                    bind_switch: true,
+                    target: *owner_id,
+                    irw: irw.clone(),
+                    // TODO: it feels like this can be refactored out, since it
+                    // seems to be the same on all branches
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
+            LedgerOperation::Unbind { token_id } => {
+                let irw = PreWires {
+                    unbind_switch: true,
+                    target: *token_id,
+                    irw: irw.clone(),
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
         }
     }
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
@@ -1528,7 +1581,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // The current process is the coordination script doing the creation.
         //
         // 1. Coordinator check: current process must NOT be a UTXO.
-
         wires
             .is_utxo_curr
             .is_one()?
@@ -1581,6 +1633,54 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .id_prev_value
             .conditional_enforce_equal(&wires.caller, switch)?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_bind(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.bind_switch;
+
+        // curr is the token (or the utxo bound to the target)
+        let is_utxo_curr = wires.is_utxo_curr.is_one()?;
+        let is_utxo_target = wires.is_utxo_target.is_one()?;
+
+        // we don't need to check if the token is initialized because
+        // we can't resume an unitialized token anyway
+        let is_initialized_target = &wires.target_read_wires.initialized;
+
+        (is_utxo_curr & is_utxo_target & is_initialized_target)
+            .conditional_enforce_equal(&wires.constant_true, switch)?;
+
+        wires
+            .curr_read_wires
+            .owned_by
+            .conditional_enforce_equal(&wires.p_len, switch)?;
+
+        wires.curr_write_wires.owned_by =
+            switch.select(&wires.target, &wires.curr_read_wires.owned_by)?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_unbind(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.unbind_switch;
+
+        let is_utxo_curr = wires.is_utxo_curr.is_one()?;
+        let is_utxo_target = wires.is_utxo_target.is_one()?;
+
+        (is_utxo_curr & is_utxo_target).conditional_enforce_equal(&wires.constant_true, switch)?;
+
+        // only the owner can unbind
+        wires
+            .target_read_wires
+            .owned_by
+            .conditional_enforce_equal(&wires.id_curr, switch)?;
+
+        // p_len is a sentinel for None
+        wires.target_write_wires.owned_by =
+            switch.select(&wires.p_len, &wires.curr_read_wires.owned_by)?;
 
         Ok(wires)
     }
@@ -1640,6 +1740,8 @@ impl PreWires {
             nop_switch: false,
             burn_switch: false,
             input_switch: false,
+            bind_switch: false,
+            unbind_switch: false,
 
             // io vars
             irw,
