@@ -186,7 +186,8 @@ pub struct InterleavingState {
     /// Claims memory: M[pid] = expected argument to next Resume into pid.
     expected_input: Vec<Value>,
 
-    arg: Vec<Option<(Value, ProcessId)>>,
+    activation: Vec<Option<(Value, ProcessId)>>,
+    init: Vec<Option<(Value, ProcessId)>>,
 
     counters: Vec<usize>,
 
@@ -239,7 +240,8 @@ pub fn verify_interleaving_semantics(
         id_curr: ProcessId(inst.entrypoint.into()),
         id_prev: None,
         expected_input: claims_memory,
-        arg: vec![None; n],
+        activation: vec![None; n],
+        init: vec![None; n],
         counters: vec![0; n],
         handler_stack: HashMap::new(),
         ownership: inst.ownership_in.clone(),
@@ -406,13 +408,23 @@ pub fn state_transition(
                 return Err(InterleavingError::TargetNotInitialized(target));
             }
 
-            if state.arg[target.0].is_some() {
+            if state.activation[target.0].is_some() {
                 return Err(InterleavingError::ReentrantResume(target));
             }
 
-            state.arg[id_curr.0] = None;
+            state.activation[id_curr.0] = None;
 
-            if state.expected_input[target.0].clone() != val {
+            if state.counters[target.0] == 0 {
+                if let Some((init_val, _)) = &state.init[target.0] {
+                    if init_val != &val {
+                        return Err(InterleavingError::ResumeClaimMismatch {
+                            target,
+                            expected: init_val.clone(),
+                            got: val,
+                        });
+                    }
+                }
+            } else if state.expected_input[target.0].clone() != val {
                 return Err(InterleavingError::ResumeClaimMismatch {
                     target,
                     expected: state.expected_input[target.0].clone(),
@@ -420,7 +432,7 @@ pub fn state_transition(
                 });
             }
 
-            state.arg[target.0] = Some((val.clone(), id_curr));
+            state.activation[target.0] = Some((val.clone(), id_curr));
 
             state.expected_input[id_curr.0] = ret;
 
@@ -494,7 +506,7 @@ pub fn state_transition(
                 }
             }
 
-            state.arg[id_curr.0] = None;
+            state.activation[id_curr.0] = None;
             state.id_curr = parent;
         }
 
@@ -540,9 +552,8 @@ pub fn state_transition(
                 ));
             }
             state.initialized[id.0] = true;
+            state.init[id.0] = Some((val.clone(), id_curr));
             state.expected_input[id.0] = val;
-
-            state.arg[id.0] = None;
         }
 
         WitLedgerEffect::NewCoord {
@@ -575,6 +586,7 @@ pub fn state_transition(
             }
 
             state.initialized[id.0] = true;
+            state.init[id.0] = Some((val.clone(), id_curr));
             state.expected_input[id.0] = val;
         }
 
@@ -617,15 +629,27 @@ pub fn state_transition(
             }
         }
 
-        WitLedgerEffect::Input { val, caller } => {
+        WitLedgerEffect::Activation { val, caller } => {
             let curr = state.id_curr;
 
-            let Some((v, c)) = &state.arg[curr.0] else {
-                return Err(InterleavingError::Shape("Input called with no arg set"));
+            let Some((v, c)) = &state.activation[curr.0] else {
+                return Err(InterleavingError::Shape("Activation called with no arg set"));
             };
 
             if v != &val || c != &caller {
-                return Err(InterleavingError::Shape("Input result mismatch"));
+                return Err(InterleavingError::Shape("Activation result mismatch"));
+            }
+        }
+
+        WitLedgerEffect::Init { val, caller } => {
+            let curr = state.id_curr;
+
+            let Some((v, c)) = state.init[curr.0].take() else {
+                return Err(InterleavingError::Shape("Init called with no arg set"));
+            };
+
+            if v != val || c != caller {
+                return Err(InterleavingError::Shape("Init result mismatch"));
             }
         }
 
@@ -651,7 +675,7 @@ pub fn state_transition(
                 });
             }
 
-            state.arg[id_curr.0] = None;
+            state.activation[id_curr.0] = None;
             state.finalized[id_curr.0] = true;
             state.did_burn[id_curr.0] = true;
             state.expected_input[id_curr.0] = ret;
