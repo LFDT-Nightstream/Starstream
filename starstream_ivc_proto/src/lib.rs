@@ -86,6 +86,15 @@ pub enum LedgerOperation<F> {
         token_id: F,
     },
 
+    NewRef {
+        val: F,
+        ret: F,
+    },
+    Get {
+        reff: F,
+        ret: F,
+    },
+
     /// Auxiliary instructions.
     ///
     /// Nop is used as a dummy instruction to build the circuit layout on the
@@ -99,6 +108,7 @@ pub struct ProverOutput {
 }
 
 const SCAN_BATCH_SIZE: usize = 10;
+// const SCAN_BATCH_SIZE: usize = 200;
 
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
     let shape_ccs = ccs_step_shape(inst.clone())?;
@@ -189,8 +199,8 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                     target: (target.0 as u64).into(),
                     // TODO: figure out how to manage these
                     // maybe for now just assume that these are short/fixed size
-                    val: value_to_field(val),
-                    ret: value_to_field(ret),
+                    val: F::from(val.0),
+                    ret: F::from(ret.0),
                     id_prev: op_id_prev.map(|p| (p.0 as u64).into()),
                 }
             }
@@ -205,8 +215,8 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                 id_prev = Some(old_id_curr);
 
                 LedgerOperation::Yield {
-                    val: value_to_field(val),
-                    ret: ret.map(value_to_field),
+                    val: F::from(val.0),
+                    ret: ret.map(|ret| F::from(ret.0)),
                     id_prev: op_id_prev.map(|p| (p.0 as u64).into()),
                 }
             }
@@ -217,7 +227,7 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                 id_prev = Some(old_id_curr);
 
                 LedgerOperation::Burn {
-                    ret: value_to_field(ret),
+                    ret: F::from(ret.0),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::NewUtxo {
@@ -226,7 +236,7 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                 id,
             } => LedgerOperation::NewUtxo {
                 program_hash: F::from(program_hash.0[0] as u64),
-                val: value_to_field(val),
+                val: F::from(val.0),
                 target: (id.0 as u64).into(),
             },
             starstream_mock_ledger::WitLedgerEffect::NewCoord {
@@ -235,18 +245,18 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                 id,
             } => LedgerOperation::NewCoord {
                 program_hash: F::from(program_hash.0[0] as u64),
-                val: value_to_field(val),
+                val: F::from(val.0),
                 target: (id.0 as u64).into(),
             },
             starstream_mock_ledger::WitLedgerEffect::Activation { val, caller } => {
                 LedgerOperation::Activation {
-                    val: value_to_field(val),
+                    val: F::from(val.0),
                     caller: (caller.0 as u64).into(),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Init { val, caller } => {
                 LedgerOperation::Init {
-                    val: value_to_field(val),
+                    val: F::from(val.0),
                     caller: (caller.0 as u64).into(),
                 }
             }
@@ -258,6 +268,16 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                     token_id: (token_id.0 as u64).into(),
                 }
             }
+            starstream_mock_ledger::WitLedgerEffect::NewRef { val, ret } => {
+                LedgerOperation::NewRef {
+                    val: value_to_field(val),
+                    ret: F::from(ret.0),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::Get { reff, ret } => LedgerOperation::Get {
+                reff: F::from(reff.0),
+                ret: value_to_field(ret),
+            },
             // For opcodes not yet handled by the circuit, we just skip them
             // and they won't be included in the final `ops` list.
             _ => continue,
@@ -269,9 +289,7 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
     ops
 }
 
-fn value_to_field(
-    val: starstream_mock_ledger::Value,
-) -> ark_ff::Fp<ark_ff::MontBackend<goldilocks::FpGoldilocksConfig, 1>, 1> {
+fn value_to_field(val: starstream_mock_ledger::Value) -> F {
     F::from(val.0[0])
 }
 

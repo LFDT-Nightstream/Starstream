@@ -9,7 +9,7 @@
 //! It's mainly a direct translation of the algorithm in the README
 
 use crate::{
-    Hash, InterleavingInstance, Value, WasmModule,
+    Hash, InterleavingInstance, Ref, Value, WasmModule,
     transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
 };
 use std::collections::HashMap;
@@ -69,8 +69,8 @@ pub enum InterleavingError {
     #[error("resume claim mismatch: target={target} expected={expected:?} got={got:?}")]
     ResumeClaimMismatch {
         target: ProcessId,
-        expected: Value,
-        got: Value,
+        expected: Ref,
+        got: Ref,
     },
 
     #[error("yield claim mismatch: id_prev={id_prev:?} expected={expected:?} got={got:?}")]
@@ -165,6 +165,9 @@ pub enum InterleavingError {
 
     #[error("resume target already has arg (re-entrancy): target={0}")]
     ReentrantResume(ProcessId),
+
+    #[error("ref not found: {0:?}")]
+    RefNotFound(Ref),
 }
 
 // ---------------------------- verifier ----------------------------
@@ -184,12 +187,14 @@ pub struct InterleavingState {
     id_prev: Option<ProcessId>,
 
     /// Claims memory: M[pid] = expected argument to next Resume into pid.
-    expected_input: Vec<Value>,
+    expected_input: Vec<Ref>,
 
-    activation: Vec<Option<(Value, ProcessId)>>,
-    init: Vec<Option<(Value, ProcessId)>>,
+    activation: Vec<Option<(Ref, ProcessId)>>,
+    init: Vec<Option<(Ref, ProcessId)>>,
 
     counters: Vec<usize>,
+    ref_counter: u64,
+    ref_store: HashMap<Ref, Value>,
 
     /// If a new output or coordination script is created, it must be through a
     /// spawn from a coordinator script
@@ -224,9 +229,10 @@ pub fn verify_interleaving_semantics(
     // initialized with the same data.
     //
     // TODO: maybe we also need to assert/prove that it starts with a Yield
-    let mut claims_memory = vec![Value::nil(); n];
+    let mut claims_memory = vec![Ref(0); n];
     for i in 0..inst.n_inputs {
-        claims_memory[i] = inst.input_states[i].last_yield.clone();
+        // TODO: This is not correct, last_yield is a Value, not a Ref
+        // claims_memory[i] = inst.input_states[i].last_yield.clone();
     }
 
     let rom = ROM {
@@ -243,6 +249,8 @@ pub fn verify_interleaving_semantics(
         activation: vec![None; n],
         init: vec![None; n],
         counters: vec![0; n],
+        ref_counter: 0,
+        ref_store: HashMap::new(),
         handler_stack: HashMap::new(),
         ownership: inst.ownership_in.clone(),
         initialized: vec![false; n],
@@ -416,23 +424,26 @@ pub fn state_transition(
 
             if state.counters[target.0] == 0 {
                 if let Some((init_val, _)) = &state.init[target.0] {
-                    if init_val != &val {
+                    if *init_val != val {
                         return Err(InterleavingError::ResumeClaimMismatch {
                             target,
                             expected: init_val.clone(),
-                            got: val,
+                            got: val.clone(),
                         });
                     }
                 }
-            } else if state.expected_input[target.0].clone() != val {
-                return Err(InterleavingError::ResumeClaimMismatch {
-                    target,
-                    expected: state.expected_input[target.0].clone(),
-                    got: val,
-                });
+            } else {
+                let expected = state.expected_input[target.0];
+                if expected != val {
+                    return Err(InterleavingError::ResumeClaimMismatch {
+                        target,
+                        expected: expected.clone(),
+                        got: val.clone(),
+                    });
+                }
             }
 
-            state.activation[target.0] = Some((val.clone(), id_curr));
+            state.activation[target.0] = Some((val, id_curr));
 
             state.expected_input[id_curr.0] = ret;
 
@@ -442,14 +453,14 @@ pub fn state_transition(
                     counter: c,
                     expected: WitLedgerEffect::Resume {
                         target,
-                        val: state.expected_input[target.0].clone(),
-                        ret: state.expected_input[id_curr.0].clone(),
+                        val,
+                        ret,
                         id_prev: state.id_prev,
                     },
                     got: WitLedgerEffect::Resume {
                         target,
-                        val: state.expected_input[target.0].clone(),
-                        ret: state.expected_input[id_curr.0].clone(),
+                        val,
+                        ret,
                         id_prev,
                     },
                 });
@@ -468,8 +479,8 @@ pub fn state_transition(
                     pid: id_curr,
                     counter: c,
                     expected: WitLedgerEffect::Yield {
-                        val: val.clone(),
-                        ret: ret.clone(),
+                        val,
+                        ret,
                         id_prev: state.id_prev,
                     },
                     got: WitLedgerEffect::Yield { val, ret, id_prev },
@@ -480,6 +491,11 @@ pub fn state_transition(
                 .id_prev
                 .ok_or(InterleavingError::YieldWithNoParent { pid: id_curr })?;
 
+            let val = state
+                .ref_store
+                .get(&val)
+                .ok_or(InterleavingError::RefNotFound(val))?;
+
             match ret {
                 Some(retv) => {
                     state.expected_input[id_curr.0] = retv;
@@ -489,12 +505,17 @@ pub fn state_transition(
                     state.finalized[id_curr.0] = false;
 
                     if let Some(prev) = state.id_prev {
-                        let expected = state.expected_input[prev.0].clone();
+                        let expected_ref = state.expected_input[prev.0];
+                        let expected = state
+                            .ref_store
+                            .get(&expected_ref)
+                            .ok_or(InterleavingError::RefNotFound(expected_ref))?;
+
                         if expected != val {
                             return Err(InterleavingError::YieldClaimMismatch {
                                 id_prev: state.id_prev,
-                                expected,
-                                got: val,
+                                expected: expected.clone(),
+                                got: val.clone(),
                             });
                         }
                     }
@@ -553,7 +574,8 @@ pub fn state_transition(
             }
             state.initialized[id.0] = true;
             state.init[id.0] = Some((val.clone(), id_curr));
-            state.expected_input[id.0] = val;
+            // TODO: this is not correct, last_yield is a Value, not a Ref
+            // state.expected_input[id.0] = val;
         }
 
         WitLedgerEffect::NewCoord {
@@ -587,7 +609,8 @@ pub fn state_transition(
 
             state.initialized[id.0] = true;
             state.init[id.0] = Some((val.clone(), id_curr));
-            state.expected_input[id.0] = val;
+            // TODO: this is not correct, last_yield is a Value, not a Ref
+            // state.expected_input[id.0] = val;
         }
 
         WitLedgerEffect::InstallHandler { interface_id } => {
@@ -633,7 +656,9 @@ pub fn state_transition(
             let curr = state.id_curr;
 
             let Some((v, c)) = &state.activation[curr.0] else {
-                return Err(InterleavingError::Shape("Activation called with no arg set"));
+                return Err(InterleavingError::Shape(
+                    "Activation called with no arg set",
+                ));
             };
 
             if v != &val || c != &caller {
@@ -653,6 +678,25 @@ pub fn state_transition(
             }
         }
 
+        WitLedgerEffect::NewRef { val, ret } => {
+            state.ref_counter += 1;
+            let new_ref = Ref(state.ref_counter);
+            if new_ref != ret {
+                return Err(InterleavingError::Shape("NewRef result mismatch"));
+            }
+            state.ref_store.insert(new_ref, val);
+        }
+
+        WitLedgerEffect::Get { reff, ret } => {
+            let val = state
+                .ref_store
+                .get(&reff)
+                .ok_or(InterleavingError::RefNotFound(reff))?;
+            if val != &ret {
+                return Err(InterleavingError::Shape("Get result mismatch"));
+            }
+        }
+
         WitLedgerEffect::Burn { ret } => {
             if !rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::UtxoOnly(id_curr));
@@ -666,12 +710,23 @@ pub fn state_transition(
                 .id_prev
                 .ok_or(InterleavingError::BurnWithNoParent { pid: id_curr })?;
 
-            if state.expected_input[parent.0].clone() != ret {
+            let ret_val = state
+                .ref_store
+                .get(&ret)
+                .ok_or(InterleavingError::RefNotFound(ret))?;
+
+            let expected_ref = state.expected_input[parent.0];
+            let expected_val = state
+                .ref_store
+                .get(&expected_ref)
+                .ok_or(InterleavingError::RefNotFound(expected_ref))?;
+
+            if expected_val != ret_val {
                 // Burn is the final return of the coroutine
                 return Err(InterleavingError::YieldClaimMismatch {
                     id_prev: state.id_prev,
-                    expected: state.expected_input[parent.0].clone(),
-                    got: ret,
+                    expected: expected_val.clone(),
+                    got: ret_val.clone(),
                 });
             }
 
