@@ -27,18 +27,18 @@ fn test_circuit_simple_resume() {
     let p1 = ProcessId(token_id);
     let p2 = ProcessId(coord_id);
 
-    let val_4 = v(&[4]);
+    let val_0 = v(&[0]);
     let val_1 = v(&[1]);
+    let val_4 = v(&[4]);
 
     let utxo_trace = MockedLookupTableCommitment {
         trace: vec![
-            WitLedgerEffect::Input {
+            WitLedgerEffect::Init {
                 val: val_4.clone(),
-                // maybe rename this to id_prev
-                // TODO: but actually, do I need this? I think probably not
-                //
-                // it's part of the host call constraint, but I could just get
-                // it from the id_prev wire for the lookup
+                caller: p2,
+            },
+            WitLedgerEffect::Activation {
+                val: val_0.clone(),
                 caller: p2,
             },
             WitLedgerEffect::Yield {
@@ -51,6 +51,14 @@ fn test_circuit_simple_resume() {
 
     let token_trace = MockedLookupTableCommitment {
         trace: vec![
+            WitLedgerEffect::Init {
+                val: val_1.clone(),
+                caller: p2,
+            },
+            WitLedgerEffect::Activation {
+                val: val_0.clone(),
+                caller: p2,
+            },
             WitLedgerEffect::Bind { owner_id: p0 },
             WitLedgerEffect::Yield {
                 val: val_1.clone(), // Yielding nothing
@@ -74,20 +82,31 @@ fn test_circuit_simple_resume() {
             },
             WitLedgerEffect::Resume {
                 target: p1,
-                val: val_1.clone(),
+                val: val_0.clone(),
                 ret: val_1.clone(),
                 id_prev: None,
             },
             WitLedgerEffect::Resume {
                 target: p0,
-                val: val_4.clone(),
+                val: val_0.clone(),
                 ret: val_1.clone(),
-                id_prev: None,
+                id_prev: Some(p1),
             },
         ],
     };
 
-    let traces = vec![utxo_trace, token_trace, coord_trace];
+    let traces = vec![
+        utxo_trace,
+        token_trace,
+        coord_trace,
+        MockedLookupTableCommitment { trace: vec![] },
+        MockedLookupTableCommitment { trace: vec![] },
+        MockedLookupTableCommitment { trace: vec![] },
+        MockedLookupTableCommitment { trace: vec![] },
+        MockedLookupTableCommitment { trace: vec![] },
+        MockedLookupTableCommitment { trace: vec![] },
+        MockedLookupTableCommitment { trace: vec![] },
+    ];
 
     let trace_lens = traces
         .iter()
@@ -97,13 +116,28 @@ fn test_circuit_simple_resume() {
     let instance = InterleavingInstance {
         n_inputs: 0,
         n_new: 2,
-        n_coords: 1,
+        n_coords: 8,
         entrypoint: p2,
-        process_table: vec![h(0), h(1), h(2)],
-        is_utxo: vec![true, true, false],
-        must_burn: vec![false, false, false],
-        ownership_in: vec![None, None, None],
-        ownership_out: vec![None, Some(ProcessId(0)), None],
+        process_table: vec![h(0), h(1), h(2), h(3), h(4), h(5), h(6), h(7), h(8), h(9)],
+        is_utxo: vec![
+            true, true, false, false, false, false, false, false, false, false,
+        ],
+        must_burn: vec![
+            false, false, false, false, false, false, false, false, false, false,
+        ],
+        ownership_in: vec![None, None, None, None, None, None, None, None, None, None],
+        ownership_out: vec![
+            None,
+            Some(ProcessId(0)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ],
         host_calls_roots: traces,
         host_calls_lens: trace_lens,
         input_states: vec![],

@@ -27,13 +27,14 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, arg, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
+σ = (id_curr, id_prev, M, activation, init, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
 
 Where:
   id_curr        : ID of the currently executing VM. In the range [0..#coord + #utxo]
   id_prev        : ID of the VM that called the current one (return address).
   M              : A map {ProcessID -> Value}
-  arg            : A map {ProcessID -> Option<(Value, ProcessID)>}
+  activation     : A map {ProcessID -> Option<(Value, ProcessID)>}
+  init           : A map {ProcessID -> Option<(Value, ProcessID)>}
   process_table  : Read-only map {ID -> ProgramHash} for attestation.
   host_calls     : A map {ProcessID -> Host-calls lookup table}
   counters       : A map {ProcessID -> Counter}
@@ -114,20 +115,35 @@ Rule: Resume
     3. id_prev'                 <- id_curr   (Save "caller" for yield)
     4. id_curr'                 <- target    (Switch)
     5. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
-    6. arg'[target]             <- Some(val, id_curr)
+    6. activation'[target]      <- Some(val, id_curr)
 ```
 
-## Input
+## Activation
 
-Rule: Input
+Rule: Activation
 ===========
-    op = Input() -> (val, caller)
+    op = Activation() -> (val, caller)
 
-    1. arg[id_curr] == Some(val, caller)
+    1. activation[id_curr] == Some(val, caller)
 
     2. let t = CC[id_curr] in
        let c = counters[id_curr] in
-           t[c] == <Input, val, caller>
+           t[c] == <Activation, val, caller>
+
+-----------------------------------------------------------------------
+    1. counters'[id_curr] += 1
+
+## Init
+
+Rule: Init
+===========
+    op = Init() -> (val, caller)
+
+    1. init[id_curr] == Some(val, caller)
+
+    2. let t = CC[id_curr] in
+       let c = counters[id_curr] in
+           t[c] == <Init, val, caller>
 
 -----------------------------------------------------------------------
     1. counters'[id_curr] += 1
@@ -167,7 +183,7 @@ Rule: Yield (resumed)
     3. id_curr'                 <- id_prev   (Switch to parent)
     4. id_prev'                 <- id_curr   (Save "caller")
     5. safe_to_ledger'[id_curr] <- False     (This is not the final yield for this utxo in this transaction)
-    6. arg'[id_curr]            <- None
+    6. activation'[id_curr]     <- None
 ```
 
 ```text
@@ -188,7 +204,7 @@ Rule: Yield (end transaction)
     2. id_curr'                 <- id_prev  (Switch to parent)
     3. id_prev'                 <- id_curr  (Save "caller")
     4. safe_to_ledger'[id_curr] <- True     (This utxo creates a transacition output)
-    5. arg'[id_curr]            <- None
+    5. activation'[id_curr]     <- None
 ```
 
 ## Program Hash
@@ -254,7 +270,7 @@ Assigns a new (transaction-local) ID for a UTXO program.
 -----------------------------------------------------------------------
     1. initialized[id] <- True
     2. M[id]           <- val
-    3. arg'[id]         <- None
+    3. init'[id]         <- Some(val, id_curr)
     4. counters'[id_curr] += 1
 ```
 
@@ -297,7 +313,7 @@ handler) instance.
 -----------------------------------------------------------------------
     1. initialized[id] <- True
     2. M[id]           <- val
-    3. arg'[id]         <- None
+    3. init'[id]         <- Some(val, id_curr)
     4. counters'[id_curr] += 1
 ```
 
@@ -421,7 +437,7 @@ Destroys the UTXO state.
 
     4. counters'[id_curr]       += 1
 
-    5. arg'[id_curr]            <- None
+    5. activation'[id_curr]            <- None
 ```
 
 # 6. Tokens

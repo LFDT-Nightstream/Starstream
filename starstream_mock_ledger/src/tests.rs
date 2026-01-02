@@ -207,17 +207,37 @@ fn test_transaction_with_coord_and_utxos() {
 
     // Host call traces for each process in canonical order: inputs ++ new_outputs ++ coord_scripts
     // Process 0: Input 1, Process 1: Input 2, Process 2: UTXO A (spawn), Process 3: UTXO B (spawn), Process 4: Coordination script
-    let input_1_trace = vec![WitLedgerEffect::Yield {
-        val: v(b"continued_1"),
-        ret: None,
-        id_prev: Some(ProcessId(4)),
-    }];
+    let input_1_trace = vec![
+        WitLedgerEffect::Activation {
+            val: v(b"spend_input_1"),
+            caller: ProcessId(4),
+        },
+        WitLedgerEffect::Yield {
+            val: v(b"continued_1"),
+            ret: None,
+            id_prev: Some(ProcessId(4)),
+        },
+    ];
 
-    let input_2_trace = vec![WitLedgerEffect::Burn {
-        ret: v(b"burned_2"),
-    }];
+    let input_2_trace = vec![
+        WitLedgerEffect::Activation {
+            val: v(b"spend_input_2"),
+            caller: ProcessId(4),
+        },
+        WitLedgerEffect::Burn {
+            ret: v(b"burned_2"),
+        },
+    ];
 
     let utxo_a_trace = vec![
+        WitLedgerEffect::Init {
+            val: v(b"init_a"),
+            caller: ProcessId(4),
+        },
+        WitLedgerEffect::Activation {
+            val: v(b"init_a"),
+            caller: ProcessId(4),
+        },
         WitLedgerEffect::Bind {
             owner_id: ProcessId(3),
         },
@@ -228,11 +248,21 @@ fn test_transaction_with_coord_and_utxos() {
         },
     ];
 
-    let utxo_b_trace = vec![WitLedgerEffect::Yield {
-        val: v(b"done_b"),
-        ret: None,
-        id_prev: Some(ProcessId(4)),
-    }];
+    let utxo_b_trace = vec![
+        WitLedgerEffect::Init {
+            val: v(b"init_b"),
+            caller: ProcessId(4),
+        },
+        WitLedgerEffect::Activation {
+            val: v(b"init_b"),
+            caller: ProcessId(4),
+        },
+        WitLedgerEffect::Yield {
+            val: v(b"done_b"),
+            ret: None,
+            id_prev: Some(ProcessId(4)),
+        },
+    ];
 
     let coord_trace = vec![
         WitLedgerEffect::NewUtxo {
@@ -361,7 +391,8 @@ fn test_effect_handlers() {
     //        |                    |
     //    Resume ----------------->|
     //   (val="init_utxo")         |
-    //        |               Input (val="init_utxo", caller=P1)
+    //        |               Init (val="init_utxo", caller=P1)
+    //        |               Activation (val="init_utxo", caller=P1)
     //        |               ProgramHash(P1) -> (attest caller)
     //        |               GetHandlerFor -> P1
     //        |<----------------- Resume (Effect call)
@@ -384,7 +415,11 @@ fn test_effect_handlers() {
     // Host call traces for each process in canonical order: (no inputs) ++ new_outputs ++ coord_scripts
     // Process 0: UTXO, Process 1: Coordination script
     let utxo_trace = vec![
-        WitLedgerEffect::Input {
+        WitLedgerEffect::Init {
+            val: v(b"init_utxo"),
+            caller: ProcessId(1),
+        },
+        WitLedgerEffect::Activation {
             val: v(b"init_utxo"),
             caller: ProcessId(1),
         },

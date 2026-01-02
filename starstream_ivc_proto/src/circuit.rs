@@ -56,7 +56,8 @@ impl RomSwitchboardWires {
 #[derive(Clone, Debug, Default)]
 pub struct MemSwitchboard {
     pub expected_input: bool,
-    pub arg: bool,
+    pub activation: bool,
+    pub init: bool,
     pub counters: bool,
     pub initialized: bool,
     pub finalized: bool,
@@ -67,7 +68,8 @@ pub struct MemSwitchboard {
 #[derive(Clone)]
 pub struct MemSwitchboardWires {
     pub expected_input: Boolean<F>,
-    pub arg: Boolean<F>,
+    pub activation: Boolean<F>,
+    pub init: Boolean<F>,
     pub counters: Boolean<F>,
     pub initialized: Boolean<F>,
     pub finalized: Boolean<F>,
@@ -82,7 +84,8 @@ impl MemSwitchboardWires {
     ) -> Result<Self, SynthesisError> {
         Ok(Self {
             expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
-            arg: Boolean::new_witness(cs.clone(), || Ok(switches.arg))?,
+            activation: Boolean::new_witness(cs.clone(), || Ok(switches.activation))?,
+            init: Boolean::new_witness(cs.clone(), || Ok(switches.init))?,
             counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,
             initialized: Boolean::new_witness(cs.clone(), || Ok(switches.initialized))?,
             finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
@@ -97,16 +100,19 @@ pub const ROM_MUST_BURN: u64 = 2u64;
 pub const ROM_IS_UTXO: u64 = 3u64;
 
 pub const RAM_EXPECTED_INPUT: u64 = 4u64;
-pub const RAM_ARG: u64 = 5u64;
+pub const RAM_ACTIVATION: u64 = 5u64;
 pub const RAM_COUNTERS: u64 = 6u64;
 pub const RAM_INITIALIZED: u64 = 7u64;
 pub const RAM_FINALIZED: u64 = 8u64;
 pub const RAM_DID_BURN: u64 = 9u64;
 pub const RAM_OWNERSHIP: u64 = 10u64;
+// TODO: this could technically be a ROM, or maybe some sort of write once
+// memory
+pub const RAM_INIT: u64 = 11u64;
 
 // TODO: this is not implemented yet, since it's the only one with a dynamic
 // memory size, I'll implement this at last
-pub const RAM_HANDLER_STACK: u64 = 11u64;
+pub const RAM_HANDLER_STACK: u64 = 12u64;
 
 pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, MemSwitchboard) {
     // TODO: we could actually have more granularity with 4 of theses, for reads
@@ -121,23 +127,23 @@ pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, Me
 
     match instr {
         LedgerOperation::Resume { .. } => {
-            curr_s.arg = true;
+            curr_s.activation = true;
             curr_s.expected_input = true;
 
-            target_s.arg = true;
+            target_s.activation = true;
             target_s.expected_input = true;
             target_s.finalized = true;
             target_s.initialized = true;
         }
         LedgerOperation::Yield { ret, .. } => {
-            curr_s.arg = true;
+            curr_s.activation = true;
             if ret.is_some() {
                 curr_s.expected_input = true;
             }
             curr_s.finalized = true;
         }
         LedgerOperation::Burn { .. } => {
-            curr_s.arg = true;
+            curr_s.activation = true;
             curr_s.finalized = true;
             curr_s.did_burn = true;
             curr_s.expected_input = true;
@@ -145,11 +151,14 @@ pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, Me
         LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
             // New* ops initialize the target process
             target_s.initialized = true;
-            target_s.expected_input = true;
+            target_s.init = true;
             target_s.counters = true; // sets counter to 0
         }
-        LedgerOperation::Input { .. } => {
-            curr_s.arg = true;
+        LedgerOperation::Activation { .. } => {
+            curr_s.activation = true;
+        }
+        LedgerOperation::Init { .. } => {
+            curr_s.init = true;
         }
         LedgerOperation::Bind { .. } => {
             target_s.initialized = true;
@@ -216,7 +225,8 @@ pub struct Wires {
     new_utxo_switch: Boolean<F>,
     new_coord_switch: Boolean<F>,
     burn_switch: Boolean<F>,
-    input_switch: Boolean<F>,
+    activation_switch: Boolean<F>,
+    init_switch: Boolean<F>,
     bind_switch: Boolean<F>,
     unbind_switch: Boolean<F>,
 
@@ -257,7 +267,8 @@ pub struct Wires {
 #[derive(Clone)]
 pub struct ProgramStateWires {
     expected_input: FpVar<F>,
-    arg: FpVar<F>,
+    activation: FpVar<F>,
+    init: FpVar<F>,
     counters: FpVar<F>,
     initialized: Boolean<F>,
     finalized: Boolean<F>,
@@ -285,7 +296,8 @@ pub struct PreWires {
     program_hash_switch: bool,
     new_utxo_switch: bool,
     new_coord_switch: bool,
-    input_switch: bool,
+    activation_switch: bool,
+    init_switch: bool,
     bind_switch: bool,
     unbind_switch: bool,
 
@@ -303,7 +315,8 @@ pub struct PreWires {
 #[derive(Clone, Debug)]
 pub struct ProgramState {
     expected_input: F,
-    arg: F,
+    activation: F,
+    init: F,
     counters: F,
     initialized: bool,
     finalized: bool,
@@ -331,7 +344,8 @@ impl ProgramStateWires {
     ) -> Result<ProgramStateWires, SynthesisError> {
         Ok(ProgramStateWires {
             expected_input: FpVar::new_witness(cs.clone(), || Ok(write_values.expected_input))?,
-            arg: FpVar::new_witness(cs.clone(), || Ok(write_values.arg))?,
+            activation: FpVar::new_witness(cs.clone(), || Ok(write_values.activation))?,
+            init: FpVar::new_witness(cs.clone(), || Ok(write_values.init))?,
             counters: FpVar::new_witness(cs.clone(), || Ok(write_values.counters))?,
             initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
             finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
@@ -368,7 +382,8 @@ impl Wires {
             vals.program_hash_switch,
             vals.new_utxo_switch,
             vals.new_coord_switch,
-            vals.input_switch,
+            vals.activation_switch,
+            vals.init_switch,
             vals.bind_switch,
             vals.unbind_switch,
         ];
@@ -387,7 +402,8 @@ impl Wires {
             program_hash_switch,
             new_utxo_switch,
             new_coord_switch,
-            input_switch,
+            activation_switch,
+            init_switch,
             bind_switch,
             unbind_switch,
         ] = allocated_switches.as_slice()
@@ -508,7 +524,8 @@ impl Wires {
             program_hash_switch: program_hash_switch.clone(),
             new_utxo_switch: new_utxo_switch.clone(),
             new_coord_switch: new_coord_switch.clone(),
-            input_switch: input_switch.clone(),
+            activation_switch: activation_switch.clone(),
+            init_switch: init_switch.clone(),
             bind_switch: bind_switch.clone(),
             unbind_switch: unbind_switch.clone(),
 
@@ -561,12 +578,23 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
             .into_iter()
             .next()
             .unwrap(),
-        arg: rm
+        activation: rm
             .conditional_read(
-                &switches.arg,
+                &switches.activation,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_ARG))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_ACTIVATION))?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap(),
+        init: rm
+            .conditional_read(
+                &switches.init,
+                &Address {
+                    addr: address.clone(),
+                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_INIT))?,
                 },
             )?
             .into_iter()
@@ -648,11 +676,18 @@ fn trace_program_state_reads<M: IVCMemory<F>>(
                 tag: RAM_EXPECTED_INPUT,
             },
         )[0],
-        arg: mem.conditional_read(
-            switches.arg,
+        activation: mem.conditional_read(
+            switches.activation,
             Address {
                 addr: pid,
-                tag: RAM_ARG,
+                tag: RAM_ACTIVATION,
+            },
+        )[0],
+        init: mem.conditional_read(
+            switches.init,
+            Address {
+                addr: pid,
+                tag: RAM_INIT,
             },
         )[0],
         counters: mem.conditional_read(
@@ -709,12 +744,20 @@ fn trace_program_state_writes<M: IVCMemory<F>>(
         [state.expected_input].to_vec(),
     );
     mem.conditional_write(
-        switches.arg,
+        switches.activation,
         Address {
             addr: pid,
-            tag: RAM_ARG,
+            tag: RAM_ACTIVATION,
         },
-        [state.arg].to_vec(),
+        [state.activation].to_vec(),
+    );
+    mem.conditional_write(
+        switches.init,
+        Address {
+            addr: pid,
+            tag: RAM_INIT,
+        },
+        [state.init].to_vec(),
     );
     mem.conditional_write(
         switches.counters,
@@ -722,7 +765,7 @@ fn trace_program_state_writes<M: IVCMemory<F>>(
             addr: pid,
             tag: RAM_COUNTERS,
         },
-        [dbg!(state.counters)].to_vec(),
+        [state.counters].to_vec(),
     );
     mem.conditional_write(
         switches.initialized,
@@ -775,12 +818,20 @@ fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
     )?;
 
     rm.conditional_write(
-        &switches.arg,
+        &switches.activation,
         &Address {
             addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_ARG))?,
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_ACTIVATION))?,
         },
-        &[state.arg.clone()],
+        &[state.activation.clone()],
+    )?;
+    rm.conditional_write(
+        &switches.init,
+        &Address {
+            addr: address.clone(),
+            tag: FpVar::new_constant(cs.clone(), F::from(RAM_INIT))?,
+        },
+        &[state.init.clone()],
     )?;
     rm.conditional_write(
         &switches.counters,
@@ -897,12 +948,12 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::Resume { val, ret, .. } => {
                 // Current process gives control to target.
                 // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
-                curr_write.arg = F::ZERO; // Represents None
+                curr_write.activation = F::ZERO; // Represents None
                 curr_write.expected_input = *ret;
 
                 // Target process receives control.
                 // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
-                target_write.arg = *val;
+                target_write.activation = *val;
                 target_write.finalized = false;
             }
             LedgerOperation::Yield {
@@ -914,7 +965,7 @@ impl LedgerOperation<crate::F> {
             } => {
                 // Current process yields control back to its parent (the target of this operation).
                 // Its `arg` is cleared.
-                curr_write.arg = F::ZERO; // Represents None
+                curr_write.activation = F::ZERO; // Represents None
                 if let Some(r) = ret {
                     // If Yield returns a value, it expects a new input `r` for the next resume.
                     curr_write.expected_input = *r;
@@ -926,7 +977,7 @@ impl LedgerOperation<crate::F> {
             }
             LedgerOperation::Burn { ret } => {
                 // The current UTXO is burned.
-                curr_write.arg = F::ZERO; // Represents None
+                curr_write.activation = F::ZERO; // Represents None
                 curr_write.finalized = true;
                 curr_write.did_burn = true;
                 curr_write.expected_input = *ret; // Sets its final return value.
@@ -936,7 +987,7 @@ impl LedgerOperation<crate::F> {
                 // The current process is a coordinator creating a new process.
                 // The new process (target) is initialized.
                 target_write.initialized = true;
-                target_write.expected_input = *val;
+                target_write.init = *val;
                 target_write.counters = F::ZERO;
             }
             _ => {
@@ -996,7 +1047,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_resume(next_wires)?;
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_new_process(next_wires)?;
-        let next_wires = self.visit_input(next_wires)?;
+        let next_wires = self.visit_activation(next_wires)?;
+        let next_wires = self.visit_init(next_wires)?;
         let next_wires = self.visit_bind(next_wires)?;
         let next_wires = self.visit_unbind(next_wires)?;
 
@@ -1021,7 +1073,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mb.register_mem(ROM_MUST_BURN, 1, "ROM_MUST_BURN");
             mb.register_mem(ROM_IS_UTXO, 1, "ROM_IS_UTXO");
             mb.register_mem(RAM_EXPECTED_INPUT, 1, "RAM_EXPECTED_INPUT");
-            mb.register_mem(RAM_ARG, 1, "RAM_ARG");
+            mb.register_mem(RAM_ACTIVATION, 1, "RAM_ACTIVATION");
+            mb.register_mem(RAM_INIT, 1, "RAM_INIT");
             mb.register_mem(RAM_COUNTERS, 1, "RAM_COUNTERS");
             mb.register_mem(RAM_INITIALIZED, 1, "RAM_INITIALIZED");
             mb.register_mem(RAM_FINALIZED, 1, "RAM_FINALIZED");
@@ -1091,7 +1144,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_ARG,
+                        tag: RAM_ACTIVATION,
+                    },
+                    vec![F::from(0u64)], // None
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RAM_INIT,
                     },
                     vec![F::from(0u64)], // None
                 );
@@ -1383,9 +1444,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::Input { val, caller } => {
+            LedgerOperation::Activation { val, caller } => {
                 let irw = PreWires {
-                    input_switch: true,
+                    activation_switch: true,
+                    val: *val,
+                    caller: *caller,
+                    irw: irw.clone(),
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
+            LedgerOperation::Init { val, caller } => {
+                let irw = PreWires {
+                    init_switch: true,
                     val: *val,
                     caller: *caller,
                     irw: irw.clone(),
@@ -1453,10 +1529,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 4. Re-entrancy check (target's arg must be None/0)
         wires
             .target_read_wires
-            .arg
+            .activation
             .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
         // 5. Claim check: val passed in must match target's expected_input.
+        dbg!(wires.target_read_wires.expected_input.value().unwrap());
+        dbg!(wires.val.value().unwrap());
         wires
             .target_read_wires
             .expected_input
@@ -1613,12 +1691,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires.target_write_wires.initialized =
             switch.select(&wires.constant_true, &wires.target_read_wires.initialized)?;
 
+        wires.target_write_wires.init = switch.select(&wires.val, &wires.target_read_wires.init)?;
+
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
-    fn visit_input(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.input_switch;
+    fn visit_activation(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.activation_switch;
 
         // When a process calls `input`, it's reading the argument that was
         // passed to it when it was resumed.
@@ -1626,7 +1706,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 1. Check that the value from the opcode matches the value in the `arg` register.
         wires
             .curr_read_wires
-            .arg
+            .activation
+            .conditional_enforce_equal(&wires.val, switch)?;
+
+        // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
+        wires
+            .id_prev_value
+            .conditional_enforce_equal(&wires.caller, switch)?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_init(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.init_switch;
+
+        // When a process calls `input`, it's reading the argument that was
+        // passed to it when it was resumed.
+
+        // 1. Check that the value from the opcode matches the value in the `arg` register.
+        wires
+            .curr_read_wires
+            .init
             .conditional_enforce_equal(&wires.val, switch)?;
 
         // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
@@ -1739,7 +1840,8 @@ impl PreWires {
             check_utxo_output_switch: false,
             nop_switch: false,
             burn_switch: false,
-            input_switch: false,
+            activation_switch: false,
+            init_switch: false,
             bind_switch: false,
             unbind_switch: false,
 
@@ -1781,7 +1883,8 @@ impl ProgramState {
         Self {
             finalized: false,
             expected_input: F::ZERO,
-            arg: F::ZERO,
+            activation: F::ZERO,
+            init: F::ZERO,
             counters: F::ZERO,
             initialized: false,
             did_burn: false,
@@ -1791,7 +1894,8 @@ impl ProgramState {
 
     pub fn debug_print(&self) {
         tracing::debug!("expected_input={}", self.expected_input);
-        tracing::debug!("arg={}", self.arg);
+        tracing::debug!("activation={}", self.activation);
+        tracing::debug!("init={}", self.init);
         tracing::debug!("counters={}", self.counters);
         tracing::debug!("finalized={}", self.finalized);
         tracing::debug!("did_burn={}", self.did_burn);
