@@ -53,7 +53,12 @@ pub enum WitLedgerEffect {
         ret: Value,
     },
 
-    Input {
+    Activation {
+        val: Value,
+        caller: ProcessId,
+    },
+
+    Init {
         val: Value,
         caller: ProcessId,
     },
