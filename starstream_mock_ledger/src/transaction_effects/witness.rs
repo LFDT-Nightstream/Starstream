@@ -1,5 +1,5 @@
 use crate::{
-    Hash, Value, WasmModule,
+    Hash, Ref, Value, WasmModule,
     transaction_effects::{InterfaceId, ProcessId},
 };
 
@@ -11,13 +11,13 @@ use crate::{
 pub enum WitLedgerEffect {
     Resume {
         target: ProcessId,
-        val: Value,
-        ret: Value,
+        val: Ref,
+        ret: Ref,
         id_prev: Option<ProcessId>,
     },
     Yield {
-        val: Value,
-        ret: Option<Value>,
+        val: Ref,
+        ret: Option<Ref>,
         id_prev: Option<ProcessId>,
     },
     ProgramHash {
@@ -26,12 +26,12 @@ pub enum WitLedgerEffect {
     },
     NewUtxo {
         program_hash: Hash<WasmModule>,
-        val: Value,
+        val: Ref,
         id: ProcessId,
     },
     NewCoord {
         program_hash: Hash<WasmModule>,
-        val: Value,
+        val: Ref,
         id: ProcessId,
     },
     // Scoped handlers for custom effects
@@ -50,17 +50,26 @@ pub enum WitLedgerEffect {
 
     // UTXO-only
     Burn {
-        ret: Value,
+        ret: Ref,
     },
 
     Activation {
-        val: Value,
+        val: Ref,
         caller: ProcessId,
     },
 
     Init {
-        val: Value,
+        val: Ref,
         caller: ProcessId,
+    },
+
+    NewRef {
+        val: Value,
+        ret: Ref,
+    },
+    Get {
+        reff: Ref,
+        ret: Value,
     },
 
     // Tokens

@@ -1,6 +1,6 @@
 use crate::{prove, test_utils::init_test_logging};
 use starstream_mock_ledger::{
-    CoroutineState, Hash, InterleavingInstance, MockedLookupTableCommitment, ProcessId, Value,
+    CoroutineState, Hash, InterleavingInstance, MockedLookupTableCommitment, ProcessId, Ref, Value,
     WitLedgerEffect,
 };
 
@@ -31,18 +31,22 @@ fn test_circuit_simple_resume() {
     let val_1 = v(&[1]);
     let val_4 = v(&[4]);
 
+    let ref_0 = Ref(0);
+    let ref_1 = Ref(1);
+    let ref_4 = Ref(2);
+
     let utxo_trace = MockedLookupTableCommitment {
         trace: vec![
             WitLedgerEffect::Init {
-                val: val_4.clone(),
+                val: ref_4,
                 caller: p2,
             },
             WitLedgerEffect::Activation {
-                val: val_0.clone(),
+                val: ref_0,
                 caller: p2,
             },
             WitLedgerEffect::Yield {
-                val: val_1.clone(), // Yielding nothing
+                val: ref_1.clone(), // Yielding nothing
                 ret: None,          // Not expecting to be resumed again
                 id_prev: Some(p2),
             },
@@ -52,16 +56,16 @@ fn test_circuit_simple_resume() {
     let token_trace = MockedLookupTableCommitment {
         trace: vec![
             WitLedgerEffect::Init {
-                val: val_1.clone(),
+                val: ref_1,
                 caller: p2,
             },
             WitLedgerEffect::Activation {
-                val: val_0.clone(),
+                val: ref_0,
                 caller: p2,
             },
             WitLedgerEffect::Bind { owner_id: p0 },
             WitLedgerEffect::Yield {
-                val: val_1.clone(), // Yielding nothing
+                val: ref_1.clone(), // Yielding nothing
                 ret: None,          // Not expecting to be resumed again
                 id_prev: Some(p2),
             },
@@ -70,43 +74,44 @@ fn test_circuit_simple_resume() {
 
     let coord_trace = MockedLookupTableCommitment {
         trace: vec![
+            WitLedgerEffect::NewRef {
+                val: val_0,
+                ret: ref_0,
+            },
+            WitLedgerEffect::NewRef {
+                val: val_1.clone(),
+                ret: ref_1,
+            },
+            WitLedgerEffect::NewRef {
+                val: val_4.clone(),
+                ret: ref_4,
+            },
             WitLedgerEffect::NewUtxo {
                 program_hash: h(0),
-                val: val_4.clone(),
+                val: ref_4,
                 id: p0,
             },
             WitLedgerEffect::NewUtxo {
                 program_hash: h(1),
-                val: val_1.clone(),
+                val: ref_1,
                 id: p1,
             },
             WitLedgerEffect::Resume {
                 target: p1,
-                val: val_0.clone(),
-                ret: val_1.clone(),
+                val: ref_0.clone(),
+                ret: ref_1.clone(),
                 id_prev: None,
             },
             WitLedgerEffect::Resume {
                 target: p0,
-                val: val_0.clone(),
-                ret: val_1.clone(),
+                val: ref_0,
+                ret: ref_1,
                 id_prev: Some(p1),
             },
         ],
     };
 
-    let traces = vec![
-        utxo_trace,
-        token_trace,
-        coord_trace,
-        MockedLookupTableCommitment { trace: vec![] },
-        MockedLookupTableCommitment { trace: vec![] },
-        MockedLookupTableCommitment { trace: vec![] },
-        MockedLookupTableCommitment { trace: vec![] },
-        MockedLookupTableCommitment { trace: vec![] },
-        MockedLookupTableCommitment { trace: vec![] },
-        MockedLookupTableCommitment { trace: vec![] },
-    ];
+    let traces = vec![utxo_trace, token_trace, coord_trace];
 
     let trace_lens = traces
         .iter()
@@ -118,26 +123,11 @@ fn test_circuit_simple_resume() {
         n_new: 2,
         n_coords: 8,
         entrypoint: p2,
-        process_table: vec![h(0), h(1), h(2), h(3), h(4), h(5), h(6), h(7), h(8), h(9)],
-        is_utxo: vec![
-            true, true, false, false, false, false, false, false, false, false,
-        ],
-        must_burn: vec![
-            false, false, false, false, false, false, false, false, false, false,
-        ],
-        ownership_in: vec![None, None, None, None, None, None, None, None, None, None],
-        ownership_out: vec![
-            None,
-            Some(ProcessId(0)),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ],
+        process_table: vec![h(0), h(1), h(2)],
+        is_utxo: vec![true, true, false],
+        must_burn: vec![false, false, false],
+        ownership_in: vec![None, None, None],
+        ownership_out: vec![None, Some(ProcessId(0)), None],
         host_calls_roots: traces,
         host_calls_lens: trace_lens,
         input_states: vec![],

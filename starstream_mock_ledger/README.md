@@ -27,14 +27,15 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
+σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
 
 Where:
   id_curr        : ID of the currently executing VM. In the range [0..#coord + #utxo]
   id_prev        : ID of the VM that called the current one (return address).
-  M              : A map {ProcessID -> Value}
-  activation     : A map {ProcessID -> Option<(Value, ProcessID)>}
+  M              : A map {ProcessID -> Ref}
+  activation     : A map {ProcessID -> Option<(Ref, ProcessID)>}
   init           : A map {ProcessID -> Option<(Value, ProcessID)>}
+  ref_store      : A map {Ref -> Value}
   process_table  : Read-only map {ID -> ProgramHash} for attestation.
   host_calls     : A map {ProcessID -> Host-calls lookup table}
   counters       : A map {ProcessID -> Counter}
@@ -85,20 +86,21 @@ our value matches its claim.
 ```text
 Rule: Resume
 ============
-    op = Resume(target, val) -> ret
+    op = Resume(target, val_ref) -> ret_ref
 
     1. id_curr ≠ target
 
     (No self resume)
 
-    2. M[target] == val
+    2. let val = ref_store[val_ref] in
+       M[target] == val
 
     (Check val matches target's previous claim)
 
     3. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Resume, target, val, ret, id_prev>
+            t[c] == <Resume, target, val_ref, ret_ref, id_prev>
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 
@@ -110,12 +112,12 @@ Rule: Resume
 
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
-    1. M[id_curr]               <- ret       (Claim, needs to be checked later by future resumer)
+    1. M[id_curr]               <- ret_ref       (Claim, needs to be checked later by future resumer)
     2. counters'[id_curr]       += 1         (Keep track of host call index per process)
     3. id_prev'                 <- id_curr   (Save "caller" for yield)
     4. id_curr'                 <- target    (Switch)
     5. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
-    6. activation'[target]      <- Some(val, id_curr)
+    6. activation'[target]      <- Some(val_ref, id_curr)
 ```
 
 ## Activation
@@ -164,21 +166,22 @@ with an actual result). In that case, id_prev would be null (or some sentinel).
 ```text
 Rule: Yield (resumed)
 ============
-    op = Yield(val) -> ret
+    op = Yield(val_ref) -> ret_ref
 
-    1. M[id_prev] == val
+    1. let val = ref_store[val_ref] in
+       M[id_prev] == val
 
     (Check val matches target's previous claim)
 
     2. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Yield, val, ret, id_prev>
+            t[c] == <Yield, val_ref, ret_ref, id_prev>
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
 
-    1. M[id_curr]               <- ret       (Claim, needs to be checked later by future resumer)
+    1. M[id_curr]               <- ret_ref       (Claim, needs to be checked later by future resumer)
     2. counters'[id_curr]       += 1         (Keep track of host call index per process)
     3. id_curr'                 <- id_prev   (Switch to parent)
     4. id_prev'                 <- id_curr   (Save "caller")
@@ -189,12 +192,12 @@ Rule: Yield (resumed)
 ```text
 Rule: Yield (end transaction)
 =============================
-    op = Yield(val)
+    op = Yield(val_ref)
 
     3. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Yield, val, null, id_prev>
+            t[c] == <Yield, val_ref, null, id_prev>
 
     (Remember, there is no ret value since that won't be known until the next transaction)
 
@@ -409,13 +412,14 @@ Rule: Burn
 ==========
 Destroys the UTXO state.
 
-    op = Burn(val)
+    op = Burn(val_ref)
 
     1. is_utxo[id_curr]
     2. is_initialized[id_curr]
     3. is_burned[id_curr]
 
-    4. M[id_prev] == val
+    4. let val = ref_store[val_ref] in
+       M[id_prev] == val
 
     (Resume receives val)
 
@@ -496,7 +500,46 @@ Rule: Unbind (owner calls)
 -----------------------------------------------------------------------
     1. ownership'[token_id] <- ⊥
     2. counters'[owner_id]  += 1
+```
 
+# 7. Data Operations
+
+## NewRef
+
+```text
+Rule: NewRef
+==============
+    op = NewRef(val) -> ref
+
+    1. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <NewRef, val, ref>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. ref_store'[ref] <- val
+    2. counters'[id_curr] += 1
+```
+
+## Get
+
+```text
+Rule: Get
+==============
+    op = Get(ref) -> val
+
+    1. ref_store[ref] == val
+
+    2. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <Get, ref, val>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. counters'[id_curr] += 1
+```
 
 # Verification
 

@@ -109,93 +109,11 @@ pub const RAM_OWNERSHIP: u64 = 10u64;
 // TODO: this could technically be a ROM, or maybe some sort of write once
 // memory
 pub const RAM_INIT: u64 = 11u64;
+pub const RAM_REF_ARENA: u64 = 12u64;
 
 // TODO: this is not implemented yet, since it's the only one with a dynamic
 // memory size, I'll implement this at last
-pub const RAM_HANDLER_STACK: u64 = 12u64;
-
-pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, MemSwitchboard) {
-    // TODO: we could actually have more granularity with 4 of theses, for reads
-    // and writes
-    //
-    // it may actually better for correctnes?
-    let mut curr_s = MemSwitchboard::default();
-    let mut target_s = MemSwitchboard::default();
-
-    // All ops increment counter of the current process, except Nop
-    curr_s.counters = !matches!(instr, LedgerOperation::Nop {});
-
-    match instr {
-        LedgerOperation::Resume { .. } => {
-            curr_s.activation = true;
-            curr_s.expected_input = true;
-
-            target_s.activation = true;
-            target_s.expected_input = true;
-            target_s.finalized = true;
-            target_s.initialized = true;
-        }
-        LedgerOperation::Yield { ret, .. } => {
-            curr_s.activation = true;
-            if ret.is_some() {
-                curr_s.expected_input = true;
-            }
-            curr_s.finalized = true;
-        }
-        LedgerOperation::Burn { .. } => {
-            curr_s.activation = true;
-            curr_s.finalized = true;
-            curr_s.did_burn = true;
-            curr_s.expected_input = true;
-        }
-        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
-            // New* ops initialize the target process
-            target_s.initialized = true;
-            target_s.init = true;
-            target_s.counters = true; // sets counter to 0
-        }
-        LedgerOperation::Activation { .. } => {
-            curr_s.activation = true;
-        }
-        LedgerOperation::Init { .. } => {
-            curr_s.init = true;
-        }
-        LedgerOperation::Bind { .. } => {
-            target_s.initialized = true;
-            curr_s.ownership = true;
-        }
-        LedgerOperation::Unbind { .. } => {
-            target_s.ownership = true;
-        }
-        _ => {}
-    }
-    (curr_s, target_s)
-}
-
-pub fn opcode_to_rom_switches(instr: &LedgerOperation<F>) -> RomSwitchboard {
-    let mut rom_s = RomSwitchboard::default();
-    match instr {
-        LedgerOperation::Resume { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_is_utxo_target = true;
-        }
-        LedgerOperation::Burn { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_must_burn_curr = true;
-        }
-        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_is_utxo_target = true;
-            rom_s.read_program_hash_target = true;
-        }
-        LedgerOperation::Bind { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_is_utxo_target = true;
-        }
-        _ => {}
-    }
-    rom_s
-}
+pub const RAM_HANDLER_STACK: u64 = 13u64;
 
 pub struct StepCircuitBuilder<M> {
     pub instance: InterleavingInstance,
@@ -215,6 +133,7 @@ pub struct Wires {
     id_curr: FpVar<F>,
     id_prev_is_some: Boolean<F>,
     id_prev_value: FpVar<F>,
+    ref_arena_stack_ptr: FpVar<F>,
 
     p_len: FpVar<F>,
 
@@ -229,6 +148,8 @@ pub struct Wires {
     init_switch: Boolean<F>,
     bind_switch: Boolean<F>,
     unbind_switch: Boolean<F>,
+    new_ref_switch: Boolean<F>,
+    get_switch: Boolean<F>,
 
     check_utxo_output_switch: Boolean<F>,
 
@@ -248,6 +169,8 @@ pub struct Wires {
 
     curr_mem_switches: MemSwitchboardWires,
     target_mem_switches: MemSwitchboardWires,
+
+    ref_arena_read: FpVar<F>,
 
     // ROM lookup results
     is_utxo_curr: FpVar<F>,
@@ -300,6 +223,8 @@ pub struct PreWires {
     init_switch: bool,
     bind_switch: bool,
     unbind_switch: bool,
+    new_ref_switch: bool,
+    get_switch: bool,
 
     curr_mem_switches: MemSwitchboard,
     target_mem_switches: MemSwitchboard,
@@ -332,6 +257,7 @@ pub struct InterRoundWires {
     id_curr: F,
     id_prev_is_some: bool,
     id_prev_value: F,
+    ref_arena_stack_ptr: F,
 
     p_len: F,
     n_finalized: F,
@@ -371,6 +297,8 @@ impl Wires {
         let p_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
         let id_prev_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.irw.id_prev_is_some))?;
         let id_prev_value = FpVar::new_witness(cs.clone(), || Ok(vals.irw.id_prev_value))?;
+        let ref_arena_stack_ptr =
+            FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_stack_ptr))?;
 
         // switches
         let switches = [
@@ -386,6 +314,8 @@ impl Wires {
             vals.init_switch,
             vals.bind_switch,
             vals.unbind_switch,
+            vals.new_ref_switch,
+            vals.get_switch,
         ];
 
         let allocated_switches: Vec<_> = switches
@@ -406,6 +336,8 @@ impl Wires {
             init_switch,
             bind_switch,
             unbind_switch,
+            new_ref_switch,
+            get_switch,
         ] = allocated_switches.as_slice()
         else {
             unreachable!()
@@ -510,10 +442,20 @@ impl Wires {
         )?[0]
             .clone();
 
+        let ref_arena_read = rm.conditional_read(
+            &(get_switch | new_ref_switch),
+            &Address {
+                tag: FpVar::new_constant(cs.clone(), F::from(RAM_REF_ARENA))?,
+                addr: get_switch.select(&val, &ret)?,
+            },
+        )?[0]
+            .clone();
+
         Ok(Wires {
             id_curr,
             id_prev_is_some,
             id_prev_value,
+            ref_arena_stack_ptr,
 
             p_len,
 
@@ -528,6 +470,8 @@ impl Wires {
             init_switch: init_switch.clone(),
             bind_switch: bind_switch.clone(),
             unbind_switch: unbind_switch.clone(),
+            new_ref_switch: new_ref_switch.clone(),
+            get_switch: get_switch.clone(),
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
             constant_true: Boolean::new_constant(cs.clone(), true)?,
@@ -556,6 +500,7 @@ impl Wires {
             is_utxo_target,
             must_burn_curr,
             rom_program_hash,
+            ref_arena_read,
         })
     }
 }
@@ -887,6 +832,7 @@ impl InterRoundWires {
             id_prev_value: F::ZERO,
             p_len,
             n_finalized: F::from(0),
+            ref_arena_stack_ptr: F::ZERO,
         }
     }
 
@@ -919,6 +865,14 @@ impl InterRoundWires {
         );
 
         self.p_len = res.p_len.value().unwrap();
+
+        tracing::debug!(
+            "ref_arena_stack_ptr from {} to {}",
+            self.ref_arena_stack_ptr,
+            res.ref_arena_stack_ptr.value().unwrap()
+        );
+
+        self.ref_arena_stack_ptr = res.ref_arena_stack_ptr.value().unwrap();
     }
 }
 
@@ -1051,6 +1005,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_init(next_wires)?;
         let next_wires = self.visit_bind(next_wires)?;
         let next_wires = self.visit_unbind(next_wires)?;
+        let next_wires = self.visit_new_ref(next_wires)?;
+        let next_wires = self.visit_get(next_wires)?;
 
         rm.finish_step(i == self.ops.len() - 1)?;
 
@@ -1079,6 +1035,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mb.register_mem(RAM_INITIALIZED, 1, "RAM_INITIALIZED");
             mb.register_mem(RAM_FINALIZED, 1, "RAM_FINALIZED");
             mb.register_mem(RAM_DID_BURN, 1, "RAM_DID_BURN");
+            mb.register_mem(RAM_REF_ARENA, 1, "RAM_REF_ARENA");
             mb.register_mem(RAM_OWNERSHIP, 1, "RAM_OWNERSHIP");
 
             for (pid, mod_hash) in self.instance.process_table.iter().enumerate() {
@@ -1209,6 +1166,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         //
         // note however that we don't enforce/check anything, that's done in the
         // circuit constraints
+
         for instr in &self.ops {
             let (curr_switches, target_switches) = opcode_to_mem_switches(instr);
             self.mem_switches
@@ -1290,6 +1248,35 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 }
                 _ => {}
             }
+        }
+
+        for instr in &self.ops {
+            let ref_read_arena_address = match instr {
+                LedgerOperation::NewRef { val, ret } => {
+                    // we never pop from this, actually
+                    mb.init(
+                        dbg!(Address {
+                            tag: RAM_REF_ARENA,
+                            addr: ret.into_bigint().0[0],
+                        }),
+                        vec![val.clone()],
+                    );
+
+                    Some(ret)
+                }
+                LedgerOperation::Get { reff, ret: _ } => Some(reff),
+                _ => None,
+            };
+
+            mb.conditional_read(
+                ref_read_arena_address.is_some(),
+                Address {
+                    tag: RAM_REF_ARENA,
+                    addr: ref_read_arena_address
+                        .map(|addr| addr.into_bigint().0[0])
+                        .unwrap_or(0),
+                },
+            );
         }
 
         mb
@@ -1504,6 +1491,36 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
+            LedgerOperation::NewRef { val, ret } => {
+                let irw = PreWires {
+                    val: *val,
+                    ret: *ret,
+                    new_ref_switch: true,
+                    irw: irw.clone(),
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
+            LedgerOperation::Get { reff, ret } => {
+                let irw = PreWires {
+                    val: *reff,
+                    ret: *ret,
+                    get_switch: true,
+                    irw: irw.clone(),
+                    ..PreWires::new(
+                        irw.clone(),
+                        curr_mem_switches.clone(),
+                        target_mem_switches.clone(),
+                        rom_switches.clone(),
+                    )
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
         }
     }
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
@@ -1533,8 +1550,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
         // 5. Claim check: val passed in must match target's expected_input.
-        dbg!(wires.target_read_wires.expected_input.value().unwrap());
-        dbg!(wires.val.value().unwrap());
         wires
             .target_read_wires
             .expected_input
@@ -1688,6 +1703,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.constant_false.clone().into(), &switch)?;
 
         // Mark new process as initialized
+        // TODO: There is no need to have this asignment, actually
         wires.target_write_wires.initialized =
             switch.select(&wires.constant_true, &wires.target_read_wires.initialized)?;
 
@@ -1758,6 +1774,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .owned_by
             .conditional_enforce_equal(&wires.p_len, switch)?;
 
+        // TODO: no need to have this assignment, probably
         wires.curr_write_wires.owned_by =
             switch.select(&wires.target, &wires.curr_read_wires.owned_by)?;
 
@@ -1780,8 +1797,49 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.id_curr, switch)?;
 
         // p_len is a sentinel for None
+        // TODO: no need to assign
         wires.target_write_wires.owned_by =
             switch.select(&wires.p_len, &wires.curr_read_wires.owned_by)?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_new_ref(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.new_ref_switch;
+
+        wires
+            .ret
+            .conditional_enforce_equal(&wires.ref_arena_stack_ptr, switch)?;
+
+        wires
+            .val
+            .conditional_enforce_equal(&wires.ref_arena_read, switch)?;
+
+        wires.ref_arena_stack_ptr = switch.select(
+            &(&wires.ref_arena_stack_ptr + &wires.constant_one),
+            &wires.ref_arena_stack_ptr,
+        )?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_get(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.get_switch;
+
+        // TODO: prove that reff is < ref_arena_stack_ptr ?
+        // or is it not needed? since we never decrease?
+        //
+        // the problem is that this seems to require range checks
+        //
+        // but technically it shouldn't be possible to ask for a value that is
+        // not allocated yet (even if in zk we can allocate everything from the beginning
+        // since we don't pop)
+
+        wires
+            .ret
+            .conditional_enforce_equal(&wires.ref_arena_read, switch)?;
 
         Ok(wires)
     }
@@ -1789,6 +1847,89 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     pub(crate) fn p_len(&self) -> usize {
         self.instance.process_table.len()
     }
+}
+
+pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, MemSwitchboard) {
+    // TODO: we could actually have more granularity with 4 of theses, for reads
+    // and writes
+    //
+    // it may actually better for correctnes?
+    let mut curr_s = MemSwitchboard::default();
+    let mut target_s = MemSwitchboard::default();
+
+    // All ops increment counter of the current process, except Nop
+    curr_s.counters = !matches!(instr, LedgerOperation::Nop {});
+
+    match instr {
+        LedgerOperation::Resume { .. } => {
+            curr_s.activation = true;
+            curr_s.expected_input = true;
+
+            target_s.activation = true;
+            target_s.expected_input = true;
+            target_s.finalized = true;
+            target_s.initialized = true;
+        }
+        LedgerOperation::Yield { ret, .. } => {
+            curr_s.activation = true;
+            if ret.is_some() {
+                curr_s.expected_input = true;
+            }
+            curr_s.finalized = true;
+        }
+        LedgerOperation::Burn { .. } => {
+            curr_s.activation = true;
+            curr_s.finalized = true;
+            curr_s.did_burn = true;
+            curr_s.expected_input = true;
+        }
+        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
+            // New* ops initialize the target process
+            target_s.initialized = true;
+            target_s.init = true;
+            target_s.counters = true; // sets counter to 0
+        }
+        LedgerOperation::Activation { .. } => {
+            curr_s.activation = true;
+        }
+        LedgerOperation::Init { .. } => {
+            curr_s.init = true;
+        }
+        LedgerOperation::Bind { .. } => {
+            target_s.initialized = true;
+            curr_s.ownership = true;
+        }
+        LedgerOperation::Unbind { .. } => {
+            target_s.ownership = true;
+        }
+        _ => {}
+    }
+    (curr_s, target_s)
+}
+
+pub fn opcode_to_rom_switches(instr: &LedgerOperation<F>) -> RomSwitchboard {
+    let mut rom_s = RomSwitchboard::default();
+    match instr {
+        LedgerOperation::Resume { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_is_utxo_target = true;
+        }
+        LedgerOperation::Burn { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_must_burn_curr = true;
+        }
+        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_is_utxo_target = true;
+            rom_s.read_program_hash_target = true;
+        }
+        LedgerOperation::Bind { .. } => {
+            rom_s.read_is_utxo_curr = true;
+            rom_s.read_is_utxo_target = true;
+        }
+        _ => {}
+    }
+    rom_s
 }
 
 #[tracing::instrument(target = "gr1cs", skip(cs, wires_in, wires_out))]
@@ -1844,6 +1985,8 @@ impl PreWires {
             init_switch: false,
             bind_switch: false,
             unbind_switch: false,
+            new_ref_switch: false,
+            get_switch: false,
 
             // io vars
             irw,
