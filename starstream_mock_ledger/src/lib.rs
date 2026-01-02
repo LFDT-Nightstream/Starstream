@@ -42,6 +42,9 @@ impl Value {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct Ref(pub u64);
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct CoroutineState {
     // For the purpose of this model, we only care *if* the state changed,
