@@ -13,6 +13,7 @@ members = [
     "wrpc-multiplexer",
     "ledger",
 ]
+resolver = "3"
 
 [workspace.dependencies]
 anyhow = { version = "1", default-features = false }
@@ -39,3 +40,4 @@ wrpc-transport = { path = "../../../wrpc/crates/transport", default-features = f
 wrpc-runtime-wasmtime = { path = "../../../wrpc/crates/runtime-wasmtime", default-features = false }
 wasmtime-wasi = { version = "39", default-features = false }
 wit-bindgen = { version = "0.45", default-features = false }
+wrpc-pack = { version = "0.3", default-features = false }

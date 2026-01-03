@@ -25,6 +25,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["ansi", "fmt"] }
 wasmtime = { workspace = true }
 wit-bindgen-wrpc = { workspace = true }
+wit-bindgen = { workspace = true, features = ["macros"] }
 wrpc-transport = { workspace = true, features = ["net"] }
 wrpc-multiplexer = { workspace = true }
 starstream-ledger = { workspace = true }
+wrpc-pack = { workspace = true }
