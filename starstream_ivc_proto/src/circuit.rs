@@ -17,6 +17,78 @@ use std::marker::PhantomData;
 use std::ops::{Mul, Not};
 use tracing::debug_span;
 
+struct OpcodeConfig {
+    mem_switches_curr: MemSwitchboard,
+    mem_switches_target: MemSwitchboard,
+    rom_switches: RomSwitchboard,
+    execution_switches: ExecutionSwitches,
+    pre_wire_values: PreWireValues,
+}
+
+struct ExecutionSwitches {
+    resume: bool,
+    yield_op: bool,
+    burn: bool,
+    program_hash: bool,
+    new_utxo: bool,
+    new_coord: bool,
+    activation: bool,
+    init: bool,
+    bind: bool,
+    unbind: bool,
+    new_ref: bool,
+    get: bool,
+    nop: bool,
+}
+
+struct PreWireValues {
+    target: F,
+    val: F,
+    ret: F,
+    program_hash: F,
+    new_process_id: F,
+    caller: F,
+    ret_is_some: bool,
+    id_prev_is_some: bool,
+    id_prev_value: F,
+}
+
+impl Default for ExecutionSwitches {
+    fn default() -> Self {
+        Self {
+            resume: false,
+            yield_op: false,
+            burn: false,
+            program_hash: false,
+            new_utxo: false,
+            new_coord: false,
+            activation: false,
+            init: false,
+            bind: false,
+            unbind: false,
+            new_ref: false,
+            get: false,
+            nop: false,
+        }
+    }
+}
+
+impl Default for PreWireValues {
+    fn default() -> Self {
+        Self {
+            target: F::ZERO,
+            val: F::ZERO,
+            ret: F::ZERO,
+            program_hash: F::ZERO,
+            new_process_id: F::ZERO,
+            caller: F::ZERO,
+            ret_is_some: false,
+            id_prev_is_some: false,
+            id_prev_value: F::ZERO,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct RomSwitchboard {
     pub read_is_utxo_curr: bool,
@@ -31,26 +103,6 @@ pub struct RomSwitchboardWires {
     pub read_is_utxo_target: Boolean<F>,
     pub read_must_burn_curr: Boolean<F>,
     pub read_program_hash_target: Boolean<F>,
-}
-
-impl RomSwitchboardWires {
-    pub fn allocate(
-        cs: ConstraintSystemRef<F>,
-        switches: &RomSwitchboard,
-    ) -> Result<Self, SynthesisError> {
-        Ok(Self {
-            read_is_utxo_curr: Boolean::new_witness(cs.clone(), || Ok(switches.read_is_utxo_curr))?,
-            read_is_utxo_target: Boolean::new_witness(cs.clone(), || {
-                Ok(switches.read_is_utxo_target)
-            })?,
-            read_must_burn_curr: Boolean::new_witness(cs.clone(), || {
-                Ok(switches.read_must_burn_curr)
-            })?,
-            read_program_hash_target: Boolean::new_witness(cs.clone(), || {
-                Ok(switches.read_program_hash_target)
-            })?,
-        })
-    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -75,24 +127,6 @@ pub struct MemSwitchboardWires {
     pub finalized: Boolean<F>,
     pub did_burn: Boolean<F>,
     pub ownership: Boolean<F>,
-}
-
-impl MemSwitchboardWires {
-    pub fn allocate(
-        cs: ConstraintSystemRef<F>,
-        switches: &MemSwitchboard,
-    ) -> Result<Self, SynthesisError> {
-        Ok(Self {
-            expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
-            activation: Boolean::new_witness(cs.clone(), || Ok(switches.activation))?,
-            init: Boolean::new_witness(cs.clone(), || Ok(switches.init))?,
-            counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,
-            initialized: Boolean::new_witness(cs.clone(), || Ok(switches.initialized))?,
-            finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
-            did_burn: Boolean::new_witness(cs.clone(), || Ok(switches.did_burn))?,
-            ownership: Boolean::new_witness(cs.clone(), || Ok(switches.ownership))?,
-        })
-    }
 }
 
 pub const ROM_PROCESS_TABLE: u64 = 1u64;
@@ -327,7 +361,7 @@ impl Wires {
             resume_switch,
             yield_switch,
             check_utxo_output_switch,
-            nop_switch,
+            _nop_switch,
             burn_switch,
             program_hash_switch,
             new_utxo_switch,
@@ -387,7 +421,6 @@ impl Wires {
         let target_write_wires =
             ProgramStateWires::from_write_values(cs.clone(), target_write_values)?;
 
-        dbg!(curr_address.value().unwrap());
         program_state_write_wires(
             rm,
             &cs,
@@ -395,7 +428,7 @@ impl Wires {
             curr_write_wires.clone(),
             &curr_mem_switches,
         )?;
-        dbg!(target_address.value().unwrap());
+
         program_state_write_wires(
             rm,
             &cs,
@@ -877,6 +910,181 @@ impl InterRoundWires {
 }
 
 impl LedgerOperation<crate::F> {
+    // Generate complete opcode configuration
+    fn get_config(&self, irw: &InterRoundWires) -> OpcodeConfig {
+        let mut config = OpcodeConfig {
+            mem_switches_curr: MemSwitchboard::default(),
+            mem_switches_target: MemSwitchboard::default(),
+            rom_switches: RomSwitchboard::default(),
+            execution_switches: ExecutionSwitches::default(),
+            pre_wire_values: PreWireValues::default(),
+        };
+
+        // All ops increment counter of the current process, except Nop
+        config.mem_switches_curr.counters = !matches!(self, LedgerOperation::Nop {});
+
+        match self {
+            LedgerOperation::Nop {} => {
+                config.execution_switches.nop = true;
+            }
+            LedgerOperation::Resume {
+                target,
+                val,
+                ret,
+                id_prev,
+            } => {
+                config.execution_switches.resume = true;
+
+                config.mem_switches_curr.activation = true;
+                config.mem_switches_curr.expected_input = true;
+
+                config.mem_switches_target.activation = true;
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.finalized = true;
+                config.mem_switches_target.initialized = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+
+                config.pre_wire_values.target = *target;
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.ret = *ret;
+                config.pre_wire_values.id_prev_is_some = id_prev.is_some();
+                config.pre_wire_values.id_prev_value = id_prev.unwrap_or_default();
+            }
+            LedgerOperation::Yield { val, ret, id_prev } => {
+                config.execution_switches.yield_op = true;
+
+                config.mem_switches_curr.activation = true;
+                if ret.is_some() {
+                    config.mem_switches_curr.expected_input = true;
+                }
+                config.mem_switches_curr.finalized = true;
+
+                config.pre_wire_values.target = irw.id_prev_value;
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.ret = ret.unwrap_or_default();
+                config.pre_wire_values.ret_is_some = ret.is_some();
+                config.pre_wire_values.id_prev_is_some = id_prev.is_some();
+                config.pre_wire_values.id_prev_value = id_prev.unwrap_or_default();
+            }
+            LedgerOperation::Burn { ret } => {
+                config.execution_switches.burn = true;
+
+                config.mem_switches_curr.activation = true;
+                config.mem_switches_curr.finalized = true;
+                config.mem_switches_curr.did_burn = true;
+                config.mem_switches_curr.expected_input = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_must_burn_curr = true;
+
+                config.pre_wire_values.target = irw.id_prev_value;
+                config.pre_wire_values.ret = *ret;
+                config.pre_wire_values.id_prev_is_some = irw.id_prev_is_some;
+                config.pre_wire_values.id_prev_value = irw.id_prev_value;
+            }
+            LedgerOperation::ProgramHash {
+                target,
+                program_hash,
+            } => {
+                config.execution_switches.program_hash = true;
+
+                config.pre_wire_values.target = *target;
+                config.pre_wire_values.program_hash = *program_hash;
+            }
+            LedgerOperation::NewUtxo {
+                program_hash,
+                val,
+                target,
+            } => {
+                config.execution_switches.new_utxo = true;
+
+                config.mem_switches_target.initialized = true;
+                config.mem_switches_target.init = true;
+                config.mem_switches_target.counters = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+                config.rom_switches.read_program_hash_target = true;
+
+                config.pre_wire_values.target = *target;
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.program_hash = *program_hash;
+            }
+            LedgerOperation::NewCoord {
+                program_hash,
+                val,
+                target,
+            } => {
+                config.execution_switches.new_coord = true;
+
+                config.mem_switches_target.initialized = true;
+                config.mem_switches_target.init = true;
+                config.mem_switches_target.counters = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+                config.rom_switches.read_program_hash_target = true;
+
+                config.pre_wire_values.target = *target;
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.program_hash = *program_hash;
+            }
+            LedgerOperation::Activation { val, caller } => {
+                config.execution_switches.activation = true;
+
+                config.mem_switches_curr.activation = true;
+
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.caller = *caller;
+            }
+            LedgerOperation::Init { val, caller } => {
+                config.execution_switches.init = true;
+
+                config.mem_switches_curr.init = true;
+
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.caller = *caller;
+            }
+            LedgerOperation::Bind { owner_id } => {
+                config.execution_switches.bind = true;
+
+                config.mem_switches_target.initialized = true;
+                config.mem_switches_curr.ownership = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+
+                config.pre_wire_values.target = *owner_id;
+            }
+            LedgerOperation::Unbind { token_id } => {
+                config.execution_switches.unbind = true;
+
+                config.mem_switches_target.ownership = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+
+                config.pre_wire_values.target = *token_id;
+            }
+            LedgerOperation::NewRef { val, ret } => {
+                config.execution_switches.new_ref = true;
+
+                config.pre_wire_values.val = *val;
+                config.pre_wire_values.ret = *ret;
+            }
+            LedgerOperation::Get { reff, ret } => {
+                config.execution_switches.get = true;
+
+                config.pre_wire_values.val = *reff;
+                config.pre_wire_values.ret = *ret;
+            }
+        }
+
+        config
+    }
+
     // state transitions for current and target (next) programs
     // in general, we only change the state of a most two processes in a single
     // step.
@@ -1167,12 +1375,18 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // note however that we don't enforce/check anything, that's done in the
         // circuit constraints
 
+        // We need a dummy IRW for the trace phase since we don't have the actual IRW yet
+        let dummy_irw = InterRoundWires::new(
+            F::from(self.p_len() as u64),
+            self.instance.entrypoint.0 as u64,
+        );
+
         for instr in &self.ops {
-            let (curr_switches, target_switches) = opcode_to_mem_switches(instr);
+            let (curr_switches, target_switches) = opcode_to_mem_switches(instr, &dummy_irw);
             self.mem_switches
                 .push((curr_switches.clone(), target_switches.clone()));
 
-            let rom_switches = opcode_to_rom_switches(instr);
+            let rom_switches = opcode_to_rom_switches(instr, &dummy_irw);
             self.rom_switches.push(rom_switches.clone());
 
             let target_addr = match instr {
@@ -1832,7 +2046,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
-    fn visit_get(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_get(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.get_switch;
 
         // TODO: prove that reff is < ref_arena_stack_ptr ?
@@ -1856,94 +2070,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 }
 
-pub fn opcode_to_mem_switches(instr: &LedgerOperation<F>) -> (MemSwitchboard, MemSwitchboard) {
-    // TODO: we could actually have more granularity with 4 of theses, for reads
-    // and writes
-    //
-    // it may actually better for correctnes?
-    let mut curr_s = MemSwitchboard::default();
-    let mut target_s = MemSwitchboard::default();
-
-    // All ops increment counter of the current process, except Nop
-    curr_s.counters = !matches!(instr, LedgerOperation::Nop {});
-
-    match instr {
-        LedgerOperation::Resume { .. } => {
-            curr_s.activation = true;
-            curr_s.expected_input = true;
-
-            target_s.activation = true;
-            target_s.expected_input = true;
-            target_s.finalized = true;
-            target_s.initialized = true;
-        }
-        LedgerOperation::Yield { ret, .. } => {
-            curr_s.activation = true;
-            if ret.is_some() {
-                curr_s.expected_input = true;
-            }
-            curr_s.finalized = true;
-        }
-        LedgerOperation::Burn { .. } => {
-            curr_s.activation = true;
-            curr_s.finalized = true;
-            curr_s.did_burn = true;
-            curr_s.expected_input = true;
-        }
-        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
-            // New* ops initialize the target process
-            target_s.initialized = true;
-            target_s.init = true;
-            target_s.counters = true; // sets counter to 0
-        }
-        LedgerOperation::Activation { .. } => {
-            curr_s.activation = true;
-        }
-        LedgerOperation::Init { .. } => {
-            curr_s.init = true;
-        }
-        LedgerOperation::Bind { .. } => {
-            target_s.initialized = true;
-            curr_s.ownership = true;
-        }
-        LedgerOperation::Unbind { .. } => {
-            target_s.ownership = true;
-        }
-        _ => {}
-    }
-    (curr_s, target_s)
+pub fn opcode_to_mem_switches(
+    instr: &LedgerOperation<F>,
+    irw: &InterRoundWires,
+) -> (MemSwitchboard, MemSwitchboard) {
+    let config = instr.get_config(irw);
+    (config.mem_switches_curr, config.mem_switches_target)
 }
 
-pub fn opcode_to_rom_switches(instr: &LedgerOperation<F>) -> RomSwitchboard {
-    let mut rom_s = RomSwitchboard::default();
-    match instr {
-        LedgerOperation::Resume { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_is_utxo_target = true;
-        }
-        LedgerOperation::Burn { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_must_burn_curr = true;
-        }
-        LedgerOperation::NewUtxo { .. } | LedgerOperation::NewCoord { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_is_utxo_target = true;
-            rom_s.read_program_hash_target = true;
-        }
-        LedgerOperation::Bind { .. } => {
-            rom_s.read_is_utxo_curr = true;
-            rom_s.read_is_utxo_target = true;
-        }
-        _ => {}
-    }
-    rom_s
+pub fn opcode_to_rom_switches(instr: &LedgerOperation<F>, irw: &InterRoundWires) -> RomSwitchboard {
+    let config = instr.get_config(irw);
+    config.rom_switches
 }
 
-#[tracing::instrument(target = "gr1cs", skip(cs, wires_in, wires_out))]
+#[tracing::instrument(target = "gr1cs", skip_all)]
 fn ivcify_wires(
-    cs: &ConstraintSystemRef<F>,
-    wires_in: &Wires,
-    wires_out: &Wires,
+    _cs: &ConstraintSystemRef<F>,
+    _wires_in: &Wires,
+    _wires_out: &Wires,
 ) -> Result<(), SynthesisError> {
     // let (current_program_in, current_program_out) = {
     //     let f_in = || wires_in.id_curr.value();
@@ -2025,6 +2169,44 @@ impl PreWires {
         tracing::debug!("val={}", self.val);
         tracing::debug!("ret={}", self.ret);
         tracing::debug!("id_prev=({}, {})", self.id_prev_is_some, self.id_prev_value);
+    }
+}
+
+impl MemSwitchboardWires {
+    pub fn allocate(
+        cs: ConstraintSystemRef<F>,
+        switches: &MemSwitchboard,
+    ) -> Result<Self, SynthesisError> {
+        Ok(Self {
+            expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
+            activation: Boolean::new_witness(cs.clone(), || Ok(switches.activation))?,
+            init: Boolean::new_witness(cs.clone(), || Ok(switches.init))?,
+            counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,
+            initialized: Boolean::new_witness(cs.clone(), || Ok(switches.initialized))?,
+            finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
+            did_burn: Boolean::new_witness(cs.clone(), || Ok(switches.did_burn))?,
+            ownership: Boolean::new_witness(cs.clone(), || Ok(switches.ownership))?,
+        })
+    }
+}
+
+impl RomSwitchboardWires {
+    pub fn allocate(
+        cs: ConstraintSystemRef<F>,
+        switches: &RomSwitchboard,
+    ) -> Result<Self, SynthesisError> {
+        Ok(Self {
+            read_is_utxo_curr: Boolean::new_witness(cs.clone(), || Ok(switches.read_is_utxo_curr))?,
+            read_is_utxo_target: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_is_utxo_target)
+            })?,
+            read_must_burn_curr: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_must_burn_curr)
+            })?,
+            read_program_hash_target: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_program_hash_target)
+            })?,
+        })
     }
 }
 
