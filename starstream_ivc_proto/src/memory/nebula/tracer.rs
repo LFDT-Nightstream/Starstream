@@ -155,8 +155,31 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
         self.perform_memory_operation(cond, &address, Some(values));
     }
 
-    fn constraints(self) -> Self::Allocator {
+    fn required_steps(&self) -> usize {
+        self.is.len() / SCAN_BATCH_SIZE
+    }
+
+    fn constraints(mut self) -> Self::Allocator {
         let mut ic_is_fs = ICPlain::zero();
+
+        let padding_required = SCAN_BATCH_SIZE - (self.is.len() % SCAN_BATCH_SIZE);
+
+        let mut max_address = self.is.keys().rev().next().unwrap().clone();
+
+        max_address.tag += 1;
+
+        self.register_mem(max_address.tag, 1, "PADDING_SEGMENT");
+
+        for _ in 0..padding_required {
+            self.is.insert(
+                max_address.clone(),
+                MemOp {
+                    values: vec![F::ZERO],
+                    timestamp: 0,
+                },
+            );
+            max_address.addr += 1;
+        }
 
         // compute FS such that:
         //
@@ -185,10 +208,6 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
                 .increment(addr, fs_v, self.params.unsound_disable_poseidon_commitment)
                 .unwrap();
         }
-
-        dbg!(self.is.len());
-
-        assert_eq!(self.is.len() % SCAN_BATCH_SIZE, 0);
 
         NebulaMemoryConstraints {
             cs: None,

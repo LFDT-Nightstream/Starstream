@@ -77,6 +77,10 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
         }
     }
 
+    fn required_steps(&self) -> usize {
+        0
+    }
+
     fn constraints(self) -> Self::Allocator {
         DummyMemoryConstraints {
             cs: None,
