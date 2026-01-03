@@ -1227,10 +1227,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             self.write_ops
                 .push((curr_write.clone(), target_write.clone()));
 
-            trace_program_state_writes(&mut mb, dbg!(curr_pid), &curr_write, &curr_switches);
+            trace_program_state_writes(&mut mb, curr_pid, &curr_write, &curr_switches);
             trace_program_state_writes(
                 &mut mb,
-                dbg!(target_pid.unwrap_or(0)),
+                target_pid.unwrap_or(0),
                 &target_write,
                 &target_switches,
             );

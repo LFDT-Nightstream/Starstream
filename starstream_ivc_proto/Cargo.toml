@@ -13,11 +13,11 @@ ark-poly-commit = "0.5.0"
 tracing = { version = "0.1", default-features = false, features = [ "attributes" ] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-neo-fold = { git = "https://github.com/nicarq/Nightstream.git", rev = "99c2cdbe2cd8e91396edd128bfe202590aac6d3e", features = ["fs-guard"] }
-neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "99c2cdbe2cd8e91396edd128bfe202590aac6d3e" }
-neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "99c2cdbe2cd8e91396edd128bfe202590aac6d3e" }
-neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "99c2cdbe2cd8e91396edd128bfe202590aac6d3e" }
-neo-params = { git = "https://github.com/nicarq/Nightstream.git", rev = "99c2cdbe2cd8e91396edd128bfe202590aac6d3e" }
+neo-fold = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
+neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
+neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
+neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
+neo-params = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
 
 starstream_mock_ledger = { path = "../starstream_mock_ledger" }
 

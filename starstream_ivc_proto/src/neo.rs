@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     circuit::{InterRoundWires, StepCircuitBuilder},
     goldilocks::FpGoldilocks,
@@ -5,7 +7,7 @@ use crate::{
 };
 use ark_ff::{Field, PrimeField};
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, OptimizationGoal};
-use neo_ccs::CcsStructure;
+use neo_ccs::{CcsMatrix, CcsStructure, CscMat, SparsePoly, Term};
 use neo_fold::session::{NeoStep, StepArtifacts, StepSpec};
 use neo_math::D;
 use p3_field::PrimeCharacteristicRing;
@@ -29,7 +31,7 @@ where
         mut circuit_builder: StepCircuitBuilder<M>,
         shape_ccs: CcsStructure<neo_math::F>,
         params: M::Params,
-    ) -> Self {
+    ) -> (Self, usize) {
         let irw = InterRoundWires::new(
             crate::F::from(circuit_builder.p_len() as u64),
             circuit_builder.instance.entrypoint.0 as u64,
@@ -37,12 +39,17 @@ where
 
         let mb = circuit_builder.trace_memory_ops(params);
 
-        Self {
-            shape_ccs,
-            circuit_builder,
-            irw,
-            mem: mb.constraints(),
-        }
+        let num_iters = circuit_builder.ops.len();
+
+        (
+            Self {
+                shape_ccs,
+                circuit_builder,
+                irw,
+                mem: mb.constraints(),
+            },
+            num_iters,
+        )
     }
 }
 
@@ -94,7 +101,7 @@ where
         neo_ccs::check_ccs_rowwise_zero(&self.shape_ccs, &[], &step.witness).unwrap();
 
         StepArtifacts {
-            ccs: step.ccs,
+            ccs: Arc::new(step.ccs),
             witness: step.witness,
             public_app_inputs: vec![],
             spec,
@@ -108,6 +115,7 @@ pub(crate) struct NeoInstance {
     pub(crate) witness: Vec<neo_math::F>,
 }
 
+#[tracing::instrument(skip(cs))]
 pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoInstance {
     cs.finalize();
 
@@ -145,7 +153,32 @@ pub(crate) fn arkworks_to_neo_ccs(
     let b_mat = ark_matrix_to_neo(cs, &matrices[1]);
     let c_mat = ark_matrix_to_neo(cs, &matrices[2]);
 
-    let ccs = neo_ccs::r1cs_to_ccs(a_mat, b_mat, c_mat);
+    // R1CS → CCS embedding with identity-first form: M_0 = I_n, M_1=A, M_2=B, M_3=C.
+    let f_base = SparsePoly::new(
+        3,
+        vec![
+            Term {
+                coeff: neo_math::F::ONE,
+                exps: vec![1, 1, 0],
+            }, // X1 * X2
+            Term {
+                coeff: -neo_math::F::ONE,
+                exps: vec![0, 0, 1],
+            }, // -X3
+        ],
+    );
+
+    let n = cs.num_constraints().max(cs.num_variables());
+
+    let matrices = vec![
+        CcsMatrix::Identity { n },
+        CcsMatrix::Csc(CscMat::from_triplets(a_mat, n, n)),
+        CcsMatrix::Csc(CscMat::from_triplets(b_mat, n, n)),
+        CcsMatrix::Csc(CscMat::from_triplets(c_mat, n, n)),
+    ];
+    let f = f_base.insert_var_at_front();
+
+    let ccs = CcsStructure::new_sparse(matrices, f).expect("valid R1CS→CCS structure");
 
     ccs.ensure_identity_first()
         .expect("ensure_identity_first should succeed");
@@ -156,23 +189,22 @@ pub(crate) fn arkworks_to_neo_ccs(
 fn ark_matrix_to_neo(
     cs: &ConstraintSystemRef<FpGoldilocks>,
     sparse_matrix: &[Vec<(FpGoldilocks, usize)>],
-) -> neo_ccs::Mat<neo_math::F> {
-    // the final result should be a square matrix (but the sparse matrix may not be)
-    let n = cs.num_constraints().max(cs.num_variables());
-
-    dbg!(cs.num_constraints());
-    dbg!(cs.num_variables());
+) -> Vec<(usize, usize, neo_math::F)> {
+    tracing::info!("num constraints {}", cs.num_constraints());
+    tracing::info!("num variables {}", cs.num_variables());
+    let mut triplets = vec![];
 
     // TODO: would be nice to just be able to construct the sparse matrix
-    let mut dense = vec![neo_math::F::from_u64(0); n * n];
+    // let mut dense = vec![neo_math::F::from_u64(0); n * n];
 
     for (row_i, row) in sparse_matrix.iter().enumerate() {
         for (col_v, col_i) in row.iter() {
-            dense[n * row_i + col_i] = ark_field_to_p3_goldilocks(col_v);
+            triplets.push((row_i, *col_i, ark_field_to_p3_goldilocks(col_v)));
+            // dense[n * row_i + col_i] = ark_field_to_p3_goldilocks(col_v);
         }
     }
 
-    neo_ccs::Mat::from_row_major(n, n, dense)
+    triplets
 }
 
 pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
