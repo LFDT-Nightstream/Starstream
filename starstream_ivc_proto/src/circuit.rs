@@ -1279,6 +1279,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             );
         }
 
+        let current_steps = self.ops.len();
+        if let Some(missing) = mb.required_steps().checked_sub(current_steps) {
+            tracing::debug!("padding with {missing} Nop operations for scan");
+            self.ops
+                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
+        }
+
         mb
     }
 
