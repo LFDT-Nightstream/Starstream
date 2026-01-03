@@ -11,6 +11,7 @@ mod poseidon2;
 mod test_utils;
 
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
@@ -121,11 +122,9 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
 
     let circuit_builder = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(inst, ops);
 
-    let num_iters = circuit_builder.ops.len();
-
     let n = shape_ccs.n.max(shape_ccs.m);
 
-    let mut f_circuit = StepCircuitNeo::new(
+    let (mut f_circuit, num_iters) = StepCircuitNeo::new(
         circuit_builder,
         shape_ccs.clone(),
         NebulaMemoryParams {
@@ -145,18 +144,23 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
     params.b = 3;
 
     let mut session = FoldingSession::new(FoldingMode::Optimized, params, l.clone());
+    session.unsafe_allow_unlinked_steps();
 
     for _i in 0..num_iters {
+        let now = Instant::now();
         session.add_step(&mut f_circuit, &()).unwrap();
+        tracing::info!("step added in {} ms", now.elapsed().as_millis());
     }
 
-    // let run = session.fold_and_prove(&shape_ccs).unwrap();
+    let now = Instant::now();
+    let run = session.fold_and_prove(&shape_ccs).unwrap();
+    tracing::info!("proof generated in {} ms", now.elapsed().as_millis());
 
-    // let mcss_public = session.mcss_public();
-    // let ok = session
-    //     .verify(&shape_ccs, &mcss_public, &run)
-    //     .expect("verify should run");
-    // assert!(ok, "optimized verification should pass");
+    let mcss_public = session.mcss_public();
+    let ok = session
+        .verify(&shape_ccs, &mcss_public, &run)
+        .expect("verify should run");
+    assert!(ok, "optimized verification should pass");
 
     // TODO: extract the actual proof
     Ok(ProverOutput { proof: () })
@@ -185,7 +189,7 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
         let instr = trace.trace[*c].clone();
         *c += 1;
 
-        let op = match dbg!(instr) {
+        let op = match instr {
             starstream_mock_ledger::WitLedgerEffect::Resume {
                 target,
                 val,
