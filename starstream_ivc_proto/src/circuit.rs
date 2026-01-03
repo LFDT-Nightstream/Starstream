@@ -49,6 +49,12 @@ impl From<MemoryTag> for F {
     }
 }
 
+impl MemoryTag {
+    pub fn allocate(&self, cs: ConstraintSystemRef<F>) -> Result<FpVar<F>, SynthesisError> {
+        FpVar::new_constant(cs, F::from(*self))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgramStateTag {
     ExpectedInput,
@@ -379,7 +385,7 @@ macro_rules! define_program_state_operations {
                     &switches.$field,
                     &Address {
                         addr: address.clone(),
-                        tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::from(ProgramStateTag::$tag)))?,
+                        tag: MemoryTag::from(ProgramStateTag::$tag).allocate(cs.clone())?,
                     },
                     &[state.$field.clone().into()],
                 )?;
@@ -565,7 +571,7 @@ impl Wires {
             &rom_switches.read_is_utxo_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::IsUtxo))?,
+                tag: MemoryTag::IsUtxo.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -574,7 +580,7 @@ impl Wires {
             &rom_switches.read_is_utxo_target,
             &Address {
                 addr: target_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::IsUtxo))?,
+                tag: MemoryTag::IsUtxo.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -583,7 +589,7 @@ impl Wires {
             &rom_switches.read_must_burn_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::MustBurn))?,
+                tag: MemoryTag::MustBurn.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -592,7 +598,7 @@ impl Wires {
             &rom_switches.read_program_hash_target,
             &Address {
                 addr: target_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::ProcessTable))?,
+                tag: MemoryTag::ProcessTable.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -600,7 +606,7 @@ impl Wires {
         let ref_arena_read = rm.conditional_read(
             &(get_switch | new_ref_switch),
             &Address {
-                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::RefArena))?,
+                tag: MemoryTag::RefArena.allocate(cs.clone())?,
                 addr: get_switch.select(&val, &ret)?,
             },
         )?[0]
@@ -673,7 +679,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.expected_input,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::ExpectedInput))?,
+                    tag: MemoryTag::ExpectedInput.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
@@ -684,7 +690,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.activation,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Activation))?,
+                    tag: MemoryTag::Activation.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
@@ -695,7 +701,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.init,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Init))?,
+                    tag: MemoryTag::Init.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
@@ -706,7 +712,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.counters,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Counters))?,
+                    tag: MemoryTag::Counters.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
@@ -717,7 +723,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.initialized,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Initialized))?,
+                    tag: MemoryTag::Initialized.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
@@ -729,20 +735,19 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.finalized,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Finalized))?,
+                    tag: MemoryTag::Finalized.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
             .next()
             .unwrap()
             .is_one()?,
-
         did_burn: rm
             .conditional_read(
                 &switches.did_burn,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::DidBurn))?,
+                    tag: MemoryTag::DidBurn.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
@@ -754,7 +759,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.ownership,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Ownership))?,
+                    tag: MemoryTag::Ownership.allocate(cs.clone())?,
                 },
             )?
             .into_iter()
