@@ -41,6 +41,10 @@ fn test_circuit_simple_resume() {
                 val: ref_4,
                 caller: p2,
             },
+            WitLedgerEffect::Get {
+                reff: ref_4,
+                ret: val_4.clone(),
+            },
             WitLedgerEffect::Activation {
                 val: ref_0,
                 caller: p2,
@@ -58,6 +62,10 @@ fn test_circuit_simple_resume() {
             WitLedgerEffect::Init {
                 val: ref_1,
                 caller: p2,
+            },
+            WitLedgerEffect::Get {
+                reff: ref_1,
+                ret: val_1.clone(),
             },
             WitLedgerEffect::Activation {
                 val: ref_0,
