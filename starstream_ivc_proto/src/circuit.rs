@@ -87,24 +87,25 @@ struct OpcodeConfig {
     mem_switches_curr: MemSwitchboard,
     mem_switches_target: MemSwitchboard,
     rom_switches: RomSwitchboard,
-    execution_switches: ExecutionSwitches,
+    execution_switches: ExecutionSwitches<bool>,
     pre_wire_values: PreWireValues,
 }
 
-struct ExecutionSwitches {
-    resume: bool,
-    yield_op: bool,
-    burn: bool,
-    program_hash: bool,
-    new_utxo: bool,
-    new_coord: bool,
-    activation: bool,
-    init: bool,
-    bind: bool,
-    unbind: bool,
-    new_ref: bool,
-    get: bool,
-    nop: bool,
+#[derive(Clone)]
+struct ExecutionSwitches<T> {
+    resume: T,
+    yield_op: T,
+    burn: T,
+    program_hash: T,
+    new_utxo: T,
+    new_coord: T,
+    activation: T,
+    init: T,
+    bind: T,
+    unbind: T,
+    new_ref: T,
+    get: T,
+    nop: T,
 }
 
 struct PreWireValues {
@@ -119,7 +120,7 @@ struct PreWireValues {
     id_prev_value: F,
 }
 
-impl Default for ExecutionSwitches {
+impl Default for ExecutionSwitches<bool> {
     fn default() -> Self {
         Self {
             resume: false,
@@ -217,27 +218,12 @@ pub struct Wires {
 
     p_len: FpVar<F>,
 
-    // switches
-    resume_switch: Boolean<F>,
-    yield_switch: Boolean<F>,
-    program_hash_switch: Boolean<F>,
-    new_utxo_switch: Boolean<F>,
-    new_coord_switch: Boolean<F>,
-    burn_switch: Boolean<F>,
-    activation_switch: Boolean<F>,
-    init_switch: Boolean<F>,
-    bind_switch: Boolean<F>,
-    unbind_switch: Boolean<F>,
-    new_ref_switch: Boolean<F>,
-    get_switch: Boolean<F>,
-
-    check_utxo_output_switch: Boolean<F>,
+    switches: ExecutionSwitches<Boolean<F>>,
 
     target: FpVar<F>,
     val: FpVar<F>,
     ret: FpVar<F>,
     program_hash: FpVar<F>,
-    new_process_id: FpVar<F>,
     caller: FpVar<F>,
     ret_is_some: Boolean<F>,
 
@@ -287,13 +273,11 @@ pub struct PreWires {
 
     program_hash: F,
 
-    new_process_id: F,
     caller: F,
 
     // switches
     yield_switch: bool,
     resume_switch: bool,
-    check_utxo_output_switch: bool,
     nop_switch: bool,
     burn_switch: bool,
     program_hash_switch: bool,
@@ -479,7 +463,6 @@ impl Wires {
         let switches = [
             vals.resume_switch,
             vals.yield_switch,
-            vals.check_utxo_output_switch,
             vals.nop_switch,
             vals.burn_switch,
             vals.program_hash_switch,
@@ -501,8 +484,7 @@ impl Wires {
         let [
             resume_switch,
             yield_switch,
-            check_utxo_output_switch,
-            _nop_switch,
+            nop_switch,
             burn_switch,
             program_hash_switch,
             new_utxo_switch,
@@ -540,7 +522,6 @@ impl Wires {
         let ret_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.ret_is_some))?;
         let program_hash = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.program_hash))?;
 
-        let new_process_id = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.new_process_id))?;
         let caller = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.caller))?;
 
         let curr_mem_switches = MemSwitchboardWires::allocate(cs.clone(), &vals.curr_mem_switches)?;
@@ -633,19 +614,21 @@ impl Wires {
 
             p_len,
 
-            yield_switch: yield_switch.clone(),
-            resume_switch: resume_switch.clone(),
-            check_utxo_output_switch: check_utxo_output_switch.clone(),
-            burn_switch: burn_switch.clone(),
-            program_hash_switch: program_hash_switch.clone(),
-            new_utxo_switch: new_utxo_switch.clone(),
-            new_coord_switch: new_coord_switch.clone(),
-            activation_switch: activation_switch.clone(),
-            init_switch: init_switch.clone(),
-            bind_switch: bind_switch.clone(),
-            unbind_switch: unbind_switch.clone(),
-            new_ref_switch: new_ref_switch.clone(),
-            get_switch: get_switch.clone(),
+            switches: ExecutionSwitches {
+                yield_op: yield_switch.clone(),
+                resume: resume_switch.clone(),
+                burn: burn_switch.clone(),
+                program_hash: program_hash_switch.clone(),
+                new_utxo: new_utxo_switch.clone(),
+                new_coord: new_coord_switch.clone(),
+                activation: activation_switch.clone(),
+                init: init_switch.clone(),
+                bind: bind_switch.clone(),
+                unbind: unbind_switch.clone(),
+                new_ref: new_ref_switch.clone(),
+                get: get_switch.clone(),
+                nop: nop_switch.clone(),
+            },
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
             constant_true: Boolean::new_constant(cs.clone(), true)?,
@@ -656,7 +639,6 @@ impl Wires {
             val,
             ret,
             program_hash,
-            new_process_id,
             caller,
             ret_is_some,
 
@@ -1670,7 +1652,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_resume(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.resume_switch;
+        let switch = &wires.switches.resume;
 
         // 1. self-resume check
         wires
@@ -1718,7 +1700,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_burn(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.burn_switch;
+        let switch = &wires.switches.burn;
 
         // ---
         // Ckecks from the mocked verifier
@@ -1764,7 +1746,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_yield(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.yield_switch;
+        let switch = &wires.switches.yield_op;
 
         // 1. Must have a parent.
         wires
@@ -1813,7 +1795,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_new_process(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.new_utxo_switch | &wires.new_coord_switch;
+        let switch = &wires.switches.new_utxo | &wires.switches.new_coord;
 
         // The target is the new process being created.
         // The current process is the coordination script doing the creation.
@@ -1828,7 +1810,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let target_is_utxo = wires.is_utxo_target.is_one()?;
         // if new_utxo_switch is true, target_is_utxo must be true.
         // if new_utxo_switch is false (i.e. new_coord_switch is true), target_is_utxo must be false.
-        target_is_utxo.conditional_enforce_equal(&wires.new_utxo_switch, &switch)?;
+        target_is_utxo.conditional_enforce_equal(&wires.switches.new_utxo, &switch)?;
 
         // 3. Program hash check
         wires
@@ -1859,7 +1841,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_activation(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.activation_switch;
+        let switch = &wires.switches.activation;
 
         // When a process calls `input`, it's reading the argument that was
         // passed to it when it was resumed.
@@ -1880,7 +1862,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_init(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.init_switch;
+        let switch = &wires.switches.init;
 
         // When a process calls `input`, it's reading the argument that was
         // passed to it when it was resumed.
@@ -1901,7 +1883,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_bind(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.bind_switch;
+        let switch = &wires.switches.bind;
 
         // curr is the token (or the utxo bound to the target)
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
@@ -1928,7 +1910,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_unbind(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.unbind_switch;
+        let switch = &wires.switches.unbind;
 
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
         let is_utxo_target = wires.is_utxo_target.is_one()?;
@@ -1951,7 +1933,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_new_ref(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.new_ref_switch;
+        let switch = &wires.switches.new_ref;
 
         wires
             .ret
@@ -1971,7 +1953,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_get(&self, wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.get_switch;
+        let switch = &wires.switches.get;
 
         // TODO: prove that reff is < ref_arena_stack_ptr ?
         // or is it not needed? since we never decrease?
@@ -2053,7 +2035,6 @@ impl PreWires {
             // switches
             yield_switch: false,
             resume_switch: false,
-            check_utxo_output_switch: false,
             nop_switch: false,
             burn_switch: false,
             activation_switch: false,
@@ -2074,7 +2055,6 @@ impl PreWires {
             val: F::ZERO,
             ret: F::ZERO,
             program_hash: F::ZERO,
-            new_process_id: F::ZERO,
             caller: F::ZERO,
             ret_is_some: false,
 
