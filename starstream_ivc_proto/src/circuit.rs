@@ -17,6 +17,72 @@ use std::marker::PhantomData;
 use std::ops::{Mul, Not};
 use tracing::debug_span;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryTag {
+    // ROM tags
+    ProcessTable = 1,
+    MustBurn = 2,
+    IsUtxo = 3,
+
+    // RAM tags
+    ExpectedInput = 4,
+    Activation = 5,
+    Counters = 6,
+    Initialized = 7,
+    Finalized = 8,
+    DidBurn = 9,
+    Ownership = 10,
+    Init = 11,
+    RefArena = 12,
+    HandlerStack = 13,
+}
+
+impl From<MemoryTag> for u64 {
+    fn from(tag: MemoryTag) -> u64 {
+        tag as u64
+    }
+}
+
+impl From<MemoryTag> for F {
+    fn from(tag: MemoryTag) -> F {
+        F::from(tag as u64)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgramStateTag {
+    ExpectedInput,
+    Activation,
+    Init,
+    Counters,
+    Initialized,
+    Finalized,
+    DidBurn,
+    Ownership,
+}
+
+impl From<ProgramStateTag> for MemoryTag {
+    fn from(tag: ProgramStateTag) -> MemoryTag {
+        match tag {
+            ProgramStateTag::ExpectedInput => MemoryTag::ExpectedInput,
+            ProgramStateTag::Activation => MemoryTag::Activation,
+            ProgramStateTag::Init => MemoryTag::Init,
+            ProgramStateTag::Counters => MemoryTag::Counters,
+            ProgramStateTag::Initialized => MemoryTag::Initialized,
+            ProgramStateTag::Finalized => MemoryTag::Finalized,
+            ProgramStateTag::DidBurn => MemoryTag::DidBurn,
+            ProgramStateTag::Ownership => MemoryTag::Ownership,
+        }
+    }
+}
+
+impl From<ProgramStateTag> for u64 {
+    fn from(tag: ProgramStateTag) -> u64 {
+        let memory_tag: MemoryTag = tag.into();
+        memory_tag.into()
+    }
+}
+
 struct OpcodeConfig {
     mem_switches_curr: MemSwitchboard,
     mem_switches_target: MemSwitchboard,
@@ -129,26 +195,6 @@ pub struct MemSwitchboardWires {
     pub ownership: Boolean<F>,
 }
 
-pub const ROM_PROCESS_TABLE: u64 = 1u64;
-pub const ROM_MUST_BURN: u64 = 2u64;
-pub const ROM_IS_UTXO: u64 = 3u64;
-
-pub const RAM_EXPECTED_INPUT: u64 = 4u64;
-pub const RAM_ACTIVATION: u64 = 5u64;
-pub const RAM_COUNTERS: u64 = 6u64;
-pub const RAM_INITIALIZED: u64 = 7u64;
-pub const RAM_FINALIZED: u64 = 8u64;
-pub const RAM_DID_BURN: u64 = 9u64;
-pub const RAM_OWNERSHIP: u64 = 10u64;
-// TODO: this could technically be a ROM, or maybe some sort of write once
-// memory
-pub const RAM_INIT: u64 = 11u64;
-pub const RAM_REF_ARENA: u64 = 12u64;
-
-// TODO: this is not implemented yet, since it's the only one with a dynamic
-// memory size, I'll implement this at last
-pub const RAM_HANDLER_STACK: u64 = 13u64;
-
 pub struct StepCircuitBuilder<M> {
     pub instance: InterleavingInstance,
     pub last_yield: Vec<F>,
@@ -230,7 +276,7 @@ pub struct ProgramStateWires {
     initialized: Boolean<F>,
     finalized: Boolean<F>,
     did_burn: Boolean<F>,
-    owned_by: FpVar<F>, // an index into the process table
+    ownership: FpVar<F>, // an index into the process table
 }
 
 // helper so that we always allocate witnesses in the same order
@@ -280,7 +326,7 @@ pub struct ProgramState {
     initialized: bool,
     finalized: bool,
     did_burn: bool,
-    owned_by: F, // an index into the process table
+    ownership: F, // an index into the process table
 }
 
 /// IVC wires (state between steps)
@@ -310,10 +356,105 @@ impl ProgramStateWires {
             initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
             finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
             did_burn: Boolean::new_witness(cs.clone(), || Ok(write_values.did_burn))?,
-            owned_by: FpVar::new_witness(cs.clone(), || Ok(write_values.owned_by))?,
+            ownership: FpVar::new_witness(cs.clone(), || Ok(write_values.ownership))?,
         })
     }
 }
+
+macro_rules! define_program_state_operations {
+    ($(($field:ident, $tag:ident, $field_type:ident)),* $(,)?) => {
+        // Out-of-circuit version
+        fn trace_program_state_writes<M: IVCMemory<F>>(
+            mem: &mut M,
+            pid: u64,
+            state: &ProgramState,
+            switches: &MemSwitchboard,
+        ) {
+            $(
+                mem.conditional_write(
+                    switches.$field,
+                    Address {
+                        addr: pid,
+                        tag: ProgramStateTag::$tag.into(),
+                    },
+                    [define_program_state_operations!(@convert_to_f state.$field, $field_type)].to_vec(),
+                );
+            )*
+        }
+
+        // In-circuit version
+        fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
+            rm: &mut M,
+            cs: &ConstraintSystemRef<F>,
+            address: FpVar<F>,
+            state: ProgramStateWires,
+            switches: &MemSwitchboardWires,
+        ) -> Result<(), SynthesisError> {
+            $(
+                rm.conditional_write(
+                    &switches.$field,
+                    &Address {
+                        addr: address.clone(),
+                        tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::from(ProgramStateTag::$tag)))?,
+                    },
+                    &[state.$field.clone().into()],
+                )?;
+            )*
+            Ok(())
+        }
+
+        // Out-of-circuit read version
+        fn trace_program_state_reads<M: IVCMemory<F>>(
+            mem: &mut M,
+            pid: u64,
+            switches: &MemSwitchboard,
+        ) -> ProgramState {
+            ProgramState {
+                $(
+                    $field: define_program_state_operations!(@convert_from_f
+                        mem.conditional_read(
+                            switches.$field,
+                            Address {
+                                addr: pid,
+                                tag: ProgramStateTag::$tag.into(),
+                            },
+                        )[0], $field_type),
+                )*
+            }
+        }
+
+        // Just a helper for totality checking
+        //
+        // this will generate a compiler error if the macro is not called with all variants
+        #[allow(dead_code)]
+        fn _check_program_state_totality(tag: ProgramStateTag) {
+            match tag {
+                $(
+                    ProgramStateTag::$tag => {},
+                )*
+            }
+        }
+    };
+
+    // Helper macro for converting to F
+    (@convert_to_f $value:expr, field) => { $value };
+    (@convert_to_f $value:expr, bool) => { F::from($value) };
+
+    // Helper macro for converting from F
+    (@convert_from_f $value:expr, field) => { $value };
+    (@convert_from_f $value:expr, bool) => { $value == F::ONE };
+}
+
+define_program_state_operations!(
+    (expected_input, ExpectedInput, field),
+    (activation, Activation, field),
+    (init, Init, field),
+    (counters, Counters, field),
+    (initialized, Initialized, bool),
+    (finalized, Finalized, bool),
+    (did_burn, DidBurn, bool),
+    (ownership, Ownership, field),
+);
 
 impl Wires {
     pub fn from_irw<M: IVCMemoryAllocated<F>>(
@@ -443,7 +584,7 @@ impl Wires {
             &rom_switches.read_is_utxo_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(ROM_IS_UTXO))?,
+                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::IsUtxo))?,
             },
         )?[0]
             .clone();
@@ -452,7 +593,7 @@ impl Wires {
             &rom_switches.read_is_utxo_target,
             &Address {
                 addr: target_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(ROM_IS_UTXO))?,
+                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::IsUtxo))?,
             },
         )?[0]
             .clone();
@@ -461,7 +602,7 @@ impl Wires {
             &rom_switches.read_must_burn_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(ROM_MUST_BURN))?,
+                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::MustBurn))?,
             },
         )?[0]
             .clone();
@@ -470,7 +611,7 @@ impl Wires {
             &rom_switches.read_program_hash_target,
             &Address {
                 addr: target_address.clone(),
-                tag: FpVar::new_constant(cs.clone(), F::from(ROM_PROCESS_TABLE))?,
+                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::ProcessTable))?,
             },
         )?[0]
             .clone();
@@ -478,7 +619,7 @@ impl Wires {
         let ref_arena_read = rm.conditional_read(
             &(get_switch | new_ref_switch),
             &Address {
-                tag: FpVar::new_constant(cs.clone(), F::from(RAM_REF_ARENA))?,
+                tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::RefArena))?,
                 addr: get_switch.select(&val, &ret)?,
             },
         )?[0]
@@ -550,7 +691,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.expected_input,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_EXPECTED_INPUT))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::ExpectedInput))?,
                 },
             )?
             .into_iter()
@@ -561,7 +702,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.activation,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_ACTIVATION))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Activation))?,
                 },
             )?
             .into_iter()
@@ -572,7 +713,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.init,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_INIT))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Init))?,
                 },
             )?
             .into_iter()
@@ -583,7 +724,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.counters,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_COUNTERS))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Counters))?,
                 },
             )?
             .into_iter()
@@ -594,7 +735,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.initialized,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_INITIALIZED))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Initialized))?,
                 },
             )?
             .into_iter()
@@ -606,7 +747,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.finalized,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_FINALIZED))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Finalized))?,
                 },
             )?
             .into_iter()
@@ -619,242 +760,25 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
                 &switches.did_burn,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_DID_BURN))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::DidBurn))?,
                 },
             )?
             .into_iter()
             .next()
             .unwrap()
             .is_one()?,
-        owned_by: rm
+        ownership: rm
             .conditional_read(
                 &switches.ownership,
                 &Address {
                     addr: address.clone(),
-                    tag: FpVar::new_constant(cs.clone(), F::from(RAM_OWNERSHIP))?,
+                    tag: FpVar::new_constant(cs.clone(), F::from(MemoryTag::Ownership))?,
                 },
             )?
             .into_iter()
             .next()
             .unwrap(),
     })
-}
-
-// this is out-of-circuit logic (witness generation)
-fn trace_program_state_reads<M: IVCMemory<F>>(
-    mem: &mut M,
-    pid: u64,
-    switches: &MemSwitchboard,
-) -> ProgramState {
-    ProgramState {
-        expected_input: mem.conditional_read(
-            switches.expected_input,
-            Address {
-                addr: pid,
-                tag: RAM_EXPECTED_INPUT,
-            },
-        )[0],
-        activation: mem.conditional_read(
-            switches.activation,
-            Address {
-                addr: pid,
-                tag: RAM_ACTIVATION,
-            },
-        )[0],
-        init: mem.conditional_read(
-            switches.init,
-            Address {
-                addr: pid,
-                tag: RAM_INIT,
-            },
-        )[0],
-        counters: mem.conditional_read(
-            switches.counters,
-            Address {
-                addr: pid,
-                tag: RAM_COUNTERS,
-            },
-        )[0],
-        initialized: mem.conditional_read(
-            switches.initialized,
-            Address {
-                addr: pid,
-                tag: RAM_INITIALIZED,
-            },
-        )[0] == F::ONE,
-        finalized: mem.conditional_read(
-            switches.finalized,
-            Address {
-                addr: pid,
-                tag: RAM_FINALIZED,
-            },
-        )[0] == F::ONE,
-        did_burn: mem.conditional_read(
-            switches.did_burn,
-            Address {
-                addr: pid,
-                tag: RAM_DID_BURN,
-            },
-        )[0] == F::ONE,
-        owned_by: mem.conditional_read(
-            switches.ownership,
-            Address {
-                addr: pid,
-                tag: RAM_OWNERSHIP,
-            },
-        )[0],
-    }
-}
-
-// this is out-of-circuit logic (witness generation)
-fn trace_program_state_writes<M: IVCMemory<F>>(
-    mem: &mut M,
-    pid: u64,
-    state: &ProgramState,
-    switches: &MemSwitchboard,
-) {
-    mem.conditional_write(
-        switches.expected_input,
-        Address {
-            addr: pid,
-            tag: RAM_EXPECTED_INPUT,
-        },
-        [state.expected_input].to_vec(),
-    );
-    mem.conditional_write(
-        switches.activation,
-        Address {
-            addr: pid,
-            tag: RAM_ACTIVATION,
-        },
-        [state.activation].to_vec(),
-    );
-    mem.conditional_write(
-        switches.init,
-        Address {
-            addr: pid,
-            tag: RAM_INIT,
-        },
-        [state.init].to_vec(),
-    );
-    mem.conditional_write(
-        switches.counters,
-        Address {
-            addr: pid,
-            tag: RAM_COUNTERS,
-        },
-        [state.counters].to_vec(),
-    );
-    mem.conditional_write(
-        switches.initialized,
-        Address {
-            addr: pid,
-            tag: RAM_INITIALIZED,
-        },
-        [F::from(state.initialized)].to_vec(),
-    );
-    mem.conditional_write(
-        switches.finalized,
-        Address {
-            addr: pid,
-            tag: RAM_FINALIZED,
-        },
-        [F::from(state.finalized)].to_vec(),
-    );
-    mem.conditional_write(
-        switches.did_burn,
-        Address {
-            addr: pid,
-            tag: RAM_DID_BURN,
-        },
-        [F::from(state.did_burn)].to_vec(),
-    );
-    mem.conditional_write(
-        switches.ownership,
-        Address {
-            addr: pid,
-            tag: RAM_OWNERSHIP,
-        },
-        [state.owned_by].to_vec(),
-    );
-}
-
-fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
-    rm: &mut M,
-    cs: &ConstraintSystemRef<F>,
-    address: FpVar<F>,
-    state: ProgramStateWires,
-    switches: &MemSwitchboardWires,
-) -> Result<(), SynthesisError> {
-    rm.conditional_write(
-        &switches.expected_input,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_EXPECTED_INPUT))?,
-        },
-        &[state.expected_input.clone()],
-    )?;
-
-    rm.conditional_write(
-        &switches.activation,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_ACTIVATION))?,
-        },
-        &[state.activation.clone()],
-    )?;
-    rm.conditional_write(
-        &switches.init,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_INIT))?,
-        },
-        &[state.init.clone()],
-    )?;
-    rm.conditional_write(
-        &switches.counters,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_COUNTERS))?,
-        },
-        &[state.counters.clone()],
-    )?;
-    rm.conditional_write(
-        &switches.initialized,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_INITIALIZED))?,
-        },
-        &[state.initialized.clone().into()],
-    )?;
-    rm.conditional_write(
-        &switches.finalized,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_FINALIZED))?,
-        },
-        &[state.finalized.clone().into()],
-    )?;
-
-    rm.conditional_write(
-        &switches.did_burn,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_DID_BURN))?,
-        },
-        &[state.did_burn.clone().into()],
-    )?;
-
-    rm.conditional_write(
-        &switches.ownership,
-        &Address {
-            addr: address.clone(),
-            tag: FpVar::new_constant(cs.clone(), F::from(RAM_OWNERSHIP))?,
-        },
-        &[state.owned_by.clone()],
-    )?;
-
-    Ok(())
 }
 
 impl InterRoundWires {
@@ -1233,24 +1157,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let mut mb = {
             let mut mb = M::new(params);
 
-            mb.register_mem(ROM_PROCESS_TABLE, 1, "ROM_PROCESS_TABLE");
-            mb.register_mem(ROM_MUST_BURN, 1, "ROM_MUST_BURN");
-            mb.register_mem(ROM_IS_UTXO, 1, "ROM_IS_UTXO");
-            mb.register_mem(RAM_EXPECTED_INPUT, 1, "RAM_EXPECTED_INPUT");
-            mb.register_mem(RAM_ACTIVATION, 1, "RAM_ACTIVATION");
-            mb.register_mem(RAM_INIT, 1, "RAM_INIT");
-            mb.register_mem(RAM_COUNTERS, 1, "RAM_COUNTERS");
-            mb.register_mem(RAM_INITIALIZED, 1, "RAM_INITIALIZED");
-            mb.register_mem(RAM_FINALIZED, 1, "RAM_FINALIZED");
-            mb.register_mem(RAM_DID_BURN, 1, "RAM_DID_BURN");
-            mb.register_mem(RAM_REF_ARENA, 1, "RAM_REF_ARENA");
-            mb.register_mem(RAM_OWNERSHIP, 1, "RAM_OWNERSHIP");
+            mb.register_mem(MemoryTag::ProcessTable.into(), 1, "ROM_PROCESS_TABLE");
+            mb.register_mem(MemoryTag::MustBurn.into(), 1, "ROM_MUST_BURN");
+            mb.register_mem(MemoryTag::IsUtxo.into(), 1, "ROM_IS_UTXO");
+            mb.register_mem(MemoryTag::ExpectedInput.into(), 1, "RAM_EXPECTED_INPUT");
+            mb.register_mem(MemoryTag::Activation.into(), 1, "RAM_ACTIVATION");
+            mb.register_mem(MemoryTag::Init.into(), 1, "RAM_INIT");
+            mb.register_mem(MemoryTag::Counters.into(), 1, "RAM_COUNTERS");
+            mb.register_mem(MemoryTag::Initialized.into(), 1, "RAM_INITIALIZED");
+            mb.register_mem(MemoryTag::Finalized.into(), 1, "RAM_FINALIZED");
+            mb.register_mem(MemoryTag::DidBurn.into(), 1, "RAM_DID_BURN");
+            mb.register_mem(MemoryTag::RefArena.into(), 1, "RAM_REF_ARENA");
+            mb.register_mem(MemoryTag::Ownership.into(), 1, "RAM_OWNERSHIP");
 
             for (pid, mod_hash) in self.instance.process_table.iter().enumerate() {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: ROM_PROCESS_TABLE,
+                        tag: MemoryTag::ProcessTable.into(),
                     },
                     // TODO: use a proper conversion from hash to val, this is just a placeholder
                     vec![F::from(mod_hash.0[0] as u64)],
@@ -1259,7 +1183,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_INITIALIZED,
+                        tag: MemoryTag::Initialized.into(),
                     },
                     vec![F::from(
                         if pid < self.instance.n_inputs || pid == self.instance.entrypoint.0 {
@@ -1273,7 +1197,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_COUNTERS,
+                        tag: MemoryTag::Counters.into(),
                     },
                     vec![F::from(0u64)],
                 );
@@ -1281,7 +1205,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_FINALIZED,
+                        tag: MemoryTag::Finalized.into(),
                     },
                     vec![F::from(0u64)], // false
                 );
@@ -1289,7 +1213,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_DID_BURN,
+                        tag: MemoryTag::DidBurn.into(),
                     },
                     vec![F::from(0u64)], // false
                 );
@@ -1297,7 +1221,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_EXPECTED_INPUT,
+                        tag: MemoryTag::ExpectedInput.into(),
                     },
                     vec![if pid >= self.instance.n_inputs {
                         F::from(0u64)
@@ -1309,7 +1233,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_ACTIVATION,
+                        tag: MemoryTag::Activation.into(),
                     },
                     vec![F::from(0u64)], // None
                 );
@@ -1317,7 +1241,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_INIT,
+                        tag: MemoryTag::Init.into(),
                     },
                     vec![F::from(0u64)], // None
                 );
@@ -1327,7 +1251,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: ROM_MUST_BURN,
+                        tag: MemoryTag::MustBurn.into(),
                     },
                     vec![F::from(if *must_burn { 1u64 } else { 0 })],
                 );
@@ -1337,7 +1261,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: ROM_IS_UTXO,
+                        tag: MemoryTag::IsUtxo.into(),
                     },
                     vec![F::from(if *is_utxo { 1u64 } else { 0 })],
                 );
@@ -1347,7 +1271,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: RAM_OWNERSHIP,
+                        tag: MemoryTag::Ownership.into(),
                     },
                     vec![F::from(
                         owner
@@ -1410,28 +1334,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 rom_switches.read_is_utxo_curr,
                 Address {
                     addr: curr_pid,
-                    tag: ROM_IS_UTXO,
+                    tag: MemoryTag::IsUtxo.into(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_is_utxo_target,
                 Address {
                     addr: target_pid.unwrap_or(0),
-                    tag: ROM_IS_UTXO,
+                    tag: MemoryTag::IsUtxo.into(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_must_burn_curr,
                 Address {
                     addr: curr_pid,
-                    tag: ROM_MUST_BURN,
+                    tag: MemoryTag::MustBurn.into(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_program_hash_target,
                 Address {
                     addr: target_pid.unwrap_or(0),
-                    tag: ROM_PROCESS_TABLE,
+                    tag: MemoryTag::ProcessTable.into(),
                 },
             );
 
@@ -1470,7 +1394,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     // we never pop from this, actually
                     mb.init(
                         dbg!(Address {
-                            tag: RAM_REF_ARENA,
+                            tag: MemoryTag::RefArena.into(),
                             addr: ret.into_bigint().0[0],
                         }),
                         vec![val.clone()],
@@ -1485,7 +1409,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mb.conditional_read(
                 ref_read_arena_address.is_some(),
                 Address {
-                    tag: RAM_REF_ARENA,
+                    tag: MemoryTag::RefArena.into(),
                     addr: ref_read_arena_address
                         .map(|addr| addr.into_bigint().0[0])
                         .unwrap_or(0),
@@ -1992,12 +1916,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         wires
             .curr_read_wires
-            .owned_by
+            .ownership
             .conditional_enforce_equal(&wires.p_len, switch)?;
 
         // TODO: no need to have this assignment, probably
-        wires.curr_write_wires.owned_by =
-            switch.select(&wires.target, &wires.curr_read_wires.owned_by)?;
+        wires.curr_write_wires.ownership =
+            switch.select(&wires.target, &wires.curr_read_wires.ownership)?;
 
         Ok(wires)
     }
@@ -2014,13 +1938,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // only the owner can unbind
         wires
             .target_read_wires
-            .owned_by
+            .ownership
             .conditional_enforce_equal(&wires.id_curr, switch)?;
 
         // p_len is a sentinel for None
         // TODO: no need to assign
-        wires.target_write_wires.owned_by =
-            switch.select(&wires.p_len, &wires.curr_read_wires.owned_by)?;
+        wires.target_write_wires.ownership =
+            switch.select(&wires.p_len, &wires.curr_read_wires.ownership)?;
 
         Ok(wires)
     }
@@ -2220,7 +2144,7 @@ impl ProgramState {
             counters: F::ZERO,
             initialized: false,
             did_burn: false,
-            owned_by: F::ZERO,
+            ownership: F::ZERO,
         }
     }
 
@@ -2231,6 +2155,6 @@ impl ProgramState {
         tracing::debug!("counters={}", self.counters);
         tracing::debug!("finalized={}", self.finalized);
         tracing::debug!("did_burn={}", self.did_burn);
-        tracing::debug!("owned_by={}", self.owned_by);
+        tracing::debug!("ownership={}", self.ownership);
     }
 }
