@@ -327,7 +327,7 @@ pub struct InterRoundWires {
     id_curr: F,
     id_prev_is_some: bool,
     id_prev_value: F,
-    ref_arena_stack_ptr: F,
+    ref_arena_counter: F,
 
     p_len: F,
     n_finalized: F,
@@ -426,11 +426,9 @@ macro_rules! define_program_state_operations {
         }
     };
 
-    // Helper macro for converting to F
     (@convert_to_f $value:expr, field) => { $value };
     (@convert_to_f $value:expr, bool) => { F::from($value) };
 
-    // Helper macro for converting from F
     (@convert_from_f $value:expr, field) => { $value };
     (@convert_from_f $value:expr, bool) => { $value == F::ONE };
 }
@@ -463,7 +461,7 @@ impl Wires {
         let id_prev_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.irw.id_prev_is_some))?;
         let id_prev_value = FpVar::new_witness(cs.clone(), || Ok(vals.irw.id_prev_value))?;
         let ref_arena_stack_ptr =
-            FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_stack_ptr))?;
+            FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_counter))?;
 
         // switches
         let switches = [
@@ -776,7 +774,7 @@ impl InterRoundWires {
             id_prev_value: F::ZERO,
             p_len,
             n_finalized: F::from(0),
-            ref_arena_stack_ptr: F::ZERO,
+            ref_arena_counter: F::ZERO,
         }
     }
 
@@ -811,12 +809,12 @@ impl InterRoundWires {
         self.p_len = res.p_len.value().unwrap();
 
         tracing::debug!(
-            "ref_arena_stack_ptr from {} to {}",
-            self.ref_arena_stack_ptr,
+            "ref_arena_counter from {} to {}",
+            self.ref_arena_counter,
             res.ref_arena_stack_ptr.value().unwrap()
         );
 
-        self.ref_arena_stack_ptr = res.ref_arena_stack_ptr.value().unwrap();
+        self.ref_arena_counter = res.ref_arena_stack_ptr.value().unwrap();
     }
 }
 
