@@ -120,6 +120,165 @@ impl ExecutionSwitches<bool> {
             ..Self::default()
         }
     }
+
+    fn resume() -> Self {
+        Self {
+            resume: true,
+            ..Self::default()
+        }
+    }
+
+    fn yield_op() -> Self {
+        Self {
+            yield_op: true,
+            ..Self::default()
+        }
+    }
+
+    fn burn() -> Self {
+        Self {
+            burn: true,
+            ..Self::default()
+        }
+    }
+
+    fn program_hash() -> Self {
+        Self {
+            program_hash: true,
+            ..Self::default()
+        }
+    }
+
+    fn new_utxo() -> Self {
+        Self {
+            new_utxo: true,
+            ..Self::default()
+        }
+    }
+
+    fn new_coord() -> Self {
+        Self {
+            new_coord: true,
+            ..Self::default()
+        }
+    }
+
+    fn activation() -> Self {
+        Self {
+            activation: true,
+            ..Self::default()
+        }
+    }
+
+    fn init() -> Self {
+        Self {
+            init: true,
+            ..Self::default()
+        }
+    }
+
+    fn bind() -> Self {
+        Self {
+            bind: true,
+            ..Self::default()
+        }
+    }
+
+    fn unbind() -> Self {
+        Self {
+            unbind: true,
+            ..Self::default()
+        }
+    }
+
+    fn new_ref() -> Self {
+        Self {
+            new_ref: true,
+            ..Self::default()
+        }
+    }
+
+    fn get() -> Self {
+        Self {
+            get: true,
+            ..Self::default()
+        }
+    }
+
+    /// Allocates circuit variables for the switches and enforces exactly one is true
+    fn allocate_and_constrain(
+        &self,
+        cs: ConstraintSystemRef<F>,
+    ) -> Result<ExecutionSwitches<Boolean<F>>, SynthesisError> {
+        let switches = [
+            self.resume,
+            self.yield_op,
+            self.nop,
+            self.burn,
+            self.program_hash,
+            self.new_utxo,
+            self.new_coord,
+            self.activation,
+            self.init,
+            self.bind,
+            self.unbind,
+            self.new_ref,
+            self.get,
+        ];
+
+        let allocated_switches: Vec<_> = switches
+            .iter()
+            .map(|val| Boolean::new_witness(cs.clone(), || Ok(*val)).unwrap())
+            .collect();
+
+        // Enforce exactly one switch is true
+        cs.enforce_r1cs_constraint(
+            || {
+                allocated_switches
+                    .iter()
+                    .fold(LinearCombination::new(), |acc, switch| acc + switch.lc())
+                    .clone()
+            },
+            || LinearCombination::new() + Variable::one(),
+            || LinearCombination::new() + Variable::one(),
+        )
+        .unwrap();
+
+        let [
+            resume,
+            yield_op,
+            nop,
+            burn,
+            program_hash,
+            new_utxo,
+            new_coord,
+            activation,
+            init,
+            bind,
+            unbind,
+            new_ref,
+            get,
+        ] = allocated_switches.as_slice()
+        else {
+            unreachable!()
+        };
+
+        Ok(ExecutionSwitches {
+            resume: resume.clone(),
+            yield_op: yield_op.clone(),
+            nop: nop.clone(),
+            burn: burn.clone(),
+            program_hash: program_hash.clone(),
+            new_utxo: new_utxo.clone(),
+            new_coord: new_coord.clone(),
+            activation: activation.clone(),
+            init: init.clone(),
+            bind: bind.clone(),
+            unbind: unbind.clone(),
+            new_ref: new_ref.clone(),
+            get: get.clone(),
+        })
+    }
 }
 
 struct OpcodeVarValues {
@@ -456,60 +615,8 @@ impl Wires {
         let ref_arena_stack_ptr =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_counter))?;
 
-        // switches
-        let switches = [
-            vals.switches.resume,
-            vals.switches.yield_op,
-            vals.switches.nop,
-            vals.switches.burn,
-            vals.switches.program_hash,
-            vals.switches.new_utxo,
-            vals.switches.new_coord,
-            vals.switches.activation,
-            vals.switches.init,
-            vals.switches.bind,
-            vals.switches.unbind,
-            vals.switches.new_ref,
-            vals.switches.get,
-        ];
-
-        let allocated_switches: Vec<_> = switches
-            .iter()
-            .map(|val| Boolean::new_witness(cs.clone(), || Ok(*val)).unwrap())
-            .collect();
-
-        let [
-            resume_switch,
-            yield_switch,
-            nop_switch,
-            burn_switch,
-            program_hash_switch,
-            new_utxo_switch,
-            new_coord_switch,
-            activation_switch,
-            init_switch,
-            bind_switch,
-            unbind_switch,
-            new_ref_switch,
-            get_switch,
-        ] = allocated_switches.as_slice()
-        else {
-            unreachable!()
-        };
-
-        // TODO: figure out how to write this with the proper dsl
-        // but we only need r1cs anyway.
-        cs.enforce_r1cs_constraint(
-            || {
-                allocated_switches
-                    .iter()
-                    .fold(LinearCombination::new(), |acc, switch| acc + switch.lc())
-                    .clone()
-            },
-            || LinearCombination::new() + Variable::one(),
-            || LinearCombination::new() + Variable::one(),
-        )
-        .unwrap();
+        // Allocate switches and enforce exactly one is true
+        let switches = vals.switches.allocate_and_constrain(cs.clone())?;
 
         let target = FpVar::<F>::new_witness(ns!(cs.clone(), "target"), || Ok(vals.target))?;
 
@@ -595,10 +702,10 @@ impl Wires {
             .clone();
 
         let ref_arena_read = rm.conditional_read(
-            &(get_switch | new_ref_switch),
+            &(&switches.get | &switches.new_ref),
             &Address {
                 tag: MemoryTag::RefArena.allocate(cs.clone())?,
-                addr: get_switch.select(&val, &ret)?,
+                addr: switches.get.select(&val, &ret)?,
             },
         )?[0]
             .clone();
@@ -611,21 +718,7 @@ impl Wires {
 
             p_len,
 
-            switches: ExecutionSwitches {
-                yield_op: yield_switch.clone(),
-                resume: resume_switch.clone(),
-                burn: burn_switch.clone(),
-                program_hash: program_hash_switch.clone(),
-                new_utxo: new_utxo_switch.clone(),
-                new_coord: new_coord_switch.clone(),
-                activation: activation_switch.clone(),
-                init: init_switch.clone(),
-                bind: bind_switch.clone(),
-                unbind: unbind_switch.clone(),
-                new_ref: new_ref_switch.clone(),
-                get: get_switch.clone(),
-                nop: nop_switch.clone(),
-            },
+            switches,
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
             constant_true: Boolean::new_constant(cs.clone(), true)?,
@@ -1439,7 +1532,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 id_prev,
             } => {
                 let irw = PreWires {
-                    resume_switch: true,
+                    switches: ExecutionSwitches::resume(),
                     target: *target,
                     val: val.clone(),
                     ret: ret.clone(),
@@ -1459,7 +1552,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Yield { val, ret, id_prev } => {
                 let irw = PreWires {
-                    yield_switch: true,
+                    switches: ExecutionSwitches::yield_op(),
                     target: irw.id_prev_value,
                     val: val.clone(),
                     ret: ret.unwrap_or_default(),
@@ -1479,7 +1572,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Burn { ret } => {
                 let irw = PreWires {
-                    burn_switch: true,
+                    switches: ExecutionSwitches::burn(),
                     target: irw.id_prev_value,
                     ret: ret.clone(),
                     id_prev_is_some: irw.id_prev_is_some,
@@ -1500,7 +1593,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 program_hash,
             } => {
                 let irw = PreWires {
-                    program_hash_switch: true,
+                    switches: ExecutionSwitches::program_hash(),
                     target: *target,
                     program_hash: *program_hash,
                     irw: irw.clone(),
@@ -1519,7 +1612,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 target,
             } => {
                 let irw = PreWires {
-                    new_utxo_switch: true,
+                    switches: ExecutionSwitches::new_utxo(),
                     target: *target,
                     val: *val,
                     program_hash: *program_hash,
@@ -1539,7 +1632,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 target,
             } => {
                 let irw = PreWires {
-                    new_coord_switch: true,
+                    switches: ExecutionSwitches::new_coord(),
                     target: *target,
                     val: *val,
                     program_hash: *program_hash,
@@ -1555,7 +1648,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Activation { val, caller } => {
                 let irw = PreWires {
-                    activation_switch: true,
+                    switches: ExecutionSwitches::activation(),
                     val: *val,
                     caller: *caller,
                     irw: irw.clone(),
@@ -1570,7 +1663,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Init { val, caller } => {
                 let irw = PreWires {
-                    init_switch: true,
+                    switches: ExecutionSwitches::init(),
                     val: *val,
                     caller: *caller,
                     irw: irw.clone(),
@@ -1585,7 +1678,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Bind { owner_id } => {
                 let irw = PreWires {
-                    bind_switch: true,
+                    switches: ExecutionSwitches::bind(),
                     target: *owner_id,
                     irw: irw.clone(),
                     // TODO: it feels like this can be refactored out, since it
@@ -1601,7 +1694,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Unbind { token_id } => {
                 let irw = PreWires {
-                    unbind_switch: true,
+                    switches: ExecutionSwitches::unbind(),
                     target: *token_id,
                     irw: irw.clone(),
                     ..PreWires::new(
@@ -1615,9 +1708,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::NewRef { val, ret } => {
                 let irw = PreWires {
+                    switches: ExecutionSwitches::new_ref(),
                     val: *val,
                     ret: *ret,
-                    new_ref_switch: true,
                     irw: irw.clone(),
                     ..PreWires::new(
                         irw.clone(),
@@ -1630,9 +1723,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
             LedgerOperation::Get { reff, ret } => {
                 let irw = PreWires {
+                    switches: ExecutionSwitches::get(),
                     val: *reff,
                     ret: *ret,
-                    get_switch: true,
                     irw: irw.clone(),
                     ..PreWires::new(
                         irw.clone(),
@@ -2014,35 +2107,16 @@ impl PreWires {
         rom_switches: RomSwitchboard,
     ) -> Self {
         Self {
-            // switches
-            yield_switch: false,
-            resume_switch: false,
-            nop_switch: false,
-            burn_switch: false,
-            activation_switch: false,
-            init_switch: false,
-            bind_switch: false,
-            unbind_switch: false,
-            new_ref_switch: false,
-            get_switch: false,
-
-            // io vars
+            switches: ExecutionSwitches::default(),
             irw,
-
-            program_hash_switch: false,
-            new_utxo_switch: false,
-            new_coord_switch: false,
-
             target: F::ZERO,
             val: F::ZERO,
             ret: F::ZERO,
             program_hash: F::ZERO,
             caller: F::ZERO,
             ret_is_some: false,
-
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
-
             curr_mem_switches,
             target_mem_switches,
             rom_switches,
