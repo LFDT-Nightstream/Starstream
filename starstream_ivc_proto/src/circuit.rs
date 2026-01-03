@@ -113,6 +113,14 @@ struct ExecutionSwitches<T> {
     get: T,
     nop: T,
 }
+impl ExecutionSwitches<bool> {
+    fn nop() -> Self {
+        Self {
+            nop: true,
+            ..Self::default()
+        }
+    }
+}
 
 struct OpcodeVarValues {
     target: F,
@@ -279,20 +287,7 @@ pub struct PreWires {
 
     caller: F,
 
-    // switches
-    yield_switch: bool,
-    resume_switch: bool,
-    nop_switch: bool,
-    burn_switch: bool,
-    program_hash_switch: bool,
-    new_utxo_switch: bool,
-    new_coord_switch: bool,
-    activation_switch: bool,
-    init_switch: bool,
-    bind_switch: bool,
-    unbind_switch: bool,
-    new_ref_switch: bool,
-    get_switch: bool,
+    switches: ExecutionSwitches<bool>,
 
     curr_mem_switches: MemSwitchboard,
     target_mem_switches: MemSwitchboard,
@@ -463,19 +458,19 @@ impl Wires {
 
         // switches
         let switches = [
-            vals.resume_switch,
-            vals.yield_switch,
-            vals.nop_switch,
-            vals.burn_switch,
-            vals.program_hash_switch,
-            vals.new_utxo_switch,
-            vals.new_coord_switch,
-            vals.activation_switch,
-            vals.init_switch,
-            vals.bind_switch,
-            vals.unbind_switch,
-            vals.new_ref_switch,
-            vals.get_switch,
+            vals.switches.resume,
+            vals.switches.yield_op,
+            vals.switches.nop,
+            vals.switches.burn,
+            vals.switches.program_hash,
+            vals.switches.new_utxo,
+            vals.switches.new_coord,
+            vals.switches.activation,
+            vals.switches.init,
+            vals.switches.bind,
+            vals.switches.unbind,
+            vals.switches.new_ref,
+            vals.switches.get,
         ];
 
         let allocated_switches: Vec<_> = switches
@@ -1008,7 +1003,7 @@ impl LedgerOperation<crate::F> {
         // All operations increment the counter of the current process
         curr_write.counters += F::ONE;
 
-        match dbg!(self) {
+        match self {
             LedgerOperation::Nop {} => {
                 // Nop does nothing to the state
                 curr_write.counters -= F::ONE; // revert counter increment
@@ -1084,17 +1079,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             last_yield,
         }
     }
-
-    // pub fn dummy(utxos: BTreeMap<F, UtxoChange>) -> Self {
-    //     Self {
-    //         utxos,
-    //         ops: vec![Instruction::Nop {}],
-    //         write_ops: vec![],
-    //         utxo_order_mapping: Default::default(),
-
-    //         mem: PhantomData,
-    //     }
-    // }
 
     pub fn make_step_circuit(
         &self,
@@ -1434,7 +1418,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         match instruction {
             LedgerOperation::Nop {} => {
                 let irw = PreWires {
-                    nop_switch: true,
+                    switches: ExecutionSwitches::nop(),
+
                     irw: irw.clone(),
 
                     ..PreWires::new(
