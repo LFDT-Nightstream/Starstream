@@ -100,6 +100,7 @@ Refactoring
 
 wRPC Multiplexer
 - [ ] support passing host resources. This is a bit tricky, as we'd have to merge the host resources from the "client" with the host resources from the ledger
+- [ ] add error message support (make it `result`, but also look at `wrpc:rpc/error`)
 
 New RPC calls
 - [ ] use fuel to avoid `call` DOSing RPC nodes

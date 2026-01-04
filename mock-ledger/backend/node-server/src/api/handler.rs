@@ -73,9 +73,7 @@ impl Handler {
             .get_func(&mut store, &function)
             .ok_or_else(|| anyhow::anyhow!("function `{function}` not found in component"))?;
 
-        // let param_types = func.params(&store);
         let fun_ty = func.ty(&store);
-        // let result_len =  fun_ty.results().len();
 
         let mut guest_resources_vec = Vec::new();
         collect_component_resource_exports(
@@ -125,70 +123,54 @@ impl Handler {
             .with_context(|| {
                 format!("failed to register handler for function `{function}`")
             })?;
-        let (result, _) = join!(
+        let (result, invocation_handle) = join!(
             // client side
             async move {
-                println!("client step 1");
                 let paths: &[&[Option<usize>]] = &[];
                 // Lock the store only to get the wrpc client and invoke
                 // Release the lock immediately after getting the streams
                 let (mut outgoing, mut incoming) = {
                     let store = store_shared_clone.lock().await;
-                    println!("client step 2");
                     store.data().wrpc.wrpc
                         .invoke((), &instance_name, &function, params, paths)
                         .await
                         .expect(&format!("failed to invoke {}", function))
                 };
                 // Lock is now released, allowing server to process the invocation
-                println!("client step 3");
                 outgoing.flush().await?;
-                println!("client step 4");
                 let mut buf = vec![];
                 incoming
                     .read_to_end(&mut buf)
                     .await
                     .with_context(|| format!("failed to read result for {pretty_name} function `{function}`"))?;
-                println!("result: {:?}", buf);
                 Ok(buf)
             },
             // server side
             async move {
-                println!("server step 1");
                 srv.accept(oneshot_srv)
                     .await
                     .expect("failed to accept connection");
 
-                println!("server step 2");
-
-                let invocation_handle = tokio::spawn(async move {
-                    println!("server step 3");
+                tokio::spawn(async move {
                     let mut invocations = pin!(invocations_stream);
-                    println!("server step 4");
                     while let Some(invocation) = invocations.as_mut().next().await {
-                        println!("server step 5");
                         match invocation {
                             Ok((_, fut)) => {
-                                println!("server step 6");
                                 if let Err(err) = fut.await {
                                     eprintln!("failed to serve invocation for {pretty_name_for_server} function `{func_name}`: {err:?}");
                                 }
-                                println!("server step 7");
                             }
                             Err(err) => {
                                 eprintln!("failed to accept invocation for {pretty_name_for_server} function `{func_name}`: {err:?}");
                             }
                         }
                     }
-                });
-
-                println!("server step 8");
-
-                // invocation_handle.abort();
+                })
             }
         );
-
-        // let result_bufs = result.0.into_bytes();
+        // Clean up the invocation handle since the oneshot connection is complete
+        // The stream should naturally end, but we abort to ensure cleanup happens immediately
+        invocation_handle.abort();
         result
     }
 }

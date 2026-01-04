@@ -48,28 +48,26 @@ impl<TClient: Invoke> wrpc_transport::Invoke for MultiplexClient<TClient> {
     async fn invoke<P>(
         &self,
         cx: Self::Context,
-        instance: &str,
+        _instance: &str,
         func: &str,
         params: Bytes,
-        paths: impl AsRef<[P]> + Send,
+        _paths: impl AsRef<[P]> + Send,
     ) -> anyhow::Result<(Self::Outgoing, Self::Incoming)>
     where
         P: AsRef<[Option<usize>]> + Send + Sync,
     {
         let contract_hash = cx.contract_hash.clone();
-        /**
-         * Note: there is no way to connect host/guest resources across this interface
-         *       do we want to enable that? I'm not sure if there is a good way to do this given we're doing 2 hops of wRPC calls
-         */
+        // Note: there is no way to connect host/guest resources across this interface
+        //       do we want to enable that? I'm not sure if there is a good way to do this given we're doing 2 hops of wRPC calls
         let result = bindings::starstream::wrpc_multiplexer::handler::call(
             &self.client,
             cx.cx,
             &contract_hash,
-            &func.clone(),
+            &func,
             &params,
         )
         .await
-        .with_context(|| format!("failed to call `{contract_hash}.{func}`"))?;
+        .with_context(|| format!("failed to invoke `{contract_hash}.{func}`"))?;
 
         // Convert Vec<u8> result to (Outgoing, Incoming) streams
         Ok((

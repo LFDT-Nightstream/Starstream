@@ -1,25 +1,8 @@
-use std::path::PathBuf;
-
-use anyhow::Context as _;
 use clap::Parser;
-use starstream_ledger::encode::gen_ctx;
-use wasmtime::{Engine, Store, component::{Component, Linker, Val}};
-use wrpc_multiplexer::{MultiplexClient, InvocationContext};
-use wrpc_pack::{pack, unpack};
-
-mod bindings {
-    wit_bindgen_wrpc::generate!({
-        path: "./wit/rpc/wit",
-        with: {
-            "starstream:node-rpc/handler": generate,
-            "starstream:wrpc-multiplexer/handler": generate,
-        }
-    });
-    wasmtime::component::bindgen!({
-        path: "../node-server/genesis/wit/no-args/wit"
-    });
-}
-
+mod rpc;
+mod no_args;
+mod args_simple;
+mod args_record;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -45,123 +28,88 @@ async fn main() -> anyhow::Result<()> {
         function,
     } = Args::parse();
 
-    explicit_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
-    implicit_dynamic_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
-    implicit_static_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
-    
+    // TODO
     Ok(())
 }
 
-/**
- * Call the wRPC implicitly through Wasm component function calls
- * 
- * Benefits:
- * - automatic type handling
- * - better composability with libraries that expect a Wasm component as input
- * Downsides:
- * - ownership of resources is less clear (especially because the call indirection doesn't support host resource passing)
- * - lifetimes are less clear (a UTXO dying on the ledger side means the Wasm component is not referencing anything anymore)
- * - Possibly misleading for any composability / chained use-cases, as state is in the remote ledger and not in local components
- */
-async fn implicit_dynamic_call(
-    addr: String,
-    contract_hash: String,
-    function: String,
-) -> anyhow::Result<()> {
-    let wrpc = MultiplexClient::new(wrpc_transport::tcp::Client::from(addr.clone()));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Once;
 
-    // Note: each component gets its own Engine, since you can't compose these components anyways (as state is owned by the remote ledger)
-    let mut config = wasmtime::Config::default();
-    config.async_support(true);
-    let engine = Engine::new(&config)?;
+    static INIT: Once = Once::new();
 
-    let component_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../node-server")
-        .join("genesis")
-        .join("no-args.wasm");
-    let component_bytes = std::fs::read(&component_path)
-        .with_context(|| format!("failed to read component from {:?}", component_path))?;
-    let component = Component::new(&engine, component_bytes)
-              .context("failed to parse component")?;
+    fn init_tracing() {
+        INIT.call_once(|| {
+            // Enable maximum verbosity for wRPC crates to debug stream issues
+            // Default to TRACE for wRPC, DEBUG for our code, INFO for others
+            // Can override with RUST_LOG environment variable
+            let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| {
+                    tracing_subscriber::EnvFilter::new(
+                        "wrpc_transport=trace,\
+                         wrpc_runtime_wasmtime=trace,\
+                         wrpc_pack=trace,\
+                         wrpc_multiplexer=trace,\
+                         wit_bindgen_wrpc=trace,\
+                         wrpc=trace,\
+                         starstream=debug,\
+                         info"
+                    )
+                });
+            
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+                .init();
+        });
+    }
 
-    let mut store = Store::new(&engine, gen_ctx(wrpc, InvocationContext::new((), contract_hash.clone())));
-    let linker = Linker::new(&engine);
-    let instance = linker.instantiate_async(&mut store, &component).await?;
+    #[tokio::test]
+    async fn test_no_args() -> anyhow::Result<()> {
+        init_tracing();
+        let addr = "[::1]:7762".to_string();
+        
+        let function = "get-value".to_string();
+        let contract_hash = "0x1170FAD15BECBB08C00B29067171110B34E8B4CEBC648BA662147BA0F2F1224F".to_string();
+        
+        let result = no_args::explicit_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
+        assert_eq!(result, 5);
+        let result = no_args::implicit_dynamic_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
+        assert_eq!(result, 5);
+        let result = no_args::implicit_static_call(addr.clone(), contract_hash.clone()).await?;
+        assert_eq!(result, 5);
 
-    let func = instance
-        .get_func(&mut store, &"get-value")
-        .ok_or_else(|| anyhow::anyhow!("function `{function}` not found in component"))?;
+        Ok(())
+    }
+    #[tokio::test]
+    async fn test_args_simple() -> anyhow::Result<()> {
+        init_tracing();
+        let addr = "[::1]:7762".to_string();
 
-    let mut results = vec![Val::S64(0)];
-    let params = vec![];
-    func.call_async(store, &params, &mut results).await?;
-    println!("Result: {:?}", results);
-    Ok(())
-}
+        let function = "get-value".to_string();
+        let contract_hash = "0x54AD8533C20E995DB809D203131C45F3D308322631B514044DF5B7B9E4EDABBC".to_string();
+        
+        let result = args_simple::explicit_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
+        assert_eq!(result, 5);
+        
+        Ok(())
+    }
 
-/**
- * Same as `implicit_dynamic_call`, but with compile-time generated type bindings
- */
-async fn implicit_static_call(
-    addr: String,
-    contract_hash: String,
-    function: String,
-) -> anyhow::Result<()> {
-    let wrpc = MultiplexClient::new(wrpc_transport::tcp::Client::from(addr.clone()));
+    #[tokio::test]
+    async fn test_args_record() -> anyhow::Result<()> {
+        init_tracing();
+        let addr = "[::1]:7762".to_string();
 
-    // Note: each component gets its own Engine, since you can't compose these components anyways (as state is owned by the remote ledger)
-    let mut config = wasmtime::Config::default();
-    // config.async_support(true);
-    let engine = Engine::new(&config)?;
-
-    let component_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../node-server")
-        .join("genesis")
-        .join("no-args.wasm");
-    let component_bytes = std::fs::read(&component_path)
-        .with_context(|| format!("failed to read component from {:?}", component_path))?;
-    let component = Component::new(&engine, component_bytes)
-              .context("failed to parse component")?;
-
-    let mut store = Store::new(&engine, gen_ctx(wrpc, InvocationContext::new((), contract_hash.clone())));
-    let linker = Linker::new(&engine);
-
-    let bindings = bindings::Root::instantiate_async(&mut store, &component, &linker).await?;
-    let result = bindings.call_get_value(&mut store)?;
-    println!("Result: {:?}", result);
-    Ok(())
-}
-
-/**
- * Call the wRPC explicitly through the wRPC Multiplexer WIT interface
- * 
- * Benefits:
- * - Less Wasm component setup boilerplate
- * - Truer to what is actually happening (less chance of accidentally being confused by the abstraction of implicit calls)
- * Downsides:
- * - Manually ensure `pack` and `unpack` types have the right type annotation for your WIT
- */
-async fn explicit_call(
-    addr: String,
-    contract_hash: String,
-    function: String,
-) -> anyhow::Result<()> {
-    let wrpc = wrpc_transport::tcp::Client::from(addr);
-    let params = wit_bindgen_wrpc::bytes::Bytes::new(); // Empty params
-
-    let result = bindings::starstream::wrpc_multiplexer::handler::call(
-        &wrpc,
-        (),
-        &contract_hash.clone(),
-        &function.clone(),
-        &params,
-    )
-    .await
-    .with_context(|| format!("failed to call `{contract_hash}.{function}`"))?;
-
-    // note: you have to "know" that the result of the call here is an i64. It will be a runtime error if you get the type wrong
-    let result: i64 = unpack(&mut result.into())?;
-    println!("Result: {:?}", result);
-
-    Ok(())
+        let function = "total-value".to_string();
+        let contract_hash = "0x58A71921DA8E8558755C37B8EEAB79E416DDDE1B2B516155767EEC868BE26C5E".to_string();
+        
+        let result = args_record::explicit_call(addr.clone(), contract_hash.clone(), function.clone()).await?;
+        assert_eq!(result, 50);
+        
+        Ok(())
+    }
 }

@@ -25,7 +25,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "signal", "net"] }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["ansi", "fmt"] }
+tracing-subscriber = { workspace = true, features = ["ansi", "fmt", "env-filter"] }
 wasmtime = { workspace = true }
 wit-bindgen-wrpc = { workspace = true }
 wrpc-transport = { workspace = true, features = ["net"] }

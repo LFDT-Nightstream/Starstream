@@ -1,7 +1,6 @@
 use std::sync::Arc;
 use std::collections::HashMap;
-use wasmtime::Store;
-use wasmtime::component::{InstancePre, Component};
+use wasmtime::component::{InstancePre};
 
 use crate::encode::{InMemoryTransport, Ctx};
 

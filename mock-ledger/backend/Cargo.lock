@@ -12,6 +12,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "aho-corasick"
+version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -936,6 +945,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "matchers"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
+dependencies = [
+ "regex-automata",
+]
+
+[[package]]
 name = "maybe-owned"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1326,6 +1344,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "regex-automata"
+version = "0.4.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-syntax",
+]
+
+[[package]]
+name = "regex-syntax"
+version = "0.8.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
+
+[[package]]
 name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1509,7 +1544,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wrpc-runtime-wasmtime",
- "wrpc-transport 0.29.0",
+ "wrpc-transport",
 ]
 
 [[package]]
@@ -1528,7 +1563,7 @@ dependencies = [
  "wit-bindgen-wrpc",
  "wrpc-multiplexer",
  "wrpc-pack",
- "wrpc-transport 0.29.0",
+ "wrpc-transport",
 ]
 
 [[package]]
@@ -1548,7 +1583,7 @@ dependencies = [
  "wasmtime",
  "wit-bindgen-wrpc",
  "wrpc-runtime-wasmtime",
- "wrpc-transport 0.29.0",
+ "wrpc-transport",
 ]
 
 [[package]]
@@ -1744,9 +1779,13 @@ version = "0.3.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f30143827ddab0d256fd843b7a66d164e9f271cfa0dde49142c5ca0ca291f1e"
 dependencies = [
+ "matchers",
  "nu-ansi-term",
+ "once_cell",
+ "regex-automata",
  "sharded-slab",
  "thread_local",
+ "tracing",
  "tracing-core",
 ]
 
@@ -1822,15 +1861,6 @@ name = "wasi"
 version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
-
-[[package]]
-name = "wasi"
-version = "0.13.3+wasi-0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26816d2e1a4a36a2940b96c5296ce403917633dff8f3440e9b236ed6f6bacad2"
-dependencies = [
- "wit-bindgen-rt",
-]
 
 [[package]]
 name = "wasi"
@@ -2549,15 +2579,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wit-bindgen-rt"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c"
-dependencies = [
- "bitflags",
-]
-
-[[package]]
 name = "wit-bindgen-rust"
 version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2601,7 +2622,7 @@ dependencies = [
  "tracing",
  "wasm-tokio",
  "wit-bindgen-wrpc-rust-macro",
- "wrpc-transport 0.29.0",
+ "wrpc-transport",
 ]
 
 [[package]]
@@ -2724,20 +2745,18 @@ dependencies = [
  "futures",
  "tokio",
  "wit-bindgen-wrpc",
- "wrpc-transport 0.29.0",
+ "wrpc-transport",
 ]
 
 [[package]]
 name = "wrpc-pack"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0d9ed0350729464b0c57ac18a481c12b8d6b190dfd24a80fd730bdc1242e740"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "bytes",
  "tokio",
  "tokio-util",
- "wrpc-transport 0.28.4",
+ "wrpc-transport",
 ]
 
 [[package]]
@@ -2756,26 +2775,7 @@ dependencies = [
  "wasmtime-wasi",
  "wit-parser 0.220.1",
  "wrpc-introspect",
- "wrpc-transport 0.29.0",
-]
-
-[[package]]
-name = "wrpc-transport"
-version = "0.28.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcad532d5451071a208d4896e1e5ac6b68500f12707179ffd73a4822c321b748"
-dependencies = [
- "anyhow",
- "bytes",
- "futures",
- "pin-project-lite",
- "send-future",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tracing",
- "wasi 0.13.3+wasi-0.2.2",
- "wasm-tokio",
+ "wrpc-transport",
 ]
 
 [[package]]
