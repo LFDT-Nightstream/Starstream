@@ -404,9 +404,6 @@ pub struct Wires {
     target_read_wires: ProgramStateWires,
     target_write_wires: ProgramStateWires,
 
-    curr_mem_switches: MemSwitchboardWires,
-    target_mem_switches: MemSwitchboardWires,
-
     ref_arena_read: FpVar<F>,
 
     // ROM lookup results
@@ -414,9 +411,6 @@ pub struct Wires {
     is_utxo_target: FpVar<F>,
     must_burn_curr: FpVar<F>,
     rom_program_hash: FpVar<F>,
-
-    // ROM read switches
-    rom_switches: RomSwitchboardWires,
 
     constant_false: Boolean<F>,
     constant_true: Boolean<F>,
@@ -737,10 +731,6 @@ impl Wires {
 
             target_read_wires,
             target_write_wires,
-
-            curr_mem_switches,
-            target_mem_switches,
-            rom_switches,
 
             is_utxo_curr,
             is_utxo_target,
@@ -1508,19 +1498,18 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let (curr_mem_switches, target_mem_switches) = &self.mem_switches[i];
         let rom_switches = &self.rom_switches[i];
 
+        let default = PreWires::new(
+            irw.clone(),
+            curr_mem_switches.clone(),
+            target_mem_switches.clone(),
+            rom_switches.clone(),
+        );
+
         match instruction {
             LedgerOperation::Nop {} => {
                 let irw = PreWires {
                     switches: ExecutionSwitches::nop(),
-
-                    irw: irw.clone(),
-
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -1538,14 +1527,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     ret: ret.clone(),
                     id_prev_is_some: id_prev.is_some(),
                     id_prev_value: id_prev.unwrap_or_default(),
-                    irw: irw.clone(),
-
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -1559,13 +1541,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     ret_is_some: ret.is_some(),
                     id_prev_is_some: id_prev.is_some(),
                     id_prev_value: id_prev.unwrap_or_default(),
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -1577,13 +1553,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     ret: ret.clone(),
                     id_prev_is_some: irw.id_prev_is_some,
                     id_prev_value: irw.id_prev_value,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -1596,13 +1566,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     switches: ExecutionSwitches::program_hash(),
                     target: *target,
                     program_hash: *program_hash,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1616,13 +1580,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     target: *target,
                     val: *val,
                     program_hash: *program_hash,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1636,13 +1594,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     target: *target,
                     val: *val,
                     program_hash: *program_hash,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1651,13 +1603,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     switches: ExecutionSwitches::activation(),
                     val: *val,
                     caller: *caller,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1666,13 +1612,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     switches: ExecutionSwitches::init(),
                     val: *val,
                     caller: *caller,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1680,15 +1620,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 let irw = PreWires {
                     switches: ExecutionSwitches::bind(),
                     target: *owner_id,
-                    irw: irw.clone(),
-                    // TODO: it feels like this can be refactored out, since it
-                    // seems to be the same on all branches
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1696,13 +1628,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 let irw = PreWires {
                     switches: ExecutionSwitches::unbind(),
                     target: *token_id,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1711,13 +1637,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     switches: ExecutionSwitches::new_ref(),
                     val: *val,
                     ret: *ret,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1726,13 +1646,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     switches: ExecutionSwitches::get(),
                     val: *reff,
                     ret: *ret,
-                    irw: irw.clone(),
-                    ..PreWires::new(
-                        irw.clone(),
-                        curr_mem_switches.clone(),
-                        target_mem_switches.clone(),
-                        rom_switches.clone(),
-                    )
+                    ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
