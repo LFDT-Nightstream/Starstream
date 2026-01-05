@@ -49,6 +49,10 @@ fn test_circuit_simple_resume() {
                 val: ref_0,
                 caller: p2,
             },
+            WitLedgerEffect::GetHandlerFor {
+                interface_id: h(100),
+                handler_id: p2,
+            },
             WitLedgerEffect::Yield {
                 val: ref_1.clone(), // Yielding nothing
                 ret: None,          // Not expecting to be resumed again
@@ -110,11 +114,17 @@ fn test_circuit_simple_resume() {
                 ret: ref_1.clone(),
                 id_prev: None,
             },
+            WitLedgerEffect::InstallHandler {
+                interface_id: h(100),
+            },
             WitLedgerEffect::Resume {
                 target: p0,
                 val: ref_0,
                 ret: ref_1,
                 id_prev: Some(p1),
+            },
+            WitLedgerEffect::UninstallHandler {
+                interface_id: h(100),
             },
         ],
     };
