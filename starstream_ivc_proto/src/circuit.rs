@@ -2,12 +2,10 @@ use crate::memory::{self, Address, IVCMemory};
 use crate::value_to_field;
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
-use ark_r1cs_std::alloc::AllocationMode;
 use ark_r1cs_std::fields::FieldVar;
 use ark_r1cs_std::{
     GR1CSVar as _, alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean,
 };
-use ark_relations::gr1cs;
 use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
     ns,
@@ -17,6 +15,79 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::ops::Not;
 use tracing::debug_span;
+
+#[derive(Debug, Clone)]
+struct InterfaceResolver {
+    mapping: BTreeMap<F, usize>,
+}
+
+impl InterfaceResolver {
+    fn new(ops: &[LedgerOperation<F>]) -> Self {
+        let mut unique_interfaces = BTreeSet::new();
+        for op in ops.iter() {
+            match op {
+                LedgerOperation::InstallHandler { interface_id } => {
+                    unique_interfaces.insert(*interface_id);
+                }
+                LedgerOperation::UninstallHandler { interface_id } => {
+                    unique_interfaces.insert(*interface_id);
+                }
+                LedgerOperation::GetHandlerFor { interface_id, .. } => {
+                    unique_interfaces.insert(*interface_id);
+                }
+                _ => (),
+            }
+        }
+
+        let mapping = unique_interfaces
+            .iter()
+            .enumerate()
+            .map(|(index, interface_id)| (*interface_id, index))
+            .collect();
+
+        Self { mapping }
+    }
+
+    fn get_index(&self, interface_id: F) -> usize {
+        *self.mapping.get(&interface_id).unwrap_or(&0)
+    }
+
+    fn get_interface_index_field(&self, interface_id: F) -> F {
+        F::from(self.get_index(interface_id) as u64)
+    }
+
+    fn interfaces(&self) -> Vec<F> {
+        let mut interfaces = vec![F::ZERO; self.mapping.len()];
+        for (interface_id, index) in &self.mapping {
+            interfaces[*index] = *interface_id;
+        }
+        interfaces
+    }
+}
+
+#[derive(Clone)]
+struct HandlerState {
+    handler_stack_node_read: Vec<FpVar<F>>,
+    interface_rom_read: FpVar<F>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct HandlerSwitchboard {
+    pub read_interface: bool,
+    pub read_head: bool,
+    pub read_node: bool,
+    pub write_node: bool,
+    pub write_head: bool,
+}
+
+#[derive(Clone)]
+pub struct HandlerSwitchboardWires {
+    pub read_interface: Boolean<F>,
+    pub read_head: Boolean<F>,
+    pub read_node: Boolean<F>,
+    pub write_node: Boolean<F>,
+    pub write_head: Boolean<F>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryTag {
@@ -96,6 +167,7 @@ struct OpcodeConfig {
     mem_switches_curr: MemSwitchboard,
     mem_switches_target: MemSwitchboard,
     rom_switches: RomSwitchboard,
+    handler_switches: HandlerSwitchboard,
     execution_switches: ExecutionSwitches<bool>,
     opcode_var_values: OpcodeVarValues,
 }
@@ -326,7 +398,6 @@ struct OpcodeVarValues {
     ret_is_some: bool,
     id_prev_is_some: bool,
     id_prev_value: F,
-    interface_index: F,
 }
 
 impl Default for ExecutionSwitches<bool> {
@@ -363,7 +434,6 @@ impl Default for OpcodeVarValues {
             ret_is_some: false,
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
-            interface_index: F::ZERO,
         }
     }
 }
@@ -415,6 +485,8 @@ pub struct StepCircuitBuilder<M> {
     write_ops: Vec<(ProgramState, ProgramState)>,
     mem_switches: Vec<(MemSwitchboard, MemSwitchboard)>,
     rom_switches: Vec<RomSwitchboard>,
+    handler_switches: Vec<HandlerSwitchboard>,
+    interface_resolver: InterfaceResolver,
 
     mem: PhantomData<M>,
 }
@@ -439,7 +511,6 @@ pub struct Wires {
     program_hash: FpVar<F>,
     caller: FpVar<F>,
     ret_is_some: Boolean<F>,
-    interface_index: FpVar<F>,
 
     curr_read_wires: ProgramStateWires,
     curr_write_wires: ProgramStateWires,
@@ -448,9 +519,7 @@ pub struct Wires {
     target_write_wires: ProgramStateWires,
 
     ref_arena_read: FpVar<F>,
-    interface_rom_read: FpVar<F>,
-    handler_stack_head_read: FpVar<F>,
-    handler_stack_node_read: Vec<FpVar<F>>,
+    handler_state: HandlerState,
 
     // ROM lookup results
     is_utxo_curr: FpVar<F>,
@@ -492,6 +561,7 @@ pub struct PreWires {
     curr_mem_switches: MemSwitchboard,
     target_mem_switches: MemSwitchboard,
     rom_switches: RomSwitchboard,
+    handler_switches: HandlerSwitchboard,
 
     irw: InterRoundWires,
 
@@ -639,6 +709,8 @@ define_program_state_operations!(
 );
 
 impl Wires {
+    // IMPORTANT: no rust branches in this function, since the purpose of this
+    // is to get the exact same layout for all the opcodes
     pub fn from_irw<M: IVCMemoryAllocated<F>>(
         vals: &PreWires,
         rm: &mut M,
@@ -671,7 +743,6 @@ impl Wires {
         let program_hash = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.program_hash))?;
 
         let caller = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.caller))?;
-        let interface_index = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.interface_index))?;
 
         let curr_mem_switches = MemSwitchboardWires::allocate(cs.clone(), &vals.curr_mem_switches)?;
         let target_mem_switches =
@@ -755,77 +826,70 @@ impl Wires {
         )?[0]
             .clone();
 
-        // Handler stack memory operations
-        let handler_stack_switch =
-            &switches.install_handler | &switches.uninstall_handler | &switches.get_handler_for;
+        let handler_switches =
+            HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
 
-        // Read interface_id from Interfaces ROM using the index
+        let interface_index_var = FpVar::new_witness(cs.clone(), || Ok(vals.interface_index))?;
+
         let interface_rom_read = rm.conditional_read(
-            &handler_stack_switch,
+            &handler_switches.read_interface,
             &Address {
                 tag: MemoryTag::Interfaces.allocate(cs.clone())?,
-                addr: interface_index.clone(),
+                addr: interface_index_var.clone(),
             },
         )?[0]
             .clone();
 
-        // Read current head pointer using the interface index
         let handler_stack_head_read = rm.conditional_read(
-            &handler_stack_switch,
+            &handler_switches.read_head,
             &Address {
                 tag: MemoryTag::HandlerStackHeads.allocate(cs.clone())?,
-                addr: interface_index.clone(), // Use index, not interface_id
+                addr: interface_index_var.clone(),
             },
         )?[0]
             .clone();
 
-        // Read the node data (process_id, next_ptr) - only when handler operations are active
         let handler_stack_node_read = rm.conditional_read(
-            &handler_stack_switch,
+            &handler_switches.read_node,
             &Address {
                 tag: MemoryTag::HandlerStackArena.allocate(cs.clone())?,
                 addr: handler_stack_head_read.clone(),
             },
         )?;
 
-        // Handler stack memory writes
-        // Install handler: write new node and update head pointer
         rm.conditional_write(
-            &switches.install_handler,
+            &handler_switches.write_node,
             &Address {
                 tag: MemoryTag::HandlerStackArena.allocate(cs.clone())?,
                 addr: handler_stack_counter.clone(),
             },
             &[
-                switches
-                    .install_handler
-                    .select(&id_curr.clone(), &FpVar::new_constant(cs.clone(), F::ZERO)?)?, // Store current process ID, not interface_id
-                switches.install_handler.select(
-                    &handler_stack_head_read.clone(),
+                handler_switches
+                    .write_node
+                    .select(&id_curr, &FpVar::new_constant(cs.clone(), F::ZERO)?)?, // process_id
+                handler_switches.write_node.select(
+                    &handler_stack_head_read,
                     &FpVar::new_constant(cs.clone(), F::ZERO)?,
-                )?, // Store current process ID, not interface_id
+                )?, // next_ptr (old head)
             ],
         )?;
 
-        // Uninstall handler: update head pointer to next_ptr
-        let next_ptr = if handler_stack_node_read.len() >= 2 {
-            handler_stack_node_read[1].clone()
-        } else {
-            FpVar::zero()
-        };
-
         rm.conditional_write(
-            &(&switches.install_handler | &switches.uninstall_handler),
+            &handler_switches.write_head,
             &Address {
                 tag: MemoryTag::HandlerStackHeads.allocate(cs.clone())?,
-                addr: interface_index.clone(), // Use index, not interface_id
+                addr: interface_index_var.clone(),
             },
-            &[if switches.install_handler.value()? {
-                handler_stack_counter.clone()
-            } else {
-                next_ptr
-            }], // new head pointer
+            &[handler_switches.write_node.select(
+                &handler_stack_counter, // install: new node becomes head
+                &handler_stack_node_read[1],
+            )?],
         )?;
+
+        let handler_state = HandlerState {
+            handler_stack_node_read,
+            interface_rom_read: interface_rom_read.clone(),
+        };
 
         Ok(Wires {
             id_curr,
@@ -848,7 +912,6 @@ impl Wires {
             ret,
             program_hash,
             caller,
-            interface_index,
             ret_is_some,
 
             curr_read_wires,
@@ -862,9 +925,7 @@ impl Wires {
             must_burn_curr,
             rom_program_hash,
             ref_arena_read,
-            interface_rom_read,
-            handler_stack_head_read,
-            handler_stack_node_read,
+            handler_state,
         })
     }
 }
@@ -1037,6 +1098,7 @@ impl LedgerOperation<crate::F> {
             mem_switches_curr: MemSwitchboard::default(),
             mem_switches_target: MemSwitchboard::default(),
             rom_switches: RomSwitchboard::default(),
+            handler_switches: HandlerSwitchboard::default(),
             execution_switches: ExecutionSwitches::default(),
             opcode_var_values: OpcodeVarValues::default(),
         };
@@ -1203,19 +1265,25 @@ impl LedgerOperation<crate::F> {
             }
             LedgerOperation::InstallHandler { interface_id } => {
                 config.execution_switches.install_handler = true;
-
                 config.rom_switches.read_is_utxo_curr = true;
 
+                config.handler_switches.read_interface = true;
+                config.handler_switches.read_head = true;
+                config.handler_switches.write_node = true;
+                config.handler_switches.write_head = true;
+
                 config.opcode_var_values.val = *interface_id;
-                // interface_index will be computed in trace phase
             }
             LedgerOperation::UninstallHandler { interface_id } => {
                 config.execution_switches.uninstall_handler = true;
-
                 config.rom_switches.read_is_utxo_curr = true;
 
+                config.handler_switches.read_interface = true;
+                config.handler_switches.read_head = true;
+                config.handler_switches.read_node = true;
+                config.handler_switches.write_head = true;
+
                 config.opcode_var_values.val = *interface_id;
-                // interface_index will be computed in trace phase
             }
             LedgerOperation::GetHandlerFor {
                 interface_id,
@@ -1223,9 +1291,12 @@ impl LedgerOperation<crate::F> {
             } => {
                 config.execution_switches.get_handler_for = true;
 
+                config.handler_switches.read_interface = true;
+                config.handler_switches.read_head = true;
+                config.handler_switches.read_node = true;
+
                 config.opcode_var_values.val = *interface_id;
                 config.opcode_var_values.ret = *handler_id;
-                // interface_index will be computed in trace phase
             }
         }
 
@@ -1315,11 +1386,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .map(|v| value_to_field(v.last_yield.clone()))
             .collect();
 
+        let interface_resolver = InterfaceResolver::new(&ops);
+
         Self {
             ops,
             write_ops: vec![],
             mem_switches: vec![],
             rom_switches: vec![],
+            handler_switches: vec![],
+            interface_resolver,
             mem: PhantomData,
             instance,
             last_yield,
@@ -1368,33 +1443,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         Ok(irw)
     }
 
-    fn build_interface_mapping(&self) -> BTreeMap<F, usize> {
-        let mut unique_interfaces = BTreeSet::new();
-        for op in self.ops.iter() {
-            match op {
-                LedgerOperation::InstallHandler { interface_id } => {
-                    unique_interfaces.insert(interface_id);
-                }
-                LedgerOperation::UninstallHandler { interface_id } => {
-                    unique_interfaces.insert(interface_id);
-                }
-                LedgerOperation::GetHandlerFor { interface_id, .. } => {
-                    unique_interfaces.insert(interface_id);
-                }
-                _ => (),
-            }
-        }
-
-        unique_interfaces
-            .iter()
-            .enumerate()
-            .map(|(index, interface_id)| (**interface_id, index))
-            .collect()
-    }
-
     pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
-        let interface_mapping = self.build_interface_mapping();
-
         // initialize all the maps
         let mut mb = {
             let mut mb = M::new(params);
@@ -1542,59 +1591,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mb
         };
 
-        // Collect unique interfaces first
-        let mut unique_interfaces = BTreeSet::new();
-        for op in self.ops.iter() {
-            match op {
-                LedgerOperation::InstallHandler { interface_id } => {
-                    unique_interfaces.insert(interface_id);
-                }
-                LedgerOperation::UninstallHandler { interface_id } => {
-                    unique_interfaces.insert(interface_id);
-                }
-                LedgerOperation::GetHandlerFor { interface_id, .. } => {
-                    unique_interfaces.insert(interface_id);
-                }
-                _ => (),
-            }
-        }
-
-        // Initialize Interfaces ROM and HandlerStackHeads with contiguous indices
-        for (index, interface_id) in unique_interfaces.iter().enumerate() {
-            mb.init(
-                Address {
-                    addr: index as u64,
-                    tag: MemoryTag::Interfaces.into(),
-                },
-                vec![F::from(interface_id.into_bigint().0[0] as u64)],
-            );
-
-            mb.init(
-                Address {
-                    addr: index as u64,
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                },
-                vec![F::from(0u64)], // null pointer (empty stack)
-            );
-        }
-
-        // Initialize handler stack arena nodes
-        let mut arena_counter = 0;
-        for op in self.ops.iter() {
-            match op {
-                LedgerOperation::InstallHandler { .. } => {
-                    mb.init(
-                        Address {
-                            addr: arena_counter,
-                            tag: MemoryTag::HandlerStackArena.into(),
-                        },
-                        vec![F::ZERO, F::ZERO], // (interface_id, next_ptr)
-                    );
-                    arena_counter += 1;
-                }
-                _ => (),
-            }
-        }
+        // Initialize handler memory using simplified approach
+        self.init_handler_memory(&mut mb);
 
         // out of circuit memory operations.
         // this is needed to commit to the memory operations before-hand.
@@ -1611,33 +1609,18 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in &self.ops {
-            let mut config = instr.get_config(&irw);
-
-            // Compute interface index for handler operations
-            match instr {
-                LedgerOperation::InstallHandler { interface_id } => {
-                    config.opcode_var_values.interface_index =
-                        F::from(*interface_mapping.get(interface_id).unwrap_or(&0) as u64);
-                }
-                LedgerOperation::UninstallHandler { interface_id } => {
-                    config.opcode_var_values.interface_index =
-                        F::from(*interface_mapping.get(interface_id).unwrap_or(&0) as u64);
-                }
-                LedgerOperation::GetHandlerFor { interface_id, .. } => {
-                    config.opcode_var_values.interface_index =
-                        F::from(*interface_mapping.get(interface_id).unwrap_or(&0) as u64);
-                }
-                _ => {}
-            }
+            let config = instr.get_config(&irw);
 
             let curr_switches = config.mem_switches_curr;
             let target_switches = config.mem_switches_target;
             let rom_switches = config.rom_switches;
+            let handler_switches = config.handler_switches;
 
             self.mem_switches
                 .push((curr_switches.clone(), target_switches.clone()));
 
             self.rom_switches.push(rom_switches.clone());
+            self.handler_switches.push(handler_switches.clone());
 
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
@@ -1750,101 +1733,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             );
         }
 
-        let mut irw = InterRoundWires::new(
-            F::from(self.p_len() as u64),
-            self.instance.entrypoint.0 as u64,
-        );
-
         // Handler stack memory operations - always perform for uniform circuit
-        for instr in self.ops.iter() {
-            let mut config = instr.get_config(&irw);
-
-            // Compute interface index for handler operations
-            match instr {
-                LedgerOperation::InstallHandler { interface_id } => {
-                    config.opcode_var_values.interface_index =
-                        F::from(*interface_mapping.get(interface_id).unwrap_or(&0) as u64);
-                }
-                LedgerOperation::UninstallHandler { interface_id } => {
-                    config.opcode_var_values.interface_index =
-                        F::from(*interface_mapping.get(interface_id).unwrap_or(&0) as u64);
-                }
-                LedgerOperation::GetHandlerFor { interface_id, .. } => {
-                    config.opcode_var_values.interface_index =
-                        F::from(*interface_mapping.get(interface_id).unwrap_or(&0) as u64);
-                }
-                _ => {}
-            }
-
-            let interface_index = config.opcode_var_values.interface_index;
-
-            // Always read from Interfaces ROM
-            let handler_stack_switch = config.execution_switches.install_handler
-                || config.execution_switches.uninstall_handler
-                || config.execution_switches.get_handler_for;
-
-            mb.conditional_read(
-                handler_stack_switch,
-                Address {
-                    tag: MemoryTag::Interfaces.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-            );
-
-            // Always read current head pointer (using interface index)
-            let current_head = mb.conditional_read(
-                handler_stack_switch,
-                Address {
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                    addr: interface_index.into_bigint().0[0], // Use index, not interface_id
-                },
-            )[0];
-
-            // Always read the node data
-            let node_data = mb.conditional_read(
-                handler_stack_switch, // Always read for uniform circuit
-                Address {
-                    tag: MemoryTag::HandlerStackArena.into(),
-                    addr: current_head.into_bigint().0[0],
-                },
-            );
-
-            // Always write to arena (conditionally based on install_handler)
-            mb.conditional_write(
-                config.execution_switches.install_handler,
-                Address {
-                    tag: MemoryTag::HandlerStackArena.into(),
-                    addr: irw.handler_stack_counter.into_bigint().0[0],
-                },
-                if config.execution_switches.install_handler {
-                    vec![irw.id_curr, current_head]
-                } else {
-                    vec![F::from(0), F::from(0)]
-                }, // Store (process_id, old_head_ptr)
-            );
-
-            // Always write to heads for install_handler
-            mb.conditional_write(
-                config.execution_switches.install_handler
-                    || config.execution_switches.uninstall_handler,
-                Address {
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                    addr: interface_index.into_bigint().0[0], // Use index, not interface_id
-                },
-                vec![if config.execution_switches.install_handler {
-                    irw.handler_stack_counter
-                } else if config.execution_switches.uninstall_handler {
-                    node_data[1]
-                } else {
-                    F::from(0)
-                }],
-            );
-
-            // Update IRW for next iteration if this is install_handler
-            if config.execution_switches.install_handler {
-                irw.handler_stack_counter += F::ONE;
-            }
-        }
+        self.trace_handler_stack_mem_opcodes(&mut mb);
 
         let current_steps = self.ops.len();
         if let Some(missing) = mb.required_steps().checked_sub(current_steps) {
@@ -1854,6 +1744,129 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         }
 
         mb
+    }
+
+    fn init_handler_memory(&self, mem: &mut M) {
+        let interfaces = self.interface_resolver.interfaces();
+
+        // Initialize Interfaces ROM and HandlerStackHeads
+        for (index, interface_id) in interfaces.iter().enumerate() {
+            mem.init(
+                Address {
+                    addr: index as u64,
+                    tag: MemoryTag::Interfaces.into(),
+                },
+                vec![*interface_id],
+            );
+
+            mem.init(
+                Address {
+                    addr: index as u64,
+                    tag: MemoryTag::HandlerStackHeads.into(),
+                },
+                vec![F::ZERO], // null pointer (empty stack)
+            );
+        }
+
+        // Pre-allocate arena nodes for all InstallHandler operations
+        let install_count = self
+            .ops
+            .iter()
+            .filter(|op| matches!(op, LedgerOperation::InstallHandler { .. }))
+            .count();
+
+        for i in 0..install_count {
+            mem.init(
+                Address {
+                    addr: i as u64,
+                    tag: MemoryTag::HandlerStackArena.into(),
+                },
+                vec![F::ZERO, F::ZERO], // (process_id, next_ptr)
+            );
+        }
+    }
+
+    fn trace_handler_stack_mem_opcodes(&mut self, mb: &mut M) {
+        let mut irw = InterRoundWires::new(
+            F::from(self.p_len() as u64),
+            self.instance.entrypoint.0 as u64,
+        );
+
+        for instr in self.ops.iter() {
+            let config = instr.get_config(&irw);
+
+            // Get interface index for handler operations
+            let interface_index = match instr {
+                LedgerOperation::InstallHandler { interface_id } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
+                LedgerOperation::UninstallHandler { interface_id } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
+                LedgerOperation::GetHandlerFor { interface_id, .. } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
+                _ => F::ZERO,
+            };
+
+            // Trace handler memory operations directly
+            mb.conditional_read(
+                config.handler_switches.read_interface,
+                Address {
+                    tag: MemoryTag::Interfaces.into(),
+                    addr: interface_index.into_bigint().0[0],
+                },
+            );
+
+            let current_head = mb.conditional_read(
+                config.handler_switches.read_head,
+                Address {
+                    tag: MemoryTag::HandlerStackHeads.into(),
+                    addr: interface_index.into_bigint().0[0],
+                },
+            )[0];
+
+            let node_data = mb.conditional_read(
+                config.handler_switches.read_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArena.into(),
+                    addr: current_head.into_bigint().0[0],
+                },
+            );
+
+            mb.conditional_write(
+                config.handler_switches.write_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArena.into(),
+                    addr: irw.handler_stack_counter.into_bigint().0[0],
+                },
+                if config.handler_switches.write_node {
+                    vec![irw.id_curr, current_head]
+                } else {
+                    vec![F::ZERO, F::ZERO]
+                },
+            );
+
+            mb.conditional_write(
+                config.handler_switches.write_head,
+                Address {
+                    tag: MemoryTag::HandlerStackHeads.into(),
+                    addr: interface_index.into_bigint().0[0],
+                },
+                vec![if config.handler_switches.write_node {
+                    irw.handler_stack_counter
+                } else if config.handler_switches.write_head {
+                    node_data.get(1).copied().unwrap_or(F::ZERO)
+                } else {
+                    F::ZERO
+                }],
+            );
+
+            // Update IRW for next iteration if this is install_handler
+            if config.execution_switches.install_handler {
+                irw.handler_stack_counter += F::ONE;
+            }
+        }
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
@@ -1867,12 +1880,29 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let (curr_write, target_write) = &self.write_ops[i];
         let (curr_mem_switches, target_mem_switches) = &self.mem_switches[i];
         let rom_switches = &self.rom_switches[i];
+        let handler_switches = &self.handler_switches[i];
+
+        // Compute interface index for handler operations
+        let interface_index = match instruction {
+            LedgerOperation::InstallHandler { interface_id } => self
+                .interface_resolver
+                .get_interface_index_field(*interface_id),
+            LedgerOperation::UninstallHandler { interface_id } => self
+                .interface_resolver
+                .get_interface_index_field(*interface_id),
+            LedgerOperation::GetHandlerFor { interface_id, .. } => self
+                .interface_resolver
+                .get_interface_index_field(*interface_id),
+            _ => F::ZERO,
+        };
 
         let default = PreWires::new(
             irw.clone(),
             curr_mem_switches.clone(),
             target_mem_switches.clone(),
             rom_switches.clone(),
+            handler_switches.clone(),
+            interface_index,
         );
 
         match instruction {
@@ -2021,21 +2051,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::InstallHandler { interface_id } => {
-                let config = instruction.get_config(irw);
                 let irw = PreWires {
                     switches: ExecutionSwitches::install_handler(),
                     val: *interface_id,
-                    interface_index: config.opcode_var_values.interface_index,
                     ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::UninstallHandler { interface_id } => {
-                let config = instruction.get_config(irw);
                 let irw = PreWires {
                     switches: ExecutionSwitches::uninstall_handler(),
                     val: *interface_id,
-                    interface_index: config.opcode_var_values.interface_index,
                     ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -2044,12 +2070,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 interface_id,
                 handler_id,
             } => {
-                let config = instruction.get_config(irw);
                 let irw = PreWires {
                     switches: ExecutionSwitches::get_handler_for(),
                     val: *interface_id,
                     ret: *handler_id,
-                    interface_index: config.opcode_var_values.interface_index,
                     ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -2400,7 +2424,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
 
         // Verify that Interfaces[interface_index] == interface_id
+        // This ensures the interface index witness is correct
         wires
+            .handler_state
             .interface_rom_read
             .conditional_enforce_equal(&wires.val, switch)?;
 
@@ -2424,12 +2450,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
 
         // Verify that Interfaces[interface_index] == interface_id
+        // This ensures the interface index witness is correct
         wires
+            .handler_state
             .interface_rom_read
             .conditional_enforce_equal(&wires.val, switch)?;
 
         // Read the node at current head: should contain (process_id, next_ptr)
-        let node_data = wires.handler_stack_node_read.clone();
+        let node_data = &wires.handler_state.handler_stack_node_read;
 
         // Verify the process_id in the node matches the current process (only installer can uninstall)
         wires
@@ -2444,12 +2472,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let switch = &wires.switches.get_handler_for;
 
         // Verify that Interfaces[interface_index] == interface_id
+        // This ensures the interface index witness is correct
         wires
+            .handler_state
             .interface_rom_read
             .conditional_enforce_equal(&wires.val, switch)?;
 
         // Read the node at current head: should contain (process_id, next_ptr)
-        let node_data = wires.handler_stack_node_read.clone();
+        let node_data = &wires.handler_state.handler_stack_node_read;
 
         // The process_id in the node IS the handler_id we want to return
         wires.ret.conditional_enforce_equal(&node_data[0], switch)?;
@@ -2503,6 +2533,8 @@ impl PreWires {
         curr_mem_switches: MemSwitchboard,
         target_mem_switches: MemSwitchboard,
         rom_switches: RomSwitchboard,
+        handler_switches: HandlerSwitchboard,
+        interface_index: F,
     ) -> Self {
         Self {
             switches: ExecutionSwitches::default(),
@@ -2512,13 +2544,14 @@ impl PreWires {
             ret: F::ZERO,
             program_hash: F::ZERO,
             caller: F::ZERO,
-            interface_index: F::ZERO,
+            interface_index,
             ret_is_some: false,
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
             curr_mem_switches,
             target_mem_switches,
             rom_switches,
+            handler_switches,
         }
     }
     pub fn debug_print(&self) {
@@ -2565,6 +2598,21 @@ impl RomSwitchboardWires {
             read_program_hash_target: Boolean::new_witness(cs.clone(), || {
                 Ok(switches.read_program_hash_target)
             })?,
+        })
+    }
+}
+
+impl HandlerSwitchboardWires {
+    pub fn allocate(
+        cs: ConstraintSystemRef<F>,
+        switches: &HandlerSwitchboard,
+    ) -> Result<Self, SynthesisError> {
+        Ok(Self {
+            read_interface: Boolean::new_witness(cs.clone(), || Ok(switches.read_interface))?,
+            read_head: Boolean::new_witness(cs.clone(), || Ok(switches.read_head))?,
+            read_node: Boolean::new_witness(cs.clone(), || Ok(switches.read_node))?,
+            write_node: Boolean::new_witness(cs.clone(), || Ok(switches.write_node))?,
+            write_head: Boolean::new_witness(cs.clone(), || Ok(switches.write_head))?,
         })
     }
 }
