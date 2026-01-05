@@ -187,7 +187,7 @@ mod tests {
         assert_expression_snapshot!(
             r#"
             // Transfer event
-            emit Transfer(from, to, amount)
+            emit Transfer(sender, to, amount)
             "#
         );
     }

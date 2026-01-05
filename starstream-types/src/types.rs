@@ -16,7 +16,7 @@ pub enum EffectKind {
     /// Pure function with no side effects.
     #[default]
     Pure,
-    /// Effectful function that interacts with blockchain state (requires `raise`).
+    /// Effectful function that raises effects which can be caught, handled, and resumed (requires `raise`).
     Effectful,
     /// Runtime function that calls external runtime/host functions (requires `runtime`).
     Runtime,

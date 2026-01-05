@@ -262,7 +262,7 @@ mod tests {
         assert_definition_snapshot!(
             r#"
             abi Events {
-                event Transfer(from: i64, to: i64);
+                event Transfer(sender: i64, to: i64);
             }
             "#
         );
@@ -273,7 +273,7 @@ mod tests {
         assert_definition_snapshot!(
             r#"
             abi Events {
-                event Transfer(from: i64, to: i64, amount: i64);
+                event Transfer(sender: i64, to: i64, amount: i64);
                 event Log(message: i64);
             }
             "#

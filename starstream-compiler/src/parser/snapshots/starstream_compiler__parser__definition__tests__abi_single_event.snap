@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/parser/definition.rs
-description: "Code:\n\nabi Events {\n    event Transfer(from: i64, to: i64);\n}\n"
+description: "Code:\n\nabi Events {\n    event Transfer(sender: i64, to: i64);\n}\n"
 ---
 Abi(
     AbiDef {
@@ -22,16 +22,16 @@ Abi(
                     params: [
                         FunctionParam {
                             name: Identifier {
-                                name: "from",
+                                name: "sender",
                                 span: Some(
-                                    32..36,
+                                    32..38,
                                 ),
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
                                     span: Some(
-                                        38..41,
+                                        40..43,
                                     ),
                                 },
                                 generics: [],
@@ -41,14 +41,14 @@ Abi(
                             name: Identifier {
                                 name: "to",
                                 span: Some(
-                                    43..45,
+                                    45..47,
                                 ),
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
                                     span: Some(
-                                        47..50,
+                                        49..52,
                                     ),
                                 },
                                 generics: [],

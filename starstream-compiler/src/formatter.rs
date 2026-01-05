@@ -36,22 +36,14 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
 }
 
 fn program_to_doc<'a>(program: &Program, source: &'a str) -> RcDoc<'a, ()> {
-    // Partition definitions: imports first, then everything else
-    let (imports, rest): (Vec<_>, Vec<_>) = program
-        .definitions
-        .iter()
-        .partition(|def| matches!(def.node, Definition::Import(_)));
+    // Sort definitions: imports first, then everything else
+    let mut definitions: Vec<_> = program.definitions.iter().collect();
+    definitions.sort_by_key(|def| !matches!(def.node, Definition::Import(_)));
 
-    let import_docs = imports
+    let all_docs: Vec<_> = definitions
         .iter()
-        .map(|x| spanned(x, source, |node| definition_to_doc(node, source)));
-
-    let rest_docs = rest
-        .iter()
-        .map(|x| spanned(x, source, |node| definition_to_doc(node, source)));
-
-    // Combine: imports, then a blank line separator (if both exist), then the rest
-    let all_docs: Vec<_> = import_docs.chain(rest_docs).collect();
+        .map(|x| spanned(x, source, |node| definition_to_doc(node, source)))
+        .collect();
 
     (if let Some(shebang) = &program.shebang {
         comment_to_doc(shebang, source)

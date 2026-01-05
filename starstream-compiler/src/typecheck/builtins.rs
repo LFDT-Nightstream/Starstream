@@ -28,8 +28,6 @@ impl BuiltinFunction {
 /// Registry of built-in interfaces and their exports.
 #[derive(Default)]
 pub struct BuiltinRegistry {
-    /// Maps `namespace:package/interface` -> `name` -> `BuiltinFunction`
-    interfaces: HashMap<String, HashMap<String, BuiltinFunction>>,
     /// Maps `namespace:package` -> `interface` -> `name` -> `BuiltinFunction`
     packages: HashMap<String, HashMap<String, HashMap<String, BuiltinFunction>>>,
 }
@@ -42,7 +40,6 @@ impl BuiltinRegistry {
     }
 
     /// Look up a function in a specific interface.
-    /// Path format: `namespace:package/interface`
     #[allow(dead_code)]
     pub fn get_interface_function(
         &self,
@@ -51,8 +48,11 @@ impl BuiltinRegistry {
         interface: &str,
         name: &str,
     ) -> Option<&BuiltinFunction> {
-        let path = format!("{namespace}:{package}/{interface}");
-        self.interfaces.get(&path).and_then(|iface| iface.get(name))
+        let pkg_path = format!("{namespace}:{package}");
+        self.packages
+            .get(&pkg_path)
+            .and_then(|pkg| pkg.get(interface))
+            .and_then(|iface| iface.get(name))
     }
 
     /// Look up an interface in a package (for namespace imports).
@@ -63,8 +63,10 @@ impl BuiltinRegistry {
         package: &str,
         interface: &str,
     ) -> Option<&HashMap<String, BuiltinFunction>> {
-        let path = format!("{namespace}:{package}/{interface}");
-        self.interfaces.get(&path)
+        let pkg_path = format!("{namespace}:{package}");
+        self.packages
+            .get(&pkg_path)
+            .and_then(|pkg| pkg.get(interface))
     }
 
     /// Check if a package exists.
@@ -108,10 +110,6 @@ impl BuiltinRegistry {
             },
         );
 
-        self.interfaces
-            .insert("starstream:std/cardano".to_string(), cardano.clone());
-
-        // Register at package level too
         let mut std_package = HashMap::new();
         std_package.insert("cardano".to_string(), cardano);
         self.packages

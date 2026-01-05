@@ -6,3 +6,4 @@ target
 .DS_Store
 papers/
 *.snap.new
+.claude/settings.local.json

@@ -254,6 +254,7 @@ The following reserved words may not be used as identifiers:
 - `emit`
 - `import`
 - `from`
+- `as`
 - `raise`
 - `runtime`
 
@@ -323,13 +324,13 @@ Functions are accessed using namespace-qualified syntax: `cardano::blockHeight()
 
 Some imported functions have effect annotations that require special call syntax:
 
-- **Runtime functions** access runtime-only information (e.g., block height) and must be called with the `runtime` keyword:
+- **Runtime functions** are implemented by the language runtime as host functions (FFI calls) and must be called with the `runtime` keyword:
   ```starstream
   let height = runtime blockHeight();
   let height = runtime cardano::blockHeight();
   ```
 
-- **Effectful functions** have side effects and must be called with the `raise` keyword:
+- **Effectful functions** raise effects that can be caught, handled, and resumed by effect handlers. They must be called with the `raise` keyword:
   ```starstream
   let result = raise someEffectfulFunction();
   ```

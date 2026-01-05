@@ -914,12 +914,12 @@ fn abi_emit_traces() {
     assert_typecheck_snapshot!(
         r#"
         abi Events {
-            event Transfer(from: i64, to: i64, amount: i64);
+            event Transfer(sender: i64, to: i64, amount: i64);
             event Log(message: i64);
         }
 
-        fn transfer(from: i64, to: i64, amount: i64) {
-            emit Transfer(from, to, amount);
+        fn transfer(sender: i64, to: i64, amount: i64) {
+            emit Transfer(sender, to, amount);
             emit Log(amount);
         }
         "#
@@ -942,7 +942,7 @@ fn emit_arity_mismatch_error() {
     assert_typecheck_snapshot!(
         r#"
         abi Events {
-            event Transfer(from: i64, to: i64);
+            event Transfer(sender: i64, to: i64);
         }
 
         fn main() {
@@ -957,7 +957,7 @@ fn emit_type_mismatch_error() {
     assert_typecheck_snapshot!(
         r#"
         abi Events {
-            event Transfer(from: i64, to: i64);
+            event Transfer(sender: i64, to: i64);
         }
 
         fn main() {
