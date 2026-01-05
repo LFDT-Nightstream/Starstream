@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nimport { blockHeight } from starstream:std/cardano;\n\nfn main() {\n    let x = blockHeight();\n}\n"
+---
+E0041 (https://starstream.nightstream.dev/errors/E0041)
+
+  x runtime function `blockHeight` must be called with `runtime`
+   ,-[test.star:4:13]
+ 3 | fn main() {
+ 4 |     let x = blockHeight();
+   :             ^^^^^^^^^^^
+ 5 | }
+   `----
+  help: use `runtime` to call runtime functions, e.g., `runtime blockHeight()`

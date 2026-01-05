@@ -22,8 +22,8 @@ use starstream_types::{
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
         TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
-        TypedFunctionDef, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement,
-        TypedStructDef, TypedStructLiteralField,
+        TypedFunctionDef, TypedImportDef, TypedImportItems, TypedMatchArm, TypedPattern,
+        TypedProgram, TypedStatement, TypedStructDef, TypedStructLiteralField,
     },
     types::Type,
 };
@@ -33,24 +33,46 @@ use crate::diagnostics::diagnostic_to_lsp;
 /// Analysis data cached for an open document.
 #[derive(Debug)]
 pub struct DocumentState {
+    /// Rope representation of the document text for efficient position/offset conversions.
     rope: Rope,
+    /// LSP document version, used to track incremental updates.
     version: Option<i32>,
+    /// Untyped AST produced by the parser, if parsing succeeded.
     program: Option<Arc<Program>>,
+    /// Typed AST and inference results, if type-checking succeeded.
     typed: Option<TypecheckSuccess>,
+    /// Parse and type errors converted to LSP diagnostics.
     diagnostics: Vec<tower_lsp_server::lsp_types::Diagnostic>,
+    /// Hover information indexed by source span.
     hover_entries: Vec<HoverEntry>,
+    /// Go-to-definition mappings from usage spans to definition spans.
     definition_entries: Vec<DefinitionEntry>,
+    /// Hierarchical document symbols for the outline view.
     document_symbols: Vec<DocumentSymbol>,
+    /// Maps type names (structs, enums) to their definition spans.
     type_definitions: HashMap<String, Span>,
+    /// Maps function names to their definition spans.
     function_definitions: HashMap<String, Span>,
+    /// Maps struct name -> field name -> field definition span.
     struct_field_definitions: HashMap<String, HashMap<String, Span>>,
+    /// Maps struct name -> field name -> field type.
     struct_field_types: HashMap<String, HashMap<String, Type>>,
+    /// Maps enum name -> variant name -> variant definition span.
     enum_variant_definitions: HashMap<String, HashMap<String, Span>>,
+    /// Maps (enum, variant) -> field name -> field definition span for struct variants.
     enum_variant_field_definitions: HashMap<EnumVariantKey, HashMap<String, Span>>,
+    /// Maps (enum, variant) -> payload info (tuple types or struct field types).
     enum_variant_infos: HashMap<EnumVariantKey, EnumVariantPayloadInfo>,
+    /// List of struct types for quick lookup by name.
     struct_type_index: Vec<StructTypeEntry>,
+    /// Maps struct name -> its resolved Type.
     struct_types: HashMap<String, Type>,
+    /// Maps enum name -> its resolved Type.
     enum_types: HashMap<String, Type>,
+    /// Maps imported local names to their definition spans (in import statement).
+    import_definitions: HashMap<String, Span>,
+    /// Maps namespace alias -> function name -> (alias span, function type).
+    namespace_functions: HashMap<String, HashMap<String, (Span, Type)>>,
 }
 
 impl DocumentState {
@@ -75,6 +97,8 @@ impl DocumentState {
             struct_type_index: Vec::new(),
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
+            import_definitions: HashMap::new(),
+            namespace_functions: HashMap::new(),
         };
 
         state.reanalyse(uri, text);
@@ -144,6 +168,8 @@ impl DocumentState {
         self.struct_type_index.clear();
         self.struct_types.clear();
         self.enum_types.clear();
+        self.import_definitions.clear();
+        self.namespace_functions.clear();
 
         let parse_output = parse_program(text);
 
@@ -330,11 +356,52 @@ impl DocumentState {
         scopes: &mut Vec<HashMap<String, Span>>,
     ) {
         match definition {
+            TypedDefinition::Import(import) => self.collect_import(import),
             TypedDefinition::Function(function) => self.collect_function(function, scopes),
             TypedDefinition::Struct(definition) => self.collect_struct(definition),
             TypedDefinition::Enum(definition) => self.collect_enum(definition),
             TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
             TypedDefinition::Abi(definition) => self.collect_abi(definition),
+        }
+    }
+
+    fn collect_import(&mut self, import: &TypedImportDef) {
+        match &import.items {
+            TypedImportItems::Named(items) => {
+                for item in items {
+                    if let Some(span) = item.local.span {
+                        self.definition_entries.push(DefinitionEntry {
+                            usage: span,
+                            target: span,
+                        });
+
+                        self.import_definitions
+                            .insert(item.local.name.clone(), span);
+
+                        self.add_hover_span(span, &item.ty);
+                    }
+                }
+            }
+            TypedImportItems::Namespace { alias, functions } => {
+                if let Some(alias_span) = alias.span {
+                    self.definition_entries.push(DefinitionEntry {
+                        usage: alias_span,
+                        target: alias_span,
+                    });
+
+                    let func_names: Vec<_> =
+                        functions.iter().map(|f| f.local.name.clone()).collect();
+                    let label = format!("namespace {} ({})", alias.name, func_names.join(", "));
+                    self.add_hover_label(alias_span, label);
+
+                    let mut ns_funcs = HashMap::new();
+                    for func in functions {
+                        ns_funcs.insert(func.local.name.clone(), (alias_span, func.ty.clone()));
+                    }
+                    self.namespace_functions
+                        .insert(alias.name.clone(), ns_funcs);
+                }
+            }
         }
     }
 
@@ -719,6 +786,12 @@ impl DocumentState {
                     self.collect_expr(arg, scopes);
                 }
             }
+            TypedExprKind::Raise { expr: inner } => {
+                self.collect_expr(inner, scopes);
+            }
+            TypedExprKind::Runtime { expr: inner } => {
+                self.collect_expr(inner, scopes);
+            }
         }
     }
 
@@ -1074,6 +1147,9 @@ impl DocumentState {
                         }
                     }
                 }
+                untyped_ast::Definition::Import(_) => {
+                    // Imports don't have type annotations to collect
+                }
             }
         }
     }
@@ -1178,6 +1254,11 @@ impl DocumentState {
             return Some(*span);
         }
 
+        // Check imported names
+        if let Some(span) = self.import_definitions.get(name) {
+            return Some(*span);
+        }
+
         None
     }
 
@@ -1230,6 +1311,7 @@ impl DocumentState {
             .definitions
             .iter()
             .filter_map(|definition| match definition {
+                TypedDefinition::Import(_) => None,
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),

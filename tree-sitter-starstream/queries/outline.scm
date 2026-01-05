@@ -40,3 +40,10 @@
     "event" @context
     (identifier) @name
 ) @item)
+
+((import_definition
+    "import" @context
+    (_)*  ; import items
+    "from" @context
+    (import_source) @name
+) @item)

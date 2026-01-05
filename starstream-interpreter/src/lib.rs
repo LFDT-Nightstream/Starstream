@@ -202,7 +202,9 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         | TypedExprKind::EnumConstructor { .. }
         | TypedExprKind::Call { .. }
         | TypedExprKind::Match { .. }
-        | TypedExprKind::Emit { .. } => {
+        | TypedExprKind::Emit { .. }
+        | TypedExprKind::Raise { .. }
+        | TypedExprKind::Runtime { .. } => {
             todo!("not supported in the interpreter yet")
         }
     })

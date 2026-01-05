@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/parser/definition.rs
-description: "Code:\n\nabi Events {\n    event Transfer(from: i64, to: i64, amount: i64);\n    event Log(message: i64);\n}\n"
+description: "Code:\n\nabi Events {\n    event Transfer(sender: i64, to: i64, amount: i64);\n    event Log(message: i64);\n}\n"
 ---
 Abi(
     AbiDef {
@@ -22,16 +22,16 @@ Abi(
                     params: [
                         FunctionParam {
                             name: Identifier {
-                                name: "from",
+                                name: "sender",
                                 span: Some(
-                                    32..36,
+                                    32..38,
                                 ),
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
                                     span: Some(
-                                        38..41,
+                                        40..43,
                                     ),
                                 },
                                 generics: [],
@@ -41,14 +41,14 @@ Abi(
                             name: Identifier {
                                 name: "to",
                                 span: Some(
-                                    43..45,
+                                    45..47,
                                 ),
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
                                     span: Some(
-                                        47..50,
+                                        49..52,
                                     ),
                                 },
                                 generics: [],
@@ -58,14 +58,14 @@ Abi(
                             name: Identifier {
                                 name: "amount",
                                 span: Some(
-                                    52..58,
+                                    54..60,
                                 ),
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
                                     span: Some(
-                                        60..63,
+                                        62..65,
                                     ),
                                 },
                                 generics: [],
@@ -79,7 +79,7 @@ Abi(
                     name: Identifier {
                         name: "Log",
                         span: Some(
-                            76..79,
+                            78..81,
                         ),
                     },
                     params: [
@@ -87,14 +87,14 @@ Abi(
                             name: Identifier {
                                 name: "message",
                                 span: Some(
-                                    80..87,
+                                    82..89,
                                 ),
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
                                     span: Some(
-                                        89..92,
+                                        91..94,
                                     ),
                                 },
                                 generics: [],

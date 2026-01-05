@@ -18,6 +18,14 @@
   "struct"
   "enum"
   "match"
+  "abi"
+  "event"
+  "emit"
+  "import"
+  "from"
+  "as"
+  "raise"
+  "runtime"
 ] @keyword
 
 ; Literals
@@ -84,5 +92,33 @@
 (match_arm "=>" @operator)
 (utxo_definition "utxo" @keyword)
 (storage_utxo_part "storage" @keyword)
+; ABI and events
+(abi_definition (identifier) @type.definition)
+(event_definition (identifier) @function.definition)
+(emit_expression
+  event: (identifier) @function.call)
+
+; Import definitions
+(import_source
+  namespace: (identifier) @namespace)
+(import_source
+  package: (identifier) @namespace)
+(import_source
+  interface: (identifier) @namespace)
+(import_source ":" @operator)
+(import_source "/" @operator)
+(import_named_item
+  imported: (identifier) @function)
+(import_named_item
+  local: (identifier) @function)
+(import_named_items "{" @punctuation.bracket)
+(import_named_items "}" @punctuation.bracket)
+
+; Raise expression
+(raise_expression "raise" @keyword)
+
+; Runtime expression
+(runtime_expression "runtime" @keyword)
+
 (comment) @comment
 (shebang) @comment

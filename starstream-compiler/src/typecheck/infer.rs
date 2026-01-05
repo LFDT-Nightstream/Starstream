@@ -6,19 +6,20 @@ use std::{
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, EventDef, Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef,
+    AbiDef, AbiPart, EffectKind, EventDef, Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef,
     TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
-        EnumVariantPayload, Expr, FunctionDef, Identifier, Literal, Pattern, Program, Statement,
-        StructDef, TypeAnnotation, UnaryOp,
+        EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, Literal,
+        Pattern, Program, Statement, StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
         TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload,
         TypedEventDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam,
-        TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef,
-        TypedStructField, TypedStructLiteralField, TypedStructPatternField,
+        TypedImportDef, TypedImportItems, TypedImportNamedItem, TypedImportSource, TypedMatchArm,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructField,
+        TypedStructLiteralField, TypedStructPatternField,
     },
     types::{
         EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
@@ -27,6 +28,7 @@ use starstream_types::{
 };
 
 use super::{
+    builtins::BuiltinRegistry,
     env::{Binding, TypeEnv},
     errors::{ConditionContext, EnumPayloadKind, TypeError, TypeErrorKind},
     tree::InferenceTree,
@@ -207,6 +209,8 @@ struct Inferencer {
     types: TypeRegistry,
     functions: FunctionRegistry,
     events: EventRegistry,
+    namespaces: NamespaceRegistry,
+    builtins: BuiltinRegistry,
 }
 
 struct FunctionRegistry {
@@ -234,6 +238,7 @@ struct FunctionInfo {
     param_types: Vec<Type>,
     param_spans: Vec<Span>,
     return_type: Type,
+    effect: EffectKind,
     name_span: Span,
 }
 
@@ -265,10 +270,42 @@ struct EventInfo {
     name_span: Span,
 }
 
+/// Registry for namespace imports like `import cardano from starstream:std/cardano;`
+struct NamespaceRegistry {
+    /// Maps namespace alias -> (function_name -> FunctionInfo)
+    entries: HashMap<String, HashMap<String, FunctionInfo>>,
+}
+
+impl NamespaceRegistry {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, namespace: String, functions: HashMap<String, FunctionInfo>) {
+        self.entries.insert(namespace, functions);
+    }
+
+    fn get(&self, namespace: &str) -> Option<&HashMap<String, FunctionInfo>> {
+        self.entries.get(namespace)
+    }
+
+    fn contains(&self, namespace: &str) -> bool {
+        self.entries.contains_key(namespace)
+    }
+}
+
 struct FunctionCtx {
     expected_return: Type,
     return_span: Span,
     saw_return: bool,
+    /// Whether we are inside a `raise` expression. Effectful functions can only
+    /// be called inside a raise.
+    inside_raise: bool,
+    /// Whether we are inside a `runtime` expression. Runtime functions can only
+    /// be called inside a runtime.
+    inside_runtime: bool,
 }
 
 impl Inferencer {
@@ -281,6 +318,8 @@ impl Inferencer {
             types: TypeRegistry::new(),
             functions: FunctionRegistry::new(),
             events: EventRegistry::new(),
+            namespaces: NamespaceRegistry::new(),
+            builtins: BuiltinRegistry::new(),
         }
     }
 
@@ -290,6 +329,7 @@ impl Inferencer {
     ) -> Result<(), TypeError> {
         for definition in definitions {
             match &definition.node {
+                Definition::Import(_) => {}
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
@@ -327,15 +367,145 @@ impl Inferencer {
             Some(annotation) => self.type_from_annotation(annotation)?,
             None => Type::unit(),
         };
+        // User-defined functions are currently always pure
         self.functions.insert(
             name,
             FunctionInfo {
                 param_types,
                 param_spans,
                 return_type,
+                effect: EffectKind::Pure,
                 name_span,
             },
         );
+        Ok(())
+    }
+
+    fn register_import(&mut self, env: &mut TypeEnv, import: &ImportDef) -> Result<(), TypeError> {
+        let namespace = &import.from.namespace.name;
+        let package = &import.from.package.name;
+
+        // Check if the package exists in our builtin registry
+        if !self.builtins.has_package(namespace, package) {
+            return Err(TypeError::new(
+                TypeErrorKind::UnknownImportPackage {
+                    namespace: namespace.clone(),
+                    package: package.clone(),
+                },
+                import.from.namespace.span.unwrap_or_else(dummy_span),
+            ));
+        }
+
+        match &import.items {
+            ImportItems::Named(items) => {
+                // Named import: `import { blockHeight } from starstream:std/cardano;`
+                let interface = import.from.interface.as_ref().ok_or_else(|| {
+                    TypeError::new(
+                        TypeErrorKind::UnknownImportInterface {
+                            namespace: namespace.clone(),
+                            package: package.clone(),
+                            interface: "".to_string(),
+                        },
+                        import.from.package.span.unwrap_or_else(dummy_span),
+                    )
+                    .with_help("named imports require an interface, e.g., `starstream:std/cardano`")
+                })?;
+
+                let interface_funcs = self
+                    .builtins
+                    .get_interface(namespace, package, &interface.name)
+                    .ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownImportInterface {
+                                namespace: namespace.clone(),
+                                package: package.clone(),
+                                interface: interface.name.clone(),
+                            },
+                            interface.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                for item in items {
+                    let builtin = interface_funcs.get(&item.imported.name).ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownImportFunction {
+                                path: format!("{namespace}:{package}/{}", interface.name),
+                                name: item.imported.name.clone(),
+                            },
+                            item.imported.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                    // Register the function in our function registry under the local name
+                    self.functions.insert(
+                        item.local.name.clone(),
+                        FunctionInfo {
+                            param_types: builtin.params.clone(),
+                            param_spans: vec![], // No source spans for builtins
+                            return_type: builtin.return_type.clone(),
+                            effect: builtin.effect,
+                            name_span: item.local.span.unwrap_or_else(dummy_span),
+                        },
+                    );
+
+                    // Also add to the type environment so it can be looked up as a variable
+                    env.insert(
+                        item.local.name.clone(),
+                        Binding {
+                            decl_span: item.local.span.unwrap_or_else(dummy_span),
+                            mutable: false,
+                            scheme: Scheme::monomorphic(builtin.to_function_type()),
+                        },
+                    );
+                }
+            }
+            ImportItems::Namespace(alias) => {
+                // Namespace import: `import cardano from starstream:std/cardano;`
+                let interface = import.from.interface.as_ref().ok_or_else(|| {
+                    TypeError::new(
+                        TypeErrorKind::UnknownImportInterface {
+                            namespace: namespace.clone(),
+                            package: package.clone(),
+                            interface: "".to_string(),
+                        },
+                        import.from.package.span.unwrap_or_else(dummy_span),
+                    )
+                    .with_help("namespace imports require an interface, e.g., `import cardano from starstream:std/cardano;`")
+                })?;
+
+                let interface_funcs = self
+                    .builtins
+                    .get_interface(namespace, package, &interface.name)
+                    .ok_or_else(|| {
+                        TypeError::new(
+                            TypeErrorKind::UnknownImportInterface {
+                                namespace: namespace.clone(),
+                                package: package.clone(),
+                                interface: interface.name.clone(),
+                            },
+                            interface.span.unwrap_or_else(dummy_span),
+                        )
+                    })?;
+
+                // Build a map of all functions in this interface
+                let mut functions = HashMap::new();
+                for (name, builtin) in interface_funcs {
+                    functions.insert(
+                        name.clone(),
+                        FunctionInfo {
+                            param_types: builtin.params.clone(),
+                            param_spans: vec![],
+                            return_type: builtin.return_type.clone(),
+                            effect: builtin.effect,
+                            name_span: alias.span.unwrap_or_else(dummy_span),
+                        },
+                    );
+                }
+
+                self.namespaces.insert(alias.name.clone(), functions);
+            }
+        }
+
         Ok(())
     }
 
@@ -592,6 +762,68 @@ impl Inferencer {
             variants,
             ty: info.ty,
         })
+    }
+
+    fn build_typed_import(&self, def: &ImportDef) -> TypedImportDef {
+        use starstream_types::ast::ImportItems;
+
+        let namespace = &def.from.namespace.name;
+        let package = &def.from.package.name;
+        let interface_name = def.from.interface.as_ref().map(|i| i.name.as_str());
+
+        let items = match &def.items {
+            ImportItems::Named(named) => TypedImportItems::Named(
+                named
+                    .iter()
+                    .map(|item| {
+                        // Look up the function type from the builtins registry
+                        let ty = interface_name
+                            .and_then(|iface| {
+                                self.builtins
+                                    .get_interface(namespace, package, iface)
+                                    .and_then(|funcs| funcs.get(&item.imported.name))
+                                    .map(|f| f.to_function_type())
+                            })
+                            .unwrap_or(Type::Unit);
+
+                        TypedImportNamedItem {
+                            imported: item.imported.clone(),
+                            local: item.local.clone(),
+                            ty,
+                        }
+                    })
+                    .collect(),
+            ),
+            ImportItems::Namespace(alias) => {
+                // Build the list of functions available in this namespace
+                let functions = interface_name
+                    .and_then(|iface| self.builtins.get_interface(namespace, package, iface))
+                    .map(|funcs| {
+                        funcs
+                            .iter()
+                            .map(|(name, builtin)| TypedImportNamedItem {
+                                imported: Identifier::anon(name),
+                                local: Identifier::anon(name),
+                                ty: builtin.to_function_type(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                TypedImportItems::Namespace {
+                    alias: alias.clone(),
+                    functions,
+                }
+            }
+        };
+
+        let from = TypedImportSource {
+            namespace: def.from.namespace.clone(),
+            package: def.from.package.clone(),
+            interface: def.from.interface.clone(),
+        };
+
+        TypedImportDef { items, from }
     }
 
     fn build_typed_abi(&self, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
@@ -997,6 +1229,11 @@ impl Inferencer {
         definition: &Definition,
     ) -> Result<(TypedDefinition, InferenceTree), TypeError> {
         match definition {
+            Definition::Import(import) => {
+                self.register_import(env, import)?;
+                let typed = self.build_typed_import(import);
+                Ok((TypedDefinition::Import(typed), InferenceTree::default()))
+            }
             Definition::Function(function) => {
                 let (typed_function, trace) = self.infer_function(env, function)?;
 
@@ -1068,6 +1305,8 @@ impl Inferencer {
             expected_return: expected_return.clone(),
             return_span,
             saw_return: false,
+            inside_raise: false,
+            inside_runtime: false,
         };
 
         let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
@@ -1421,10 +1660,7 @@ impl Inferencer {
                 let ty = if let Some(binding) = env.get(name).cloned() {
                     self.instantiate(&binding.scheme)
                 } else if let Some(func_info) = self.functions.get(name) {
-                    Type::Function(
-                        func_info.param_types.clone(),
-                        Box::new(func_info.return_type.clone()),
-                    )
+                    Type::function(func_info.param_types.clone(), func_info.return_type.clone())
                 } else {
                     let span = span.unwrap_or(expr.span);
                     return Err(TypeError::new(
@@ -1827,7 +2063,190 @@ impl Inferencer {
                 variant,
                 payload,
             } => {
-                let info = self.lookup_enum_info(enum_name)?;
+                // First, check if this is a namespace-qualified function call
+                // e.g., `cardano::blockHeight()` where `cardano` is an imported namespace
+                let ns_func_info = self
+                    .namespaces
+                    .get(&enum_name.name)
+                    .and_then(|funcs| funcs.get(&variant.name))
+                    .cloned();
+
+                if let Some(func_info) = ns_func_info {
+                    // This is a namespace call
+                    // Found the function in the namespace
+                    let args: &[Spanned<Expr>] = match payload {
+                        EnumConstructorPayload::Tuple(args) => args,
+                        EnumConstructorPayload::Unit => {
+                            // Unit payload means no-arg call: `cardano::blockHeight`
+                            // Treat as zero-arg call
+                            &[]
+                        }
+                        EnumConstructorPayload::Struct(_) => {
+                            return Err(TypeError::new(
+                                TypeErrorKind::ArityMismatch {
+                                    expected: func_info.param_types.len(),
+                                    found: 0,
+                                },
+                                expr.span,
+                            )
+                            .with_help(
+                                "namespace functions use tuple-style arguments, not struct syntax",
+                            ));
+                        }
+                    };
+
+                    let param_types = &func_info.param_types;
+                    let return_type = &func_info.return_type;
+                    let effect = func_info.effect;
+
+                    // Check effect: runtime functions need `runtime` keyword
+                    if effect == EffectKind::Runtime && !ctx.inside_runtime {
+                        return Err(TypeError::new(
+                            TypeErrorKind::RuntimeWithoutKeyword {
+                                function_name: variant.name.clone(),
+                            },
+                            variant.span.unwrap_or(expr.span),
+                        )
+                        .with_help(format!(
+                            "use `runtime` to call runtime functions, e.g., `runtime {}::{}()`",
+                            enum_name.name, variant.name
+                        )));
+                    }
+
+                    // Check effect: effectful functions need `raise` keyword
+                    if effect == EffectKind::Effectful && !ctx.inside_raise {
+                        return Err(TypeError::new(
+                            TypeErrorKind::EffectfulWithoutRaise {
+                                function_name: variant.name.clone(),
+                            },
+                            variant.span.unwrap_or(expr.span),
+                        )
+                        .with_help(format!(
+                            "use `raise` to call effectful functions, e.g., `raise {}::{}()`",
+                            enum_name.name, variant.name
+                        )));
+                    }
+
+                    // Check arity
+                    if args.len() != param_types.len() {
+                        return Err(TypeError::new(
+                            TypeErrorKind::ArityMismatch {
+                                expected: param_types.len(),
+                                found: args.len(),
+                            },
+                            expr.span,
+                        ));
+                    }
+
+                    // Typecheck arguments
+                    let mut children = Vec::new();
+                    let mut typed_args = Vec::with_capacity(args.len());
+
+                    for (index, (arg, expected_ty)) in
+                        args.iter().zip(param_types.iter()).enumerate()
+                    {
+                        let (typed_arg, arg_trace) = self.infer_expr(env, arg, ctx)?;
+                        let actual_ty = typed_arg.node.ty.clone();
+
+                        let (_, unify_trace) = self.unify(
+                            actual_ty.clone(),
+                            expected_ty.clone(),
+                            arg.span,
+                            arg.span,
+                            TypeErrorKind::ArgumentTypeMismatch {
+                                expected: expected_ty.clone(),
+                                found: self.apply(&actual_ty),
+                                position: index + 1,
+                                param_span: None,
+                            },
+                        )?;
+
+                        children.push(arg_trace);
+                        children.push(unify_trace);
+                        typed_args.push(typed_arg);
+                    }
+
+                    // Build the typed call - we use TypedExprKind::Call with a synthetic callee
+                    let callee_ty = Type::Function {
+                        params: param_types.clone(),
+                        result: Box::new(return_type.clone()),
+                        effect,
+                    };
+
+                    let callee_ident = Identifier {
+                        name: format!("{}::{}", enum_name.name, variant.name),
+                        span: variant.span,
+                    };
+
+                    let typed_callee = Spanned::new(
+                        TypedExpr::new(callee_ty, TypedExprKind::Identifier(callee_ident)),
+                        variant.span.unwrap_or(expr.span),
+                    );
+
+                    let typed = Spanned::new(
+                        TypedExpr::new(
+                            return_type.clone(),
+                            TypedExprKind::Call {
+                                callee: Box::new(typed_callee),
+                                args: typed_args,
+                            },
+                        ),
+                        expr.span,
+                    );
+
+                    let result_repr = self.maybe_string(|| self.format_type(return_type));
+                    let tree = self.make_trace(
+                        "T-NamespaceCall",
+                        env_context,
+                        subject_repr,
+                        result_repr,
+                        || children,
+                    );
+
+                    return Ok((typed, tree));
+                } else if self.namespaces.contains(&enum_name.name) {
+                    // Namespace exists but function not found
+                    return Err(TypeError::new(
+                        TypeErrorKind::UnknownImportFunction {
+                            path: enum_name.name.clone(),
+                            name: variant.name.clone(),
+                        },
+                        variant.span.unwrap_or_else(dummy_span),
+                    ));
+                }
+
+                // Not a namespace - check for enum
+                // Use casing heuristic for better error messages
+                let is_likely_namespace = enum_name
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_lowercase())
+                    .unwrap_or(false);
+
+                let info = self.types.enum_info(&enum_name.name).ok_or_else(|| {
+                    if is_likely_namespace {
+                        TypeError::new(
+                            TypeErrorKind::UnknownImportPackage {
+                                namespace: enum_name.name.clone(),
+                                package: "".to_string(),
+                            },
+                            enum_name.span.unwrap_or_else(dummy_span),
+                        )
+                        .with_primary_message(format!("unknown namespace `{}`", enum_name.name))
+                        .with_help(format!(
+                            "did you forget to import? try: `import {} from starstream:std/{};`",
+                            enum_name.name, enum_name.name
+                        ))
+                    } else {
+                        TypeError::new(
+                            TypeErrorKind::UnknownEnum {
+                                name: enum_name.name.clone(),
+                            },
+                            enum_name.span.unwrap_or_else(dummy_span),
+                        )
+                    }
+                })?;
                 let variant_info = info
                     .variants
                     .iter()
@@ -2209,13 +2628,17 @@ impl Inferencer {
                     None
                 };
 
-                let (param_types, param_spans, return_type) = match &callee_ty {
-                    Type::Function(params, ret) => {
-                        let spans = callee_name
+                let (param_types, param_spans, return_type, effect) = match &callee_ty {
+                    Type::Function {
+                        params,
+                        result,
+                        effect,
+                    } => {
+                        let (spans, eff) = callee_name
                             .and_then(|name| self.functions.get(name))
-                            .map(|info| info.param_spans.clone())
-                            .unwrap_or_default();
-                        (params.clone(), spans, (**ret).clone())
+                            .map(|info| (info.param_spans.clone(), info.effect))
+                            .unwrap_or_else(|| (vec![], *effect));
+                        (params.clone(), spans, (**result).clone(), eff)
                     }
                     _ => {
                         if let Some(name) = callee_name {
@@ -2224,6 +2647,7 @@ impl Inferencer {
                                     info.param_types.clone(),
                                     info.param_spans.clone(),
                                     info.return_type.clone(),
+                                    info.effect,
                                 )
                             } else {
                                 return Err(TypeError::new(
@@ -2239,6 +2663,34 @@ impl Inferencer {
                         }
                     }
                 };
+
+                // Check effect: effectful functions can only be called inside `raise`
+                if effect == EffectKind::Effectful && !ctx.inside_raise {
+                    let func_name = callee_name.unwrap_or("<anonymous>").to_string();
+                    return Err(TypeError::new(
+                        TypeErrorKind::EffectfulWithoutRaise {
+                            function_name: func_name,
+                        },
+                        callee.span,
+                    )
+                    .with_help(
+                        "use `raise` to call effectful functions, e.g., `raise someEffect()`",
+                    ));
+                }
+
+                // Check effect: runtime functions can only be called inside `runtime`
+                if effect == EffectKind::Runtime && !ctx.inside_runtime {
+                    let func_name = callee_name.unwrap_or("<anonymous>").to_string();
+                    return Err(TypeError::new(
+                        TypeErrorKind::RuntimeWithoutKeyword {
+                            function_name: func_name,
+                        },
+                        callee.span,
+                    )
+                    .with_help(
+                        "use `runtime` to call runtime functions, e.g., `runtime blockHeight()`",
+                    ));
+                }
 
                 if args.len() != param_types.len() {
                     return Err(TypeError::new(
@@ -2366,6 +2818,110 @@ impl Inferencer {
                 let tree =
                     self.make_trace("T-Emit", env_context, subject_repr, result_repr, || {
                         children
+                    });
+
+                Ok((typed, tree))
+            }
+            Expr::Raise { expr: inner_expr } => {
+                // Set inside_raise for the inner expression
+                let was_inside_raise = ctx.inside_raise;
+                ctx.inside_raise = true;
+
+                let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
+
+                ctx.inside_raise = was_inside_raise;
+
+                // Validate that the inner expression is an effectful call
+                let is_effectful_call =
+                    if let TypedExprKind::Call { callee, .. } = &typed_inner.node.kind {
+                        matches!(
+                            callee.node.ty,
+                            Type::Function {
+                                effect: EffectKind::Effectful,
+                                ..
+                            }
+                        )
+                    } else {
+                        false
+                    };
+
+                if !is_effectful_call {
+                    return Err(TypeError::new(
+                        TypeErrorKind::RaiseRequiresEffectful,
+                        inner_expr.span,
+                    )
+                    .with_help("`raise` should wrap an effectful function call"));
+                }
+
+                let result_ty = typed_inner.node.ty.clone();
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        result_ty.clone(),
+                        TypedExprKind::Raise {
+                            expr: Box::new(typed_inner),
+                        },
+                    ),
+                    expr.span,
+                );
+
+                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
+
+                let tree =
+                    self.make_trace("T-Raise", env_context, subject_repr, result_repr, || {
+                        vec![inner_trace]
+                    });
+
+                Ok((typed, tree))
+            }
+            Expr::Runtime { expr: inner_expr } => {
+                // Set inside_runtime for the inner expression
+                let was_inside_runtime = ctx.inside_runtime;
+                ctx.inside_runtime = true;
+
+                let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
+
+                ctx.inside_runtime = was_inside_runtime;
+
+                // Validate that the inner expression is a runtime call
+                let is_runtime_call =
+                    if let TypedExprKind::Call { callee, .. } = &typed_inner.node.kind {
+                        matches!(
+                            callee.node.ty,
+                            Type::Function {
+                                effect: EffectKind::Runtime,
+                                ..
+                            }
+                        )
+                    } else {
+                        false
+                    };
+
+                if !is_runtime_call {
+                    return Err(TypeError::new(
+                        TypeErrorKind::RuntimeRequiresRuntime,
+                        inner_expr.span,
+                    )
+                    .with_help("`runtime` should wrap a runtime function call"));
+                }
+
+                let result_ty = typed_inner.node.ty.clone();
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        result_ty.clone(),
+                        TypedExprKind::Runtime {
+                            expr: Box::new(typed_inner),
+                        },
+                    ),
+                    expr.span,
+                );
+
+                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
+
+                let tree =
+                    self.make_trace("T-Runtime", env_context, subject_repr, result_repr, || {
+                        vec![inner_trace]
                     });
 
                 Ok((typed, tree))
@@ -2542,10 +3098,15 @@ impl Inferencer {
                 Some(ty) => self.apply(ty),
                 None => Type::Var(*id),
             },
-            Type::Function(params, result) => Type::Function(
-                params.iter().map(|t| self.apply(t)).collect(),
-                Box::new(self.apply(result)),
-            ),
+            Type::Function {
+                params,
+                result,
+                effect,
+            } => Type::Function {
+                params: params.iter().map(|t| self.apply(t)).collect(),
+                result: Box::new(self.apply(result)),
+                effect: *effect,
+            },
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
             Type::Record(record) => Type::Record(RecordType {
                 name: record.name.clone(),
@@ -2602,7 +3163,10 @@ impl Inferencer {
         match definition {
             TypedDefinition::Function(function) => self.apply_function(function),
             TypedDefinition::Utxo(utxo) => self.apply_utxo(utxo),
-            TypedDefinition::Struct(_) | TypedDefinition::Enum(_) | TypedDefinition::Abi(_) => {}
+            TypedDefinition::Import(_)
+            | TypedDefinition::Struct(_)
+            | TypedDefinition::Enum(_)
+            | TypedDefinition::Abi(_) => {}
         }
     }
 
@@ -2716,6 +3280,8 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
+            TypedExprKind::Raise { expr: inner } => self.apply_expr(inner),
+            TypedExprKind::Runtime { expr: inner } => self.apply_expr(inner),
         }
     }
 
@@ -2904,7 +3470,18 @@ impl Inferencer {
                 }
                 Ok((Type::Tuple(ls), children, "Unify-Tuple"))
             }
-            (Type::Function(lp, lr), Type::Function(rp, rr)) if lp.len() == rp.len() => {
+            (
+                Type::Function {
+                    params: lp,
+                    result: lr,
+                    effect: le,
+                },
+                Type::Function {
+                    params: rp,
+                    result: rr,
+                    ..
+                },
+            ) if lp.len() == rp.len() => {
                 let mut children = Vec::new();
                 for (l, r) in lp.iter().zip(rp.iter()) {
                     let (_, child, _) = self.unify_inner(l.clone(), r.clone())?;
@@ -2912,7 +3489,15 @@ impl Inferencer {
                 }
                 let (_, ret_child, _) = self.unify_inner((*lr).clone(), (*rr).clone())?;
                 children.extend(ret_child);
-                Ok((Type::Function(lp, lr), children, "Unify-Arrow"))
+                Ok((
+                    Type::Function {
+                        params: lp,
+                        result: lr,
+                        effect: le,
+                    },
+                    children,
+                    "Unify-Arrow",
+                ))
             }
             (Type::Record(ls), Type::Record(rs))
                 if ls.name == rs.name && ls.fields.len() == rs.fields.len() =>
@@ -3002,7 +3587,18 @@ impl Inferencer {
                 }
                 (Type::Tuple(ls), tuple_children, "Unify-Tuple")
             }
-            (Type::Function(lp, lr), Type::Function(rp, rr)) => {
+            (
+                Type::Function {
+                    params: lp,
+                    result: lr,
+                    effect: le,
+                },
+                Type::Function {
+                    params: rp,
+                    result: rr,
+                    ..
+                },
+            ) => {
                 if lp.len() != rp.len() {
                     return Err(TypeError::new(error_kind, left_span)
                         .with_secondary(right_span, "function arity mismatch"));
@@ -3035,7 +3631,15 @@ impl Inferencer {
                 )?;
                 arrow_children.push(ret_child);
 
-                (Type::Function(lp, lr), arrow_children, "Unify-Arrow")
+                (
+                    Type::Function {
+                        params: lp,
+                        result: lr,
+                        effect: le,
+                    },
+                    arrow_children,
+                    "Unify-Arrow",
+                )
             }
             (Type::Record(mut ls), Type::Record(mut rs)) => {
                 ls.fields.sort_by(|a, b| a.name.cmp(&b.name));
@@ -3210,13 +3814,18 @@ fn dummy_span() -> Span {
 fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
     match ty {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or(Type::Var(*id)),
-        Type::Function(params, result) => Type::Function(
-            params
+        Type::Function {
+            params,
+            result,
+            effect,
+        } => Type::Function {
+            params: params
                 .iter()
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
-            Box::new(substitute_type(result, mapping)),
-        ),
+            result: Box::new(substitute_type(result, mapping)),
+            effect: *effect,
+        },
         Type::Tuple(items) => Type::Tuple(
             items
                 .iter()
@@ -3283,7 +3892,7 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
                     .unwrap_or(false)
             }
         }
-        Type::Function(params, result) => {
+        Type::Function { params, result, .. } => {
             params.iter().any(|t| occurs_in(var, t, subst)) || occurs_in(var, result, subst)
         }
         Type::Tuple(items) => items.iter().any(|t| occurs_in(var, t, subst)),
@@ -3320,7 +3929,7 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
         Type::Var(id) => {
             set.insert(*id);
         }
-        Type::Function(params, result) => {
+        Type::Function { params, result, .. } => {
             for ty in params {
                 collect_free_type_vars(ty, set);
             }

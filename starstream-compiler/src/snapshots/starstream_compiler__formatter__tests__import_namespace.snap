@@ -1,0 +1,7 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nimport context from starstream:std;\n\nfn main() {}\n"
+---
+import context from starstream:std;
+
+fn main() { }
