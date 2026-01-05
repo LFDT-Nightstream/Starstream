@@ -27,7 +27,7 @@ use neo_ccs::CcsStructure;
 use neo_fold::pi_ccs::FoldingMode;
 use neo_fold::session::FoldingSession;
 use neo_params::NeoParams;
-use starstream_mock_ledger::InterleavingInstance;
+use starstream_mock_ledger::{InterleavingInstance, ProcessId};
 
 type F = FpGoldilocks;
 
@@ -121,7 +121,7 @@ const SCAN_BATCH_SIZE: usize = 10;
 // const SCAN_BATCH_SIZE: usize = 200;
 
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
-    let shape_ccs = ccs_step_shape(inst.clone())?;
+    let shape_ccs = ccs_step_shape()?;
 
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
@@ -327,7 +327,7 @@ fn value_to_field(val: starstream_mock_ledger::Value) -> F {
     F::from(val.0[0])
 }
 
-fn ccs_step_shape(inst: InterleavingInstance) -> Result<CcsStructure<neo_math::F>, SynthesisError> {
+fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
     let _span = tracing::debug_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
@@ -340,6 +340,22 @@ fn ccs_step_shape(inst: InterleavingInstance) -> Result<CcsStructure<neo_math::F
     //     vec![LedgerOperation::Nop {}],
     // );
     //
+    let hash = starstream_mock_ledger::Hash([0u8; 32], std::marker::PhantomData);
+
+    let inst = InterleavingInstance {
+        host_calls_roots: vec![],
+        host_calls_lens: vec![],
+        process_table: vec![hash],
+        is_utxo: vec![false],
+        must_burn: vec![false],
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        ownership_in: vec![None],
+        ownership_out: vec![None],
+        entrypoint: ProcessId(0),
+        input_states: vec![],
+    };
     let mut dummy_tx = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(
         inst,
         vec![LedgerOperation::Nop {}],
@@ -359,190 +375,4 @@ fn ccs_step_shape(inst: InterleavingInstance) -> Result<CcsStructure<neo_math::F
     cs.finalize();
 
     Ok(arkworks_to_neo_ccs(&cs))
-}
-
-#[cfg(test)]
-mod tests {
-    // use crate::{F, LedgerOperation, ProgramId, test_utils::init_test_logging};
-    // use std::collections::BTreeMap;
-
-    // #[test]
-    // fn test_starstream_tx_success() {
-    //     init_test_logging();
-
-    //     let utxo_id1: ProgramId = ProgramId::from(110);
-    //     let utxo_id2: ProgramId = ProgramId::from(300);
-    //     let utxo_id3: ProgramId = ProgramId::from(400);
-
-    //     let changes = vec![
-    //         (
-    //             utxo_id1,
-    //             UtxoChange {
-    //                 output_before: F::from(5),
-    //                 output_after: F::from(5),
-    //                 consumed: false,
-    //             },
-    //         ),
-    //         (
-    //             utxo_id2,
-    //             UtxoChange {
-    //                 output_before: F::from(4),
-    //                 output_after: F::from(0),
-    //                 consumed: true,
-    //             },
-    //         ),
-    //         (
-    //             utxo_id3,
-    //             UtxoChange {
-    //                 output_before: F::from(5),
-    //                 output_after: F::from(43),
-    //                 consumed: false,
-    //             },
-    //         ),
-    //     ]
-    //     .into_iter()
-    //     .collect::<BTreeMap<_, _>>();
-
-    //     let tx = Transaction::new_unproven(
-    //         changes.clone(),
-    //         vec![
-    //             LedgerOperation::Nop {},
-    //             LedgerOperation::Resume {
-    //                 target: utxo_id2,
-    //                 val: F::from(0),
-    //                 ret: F::from(0),
-    //             },
-    //             LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
-    //             LedgerOperation::Resume {
-    //                 target: utxo_id3,
-    //                 val: F::from(42),
-    //                 ret: F::from(43),
-    //             },
-    //             LedgerOperation::YieldResume {
-    //                 utxo_id: utxo_id3,
-    //                 output: F::from(42),
-    //             },
-    //             LedgerOperation::Yield {
-    //                 utxo_id: utxo_id3,
-    //                 input: F::from(43),
-    //             },
-    //         ],
-    //     );
-
-    //     let proof = tx.prove().unwrap();
-
-    //     proof.verify(changes);
-    // }
-
-    // #[test]
-    // #[should_panic]
-    // fn test_fail_starstream_tx_resume_mismatch() {
-    //     let utxo_id1: ProgramId = ProgramId::from(110);
-
-    //     let changes = vec![(
-    //         utxo_id1,
-    //         UtxoChange {
-    //             output_before: F::from(0),
-    //             output_after: F::from(43),
-    //             consumed: false,
-    //         },
-    //     )]
-    //     .into_iter()
-    //     .collect::<BTreeMap<_, _>>();
-
-    //     let tx = Transaction::new_unproven(
-    //         changes.clone(),
-    //         vec![
-    //             LedgerOperation::Nop {},
-    //             LedgerOperation::Resume {
-    //                 target: utxo_id1,
-    //                 val: F::from(42),
-    //                 ret: F::from(43),
-    //             },
-    //             LedgerOperation::YieldResume {
-    //                 utxo_id: utxo_id1,
-    //                 output: F::from(42000),
-    //             },
-    //             LedgerOperation::Yield {
-    //                 utxo_id: utxo_id1,
-    //                 input: F::from(43),
-    //             },
-    //         ],
-    //     );
-
-    //     let proof = tx.prove().unwrap();
-
-    //     proof.verify(changes);
-    // }
-
-    // #[test]
-    // #[should_panic]
-    // fn test_starstream_tx_invalid_witness() {
-    //     init_test_logging();
-
-    //     let utxo_id1: ProgramId = ProgramId::from(110);
-    //     let utxo_id2: ProgramId = ProgramId::from(300);
-    //     let utxo_id3: ProgramId = ProgramId::from(400);
-
-    //     let changes = vec![
-    //         (
-    //             utxo_id1,
-    //             UtxoChange {
-    //                 output_before: F::from(5),
-    //                 output_after: F::from(5),
-    //                 consumed: false,
-    //             },
-    //         ),
-    //         (
-    //             utxo_id2,
-    //             UtxoChange {
-    //                 output_before: F::from(4),
-    //                 output_after: F::from(0),
-    //                 consumed: true,
-    //             },
-    //         ),
-    //         (
-    //             utxo_id3,
-    //             UtxoChange {
-    //                 output_before: F::from(5),
-    //                 output_after: F::from(43),
-    //                 consumed: false,
-    //             },
-    //         ),
-    //     ]
-    //     .into_iter()
-    //     .collect::<BTreeMap<_, _>>();
-
-    //     let tx = Transaction::new_unproven(
-    //         changes.clone(),
-    //         vec![
-    //             LedgerOperation::Nop {},
-    //             LedgerOperation::Resume {
-    //                 target: utxo_id2,
-    //                 val: F::from(0),
-    //                 ret: F::from(0),
-    //             },
-    //             LedgerOperation::DropUtxo { utxo_id: utxo_id2 },
-    //             LedgerOperation::Resume {
-    //                 target: utxo_id3,
-    //                 val: F::from(42),
-    //                 // Invalid: output should be F::from(43) to match output_after,
-    //                 // but we're providing a mismatched value
-    //                 ret: F::from(999),
-    //             },
-    //             LedgerOperation::YieldResume {
-    //                 utxo_id: utxo_id3,
-    //                 output: F::from(42),
-    //             },
-    //             LedgerOperation::Yield {
-    //                 utxo_id: utxo_id3,
-    //                 // Invalid: input should match Resume output but doesn't
-    //                 input: F::from(999),
-    //             },
-    //         ],
-    //     );
-
-    //     // This should fail during proving because the witness is invalid
-    //     tx.prove().unwrap();
-    // }
 }
