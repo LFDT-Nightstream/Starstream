@@ -95,7 +95,16 @@ pub enum LedgerOperation<F> {
         reff: F,
         ret: F,
     },
-
+    InstallHandler {
+        interface_id: F,
+    },
+    UninstallHandler {
+        interface_id: F,
+    },
+    GetHandlerFor {
+        interface_id: F,
+        handler_id: F,
+    },
     /// Auxiliary instructions.
     ///
     /// Nop is used as a dummy instruction to build the circuit layout on the
@@ -282,9 +291,30 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                 reff: F::from(reff.0),
                 ret: value_to_field(ret),
             },
-            // For opcodes not yet handled by the circuit, we just skip them
-            // and they won't be included in the final `ops` list.
-            _ => continue,
+            starstream_mock_ledger::WitLedgerEffect::ProgramHash {
+                target,
+                program_hash,
+            } => LedgerOperation::ProgramHash {
+                target: (target.0 as u64).into(),
+                program_hash: F::from(program_hash.0[0]),
+            },
+            starstream_mock_ledger::WitLedgerEffect::InstallHandler { interface_id } => {
+                LedgerOperation::InstallHandler {
+                    interface_id: F::from(interface_id.0[0]),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::UninstallHandler { interface_id } => {
+                LedgerOperation::UninstallHandler {
+                    interface_id: F::from(interface_id.0[0]),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::GetHandlerFor {
+                interface_id,
+                handler_id,
+            } => LedgerOperation::GetHandlerFor {
+                interface_id: F::from(interface_id.0[0]),
+                handler_id: (handler_id.0 as u64).into(),
+            },
         };
 
         ops.push(op);
