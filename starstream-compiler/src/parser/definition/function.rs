@@ -1,5 +1,8 @@
 use chumsky::prelude::*;
-use starstream_types::{FunctionExport, ast::{FunctionDef, FunctionParam}};
+use starstream_types::{
+    FunctionExport,
+    ast::{FunctionDef, FunctionParam},
+};
 
 use crate::parser::{context::Extra, primitives, statement, type_annotation};
 

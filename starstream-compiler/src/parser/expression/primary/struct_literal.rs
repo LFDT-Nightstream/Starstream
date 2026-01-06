@@ -29,8 +29,8 @@ pub fn field_initializer<'a>(
 
 #[cfg(test)]
 mod tests {
-    use chumsky::prelude::*;
     use crate::parser::expression;
+    use chumsky::prelude::*;
     use indoc::indoc;
 
     macro_rules! assert_expression_snapshot {
