@@ -1,210 +1,173 @@
-use std::sync::Arc;
-
 use crate::{
+    SCAN_BATCH_SIZE, ccs_step_shape,
     circuit::{InterRoundWires, StepCircuitBuilder},
     goldilocks::FpGoldilocks,
     memory::IVCMemory,
+    nebula::{
+        NebulaMemoryConstraints,
+        tracer::{NebulaMemory, NebulaMemoryParams},
+    },
 };
-use ark_ff::{Field, PrimeField};
-use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, OptimizationGoal};
-use neo_ccs::{CcsMatrix, CcsStructure, CscMat, SparsePoly, Term};
-use neo_fold::session::{NeoStep, StepArtifacts, StepSpec};
-use neo_math::D;
+use ark_ff::PrimeField;
+use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
+use neo_ccs::CcsStructure;
+use neo_fold::session::{NeoCircuit, WitnessLayout};
+use neo_memory::{ShoutCpuBinding, TwistCpuBinding};
+use neo_vm_trace::{Shout, StepTrace, Twist, VmCpu};
 use p3_field::PrimeCharacteristicRing;
-use rand::SeedableRng as _;
+use std::collections::HashMap;
 
-pub(crate) struct StepCircuitNeo<M>
-where
-    M: IVCMemory<crate::F>,
-{
-    pub(crate) shape_ccs: CcsStructure<neo_math::F>, // stable shape across steps
-    pub(crate) circuit_builder: StepCircuitBuilder<M>,
-    pub(crate) irw: InterRoundWires,
-    pub(crate) mem: M::Allocator,
+pub(crate) struct StepCircuitNeo {
+    pub(crate) matrices: Vec<Vec<Vec<(crate::F, usize)>>>,
+    pub(crate) num_constraints: usize,
+    pub(crate) num_instance_variables: usize,
+    pub(crate) num_variables: usize,
 }
 
-impl<M> StepCircuitNeo<M>
-where
-    M: IVCMemory<crate::F>,
-{
-    pub fn new(
-        mut circuit_builder: StepCircuitBuilder<M>,
-        shape_ccs: CcsStructure<neo_math::F>,
-        params: M::Params,
-    ) -> (Self, usize) {
-        let irw = InterRoundWires::new(
-            crate::F::from(circuit_builder.p_len() as u64),
-            circuit_builder.instance.entrypoint.0 as u64,
-        );
+impl StepCircuitNeo {
+    pub fn new() -> Self {
+        let ark_cs = ccs_step_shape().unwrap();
 
-        let mb = circuit_builder.trace_memory_ops(params);
+        let num_constraints = ark_cs.num_constraints();
+        let num_instance_variables = ark_cs.num_instance_variables();
+        let num_variables = ark_cs.num_constraints();
 
-        let num_iters = circuit_builder.ops.len();
+        tracing::info!("num constraints {}", num_constraints);
+        tracing::info!("num instance variables {}", num_instance_variables);
+        tracing::info!("num variables {}", num_variables);
 
-        (
-            Self {
-                shape_ccs,
-                circuit_builder,
-                irw,
-                mem: mb.constraints(),
-            },
-            num_iters,
-        )
-    }
-}
-
-impl<M> NeoStep for StepCircuitNeo<M>
-where
-    M: IVCMemory<crate::F>,
-{
-    type ExternalInputs = ();
-
-    fn state_len(&self) -> usize {
-        3
-    }
-
-    fn step_spec(&self) -> StepSpec {
-        StepSpec {
-            y_len: self.state_len(),
-            const1_index: 0,
-            y_step_indices: vec![2, 4, 6],
-            app_input_indices: Some(vec![1, 3, 5]),
-            m_in: 7,
-        }
-    }
-
-    fn synthesize_step(
-        &mut self,
-        step_idx: usize,
-        _z_prev: &[::neo_math::F],
-        _inputs: &Self::ExternalInputs,
-    ) -> StepArtifacts {
-        let cs = ConstraintSystem::<crate::F>::new_ref();
-        cs.set_optimization_goal(OptimizationGoal::Constraints);
-
-        self.irw = self
-            .circuit_builder
-            .make_step_circuit(step_idx, &mut self.mem, cs.clone(), self.irw.clone())
+        let matrices = ark_cs
+            .into_inner()
+            .unwrap()
+            .to_matrices()
+            .unwrap()
+            .remove("R1CS")
             .unwrap();
 
-        let spec = self.step_spec();
-
-        let mut step = arkworks_to_neo(cs.clone());
-
-        dbg!(cs.which_is_unsatisfied().unwrap());
-        assert!(cs.is_satisfied().unwrap());
-
-        let padded_witness_len = step.ccs.n.max(step.ccs.m);
-        step.witness.resize(padded_witness_len, neo_math::F::ZERO);
-
-        neo_ccs::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).unwrap();
-        neo_ccs::check_ccs_rowwise_zero(&self.shape_ccs, &[], &step.witness).unwrap();
-
-        StepArtifacts {
-            ccs: Arc::new(step.ccs),
-            witness: step.witness,
-            public_app_inputs: vec![],
-            spec,
+        Self {
+            matrices,
+            num_constraints,
+            num_instance_variables,
+            num_variables,
         }
     }
 }
 
-pub(crate) struct NeoInstance {
-    pub(crate) ccs: CcsStructure<neo_math::F>,
-    // instance + witness assignments
-    pub(crate) witness: Vec<neo_math::F>,
-}
+#[derive(Clone)]
+pub struct CircuitLayout {}
 
-#[tracing::instrument(skip(cs))]
-pub(crate) fn arkworks_to_neo(cs: ConstraintSystemRef<FpGoldilocks>) -> NeoInstance {
-    cs.finalize();
+impl WitnessLayout for CircuitLayout {
+    // instance.len()
+    const M_IN: usize = 1;
 
-    let ccs = arkworks_to_neo_ccs(&cs);
+    // instance.len()+witness.len()
+    const USED_COLS: usize = 1224 + 1;
 
-    let instance_assignment = cs.instance_assignment().unwrap();
-    assert_eq!(instance_assignment[0], FpGoldilocks::ONE);
-
-    let instance = cs
-        .instance_assignment()
-        .unwrap()
-        .iter()
-        .map(ark_field_to_p3_goldilocks)
-        .collect::<Vec<_>>();
-
-    let witness = cs
-        .witness_assignment()
-        .unwrap()
-        .iter()
-        .map(ark_field_to_p3_goldilocks)
-        .collect::<Vec<_>>();
-
-    NeoInstance {
-        ccs,
-        witness: [instance, witness].concat(),
+    fn new_layout() -> Self {
+        CircuitLayout {}
     }
 }
 
-pub(crate) fn arkworks_to_neo_ccs(
-    cs: &ConstraintSystemRef<crate::F>,
-) -> neo_ccs::CcsStructure<neo_math::F> {
-    let matrices = &cs.to_matrices().unwrap()["R1CS"];
+impl NeoCircuit for StepCircuitNeo {
+    type Layout = CircuitLayout;
 
-    let a_mat = ark_matrix_to_neo(cs, &matrices[0]);
-    let b_mat = ark_matrix_to_neo(cs, &matrices[1]);
-    let c_mat = ark_matrix_to_neo(cs, &matrices[2]);
+    fn chunk_size(&self) -> usize {
+        1 // for now, this is simpler to debug
+    }
 
-    // R1CS → CCS embedding with identity-first form: M_0 = I_n, M_1=A, M_2=B, M_3=C.
-    let f_base = SparsePoly::new(
-        3,
-        vec![
-            Term {
-                coeff: neo_math::F::ONE,
-                exps: vec![1, 1, 0],
-            }, // X1 * X2
-            Term {
-                coeff: -neo_math::F::ONE,
-                exps: vec![0, 0, 1],
-            }, // -X3
-        ],
-    );
+    fn const_one_col(&self, layout: &Self::Layout) -> usize {
+        0
+    }
 
-    let n = cs.num_constraints().max(cs.num_variables());
+    fn resources(&self, resources: &mut neo_fold::session::SharedBusResources) {
+        // TODO: (no memory for now)
+        //
+        // . Define Memory Layouts (for Twist): You specify the geometry of your read-write memories, such as their size and address structure.
+        //      // In resources()
+        //      resources
+        //          .twist(0) // Configure Twist memory with op_id = 0
+        //          // Define its layout: k=size, d=dimensions, etc.
+        //          .layout(PlainMemLayout { k: 2, d: 1, n_side: 2 });
+        // . Set Initial Memory Values (for Twist): If your memory isn't zero-initialized, you set the starting values of specific memory cells here. This is how you would "pre-load" a program or
+        //   initial data into memory before execution begins.
 
-    let matrices = vec![
-        CcsMatrix::Identity { n },
-        CcsMatrix::Csc(CscMat::from_triplets(a_mat, n, n)),
-        CcsMatrix::Csc(CscMat::from_triplets(b_mat, n, n)),
-        CcsMatrix::Csc(CscMat::from_triplets(c_mat, n, n)),
-    ];
-    let f = f_base.insert_var_at_front();
+        //      // In resources()
+        //      resources
+        //          .twist(0)
+        //          // ... after .layout(...)
+        //          // Initialize the cell at address 0 with the value F::ONE
+        //          .init_cell(0, F::ONE);
+        // . Provide Lookup Table Contents (for Shout): You define the complete contents of any read-only tables that your circuit will look up into. This is how you would define a boot ROM or a
+        //   fixed data table (like a sine wave table).
 
-    let ccs = CcsStructure::new_sparse(matrices, f).expect("valid R1CS→CCS structure");
+        //      // In resources()
+        //      // Set the data for the lookup table with op_id = 0
+        //      resources.set_binary_table(0, vec![F::ZERO, F::ONE]);
+    }
 
-    ccs.ensure_identity_first()
-        .expect("ensure_identity_first should succeed");
+    fn define_cpu_constraints(
+        &self,
+        cs: &mut neo_fold::session::CcsBuilder<neo_math::F>,
+        layout: &Self::Layout,
+    ) -> Result<(), String> {
+        let matrices = &self.matrices;
 
-    ccs
-}
+        for row in 0..self.num_constraints {
+            let a_row = ark_matrix_to_neo(&matrices[0][row]);
+            let b_row = ark_matrix_to_neo(&matrices[1][row]);
+            let c_row = ark_matrix_to_neo(&matrices[2][row]);
 
-fn ark_matrix_to_neo(
-    cs: &ConstraintSystemRef<FpGoldilocks>,
-    sparse_matrix: &[Vec<(FpGoldilocks, usize)>],
-) -> Vec<(usize, usize, neo_math::F)> {
-    tracing::info!("num constraints {}", cs.num_constraints());
-    tracing::info!("num variables {}", cs.num_variables());
-    let mut triplets = vec![];
-
-    // TODO: would be nice to just be able to construct the sparse matrix
-    // let mut dense = vec![neo_math::F::from_u64(0); n * n];
-
-    for (row_i, row) in sparse_matrix.iter().enumerate() {
-        for (col_v, col_i) in row.iter() {
-            triplets.push((row_i, *col_i, ark_field_to_p3_goldilocks(col_v)));
-            // dense[n * row_i + col_i] = ark_field_to_p3_goldilocks(col_v);
+            cs.r1cs_terms(a_row, b_row, c_row);
         }
+
+        tracing::info!("constraints defined");
+
+        Ok(())
     }
 
-    triplets
+    fn build_witness_prefix(
+        &self,
+        layout: &Self::Layout,
+        chunk: &[StepTrace<u64, u64>],
+    ) -> Result<Vec<neo_math::F>, String> {
+        let mut witness = vec![];
+
+        let c = &chunk[0];
+
+        for v in &c.regs_after {
+            witness.push(neo_math::F::from_u64(*v));
+        }
+
+        Ok(witness)
+    }
+
+    fn cpu_bindings(
+        &self,
+        layout: &Self::Layout,
+    ) -> Result<(HashMap<u32, ShoutCpuBinding>, HashMap<u32, TwistCpuBinding>), String> {
+        // Create the mapping for Shout (read-only) operations
+        // let shout_map = HashMap::from([
+        //     (1u32, layout.boot_rom.cpu_binding()), // op_id 1 -> boot_rom port
+        //     (2u32, layout.trig_table.cpu_binding()), // op_id 2 -> trig_table port
+        // ]);
+
+        // // Create the mapping for Twist (read-write) operations
+        // let twist_map = HashMap::from([
+        //     (0u32, layout.main_ram.cpu_binding()), // op_id 0 -> main_ram port
+        // ]);
+
+        Ok((HashMap::new(), HashMap::new()))
+    }
+}
+
+fn ark_matrix_to_neo(sparse_row: &[(FpGoldilocks, usize)]) -> Vec<(usize, neo_math::F)> {
+    let mut row = vec![];
+
+    for (col_v, col_i) in sparse_row.iter() {
+        row.push((*col_i, ark_field_to_p3_goldilocks(col_v)));
+    }
+
+    row
 }
 
 pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
@@ -221,76 +184,94 @@ pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldil
     result
 }
 
-pub(crate) fn setup_ajtai_for_dims(m: usize) {
-    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
-    let pp = neo_ajtai::setup(&mut rng, D, 4, m).expect("Ajtai setup should succeed");
-    let _ = neo_ajtai::set_global_pp(pp);
+pub struct StarstreamVm {
+    step_circuit_builder: StepCircuitBuilder<NebulaMemory<SCAN_BATCH_SIZE>>,
+    step_i: usize,
+    mem: NebulaMemoryConstraints<crate::F>,
+    irw: InterRoundWires,
+    regs: Vec<u64>,
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::{
-        F,
-        neo::{ark_field_to_p3_goldilocks, arkworks_to_neo},
-    };
-    use ark_r1cs_std::{alloc::AllocVar, eq::EqGadget as _, fields::fp::FpVar};
-    use ark_relations::gr1cs::ConstraintSystem;
-    use p3_field::PrimeCharacteristicRing;
-
-    #[test]
-    fn test_ark_field() {
-        assert_eq!(
-            ark_field_to_p3_goldilocks(&F::from(20)),
-            ::neo_math::F::from_u64(20)
+impl StarstreamVm {
+    pub fn new(
+        mut step_circuit_builder: StepCircuitBuilder<NebulaMemory<SCAN_BATCH_SIZE>>,
+    ) -> Self {
+        let irw = InterRoundWires::new(
+            crate::F::from(step_circuit_builder.p_len() as u64),
+            step_circuit_builder.instance.entrypoint.0 as u64,
         );
 
-        assert_eq!(
-            ark_field_to_p3_goldilocks(&F::from(100)),
-            ::neo_math::F::from_u64(100)
-        );
+        let params = NebulaMemoryParams {
+            unsound_disable_poseidon_commitment: true,
+        };
 
-        assert_eq!(
-            ark_field_to_p3_goldilocks(&F::from(400)),
-            ::neo_math::F::from_u64(400)
-        );
+        let mb = step_circuit_builder.trace_memory_ops(params);
 
-        assert_eq!(
-            ark_field_to_p3_goldilocks(&F::from(u64::MAX)),
-            ::neo_math::F::from_u64(u64::MAX)
-        );
+        Self {
+            step_circuit_builder,
+            step_i: 0,
+            mem: mb.constraints(),
+            irw,
+            regs: vec![0; 1224 + 1],
+        }
+    }
+}
+
+impl VmCpu<u64, u64> for StarstreamVm {
+    type Error = SynthesisError;
+
+    fn snapshot_regs(&self) -> Vec<u64> {
+        self.regs.clone()
     }
 
-    #[test]
-    fn test_r1cs_conversion_sat() {
-        let cs = ConstraintSystem::<F>::new_ref();
-
-        let var1 = FpVar::new_witness(cs.clone(), || Ok(F::from(1_u64))).unwrap();
-        let var2 = FpVar::new_witness(cs.clone(), || Ok(F::from(1_u64))).unwrap();
-
-        var1.enforce_equal(&var2).unwrap();
-
-        let step = arkworks_to_neo(cs.clone());
-
-        let neo_check =
-            neo_ccs::relations::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).is_ok();
-
-        assert_eq!(cs.is_satisfied().unwrap(), neo_check);
+    fn pc(&self) -> u64 {
+        self.step_i as u64
     }
 
-    #[test]
-    fn test_r1cs_conversion_unsat() {
-        let cs = ConstraintSystem::<F>::new_ref();
+    fn halted(&self) -> bool {
+        self.step_i == self.step_circuit_builder.ops.len()
+    }
 
-        let var1 = FpVar::new_witness(cs.clone(), || Ok(F::from(1_u64))).unwrap();
-        let var2 = FpVar::new_witness(cs.clone(), || Ok(F::from(2_u64))).unwrap();
+    fn step<T, S>(
+        &mut self,
+        twist: &mut T,
+        shout: &mut S,
+    ) -> Result<neo_vm_trace::StepMeta<u64>, Self::Error>
+    where
+        T: Twist<u64, u64>,
+        S: Shout<u64>,
+    {
+        let cs = ConstraintSystem::<crate::F>::new_ref();
+        cs.set_optimization_goal(OptimizationGoal::Constraints);
 
-        var1.enforce_equal(&var2).unwrap();
+        let irw = self.step_circuit_builder.make_step_circuit(
+            self.step_i,
+            &mut self.mem,
+            cs.clone(),
+            self.irw.clone(),
+        )?;
 
-        let step = arkworks_to_neo(cs.clone());
+        dbg!(cs.which_is_unsatisfied().unwrap());
+        assert!(cs.is_satisfied().unwrap());
 
-        let neo_check =
-            neo_ccs::relations::check_ccs_rowwise_zero(&step.ccs, &[], &step.witness).is_ok();
+        self.irw = irw;
 
-        assert_eq!(cs.is_satisfied().unwrap(), neo_check);
+        self.step_i += 1;
+
+        self.regs = cs
+            .instance_assignment()?
+            .into_iter()
+            .map(|input| input.into_bigint().0[0])
+            .chain(
+                cs.witness_assignment()?
+                    .into_iter()
+                    .map(|wit| wit.into_bigint().0[0]),
+            )
+            .collect();
+
+        Ok(neo_vm_trace::StepMeta {
+            pc_after: self.step_i as u64,
+            opcode: 0,
+        })
     }
 }

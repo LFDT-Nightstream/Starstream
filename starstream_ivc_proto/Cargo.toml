@@ -18,6 +18,8 @@ neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda
 neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
 neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
 neo-params = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
+neo-vm-trace = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
+neo-memory = { git = "https://github.com/nicarq/Nightstream.git", rev = "0713b5dda6b1e4b924d59f1dd0e1fc51a6495667" }
 
 starstream_mock_ledger = { path = "../starstream_mock_ledger" }
 
