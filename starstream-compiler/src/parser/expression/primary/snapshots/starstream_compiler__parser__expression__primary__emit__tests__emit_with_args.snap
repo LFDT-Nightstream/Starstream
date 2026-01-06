@@ -1,5 +1,5 @@
 ---
-source: starstream-compiler/src/parser/expression/mod.rs
+source: starstream-compiler/src/parser/expression/primary/emit.rs
 description: "Code:\n\n// Transfer event\nemit Transfer(sender, to, amount)\n"
 ---
 Spanned {

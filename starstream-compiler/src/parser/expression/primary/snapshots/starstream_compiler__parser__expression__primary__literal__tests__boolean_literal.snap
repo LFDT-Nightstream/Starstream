@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/parser/expression/primary/literal.rs
+description: "Code:\n\ntrue"
+---
+Spanned {
+    node: Literal(
+        Boolean(
+            true,
+        ),
+    ),
+    span: 0..4,
+    comments_before: [],
+    comments_after: [],
+}

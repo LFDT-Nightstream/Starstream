@@ -1,9 +1,9 @@
 ---
-source: starstream-compiler/src/parser/expression/mod.rs
-description: "Code:\n\nruntime blockHeight()"
+source: starstream-compiler/src/parser/expression/primary/raise.rs
+description: "Code:\n\nraise blockHeight()"
 ---
 Spanned {
-    node: Runtime {
+    node: Raise {
         expr: Spanned {
             node: Call {
                 callee: Spanned {
@@ -11,22 +11,22 @@ Spanned {
                         Identifier {
                             name: "blockHeight",
                             span: Some(
-                                8..19,
+                                6..17,
                             ),
                         },
                     ),
-                    span: 8..19,
+                    span: 6..17,
                     comments_before: [],
                     comments_after: [],
                 },
                 args: [],
             },
-            span: 8..21,
+            span: 6..19,
             comments_before: [],
             comments_after: [],
         },
     },
-    span: 0..21,
+    span: 0..19,
     comments_before: [],
     comments_after: [],
 }

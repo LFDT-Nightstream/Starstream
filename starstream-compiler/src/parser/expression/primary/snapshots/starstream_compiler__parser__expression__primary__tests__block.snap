@@ -1,5 +1,5 @@
 ---
-source: starstream-compiler/src/parser/expression/mod.rs
+source: starstream-compiler/src/parser/expression/primary/mod.rs
 description: "Code:\n\n{ let mut a = 1; a = a + 1; }\n"
 ---
 Spanned {

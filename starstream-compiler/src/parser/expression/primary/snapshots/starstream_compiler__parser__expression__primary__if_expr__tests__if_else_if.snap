@@ -1,0 +1,90 @@
+---
+source: starstream-compiler/src/parser/expression/primary/if_expr.rs
+description: "Code:\n\nif (a) { 1 } else if (b) { 2 } else { 3 }\n"
+---
+Spanned {
+    node: If {
+        branches: [
+            (
+                Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "a",
+                            span: Some(
+                                4..5,
+                            ),
+                        },
+                    ),
+                    span: 4..5,
+                    comments_before: [],
+                    comments_after: [],
+                },
+                Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Literal(
+                                Integer(
+                                    1,
+                                ),
+                            ),
+                            span: 9..10,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    ),
+                },
+            ),
+            (
+                Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "b",
+                            span: Some(
+                                22..23,
+                            ),
+                        },
+                    ),
+                    span: 22..23,
+                    comments_before: [],
+                    comments_after: [],
+                },
+                Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Literal(
+                                Integer(
+                                    2,
+                                ),
+                            ),
+                            span: 27..28,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    ),
+                },
+            ),
+        ],
+        else_branch: Some(
+            Block {
+                statements: [],
+                tail_expression: Some(
+                    Spanned {
+                        node: Literal(
+                            Integer(
+                                3,
+                            ),
+                        ),
+                        span: 38..39,
+                        comments_before: [],
+                        comments_after: [],
+                    },
+                ),
+            },
+        ),
+    },
+    span: 0..42,
+    comments_before: [],
+    comments_after: [],
+}

@@ -1,5 +1,5 @@
 ---
-source: starstream-compiler/src/parser/expression/mod.rs
+source: starstream-compiler/src/parser/expression/primary/match_expr.rs
 description: "Code:\n\nmatch value {\n    Result::Ok(inner) => {\n        inner\n    },\n    Result::Err(reason) => {\n        reason\n    },\n}\n"
 ---
 Spanned {

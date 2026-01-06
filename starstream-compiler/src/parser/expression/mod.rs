@@ -14,11 +14,13 @@ mod postfix;
 mod primary;
 mod unary;
 
+pub use primary::parser as primary;
+
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     recursive(|expression| {
         let block_parser = statement::block_parser_with_expr(expression.clone()).boxed();
-        let primary = primary::parser(expression.clone(), block_parser).boxed();
-        let postfix = postfix::parser(primary, expression.clone()).boxed();
+        let primary_parser = primary(expression.clone(), block_parser).boxed();
+        let postfix = postfix::parser(primary_parser, expression.clone()).boxed();
         let unary = unary::parser(postfix).boxed();
         let multiplicative = multiplicative::parser(unary).boxed();
         let additive = additive::parser(multiplicative).boxed();
@@ -82,11 +84,6 @@ mod tests {
     }
 
     #[test]
-    fn integer_literal() {
-        assert_expression_snapshot!("42");
-    }
-
-    #[test]
     fn arithmetic_precedence() {
         assert_expression_snapshot!("1 + 2 * 3 - 4");
     }
@@ -97,59 +94,8 @@ mod tests {
     }
 
     #[test]
-    fn struct_literal_expression() {
-        assert_expression_snapshot!(
-            r#"
-            Point {
-                x: 10,
-                y: value + 1,
-            }
-            "#
-        );
-    }
-
-    #[test]
-    fn enum_constructor_expression() {
-        assert_expression_snapshot!("Result::Ok(answer)");
-    }
-
-    #[test]
     fn field_access_chain() {
         assert_expression_snapshot!("state.position.x");
-    }
-
-    #[test]
-    fn block() {
-        assert_expression_snapshot!(
-            r#"
-            { let mut a = 1; a = a + 1; }
-            "#
-        );
-    }
-
-    #[test]
-    fn if_else() {
-        assert_expression_snapshot!(
-            r#"
-            if (flag) { let a = 1; } else { value = value + 1; }
-            "#
-        );
-    }
-
-    #[test]
-    fn match_expression() {
-        assert_expression_snapshot!(
-            r#"
-            match value {
-                Result::Ok(inner) => {
-                    inner
-                },
-                Result::Err(reason) => {
-                    reason
-                },
-            }
-            "#
-        );
     }
 
     #[test]
@@ -170,45 +116,5 @@ mod tests {
     #[test]
     fn field_access_then_call() {
         assert_expression_snapshot!("obj.method(x)");
-    }
-
-    #[test]
-    fn emit_no_args() {
-        assert_expression_snapshot!(
-            r#"
-            // Emit ping
-            emit Ping()
-            "#
-        );
-    }
-
-    #[test]
-    fn emit_with_args() {
-        assert_expression_snapshot!(
-            r#"
-            // Transfer event
-            emit Transfer(sender, to, amount)
-            "#
-        );
-    }
-
-    #[test]
-    fn raise_call() {
-        assert_expression_snapshot!("raise blockHeight()");
-    }
-
-    #[test]
-    fn raise_namespaced_call() {
-        assert_expression_snapshot!("raise context::blockHeight()");
-    }
-
-    #[test]
-    fn runtime_call() {
-        assert_expression_snapshot!("runtime blockHeight()");
-    }
-
-    #[test]
-    fn runtime_namespaced_call() {
-        assert_expression_snapshot!("runtime context::blockHeight()");
     }
 }

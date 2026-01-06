@@ -1,5 +1,5 @@
 ---
-source: starstream-compiler/src/parser/expression/mod.rs
+source: starstream-compiler/src/parser/expression/primary/struct_literal.rs
 description: "Code:\n\nPoint {\n    x: 10,\n    y: value + 1,\n}\n"
 ---
 Spanned {
