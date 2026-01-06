@@ -79,6 +79,7 @@ mod tests {
     use super::*;
     use crate::memory::IVCMemory;
     use crate::memory::IVCMemoryAllocated;
+    use crate::memory::MemType;
     use crate::memory::nebula::tracer::NebulaMemory;
     use crate::memory::nebula::tracer::NebulaMemoryParams;
     use crate::test_utils::init_test_logging;
@@ -95,7 +96,7 @@ mod tests {
             unsound_disable_poseidon_commitment: false,
         });
 
-        memory.register_mem(1, 2, "test_segment");
+        memory.register_mem(1, 2, MemType::Ram, "test_segment");
 
         let address = Address { addr: 10, tag: 1 };
         let initial_values = vec![F::from(42), F::from(100)];
@@ -176,7 +177,7 @@ mod tests {
             let mut memory = NebulaMemory::<1>::new(NebulaMemoryParams {
                 unsound_disable_poseidon_commitment: false,
             });
-            memory.register_mem(1, 2, "test_segment");
+            memory.register_mem(1, 2, MemType::Ram, "test_segment");
 
             let address = Address { addr: 10, tag: 1 };
             let initial_values = vec![F::from(42), F::from(100)];
@@ -284,7 +285,7 @@ mod tests {
         let total_addresses = SCAN_BATCH_SIZE * num_steps; // 6 addresses
 
         let mut memory = NebulaMemory::<SCAN_BATCH_SIZE>::new(NebulaMemoryParams::default());
-        memory.register_mem(1, 2, "test_segment");
+        memory.register_mem(1, 2, MemType::Ram, "test_segment");
 
         let addresses: Vec<Address<u64>> = (0..total_addresses)
             .map(|i| Address {

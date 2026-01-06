@@ -1,5 +1,5 @@
 use ark_relations::gr1cs::{ConstraintLayer, TracingMode};
-use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt as _};
+use tracing_subscriber::{Registry, fmt, layer::SubscriberExt as _};
 
 pub(crate) fn init_test_logging() {
     static INIT: std::sync::Once = std::sync::Once::new();
