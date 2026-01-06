@@ -1,0 +1,109 @@
+---
+source: starstream-compiler/src/parser/expression/primary/if_expr.rs
+description: "Code:\n\nif (flag) { let a = 1; } else { value = value + 1; }\n"
+---
+Spanned {
+    node: If {
+        branches: [
+            (
+                Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "flag",
+                            span: Some(
+                                4..8,
+                            ),
+                        },
+                    ),
+                    span: 4..8,
+                    comments_before: [],
+                    comments_after: [],
+                },
+                Block {
+                    statements: [
+                        Spanned {
+                            node: VariableDeclaration {
+                                mutable: false,
+                                name: Identifier {
+                                    name: "a",
+                                    span: Some(
+                                        16..17,
+                                    ),
+                                },
+                                ty: None,
+                                value: Spanned {
+                                    node: Literal(
+                                        Integer(
+                                            1,
+                                        ),
+                                    ),
+                                    span: 20..21,
+                                    comments_before: [],
+                                    comments_after: [],
+                                },
+                            },
+                            span: 12..23,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    ],
+                    tail_expression: None,
+                },
+            ),
+        ],
+        else_branch: Some(
+            Block {
+                statements: [
+                    Spanned {
+                        node: Assignment {
+                            target: Identifier {
+                                name: "value",
+                                span: Some(
+                                    32..37,
+                                ),
+                            },
+                            value: Spanned {
+                                node: Binary {
+                                    op: Add,
+                                    left: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "value",
+                                                span: Some(
+                                                    40..45,
+                                                ),
+                                            },
+                                        ),
+                                        span: 40..46,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                    right: Spanned {
+                                        node: Literal(
+                                            Integer(
+                                                1,
+                                            ),
+                                        ),
+                                        span: 48..49,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                },
+                                span: 40..49,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        },
+                        span: 32..51,
+                        comments_before: [],
+                        comments_after: [],
+                    },
+                ],
+                tail_expression: None,
+            },
+        ),
+    },
+    span: 0..53,
+    comments_before: [],
+    comments_after: [],
+}

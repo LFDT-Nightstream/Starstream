@@ -1,0 +1,22 @@
+---
+source: starstream-compiler/src/parser/expression/primary/emit.rs
+description: "Code:\n\n// Emit ping\nemit Ping()\n"
+---
+Spanned {
+    node: Emit {
+        event: Identifier {
+            name: "Ping",
+            span: Some(
+                18..22,
+            ),
+        },
+        args: [],
+    },
+    span: 0..25,
+    comments_before: [
+        Comment(
+            0..13,
+        ),
+    ],
+    comments_after: [],
+}

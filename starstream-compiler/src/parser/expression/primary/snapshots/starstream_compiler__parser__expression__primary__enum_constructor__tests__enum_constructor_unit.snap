@@ -1,0 +1,24 @@
+---
+source: starstream-compiler/src/parser/expression/primary/enum_constructor.rs
+description: "Code:\n\nOption::None"
+---
+Spanned {
+    node: EnumConstructor {
+        enum_name: Identifier {
+            name: "Option",
+            span: Some(
+                0..6,
+            ),
+        },
+        variant: Identifier {
+            name: "None",
+            span: Some(
+                8..12,
+            ),
+        },
+        payload: Unit,
+    },
+    span: 0..12,
+    comments_before: [],
+    comments_after: [],
+}

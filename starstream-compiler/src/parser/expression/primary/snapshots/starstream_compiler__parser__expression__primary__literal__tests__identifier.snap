@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/parser/expression/primary/literal.rs
+description: "Code:\n\nfoo"
+---
+Spanned {
+    node: Identifier(
+        Identifier {
+            name: "foo",
+            span: Some(
+                0..3,
+            ),
+        },
+    ),
+    span: 0..3,
+    comments_before: [],
+    comments_after: [],
+}

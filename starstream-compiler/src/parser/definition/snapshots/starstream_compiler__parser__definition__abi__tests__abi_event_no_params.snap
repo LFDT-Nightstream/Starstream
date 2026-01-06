@@ -1,0 +1,25 @@
+---
+source: starstream-compiler/src/parser/definition/abi.rs
+description: "Code:\n\nabi Events {\n    event Ping();\n}\n"
+---
+AbiDef {
+    name: Identifier {
+        name: "Events",
+        span: Some(
+            4..10,
+        ),
+    },
+    parts: [
+        Event(
+            EventDef {
+                name: Identifier {
+                    name: "Ping",
+                    span: Some(
+                        23..27,
+                    ),
+                },
+                params: [],
+            },
+        ),
+    ],
+}

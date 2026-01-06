@@ -1,0 +1,76 @@
+---
+source: starstream-compiler/src/parser/expression/primary/struct_literal.rs
+description: "Code:\n\nPoint {\n    x: 10,\n    y: value + 1,\n}\n"
+---
+Spanned {
+    node: StructLiteral {
+        name: Identifier {
+            name: "Point",
+            span: Some(
+                0..5,
+            ),
+        },
+        fields: [
+            StructLiteralField {
+                name: Identifier {
+                    name: "x",
+                    span: Some(
+                        12..13,
+                    ),
+                },
+                value: Spanned {
+                    node: Literal(
+                        Integer(
+                            10,
+                        ),
+                    ),
+                    span: 15..17,
+                    comments_before: [],
+                    comments_after: [],
+                },
+            },
+            StructLiteralField {
+                name: Identifier {
+                    name: "y",
+                    span: Some(
+                        23..24,
+                    ),
+                },
+                value: Spanned {
+                    node: Binary {
+                        op: Add,
+                        left: Spanned {
+                            node: Identifier(
+                                Identifier {
+                                    name: "value",
+                                    span: Some(
+                                        26..31,
+                                    ),
+                                },
+                            ),
+                            span: 26..32,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                        right: Spanned {
+                            node: Literal(
+                                Integer(
+                                    1,
+                                ),
+                            ),
+                            span: 34..35,
+                            comments_before: [],
+                            comments_after: [],
+                        },
+                    },
+                    span: 26..35,
+                    comments_before: [],
+                    comments_after: [],
+                },
+            },
+        ],
+    },
+    span: 0..39,
+    comments_before: [],
+    comments_after: [],
+}

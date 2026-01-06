@@ -1,0 +1,35 @@
+---
+source: starstream-compiler/src/parser/definition/utxo.rs
+description: "Code:\n\nutxo Counter {\n    storage {\n        let mut count: i64;\n    }\n}\n"
+---
+UtxoDef {
+    name: Identifier {
+        name: "Counter",
+        span: Some(
+            5..12,
+        ),
+    },
+    parts: [
+        Storage(
+            [
+                UtxoGlobal {
+                    name: Identifier {
+                        name: "count",
+                        span: Some(
+                            45..50,
+                        ),
+                    },
+                    ty: TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: Some(
+                                52..55,
+                            ),
+                        },
+                        generics: [],
+                    },
+                },
+            ],
+        ),
+    ],
+}

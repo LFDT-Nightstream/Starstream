@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/parser/definition/abi.rs
+description: "Code:\n\nabi Events {}"
+---
+AbiDef {
+    name: Identifier {
+        name: "Events",
+        span: Some(
+            4..10,
+        ),
+    },
+    parts: [],
+}

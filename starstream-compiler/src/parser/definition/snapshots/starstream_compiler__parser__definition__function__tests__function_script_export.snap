@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/definition/function.rs
+description: "Code:\n\nscript fn main() {}"
+---
+FunctionDef {
+    export: Some(
+        Script,
+    ),
+    name: Identifier {
+        name: "main",
+        span: Some(
+            10..14,
+        ),
+    },
+    params: [],
+    return_type: None,
+    body: Block {
+        statements: [],
+        tail_expression: None,
+    },
+}

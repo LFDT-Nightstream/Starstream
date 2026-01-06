@@ -1,0 +1,48 @@
+---
+source: starstream-compiler/src/parser/definition/struct_def.rs
+description: "Code:\n\nstruct Point { x: i64, y: i64 }"
+---
+StructDef {
+    name: Identifier {
+        name: "Point",
+        span: Some(
+            7..12,
+        ),
+    },
+    fields: [
+        StructField {
+            name: Identifier {
+                name: "x",
+                span: Some(
+                    15..16,
+                ),
+            },
+            ty: TypeAnnotation {
+                name: Identifier {
+                    name: "i64",
+                    span: Some(
+                        18..21,
+                    ),
+                },
+                generics: [],
+            },
+        },
+        StructField {
+            name: Identifier {
+                name: "y",
+                span: Some(
+                    23..24,
+                ),
+            },
+            ty: TypeAnnotation {
+                name: Identifier {
+                    name: "i64",
+                    span: Some(
+                        26..29,
+                    ),
+                },
+                generics: [],
+            },
+        },
+    ],
+}

@@ -1,0 +1,60 @@
+---
+source: starstream-compiler/src/parser/definition/import.rs
+description: "Code:\n\nimport { blockHeight, now } from starstream:std/cardano;"
+---
+ImportDef {
+    items: Named(
+        [
+            ImportNamedItem {
+                imported: Identifier {
+                    name: "blockHeight",
+                    span: Some(
+                        9..20,
+                    ),
+                },
+                local: Identifier {
+                    name: "blockHeight",
+                    span: Some(
+                        9..20,
+                    ),
+                },
+            },
+            ImportNamedItem {
+                imported: Identifier {
+                    name: "now",
+                    span: Some(
+                        22..25,
+                    ),
+                },
+                local: Identifier {
+                    name: "now",
+                    span: Some(
+                        22..25,
+                    ),
+                },
+            },
+        ],
+    ),
+    from: ImportSource {
+        namespace: Identifier {
+            name: "starstream",
+            span: Some(
+                33..43,
+            ),
+        },
+        package: Identifier {
+            name: "std",
+            span: Some(
+                44..47,
+            ),
+        },
+        interface: Some(
+            Identifier {
+                name: "cardano",
+                span: Some(
+                    48..55,
+                ),
+            },
+        ),
+    },
+}

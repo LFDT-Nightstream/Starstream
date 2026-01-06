@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/parser/expression/primary/literal.rs
+description: "Code:\n\n()"
+---
+Spanned {
+    node: Literal(
+        Unit,
+    ),
+    span: 0..2,
+    comments_before: [],
+    comments_after: [],
+}

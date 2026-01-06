@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/parser/definition/utxo.rs
+description: "Code:\n\nutxo Counter {}"
+---
+UtxoDef {
+    name: Identifier {
+        name: "Counter",
+        span: Some(
+            5..12,
+        ),
+    },
+    parts: [],
+}

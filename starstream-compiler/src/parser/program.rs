@@ -10,7 +10,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Program, Extra<'a>> {
     comment::shebang()
         .or_not()
         .then(
-            definition::parser()
+            definition()
                 .spanned()
                 .padded()
                 .repeated()
