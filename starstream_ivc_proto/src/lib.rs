@@ -11,22 +11,25 @@ mod poseidon2;
 mod test_utils;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
 use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
-use crate::neo::StepCircuitNeo;
-use crate::neo::arkworks_to_neo_ccs;
-use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
+use crate::neo::{StarstreamVm, StepCircuitNeo};
+use ark_relations::gr1cs::{
+    ConstraintSystem, ConstraintSystemRef, OptimizationGoal, SynthesisError,
+};
 use circuit::StepCircuitBuilder;
 use goldilocks::FpGoldilocks;
 pub use memory::nebula;
 use neo_ajtai::AjtaiSModule;
-use neo_ccs::CcsStructure;
 use neo_fold::pi_ccs::FoldingMode;
-use neo_fold::session::FoldingSession;
+use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
 use neo_params::NeoParams;
+use neo_vm_trace::{Shout, ShoutId, Twist, TwistId, VmCpu};
+use rand::SeedableRng as _;
 use starstream_mock_ledger::{InterleavingInstance, ProcessId};
 
 type F = FpGoldilocks;
@@ -119,60 +122,107 @@ pub struct ProverOutput {
 
 const SCAN_BATCH_SIZE: usize = 10;
 // const SCAN_BATCH_SIZE: usize = 200;
+//
+
+#[derive(Clone, Debug, Default)]
+pub struct MapTwist {
+    mem: HashMap<(TwistId, u64), u64>,
+}
+
+impl Twist<u64, u64> for MapTwist {
+    fn load(&mut self, id: TwistId, addr: u64) -> u64 {
+        *self.mem.get(&(id, addr)).unwrap_or(&0)
+    }
+
+    fn store(&mut self, id: TwistId, addr: u64, val: u64) {
+        self.mem.insert((id, addr), val);
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct MapShout {
+    pub table: Vec<u64>,
+}
+
+impl Shout<u64> for MapShout {
+    fn lookup(&mut self, id: ShoutId, key: u64) -> u64 {
+        assert_eq!(id.0, 0, "this test only supports shout_id=0");
+        self.table.get(key as usize).copied().unwrap_or(0)
+    }
+}
 
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
-    let shape_ccs = ccs_step_shape()?;
-
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
     let ops = make_interleaved_trace(&inst);
+    let max_steps = ops.len();
 
-    println!("making proof, steps {}", ops.len());
+    tracing::info!("making proof, steps {}", ops.len());
 
     let circuit_builder = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(inst, ops);
 
-    let n = shape_ccs.n.max(shape_ccs.m);
+    let circuit = Arc::new(StepCircuitNeo::new());
+    let pre = preprocess_shared_bus_r1cs(Arc::clone(&circuit)).expect("preprocess_shared_bus_r1cs");
+    let m = pre.m();
 
-    let (mut f_circuit, num_iters) = StepCircuitNeo::new(
-        circuit_builder,
-        shape_ccs.clone(),
-        NebulaMemoryParams {
-            // the proof system is still too slow to run the poseidon commitments, especially when iterating.
-            unsound_disable_poseidon_commitment: true,
-        },
-    );
+    // - bump k_rho for comfortable Π_RLC norm bound margin in tests
+    // - use b=4 so Ajtai digit encoding can represent full Goldilocks values (b^d >> q),
+    //   which matters once you run many chunks/steps (values quickly leave the tiny b=2^54 range).
+    let base_params = NeoParams::goldilocks_auto_r1cs_ccs(m).expect("params");
+    let params = NeoParams::new(
+        base_params.q,
+        base_params.eta,
+        base_params.d,
+        base_params.kappa,
+        base_params.m,
+        4,  // b
+        16, // k_rho
+        base_params.T,
+        base_params.s,
+        base_params.lambda,
+    )
+    .expect("params");
 
-    // since we are using square matrices, n = m
-    neo::setup_ajtai_for_dims(n);
+    let committer = setup_ajtai_committer(m, params.kappa as usize);
+    let prover = pre
+        .into_prover(params.clone(), committer.clone())
+        .expect("into_prover (R1csCpu shared-bus config)");
 
-    let l = AjtaiSModule::from_global_for_dims(neo_math::D, n).expect("AjtaiSModule init");
-
-    let mut params = NeoParams::goldilocks_auto_r1cs_ccs(n)
-        .expect("goldilocks_auto_r1cs_ccs should find valid params");
-
-    params.b = 3;
-
-    let mut session = FoldingSession::new(FoldingMode::Optimized, params, l.clone());
+    let mut session = FoldingSession::new(FoldingMode::Optimized, params.clone(), committer);
     session.unsafe_allow_unlinked_steps();
 
-    for _i in 0..num_iters {
-        let now = Instant::now();
-        session.add_step(&mut f_circuit, &()).unwrap();
-        tracing::info!("step added in {} ms", now.elapsed().as_millis());
-    }
+    let mut twist = MapTwist::default();
+    let shout = MapShout { table: vec![] };
+    let t_witness = Instant::now();
 
-    let now = Instant::now();
-    let run = session.fold_and_prove(&shape_ccs).unwrap();
-    tracing::info!("proof generated in {} ms", now.elapsed().as_millis());
+    prover
+        .execute_into_session(
+            &mut session,
+            StarstreamVm::new(circuit_builder),
+            twist,
+            shout,
+            max_steps,
+        )
+        .expect("execute_into_session should succeed");
+
+    let t_prove = Instant::now();
+    let run = session.fold_and_prove(prover.ccs()).unwrap();
+    tracing::info!("proof generated in {} ms", t_prove.elapsed().as_millis());
 
     let mcss_public = session.mcss_public();
     let ok = session
-        .verify(&shape_ccs, &mcss_public, &run)
+        .verify(&prover.ccs(), &mcss_public, &run)
         .expect("verify should run");
     assert!(ok, "optimized verification should pass");
 
     // TODO: extract the actual proof
     Ok(ProverOutput { proof: () })
+}
+
+fn setup_ajtai_committer(m: usize, kappa: usize) -> AjtaiSModule {
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(42);
+    let pp = neo_ajtai::setup(&mut rng, neo_math::D, kappa, m).expect("Ajtai setup");
+    AjtaiSModule::new(Arc::new(pp))
 }
 
 fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<crate::F>> {
@@ -327,7 +377,7 @@ fn value_to_field(val: starstream_mock_ledger::Value) -> F {
     F::from(val.0[0])
 }
 
-fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
+fn ccs_step_shape() -> Result<ConstraintSystemRef<F>, SynthesisError> {
     let _span = tracing::debug_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
@@ -335,11 +385,6 @@ fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
     let cs = ConstraintSystem::new_ref();
     cs.set_optimization_goal(ark_relations::gr1cs::OptimizationGoal::Constraints);
 
-    // let mut dummy_tx = StepCircuitBuilder::<DummyMemory<F>>::new(
-    //     Default::default(),
-    //     vec![LedgerOperation::Nop {}],
-    // );
-    //
     let hash = starstream_mock_ledger::Hash([0u8; 32], std::marker::PhantomData);
 
     let inst = InterleavingInstance {
@@ -356,12 +401,12 @@ fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
         entrypoint: ProcessId(0),
         input_states: vec![],
     };
+
     let mut dummy_tx = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(
         inst,
         vec![LedgerOperation::Nop {}],
     );
 
-    // let mb = dummy_tx.trace_memory_ops(());
     let mb = dummy_tx.trace_memory_ops(NebulaMemoryParams {
         unsound_disable_poseidon_commitment: true,
     });
@@ -370,9 +415,10 @@ fn ccs_step_shape() -> Result<CcsStructure<neo_math::F>, SynthesisError> {
         F::from(dummy_tx.p_len() as u64),
         dummy_tx.instance.entrypoint.0 as u64,
     );
+
     dummy_tx.make_step_circuit(0, &mut mb.constraints(), cs.clone(), irw)?;
 
     cs.finalize();
 
-    Ok(arkworks_to_neo_ccs(&cs))
+    Ok(cs)
 }
