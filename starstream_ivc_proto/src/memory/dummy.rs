@@ -2,6 +2,8 @@ use super::Address;
 use super::IVCMemory;
 use super::IVCMemoryAllocated;
 use crate::memory::AllocatedAddress;
+use crate::memory::MemType;
+use crate::memory::twist_and_shout::Lanes;
 use ark_ff::PrimeField;
 use ark_r1cs_std::GR1CSVar as _;
 use ark_r1cs_std::alloc::AllocVar as _;
@@ -25,7 +27,6 @@ pub struct DummyMemory<F> {
 
 impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
     type Allocator = DummyMemoryConstraints<F>;
-
     type Params = ();
 
     fn new(_params: Self::Params) -> Self {
@@ -38,7 +39,14 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
         }
     }
 
-    fn register_mem(&mut self, tag: u64, size: u64, debug_name: &'static str) {
+    fn register_mem_with_lanes(
+        &mut self,
+        tag: u64,
+        size: u64,
+        _mem_type: MemType,
+        _extra_info: Lanes,
+        debug_name: &'static str,
+    ) {
         self.mems.insert(tag, (size, debug_name));
     }
 
@@ -101,6 +109,8 @@ pub struct DummyMemoryConstraints<F: PrimeField> {
 }
 
 impl<F: PrimeField> IVCMemoryAllocated<F> for DummyMemoryConstraints<F> {
+    type FinishStepPayload = ();
+
     fn start_step(&mut self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         self.cs.replace(cs);
 

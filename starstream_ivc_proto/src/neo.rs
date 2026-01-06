@@ -1,16 +1,11 @@
 use crate::{
-    SCAN_BATCH_SIZE, ccs_step_shape,
+    ccs_step_shape,
     circuit::{InterRoundWires, StepCircuitBuilder},
     goldilocks::FpGoldilocks,
-    memory::IVCMemory,
-    nebula::{
-        NebulaMemoryConstraints,
-        tracer::{NebulaMemory, NebulaMemoryParams},
-    },
+    memory::twist_and_shout::{TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints},
 };
 use ark_ff::PrimeField;
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
-use neo_ccs::CcsStructure;
 use neo_fold::session::{NeoCircuit, WitnessLayout};
 use neo_memory::{ShoutCpuBinding, TwistCpuBinding};
 use neo_vm_trace::{Shout, StepTrace, Twist, VmCpu};
@@ -20,21 +15,23 @@ use std::collections::HashMap;
 pub(crate) struct StepCircuitNeo {
     pub(crate) matrices: Vec<Vec<Vec<(crate::F, usize)>>>,
     pub(crate) num_constraints: usize,
-    pub(crate) num_instance_variables: usize,
-    pub(crate) num_variables: usize,
+    pub(crate) ts_mem_spec: TSMemLayouts,
+    pub(crate) ts_mem_init: TSMemInitTables<crate::F>,
 }
 
 impl StepCircuitNeo {
-    pub fn new() -> Self {
-        let ark_cs = ccs_step_shape().unwrap();
+    pub fn new(ts_mem_init: TSMemInitTables<crate::F>) -> Self {
+        let (ark_cs, ts_mem_spec) = ccs_step_shape().unwrap();
 
         let num_constraints = ark_cs.num_constraints();
         let num_instance_variables = ark_cs.num_instance_variables();
-        let num_variables = ark_cs.num_constraints();
+        let num_variables = ark_cs.num_variables();
 
         tracing::info!("num constraints {}", num_constraints);
         tracing::info!("num instance variables {}", num_instance_variables);
         tracing::info!("num variables {}", num_variables);
+
+        assert_eq!(num_variables, <Self as NeoCircuit>::Layout::USED_COLS);
 
         let matrices = ark_cs
             .into_inner()
@@ -47,8 +44,8 @@ impl StepCircuitNeo {
         Self {
             matrices,
             num_constraints,
-            num_instance_variables,
-            num_variables,
+            ts_mem_spec,
+            ts_mem_init,
         }
     }
 }
@@ -61,7 +58,7 @@ impl WitnessLayout for CircuitLayout {
     const M_IN: usize = 1;
 
     // instance.len()+witness.len()
-    const USED_COLS: usize = 1224 + 1;
+    const USED_COLS: usize = 182;
 
     fn new_layout() -> Self {
         CircuitLayout {}
@@ -75,40 +72,46 @@ impl NeoCircuit for StepCircuitNeo {
         1 // for now, this is simpler to debug
     }
 
-    fn const_one_col(&self, layout: &Self::Layout) -> usize {
+    fn const_one_col(&self, _layout: &Self::Layout) -> usize {
         0
     }
 
     fn resources(&self, resources: &mut neo_fold::session::SharedBusResources) {
-        // TODO: (no memory for now)
-        //
-        // . Define Memory Layouts (for Twist): You specify the geometry of your read-write memories, such as their size and address structure.
-        //      // In resources()
-        //      resources
-        //          .twist(0) // Configure Twist memory with op_id = 0
-        //          // Define its layout: k=size, d=dimensions, etc.
-        //          .layout(PlainMemLayout { k: 2, d: 1, n_side: 2 });
-        // . Set Initial Memory Values (for Twist): If your memory isn't zero-initialized, you set the starting values of specific memory cells here. This is how you would "pre-load" a program or
-        //   initial data into memory before execution begins.
+        let max_rom_size = self.ts_mem_init.rom_sizes.values().max();
 
-        //      // In resources()
-        //      resources
-        //          .twist(0)
-        //          // ... after .layout(...)
-        //          // Initialize the cell at address 0 with the value F::ONE
-        //          .init_cell(0, F::ONE);
-        // . Provide Lookup Table Contents (for Shout): You define the complete contents of any read-only tables that your circuit will look up into. This is how you would define a boot ROM or a
-        //   fixed data table (like a sine wave table).
+        for (tag, (_dims, lanes, ty, _)) in &self.ts_mem_init.mems {
+            match ty {
+                crate::memory::MemType::Rom => {
+                    let mut content: Vec<neo_math::F> = self
+                        .ts_mem_init
+                        .init
+                        .get(tag)
+                        .map(|content| {
+                            content
+                                .into_iter()
+                                .map(|f| ark_field_to_p3_goldilocks(f))
+                                .collect()
+                        })
+                        .unwrap_or(vec![]);
 
-        //      // In resources()
-        //      // Set the data for the lookup table with op_id = 0
-        //      resources.set_binary_table(0, vec![F::ZERO, F::ONE]);
+                    content.resize(max_rom_size.copied().unwrap(), neo_math::F::ZERO);
+
+                    resources
+                        .shout(*tag as u32)
+                        .lanes(lanes.0)
+                        .padded_binary_table(content);
+                }
+                crate::memory::MemType::Ram => {
+                    // TODO
+                }
+            }
+        }
     }
 
     fn define_cpu_constraints(
         &self,
         cs: &mut neo_fold::session::CcsBuilder<neo_math::F>,
-        layout: &Self::Layout,
+        _layout: &Self::Layout,
     ) -> Result<(), String> {
         let matrices = &self.matrices;
 
@@ -127,7 +130,7 @@ impl NeoCircuit for StepCircuitNeo {
 
     fn build_witness_prefix(
         &self,
-        layout: &Self::Layout,
+        _layout: &Self::Layout,
         chunk: &[StepTrace<u64, u64>],
     ) -> Result<Vec<neo_math::F>, String> {
         let mut witness = vec![];
@@ -143,20 +146,28 @@ impl NeoCircuit for StepCircuitNeo {
 
     fn cpu_bindings(
         &self,
-        layout: &Self::Layout,
-    ) -> Result<(HashMap<u32, ShoutCpuBinding>, HashMap<u32, TwistCpuBinding>), String> {
-        // Create the mapping for Shout (read-only) operations
-        // let shout_map = HashMap::from([
-        //     (1u32, layout.boot_rom.cpu_binding()), // op_id 1 -> boot_rom port
-        //     (2u32, layout.trig_table.cpu_binding()), // op_id 2 -> trig_table port
-        // ]);
+        _layout: &Self::Layout,
+    ) -> Result<
+        (
+            HashMap<u32, Vec<ShoutCpuBinding>>,
+            HashMap<u32, Vec<TwistCpuBinding>>,
+        ),
+        String,
+    > {
+        let mut shout_map: HashMap<u32, Vec<ShoutCpuBinding>> = HashMap::new();
 
-        // // Create the mapping for Twist (read-write) operations
-        // let twist_map = HashMap::from([
-        //     (0u32, layout.main_ram.cpu_binding()), // op_id 0 -> main_ram port
-        // ]);
+        for (tag, layouts) in &self.ts_mem_spec.shout_bindings {
+            for layout in layouts {
+                let entry = shout_map.entry(*tag as u32).or_default();
+                entry.push(ShoutCpuBinding {
+                    has_lookup: Self::Layout::M_IN + layout.has_lookup,
+                    addr: Self::Layout::M_IN + layout.addr,
+                    val: Self::Layout::M_IN + layout.val,
+                });
+            }
+        }
 
-        Ok((HashMap::new(), HashMap::new()))
+        Ok((shout_map, HashMap::new()))
     }
 }
 
@@ -170,49 +181,30 @@ fn ark_matrix_to_neo(sparse_row: &[(FpGoldilocks, usize)]) -> Vec<(usize, neo_ma
     row
 }
 
-pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
-    let original_u64 = col_v.into_bigint().0[0];
-    let result = neo_math::F::from_u64(original_u64);
-
-    // Assert that we can convert back and get the same element
-    let converted_back = FpGoldilocks::from(original_u64);
-    assert_eq!(
-        *col_v, converted_back,
-        "Field element conversion is not reversible"
-    );
-
-    result
-}
-
 pub struct StarstreamVm {
-    step_circuit_builder: StepCircuitBuilder<NebulaMemory<SCAN_BATCH_SIZE>>,
+    step_circuit_builder: StepCircuitBuilder<TSMemory<crate::F>>,
     step_i: usize,
-    mem: NebulaMemoryConstraints<crate::F>,
+    mem: TSMemoryConstraints<crate::F>,
     irw: InterRoundWires,
     regs: Vec<u64>,
 }
 
 impl StarstreamVm {
     pub fn new(
-        mut step_circuit_builder: StepCircuitBuilder<NebulaMemory<SCAN_BATCH_SIZE>>,
+        step_circuit_builder: StepCircuitBuilder<TSMemory<crate::F>>,
+        mem: TSMemoryConstraints<crate::F>,
     ) -> Self {
         let irw = InterRoundWires::new(
             crate::F::from(step_circuit_builder.p_len() as u64),
             step_circuit_builder.instance.entrypoint.0 as u64,
         );
 
-        let params = NebulaMemoryParams {
-            unsound_disable_poseidon_commitment: true,
-        };
-
-        let mb = step_circuit_builder.trace_memory_ops(params);
-
         Self {
             step_circuit_builder,
             step_i: 0,
-            mem: mb.constraints(),
+            mem,
             irw,
-            regs: vec![0; 1224 + 1],
+            regs: vec![0; <StepCircuitNeo as NeoCircuit>::Layout::USED_COLS],
         }
     }
 }
@@ -244,7 +236,7 @@ impl VmCpu<u64, u64> for StarstreamVm {
         let cs = ConstraintSystem::<crate::F>::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
 
-        let irw = self.step_circuit_builder.make_step_circuit(
+        let (irw, mem_trace_data) = self.step_circuit_builder.make_step_circuit(
             self.step_i,
             &mut self.mem,
             cs.clone(),
@@ -269,9 +261,30 @@ impl VmCpu<u64, u64> for StarstreamVm {
             )
             .collect();
 
+        for event in mem_trace_data {
+            assert_eq!(
+                shout.lookup(neo_vm_trace::ShoutId(event.shout_id), event.key),
+                event.value
+            );
+        }
+
         Ok(neo_vm_trace::StepMeta {
             pc_after: self.step_i as u64,
             opcode: 0,
         })
     }
+}
+
+pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
+    let original_u64 = col_v.into_bigint().0[0];
+    let result = neo_math::F::from_u64(original_u64);
+
+    // Assert that we can convert back and get the same element
+    let converted_back = FpGoldilocks::from(original_u64);
+    assert_eq!(
+        *col_v, converted_back,
+        "Field element conversion is not reversible"
+    );
+
+    result
 }
