@@ -4,6 +4,32 @@ use starstream_types::ast::{BinaryOp, Expr, Spanned};
 use super::context::Extra;
 use crate::parser::statement;
 
+/// Test helper macro for expression snapshot tests.
+/// Defined here so all expression submodules can use it.
+#[cfg(test)]
+macro_rules! assert_expression_snapshot {
+    ($code:expr) => {{
+        use chumsky::prelude::*;
+        use indoc::indoc;
+
+        let parsed = $crate::parser::expression::parser()
+            .parse(indoc! { $code })
+            .into_result()
+            .expect("expression should parse");
+
+        insta::with_settings!({
+            description => format!("Code:\n\n{}", indoc! { $code }),
+            omit_expression => true,
+            prepend_module_to_snapshot => true,
+        }, {
+            insta::assert_debug_snapshot!(parsed);
+        });
+    }};
+}
+
+#[cfg(test)]
+pub(crate) use assert_expression_snapshot;
+
 mod additive;
 mod comparison;
 mod equality;
@@ -63,25 +89,7 @@ fn span_union(a: SimpleSpan, b: SimpleSpan) -> SimpleSpan {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use indoc::indoc;
-
-    macro_rules! assert_expression_snapshot {
-        ($code:expr) => {{
-            let parsed = parser()
-                .parse(indoc! { $code })
-                .into_result()
-                .expect("expression should parse");
-
-            insta::with_settings!({
-                description => format!("Code:\n\n{}", indoc! { $code }),
-                omit_expression => true,
-                prepend_module_to_snapshot => true,
-            }, {
-                insta::assert_debug_snapshot!(parsed);
-            });
-        }};
-    }
+    use super::assert_expression_snapshot;
 
     #[test]
     fn arithmetic_precedence() {
