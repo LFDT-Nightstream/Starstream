@@ -1,0 +1,41 @@
+---
+source: starstream-compiler/src/parser/definition/enum_def.rs
+description: "Code:\n\nenum Color { Red, Green, Blue }"
+---
+EnumDef {
+    name: Identifier {
+        name: "Color",
+        span: Some(
+            5..10,
+        ),
+    },
+    variants: [
+        EnumVariant {
+            name: Identifier {
+                name: "Red",
+                span: Some(
+                    13..16,
+                ),
+            },
+            payload: Unit,
+        },
+        EnumVariant {
+            name: Identifier {
+                name: "Green",
+                span: Some(
+                    18..23,
+                ),
+            },
+            payload: Unit,
+        },
+        EnumVariant {
+            name: Identifier {
+                name: "Blue",
+                span: Some(
+                    25..29,
+                ),
+            },
+            payload: Unit,
+        },
+    ],
+}

@@ -1,0 +1,29 @@
+---
+source: starstream-compiler/src/parser/definition/import.rs
+description: "Code:\n\nimport context from starstream:std;"
+---
+ImportDef {
+    items: Namespace(
+        Identifier {
+            name: "context",
+            span: Some(
+                7..14,
+            ),
+        },
+    ),
+    from: ImportSource {
+        namespace: Identifier {
+            name: "starstream",
+            span: Some(
+                20..30,
+            ),
+        },
+        package: Identifier {
+            name: "std",
+            span: Some(
+                31..34,
+            ),
+        },
+        interface: None,
+    },
+}

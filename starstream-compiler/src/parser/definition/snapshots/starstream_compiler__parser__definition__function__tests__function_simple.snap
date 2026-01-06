@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/parser/definition/function.rs
+description: "Code:\n\nfn foo() {}"
+---
+FunctionDef {
+    export: None,
+    name: Identifier {
+        name: "foo",
+        span: Some(
+            3..6,
+        ),
+    },
+    params: [],
+    return_type: None,
+    body: Block {
+        statements: [],
+        tail_expression: None,
+    },
+}

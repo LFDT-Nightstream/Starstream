@@ -1,0 +1,78 @@
+---
+source: starstream-compiler/src/parser/definition/function.rs
+description: "Code:\n\nfn add(a: i64, b: i64) -> i64 { a }"
+---
+FunctionDef {
+    export: None,
+    name: Identifier {
+        name: "add",
+        span: Some(
+            3..6,
+        ),
+    },
+    params: [
+        FunctionParam {
+            name: Identifier {
+                name: "a",
+                span: Some(
+                    7..8,
+                ),
+            },
+            ty: TypeAnnotation {
+                name: Identifier {
+                    name: "i64",
+                    span: Some(
+                        10..13,
+                    ),
+                },
+                generics: [],
+            },
+        },
+        FunctionParam {
+            name: Identifier {
+                name: "b",
+                span: Some(
+                    15..16,
+                ),
+            },
+            ty: TypeAnnotation {
+                name: Identifier {
+                    name: "i64",
+                    span: Some(
+                        18..21,
+                    ),
+                },
+                generics: [],
+            },
+        },
+    ],
+    return_type: Some(
+        TypeAnnotation {
+            name: Identifier {
+                name: "i64",
+                span: Some(
+                    26..29,
+                ),
+            },
+            generics: [],
+        },
+    ),
+    body: Block {
+        statements: [],
+        tail_expression: Some(
+            Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "a",
+                        span: Some(
+                            32..33,
+                        ),
+                    },
+                ),
+                span: 32..34,
+                comments_before: [],
+                comments_after: [],
+            },
+        ),
+    },
+}
