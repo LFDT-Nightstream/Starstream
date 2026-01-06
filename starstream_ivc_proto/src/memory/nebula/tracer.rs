@@ -7,7 +7,9 @@ use super::NebulaMemoryConstraints;
 use super::ic::ICPlain;
 use crate::F;
 use crate::memory::IVCMemory;
+use crate::memory::MemType;
 use crate::memory::nebula::gadget::FingerPrintPreWires;
+use crate::memory::twist_and_shout::Lanes;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 
@@ -127,7 +129,15 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
         }
     }
 
-    fn register_mem(&mut self, tag: u64, size: u64, debug_name: &'static str) {
+    fn register_mem_with_lanes(
+        &mut self,
+        tag: u64,
+        size: u64,
+        _mem_type: MemType,
+        // TODO: this is not generic
+        _extra_info: Lanes,
+        debug_name: &'static str,
+    ) {
         self.mems.insert(tag, (size, debug_name));
     }
 
@@ -168,7 +178,7 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
 
         max_address.tag += 1;
 
-        self.register_mem(max_address.tag, 1, "PADDING_SEGMENT");
+        self.register_mem(max_address.tag, 1, MemType::Ram, "PADDING_SEGMENT");
 
         for _ in 0..padding_required {
             self.is.insert(

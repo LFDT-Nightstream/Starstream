@@ -16,19 +16,18 @@ use std::time::Instant;
 
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
-use crate::nebula::tracer::{NebulaMemory, NebulaMemoryParams};
+use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{StarstreamVm, StepCircuitNeo};
-use ark_relations::gr1cs::{
-    ConstraintSystem, ConstraintSystemRef, OptimizationGoal, SynthesisError,
-};
+use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
 use circuit::StepCircuitBuilder;
 use goldilocks::FpGoldilocks;
 pub use memory::nebula;
 use neo_ajtai::AjtaiSModule;
 use neo_fold::pi_ccs::FoldingMode;
 use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
+use neo_fold::shard::StepLinkingConfig;
 use neo_params::NeoParams;
-use neo_vm_trace::{Shout, ShoutId, Twist, TwistId, VmCpu};
+use neo_vm_trace::{Twist, TwistId};
 use rand::SeedableRng as _;
 use starstream_mock_ledger::{InterleavingInstance, ProcessId};
 
@@ -120,10 +119,6 @@ pub struct ProverOutput {
     pub proof: (),
 }
 
-const SCAN_BATCH_SIZE: usize = 10;
-// const SCAN_BATCH_SIZE: usize = 200;
-//
-
 #[derive(Clone, Debug, Default)]
 pub struct MapTwist {
     mem: HashMap<(TwistId, u64), u64>,
@@ -139,18 +134,6 @@ impl Twist<u64, u64> for MapTwist {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct MapShout {
-    pub table: Vec<u64>,
-}
-
-impl Shout<u64> for MapShout {
-    fn lookup(&mut self, id: ShoutId, key: u64) -> u64 {
-        assert_eq!(id.0, 0, "this test only supports shout_id=0");
-        self.table.get(key as usize).copied().unwrap_or(0)
-    }
-}
-
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
@@ -159,15 +142,15 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
 
     tracing::info!("making proof, steps {}", ops.len());
 
-    let circuit_builder = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(inst, ops);
+    let mut circuit_builder = StepCircuitBuilder::<TSMemory<F>>::new(inst, ops);
 
-    let circuit = Arc::new(StepCircuitNeo::new());
+    let mb = circuit_builder.trace_memory_ops(());
+
+    let circuit = Arc::new(StepCircuitNeo::new(mb.init_tables()));
     let pre = preprocess_shared_bus_r1cs(Arc::clone(&circuit)).expect("preprocess_shared_bus_r1cs");
     let m = pre.m();
 
-    // - bump k_rho for comfortable Π_RLC norm bound margin in tests
-    // - use b=4 so Ajtai digit encoding can represent full Goldilocks values (b^d >> q),
-    //   which matters once you run many chunks/steps (values quickly leave the tiny b=2^54 range).
+    // params copy-pasted from nightstream tests, this needs review
     let base_params = NeoParams::goldilocks_auto_r1cs_ccs(m).expect("params");
     let params = NeoParams::new(
         base_params.q,
@@ -189,16 +172,17 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
         .expect("into_prover (R1csCpu shared-bus config)");
 
     let mut session = FoldingSession::new(FoldingMode::Optimized, params.clone(), committer);
-    session.unsafe_allow_unlinked_steps();
 
-    let mut twist = MapTwist::default();
-    let shout = MapShout { table: vec![] };
-    let t_witness = Instant::now();
+    // TODO: not sound, but not important right now
+    session.set_step_linking(StepLinkingConfig::new(vec![(0, 0)]));
+
+    let twist = MapTwist::default();
+    let shout = mb.clone();
 
     prover
         .execute_into_session(
             &mut session,
-            StarstreamVm::new(circuit_builder),
+            StarstreamVm::new(circuit_builder, mb.constraints()),
             twist,
             shout,
             max_steps,
@@ -209,10 +193,10 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
     let run = session.fold_and_prove(prover.ccs()).unwrap();
     tracing::info!("proof generated in {} ms", t_prove.elapsed().as_millis());
 
-    let mcss_public = session.mcss_public();
     let ok = session
-        .verify(&prover.ccs(), &mcss_public, &run)
+        .verify_collected(&prover.ccs(), &run)
         .expect("verify should run");
+
     assert!(ok, "optimized verification should pass");
 
     // TODO: extract the actual proof
@@ -377,7 +361,7 @@ fn value_to_field(val: starstream_mock_ledger::Value) -> F {
     F::from(val.0[0])
 }
 
-fn ccs_step_shape() -> Result<ConstraintSystemRef<F>, SynthesisError> {
+fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts), SynthesisError> {
     let _span = tracing::debug_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
@@ -402,23 +386,22 @@ fn ccs_step_shape() -> Result<ConstraintSystemRef<F>, SynthesisError> {
         input_states: vec![],
     };
 
-    let mut dummy_tx = StepCircuitBuilder::<NebulaMemory<SCAN_BATCH_SIZE>>::new(
-        inst,
-        vec![LedgerOperation::Nop {}],
-    );
+    let mut dummy_tx = StepCircuitBuilder::<TSMemory<F>>::new(inst, vec![LedgerOperation::Nop {}]);
 
-    let mb = dummy_tx.trace_memory_ops(NebulaMemoryParams {
-        unsound_disable_poseidon_commitment: true,
-    });
+    let mb = dummy_tx.trace_memory_ops(());
 
     let irw = InterRoundWires::new(
         F::from(dummy_tx.p_len() as u64),
         dummy_tx.instance.entrypoint.0 as u64,
     );
 
-    dummy_tx.make_step_circuit(0, &mut mb.constraints(), cs.clone(), irw)?;
+    let mut running_mem = mb.constraints();
+
+    dummy_tx.make_step_circuit(0, &mut running_mem, cs.clone(), irw)?;
 
     cs.finalize();
 
-    Ok(cs)
+    let mem_spec = running_mem.ts_mem_layouts();
+
+    Ok((cs, mem_spec))
 }

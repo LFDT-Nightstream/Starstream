@@ -139,6 +139,8 @@ impl FingerPrintWires {
 }
 
 impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
+    type FinishStepPayload = ();
+
     #[tracing::instrument(target = "gr1cs", skip(self, cs))]
     fn start_step(&mut self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
         self.cs.replace(cs.clone());

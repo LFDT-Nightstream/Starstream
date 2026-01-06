@@ -1,4 +1,5 @@
-use crate::memory::{self, Address, IVCMemory};
+use crate::memory::twist_and_shout::Lanes;
+use crate::memory::{self, Address, IVCMemory, MemType};
 use crate::value_to_field;
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
@@ -1407,7 +1408,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         rm: &mut M::Allocator,
         cs: ConstraintSystemRef<F>,
         mut irw: InterRoundWires,
-    ) -> Result<InterRoundWires, SynthesisError> {
+    ) -> Result<
+        (
+            InterRoundWires,
+            <M::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
+        ),
+        SynthesisError,
+    > {
         rm.start_step(cs.clone()).unwrap();
 
         let _guard = tracing::info_span!("make_step_circuit", i = i, op = ?self.ops[i]).entered();
@@ -1431,7 +1438,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_uninstall_handler(next_wires)?;
         let next_wires = self.visit_get_handler_for(next_wires)?;
 
-        rm.finish_step(i == self.ops.len() - 1)?;
+        let mem_step_data = rm.finish_step(i == self.ops.len() - 1)?;
 
         // input <-> output mappings are done by modifying next_wires
         ivcify_wires(&cs, &wires_in, &next_wires)?;
@@ -1440,7 +1447,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         tracing::debug!("constraints: {}", cs.num_constraints());
 
-        Ok(irw)
+        Ok((irw, mem_step_data))
     }
 
     pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
@@ -1448,30 +1455,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let mut mb = {
             let mut mb = M::new(params);
 
-            mb.register_mem(MemoryTag::ProcessTable.into(), 1, "ROM_PROCESS_TABLE");
-            mb.register_mem(MemoryTag::MustBurn.into(), 1, "ROM_MUST_BURN");
-            mb.register_mem(MemoryTag::IsUtxo.into(), 1, "ROM_IS_UTXO");
-            mb.register_mem(MemoryTag::Interfaces.into(), 1, "ROM_INTERFACES");
-
-            mb.register_mem(MemoryTag::ExpectedInput.into(), 1, "RAM_EXPECTED_INPUT");
-            mb.register_mem(MemoryTag::Activation.into(), 1, "RAM_ACTIVATION");
-            mb.register_mem(MemoryTag::Init.into(), 1, "RAM_INIT");
-            mb.register_mem(MemoryTag::Counters.into(), 1, "RAM_COUNTERS");
-            mb.register_mem(MemoryTag::Initialized.into(), 1, "RAM_INITIALIZED");
-            mb.register_mem(MemoryTag::Finalized.into(), 1, "RAM_FINALIZED");
-            mb.register_mem(MemoryTag::DidBurn.into(), 1, "RAM_DID_BURN");
-            mb.register_mem(MemoryTag::RefArena.into(), 1, "RAM_REF_ARENA");
-            mb.register_mem(MemoryTag::Ownership.into(), 1, "RAM_OWNERSHIP");
-            mb.register_mem(
-                MemoryTag::HandlerStackArena.into(),
-                2,
-                "RAM_HANDLER_STACK_ARENA",
-            );
-            mb.register_mem(
-                MemoryTag::HandlerStackHeads.into(),
-                1,
-                "RAM_HANDLER_STACK_HEADS",
-            );
+            register_memory_segments(&mut mb);
 
             for (pid, mod_hash) in self.instance.process_table.iter().enumerate() {
                 mb.init(
@@ -2490,6 +2474,76 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     pub(crate) fn p_len(&self) -> usize {
         self.instance.process_table.len()
     }
+}
+
+fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
+    mb.register_mem(
+        MemoryTag::ProcessTable.into(),
+        1,
+        MemType::Rom,
+        "ROM_PROCESS_TABLE",
+    );
+    mb.register_mem(MemoryTag::MustBurn.into(), 1, MemType::Rom, "ROM_MUST_BURN");
+    mb.register_mem_with_lanes(
+        MemoryTag::IsUtxo.into(),
+        1,
+        MemType::Rom,
+        Lanes(2),
+        "ROM_IS_UTXO",
+    );
+    mb.register_mem(
+        MemoryTag::Interfaces.into(),
+        1,
+        MemType::Rom,
+        "ROM_INTERFACES",
+    );
+
+    mb.register_mem(
+        MemoryTag::ExpectedInput.into(),
+        1,
+        MemType::Ram,
+        "RAM_EXPECTED_INPUT",
+    );
+    mb.register_mem(
+        MemoryTag::Activation.into(),
+        1,
+        MemType::Ram,
+        "RAM_ACTIVATION",
+    );
+    mb.register_mem(MemoryTag::Init.into(), 1, MemType::Ram, "RAM_INIT");
+    mb.register_mem(MemoryTag::Counters.into(), 1, MemType::Ram, "RAM_COUNTERS");
+    mb.register_mem(
+        MemoryTag::Initialized.into(),
+        1,
+        MemType::Ram,
+        "RAM_INITIALIZED",
+    );
+    mb.register_mem(
+        MemoryTag::Finalized.into(),
+        1,
+        MemType::Ram,
+        "RAM_FINALIZED",
+    );
+    mb.register_mem(MemoryTag::DidBurn.into(), 1, MemType::Ram, "RAM_DID_BURN");
+    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Ram, "RAM_REF_ARENA");
+    mb.register_mem(
+        MemoryTag::Ownership.into(),
+        1,
+        MemType::Ram,
+        "RAM_OWNERSHIP",
+    );
+    mb.register_mem(
+        MemoryTag::HandlerStackArena.into(),
+        2,
+        MemType::Ram,
+        "RAM_HANDLER_STACK_ARENA",
+    );
+    mb.register_mem(
+        MemoryTag::HandlerStackHeads.into(),
+        1,
+        MemType::Ram,
+        "RAM_HANDLER_STACK_HEADS",
+    );
 }
 
 #[tracing::instrument(target = "gr1cs", skip_all)]
