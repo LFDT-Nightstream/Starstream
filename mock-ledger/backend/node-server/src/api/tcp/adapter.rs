@@ -18,3 +18,23 @@ impl bindings::exports::starstream::wrpc_multiplexer::handler::Handler<SocketAdd
 // Add back once we have other RPC methods
 // impl bindings::exports::starstream::node_rpc::handler::Handler<SocketAddr> for Handler {
 // }
+
+impl bindings::exports::starstream::node_rpc::registry::Handler<SocketAddr> for Handler {
+    async fn get_wit(
+        &self,
+        _ctx: SocketAddr,
+        hash: String,
+        resolve: bool,
+    ) -> anyhow::Result<bindings::exports::starstream::node_rpc::registry::ComponentInterface> {
+        // TODO: a proper registry
+        Ok(bindings::exports::starstream::node_rpc::registry::ComponentInterface {
+            wit: String::from("
+                package root:component;
+                world root {
+                export get-value: func(value: s64) -> s64;
+                }
+            "),
+            entrypoint: String::from("root"),
+        })
+    }
+}

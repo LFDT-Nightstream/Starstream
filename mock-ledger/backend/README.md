@@ -24,10 +24,16 @@ Start server
 cargo run -p starstream-node-server -- '[::1]:7762'
 ```
 
-Start client
+Start client (no-args example)
 
 ```bash
 cargo run -p starstream-node-client -- --addr='[::1]:7762' --contract-hash='0x1170FAD15BECBB08C00B29067171110B34E8B4CEBC648BA662147BA0F2F1224F'
+```
+
+Start client with parameters
+
+```bash
+cargo run -p starstream-node-client -- --addr='[::1]:7762' --contract-hash='0x54AD8533C20E995DB809D203131C45F3D308322631B514044DF5B7B9E4EDABBC' --call='get-value(5)'
 ```
 
 ## Concept

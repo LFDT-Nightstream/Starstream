@@ -1,5 +1,13 @@
 package starstream:node-rpc;
 
+interface registry {
+    record component-interface {
+        wit: string,
+        entrypoint: string
+    }
+
+    get-wit: func(hash: string, resolve: bool) -> component-interface;
+}
 interface handler {
     /// TODO: other RPC methods for the ledger
 }
@@ -9,10 +17,12 @@ use starstream:wrpc-multiplexer/handler as multiplexer;
 world client {
     import multiplexer;
     import handler;
+    import registry;
 }
 
 world server {
     export multiplexer;
     export handler;
+    export registry;
 }
 

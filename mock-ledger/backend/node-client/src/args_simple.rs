@@ -25,6 +25,7 @@ pub async fn explicit_call(
     .with_context(|| format!("failed to call `{contract_hash}.{function}`"))?;
 
     // note: you have to "know" that the result of the call here is an i64. It will be a runtime error if you get the type wrong
+    // you can do better if you have access to the WIT
     let result: i64 = unpack(&mut result.into())?;
     Ok(result)
 }

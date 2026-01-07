@@ -39,5 +39,9 @@ wit-bindgen-wrpc = { path = "../../../wrpc/crates/wit-bindgen", default-features
 wrpc-transport = { path = "../../../wrpc/crates/transport", default-features = false }
 wrpc-runtime-wasmtime = { path = "../../../wrpc/crates/runtime-wasmtime", default-features = false }
 wasmtime-wasi = { version = "39", default-features = false }
+wasm-wave = { version = "0.243", default-features = false }
 wit-bindgen = { version = "0.45", default-features = false }
-wrpc-pack = {path = "../../../wrpc/crates/pack", default-features = false }
+wrpc-wave = { path = "../../../wrpc/crates/wave", default-features = false }
+wrpc-pack = { path = "../../../wrpc/crates/pack", default-features = false }
+wit-parser = { version = "0.243", default-features = false }
+wit-encoder = { version = "0.243", default-features = false }
