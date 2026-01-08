@@ -168,10 +168,10 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
 
     let committer = setup_ajtai_committer(m, params.kappa as usize);
     let prover = pre
-        .into_prover(params.clone(), committer.clone())
+        .into_prover(params, committer.clone())
         .expect("into_prover (R1csCpu shared-bus config)");
 
-    let mut session = FoldingSession::new(FoldingMode::Optimized, params.clone(), committer);
+    let mut session = FoldingSession::new(FoldingMode::Optimized, params, committer);
 
     // TODO: not sound, but not important right now
     session.set_step_linking(StepLinkingConfig::new(vec![(0, 0)]));
@@ -194,7 +194,7 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
     tracing::info!("proof generated in {} ms", t_prove.elapsed().as_millis());
 
     let ok = session
-        .verify_collected(&prover.ccs(), &run)
+        .verify_collected(prover.ccs(), &run)
         .expect("verify should run");
 
     assert!(ok, "optimized verification should pass");

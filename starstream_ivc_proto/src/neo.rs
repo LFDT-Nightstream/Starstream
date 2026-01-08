@@ -88,8 +88,8 @@ impl NeoCircuit for StepCircuitNeo {
                         .get(tag)
                         .map(|content| {
                             content
-                                .into_iter()
-                                .map(|f| ark_field_to_p3_goldilocks(f))
+                                .iter()
+                                .map(ark_field_to_p3_goldilocks)
                                 .collect()
                         })
                         .unwrap_or(vec![]);
@@ -115,10 +115,15 @@ impl NeoCircuit for StepCircuitNeo {
     ) -> Result<(), String> {
         let matrices = &self.matrices;
 
-        for row in 0..self.num_constraints {
-            let a_row = ark_matrix_to_neo(&matrices[0][row]);
-            let b_row = ark_matrix_to_neo(&matrices[1][row]);
-            let c_row = ark_matrix_to_neo(&matrices[2][row]);
+        for ((matrix_a, matrix_b), matrix_c) in matrices[0]
+            .iter()
+            .zip(&matrices[1])
+            .zip(&matrices[2])
+            .take(self.num_constraints)
+        {
+            let a_row = ark_matrix_to_neo(matrix_a);
+            let b_row = ark_matrix_to_neo(matrix_b);
+            let c_row = ark_matrix_to_neo(matrix_c);
 
             cs.r1cs_terms(a_row, b_row, c_row);
         }
@@ -226,7 +231,7 @@ impl VmCpu<u64, u64> for StarstreamVm {
 
     fn step<T, S>(
         &mut self,
-        twist: &mut T,
+        _twist: &mut T,
         shout: &mut S,
     ) -> Result<neo_vm_trace::StepMeta<u64>, Self::Error>
     where
