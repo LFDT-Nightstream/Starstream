@@ -27,7 +27,6 @@ use neo_fold::pi_ccs::FoldingMode;
 use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
 use neo_fold::shard::StepLinkingConfig;
 use neo_params::NeoParams;
-use neo_vm_trace::{Twist, TwistId};
 use rand::SeedableRng as _;
 use starstream_mock_ledger::{InterleavingInstance, ProcessId};
 
@@ -119,21 +118,6 @@ pub struct ProverOutput {
     pub proof: (),
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct MapTwist {
-    mem: HashMap<(TwistId, u64), u64>,
-}
-
-impl Twist<u64, u64> for MapTwist {
-    fn load(&mut self, id: TwistId, addr: u64) -> u64 {
-        *self.mem.get(&(id, addr)).unwrap_or(&0)
-    }
-
-    fn store(&mut self, id: TwistId, addr: u64, val: u64) {
-        self.mem.insert((id, addr), val);
-    }
-}
-
 pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
@@ -176,13 +160,12 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
     // TODO: not sound, but not important right now
     session.set_step_linking(StepLinkingConfig::new(vec![(0, 0)]));
 
-    let twist = MapTwist::default();
-    let shout = mb.clone();
+    let (constraints, shout, twist) = mb.split();
 
     prover
         .execute_into_session(
             &mut session,
-            StarstreamVm::new(circuit_builder, mb.constraints()),
+            StarstreamVm::new(circuit_builder, constraints),
             twist,
             shout,
             max_steps,

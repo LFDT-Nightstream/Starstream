@@ -68,7 +68,7 @@ impl InterfaceResolver {
 
 #[derive(Clone)]
 struct HandlerState {
-    handler_stack_node_read: Vec<FpVar<F>>,
+    handler_stack_node_process: FpVar<F>,
     interface_rom_read: FpVar<F>,
 }
 
@@ -108,8 +108,9 @@ pub enum MemoryTag {
     Ownership = 11,
     Init = 12,
     RefArena = 13,
-    HandlerStackArena = 14,
-    HandlerStackHeads = 15,
+    HandlerStackArenaProcess = 14,
+    HandlerStackArenaNextPtr = 15,
+    HandlerStackHeads = 16,
 }
 
 impl From<MemoryTag> for u64 {
@@ -850,29 +851,45 @@ impl Wires {
         )?[0]
             .clone();
 
-        let handler_stack_node_read = rm.conditional_read(
+        let handler_stack_node_process = rm.conditional_read(
             &handler_switches.read_node,
             &Address {
-                tag: MemoryTag::HandlerStackArena.allocate(cs.clone())?,
+                tag: MemoryTag::HandlerStackArenaProcess.allocate(cs.clone())?,
                 addr: handler_stack_head_read.clone(),
             },
+        )?[0]
+            .clone();
+
+        let handler_stack_node_next = rm.conditional_read(
+            &handler_switches.read_node,
+            &Address {
+                tag: MemoryTag::HandlerStackArenaNextPtr.allocate(cs.clone())?,
+                addr: handler_stack_head_read.clone(),
+            },
+        )?[0]
+            .clone();
+
+        rm.conditional_write(
+            &handler_switches.write_node,
+            &Address {
+                tag: MemoryTag::HandlerStackArenaProcess.allocate(cs.clone())?,
+                addr: handler_stack_counter.clone(),
+            },
+            &[handler_switches
+                .write_node
+                .select(&id_curr, &FpVar::new_constant(cs.clone(), F::ZERO)?)?], // process_id
         )?;
 
         rm.conditional_write(
             &handler_switches.write_node,
             &Address {
-                tag: MemoryTag::HandlerStackArena.allocate(cs.clone())?,
+                tag: MemoryTag::HandlerStackArenaNextPtr.allocate(cs.clone())?,
                 addr: handler_stack_counter.clone(),
             },
-            &[
-                handler_switches
-                    .write_node
-                    .select(&id_curr, &FpVar::new_constant(cs.clone(), F::ZERO)?)?, // process_id
-                handler_switches.write_node.select(
-                    &handler_stack_head_read,
-                    &FpVar::new_constant(cs.clone(), F::ZERO)?,
-                )?, // next_ptr (old head)
-            ],
+            &[handler_switches.write_node.select(
+                &handler_stack_head_read,
+                &FpVar::new_constant(cs.clone(), F::ZERO)?,
+            )?], // next_ptr (old head)
         )?;
 
         rm.conditional_write(
@@ -883,12 +900,12 @@ impl Wires {
             },
             &[handler_switches.write_node.select(
                 &handler_stack_counter, // install: new node becomes head
-                &handler_stack_node_read[1],
+                &handler_stack_node_next,
             )?],
         )?;
 
         let handler_state = HandlerState {
-            handler_stack_node_read,
+            handler_stack_node_process,
             interface_rom_read: interface_rom_read.clone(),
         };
 
@@ -1763,9 +1780,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mem.init(
                 Address {
                     addr: i as u64,
-                    tag: MemoryTag::HandlerStackArena.into(),
+                    tag: MemoryTag::HandlerStackArenaProcess.into(),
                 },
-                vec![F::ZERO, F::ZERO], // (process_id, next_ptr)
+                vec![F::ZERO], // process_id
+            );
+            mem.init(
+                Address {
+                    addr: i as u64,
+                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
+                },
+                vec![F::ZERO], // next_ptr
             );
         }
     }
@@ -1810,24 +1834,45 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 },
             )[0];
 
-            let node_data = mb.conditional_read(
+            let _node_process = mb.conditional_read(
                 config.handler_switches.read_node,
                 Address {
-                    tag: MemoryTag::HandlerStackArena.into(),
+                    tag: MemoryTag::HandlerStackArenaProcess.into(),
                     addr: current_head.into_bigint().0[0],
+                },
+            )[0];
+
+            let node_next = mb.conditional_read(
+                config.handler_switches.read_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
+                    addr: current_head.into_bigint().0[0],
+                },
+            )[0];
+
+            mb.conditional_write(
+                config.handler_switches.write_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArenaProcess.into(),
+                    addr: irw.handler_stack_counter.into_bigint().0[0],
+                },
+                if config.handler_switches.write_node {
+                    vec![irw.id_curr]
+                } else {
+                    vec![F::ZERO]
                 },
             );
 
             mb.conditional_write(
                 config.handler_switches.write_node,
                 Address {
-                    tag: MemoryTag::HandlerStackArena.into(),
+                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
                     addr: irw.handler_stack_counter.into_bigint().0[0],
                 },
                 if config.handler_switches.write_node {
-                    vec![irw.id_curr, current_head]
+                    vec![current_head]
                 } else {
-                    vec![F::ZERO, F::ZERO]
+                    vec![F::ZERO]
                 },
             );
 
@@ -1840,7 +1885,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 vec![if config.handler_switches.write_node {
                     irw.handler_stack_counter
                 } else if config.handler_switches.write_head {
-                    node_data.get(1).copied().unwrap_or(F::ZERO)
+                    node_next
                 } else {
                     F::ZERO
                 }],
@@ -2441,12 +2486,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.val, switch)?;
 
         // Read the node at current head: should contain (process_id, next_ptr)
-        let node_data = &wires.handler_state.handler_stack_node_read;
+        let node_process = &wires.handler_state.handler_stack_node_process;
 
         // Verify the process_id in the node matches the current process (only installer can uninstall)
         wires
             .id_curr
-            .conditional_enforce_equal(&node_data[0], switch)?;
+            .conditional_enforce_equal(node_process, switch)?;
 
         Ok(wires)
     }
@@ -2463,10 +2508,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.val, switch)?;
 
         // Read the node at current head: should contain (process_id, next_ptr)
-        let node_data = &wires.handler_state.handler_stack_node_read;
+        let node_process = &wires.handler_state.handler_stack_node_process;
 
         // The process_id in the node IS the handler_id we want to return
-        wires.ret.conditional_enforce_equal(&node_data[0], switch)?;
+        wires.ret.conditional_enforce_equal(node_process, switch)?;
 
         Ok(wires)
     }
@@ -2497,46 +2542,75 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Rom,
         "ROM_INTERFACES",
     );
+    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Rom, "ROM_REF_ARENA");
 
-    mb.register_mem(
+    mb.register_mem_with_lanes(
         MemoryTag::ExpectedInput.into(),
         1,
         MemType::Ram,
+        Lanes(2),
         "RAM_EXPECTED_INPUT",
     );
-    mb.register_mem(
+    mb.register_mem_with_lanes(
         MemoryTag::Activation.into(),
         1,
         MemType::Ram,
+        Lanes(2),
         "RAM_ACTIVATION",
     );
-    mb.register_mem(MemoryTag::Init.into(), 1, MemType::Ram, "RAM_INIT");
-    mb.register_mem(MemoryTag::Counters.into(), 1, MemType::Ram, "RAM_COUNTERS");
-    mb.register_mem(
+    mb.register_mem_with_lanes(
+        MemoryTag::Init.into(),
+        1,
+        MemType::Ram,
+        Lanes(2),
+        "RAM_INIT",
+    );
+    mb.register_mem_with_lanes(
+        MemoryTag::Counters.into(),
+        1,
+        MemType::Ram,
+        Lanes(2),
+        "RAM_COUNTERS",
+    );
+    mb.register_mem_with_lanes(
         MemoryTag::Initialized.into(),
         1,
         MemType::Ram,
+        Lanes(2),
         "RAM_INITIALIZED",
     );
-    mb.register_mem(
+    mb.register_mem_with_lanes(
         MemoryTag::Finalized.into(),
         1,
         MemType::Ram,
+        Lanes(2),
         "RAM_FINALIZED",
     );
-    mb.register_mem(MemoryTag::DidBurn.into(), 1, MemType::Ram, "RAM_DID_BURN");
-    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Ram, "RAM_REF_ARENA");
-    mb.register_mem(
+    mb.register_mem_with_lanes(
+        MemoryTag::DidBurn.into(),
+        1,
+        MemType::Ram,
+        Lanes(2),
+        "RAM_DID_BURN",
+    );
+    mb.register_mem_with_lanes(
         MemoryTag::Ownership.into(),
         1,
         MemType::Ram,
+        Lanes(2),
         "RAM_OWNERSHIP",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackArena.into(),
-        2,
+        MemoryTag::HandlerStackArenaProcess.into(),
+        1,
         MemType::Ram,
-        "RAM_HANDLER_STACK_ARENA",
+        "RAM_HANDLER_STACK_ARENA_PROCESS",
+    );
+    mb.register_mem(
+        MemoryTag::HandlerStackArenaNextPtr.into(),
+        1,
+        MemType::Ram,
+        "RAM_HANDLER_STACK_ARENA_NEXT_PTR",
     );
     mb.register_mem(
         MemoryTag::HandlerStackHeads.into(),
