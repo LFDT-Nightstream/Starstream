@@ -1,6 +1,29 @@
 use super::*;
 use crate::{mocked_verifier::InterleavingError, transaction_effects::witness::WitLedgerEffect};
 
+struct RefGenerator {
+    counter: u64,
+    map: HashMap<&'static str, Ref>,
+}
+
+impl RefGenerator {
+    fn new() -> Self {
+        Self {
+            counter: 1,
+            map: HashMap::new(),
+        }
+    }
+
+    fn get(&mut self, name: &'static str) -> Ref {
+        let entry = self.map.entry(name).or_insert_with(|| {
+            let r = Ref(self.counter);
+            self.counter += 1;
+            r
+        });
+        *entry
+    }
+}
+
 pub fn h<T>(n: u8) -> Hash<T> {
     // TODO: actual hashing
     let mut bytes = [0u8; 32];
@@ -48,7 +71,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
         UtxoEntry {
             state: CoroutineState {
                 pc: 0,
-                last_yield: Ref(1),
+                last_yield: v(b"yield_1"),
             },
             contract_hash: input_hash_1.clone(),
         },
@@ -58,7 +81,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
         UtxoEntry {
             state: CoroutineState {
                 pc: 0,
-                last_yield: Ref(2),
+                last_yield: v(b"yield_2"),
             },
             contract_hash: input_hash_2.clone(),
         },
@@ -173,19 +196,63 @@ fn mock_genesis_and_apply_tx(proven_tx: ProvenTransaction) -> Result<Ledger, Ver
 
 #[test]
 fn test_transaction_with_coord_and_utxos() {
+    // This test simulates a "complex" transaction involving 2 input UTXOs, 2 new UTXOs,
+    // and 1 coordination script that orchestrates the control flow.
+    // The diagram below shows the lifecycle of each process: `(input)` marks a UTXO
+    // that is consumed by the transaction, and `(output)` marks one that is
+    // created by the transaction. P1 is burned, so it is an input but not an output.
+    //
+    //  P4 (Coord)           P0 (Input 1)         P1 (Input 2)         P2 (New UTXO A)      P3 (New UTXO B)
+    //      |                     |                     |                     |                     |
+    //  NewRef("init_a")          |                     |                     |                     |
+    //  NewUtxo(A) ------------> Init                   |                     |                     |
+    //  NewRef("init_b")          |                     |                     |                     |
+    //  NewUtxo(B) ----------------------------------> Init                   |                     |
+    //  NewRef("spend_input_1")   |                     |                     |                     |
+    //  NewRef("continued_1")     |                     |                     |                     |
+    //  Resume ----------------> Activation             |                     |                     |
+    //      |<--- -------------- Yield                  |                     |                     |
+    //  NewRef("spend_input_2")   |                     |                     |                     |
+    //  NewRef("burned_2")        |                     |                     |                     |
+    //  Resume ------------------------------------> Activation               |                     |
+    //      |<--------------------------------------- Burn                    |                     |
+    //  NewRef("done_a")          |                     |                     |                     |
+    //  Resume -----------------------------------------------------------> Activation              |
+    //      |<------------------------------------------------------------- Bind                    |
+    //      |<------------------------------------------------------------- Yield                   |
+    //  NewRef("done_b")          |                     |                     |                     |
+    //  Resume ---------------------------------------------------------------------------------> Activation
+    //      |<----------------------------------------------------------------------------------- Yield
+    //      |                     |                     |                     |                     |
+    //    (end)              (continued)            (burned)             (new_output)          (new_output)
+
     let (ledger, input_utxo_1, input_utxo_2, _, _) = mock_genesis();
 
     let coord_hash = h(1);
     let utxo_hash_a = h(2);
     let utxo_hash_b = h(3);
 
+    let mut refs = RefGenerator::new();
+
+    // Pre-allocate all refs in the order they appear in coord_trace to ensure consistent numbering
+    let init_a_ref = refs.get("init_a");
+    let init_b_ref = refs.get("init_b");
+    let spend_input_1_ref = refs.get("spend_input_1");
+    let continued_1_ref = refs.get("continued_1");
+    let spend_input_2_ref = refs.get("spend_input_2");
+    let burned_2_ref = refs.get("burned_2");
+    let done_a_ref = refs.get("done_a");
+    let done_b_ref = refs.get("done_b");
+
+    // Host refs.get("init_b")r each process in canonical order: inputs ++ new_outputs ++ coord_scripts
+    // Process 0: Input 1, Process 1: Input 2, Process 2: UTXO A (spawn), Process 3: UTXO B (spawn), Process 4: Coordination script
     let input_1_trace = vec![
         WitLedgerEffect::Activation {
-            val: v(b"spend_input_1"),
+            val: spend_input_1_ref,
             caller: ProcessId(4),
         },
         WitLedgerEffect::Yield {
-            val: Ref(2),
+            val: continued_1_ref,
             ret: None,
             id_prev: Some(ProcessId(4)),
         },
@@ -193,28 +260,26 @@ fn test_transaction_with_coord_and_utxos() {
 
     let input_2_trace = vec![
         WitLedgerEffect::Activation {
-            val: v(b"spend_input_2"),
+            val: spend_input_2_ref,
             caller: ProcessId(4),
         },
-        WitLedgerEffect::Burn {
-            ret: Ref(4),
-        },
+        WitLedgerEffect::Burn { ret: burned_2_ref },
     ];
 
     let utxo_a_trace = vec![
         WitLedgerEffect::Init {
-            val: v(b"init_a"),
+            val: init_a_ref,
             caller: ProcessId(4),
         },
         WitLedgerEffect::Activation {
-            val: v(b"init_a"),
+            val: init_a_ref,
             caller: ProcessId(4),
         },
         WitLedgerEffect::Bind {
             owner_id: ProcessId(3),
         },
         WitLedgerEffect::Yield {
-            val: Ref(6),
+            val: done_a_ref,
             ret: None,
             id_prev: Some(ProcessId(4)),
         },
@@ -222,85 +287,85 @@ fn test_transaction_with_coord_and_utxos() {
 
     let utxo_b_trace = vec![
         WitLedgerEffect::Init {
-            val: v(b"init_b"),
+            val: init_b_ref,
             caller: ProcessId(4),
         },
         WitLedgerEffect::Activation {
-            val: v(b"init_b"),
+            val: init_b_ref,
             caller: ProcessId(4),
         },
         WitLedgerEffect::Yield {
-            val: Ref(8),
+            val: done_b_ref,
             ret: None,
             id_prev: Some(ProcessId(4)),
         },
     ];
 
     let coord_trace = vec![
+        WitLedgerEffect::NewRef {
+            val: v(b"init_a"),
+            ret: init_a_ref,
+        },
         WitLedgerEffect::NewUtxo {
             program_hash: utxo_hash_a.clone(),
-            val: v(b"init_a"),
+            val: init_a_ref,
             id: ProcessId(2),
+        },
+        WitLedgerEffect::NewRef {
+            val: v(b"init_b"),
+            ret: init_b_ref,
         },
         WitLedgerEffect::NewUtxo {
             program_hash: utxo_hash_b.clone(),
-            val: v(b"init_b"),
+            val: init_b_ref,
             id: ProcessId(3),
         },
         WitLedgerEffect::NewRef {
             val: v(b"spend_input_1"),
-            ret: Ref(1),
+            ret: spend_input_1_ref,
         },
         WitLedgerEffect::NewRef {
             val: v(b"continued_1"),
-            ret: Ref(2),
+            ret: continued_1_ref,
         },
         WitLedgerEffect::Resume {
             target: ProcessId(0),
-            val: Ref(1),
-            ret: Ref(2),
+            val: spend_input_1_ref,
+            ret: continued_1_ref,
             id_prev: None,
         },
         WitLedgerEffect::NewRef {
             val: v(b"spend_input_2"),
-            ret: Ref(3),
+            ret: spend_input_2_ref,
         },
         WitLedgerEffect::NewRef {
             val: v(b"burned_2"),
-            ret: Ref(4),
+            ret: burned_2_ref,
         },
         WitLedgerEffect::Resume {
             target: ProcessId(1),
-            val: Ref(3),
-            ret: Ref(4),
+            val: spend_input_2_ref,
+            ret: burned_2_ref,
             id_prev: Some(ProcessId(0)),
         },
         WitLedgerEffect::NewRef {
-            val: v(b"init_a"),
-            ret: Ref(5),
-        },
-        WitLedgerEffect::NewRef {
             val: v(b"done_a"),
-            ret: Ref(6),
+            ret: done_a_ref,
         },
         WitLedgerEffect::Resume {
             target: ProcessId(2),
-            val: Ref(5),
-            ret: Ref(6),
+            val: init_a_ref,
+            ret: done_a_ref,
             id_prev: Some(ProcessId(1)),
         },
         WitLedgerEffect::NewRef {
-            val: v(b"init_b"),
-            ret: Ref(7),
-        },
-        WitLedgerEffect::NewRef {
             val: v(b"done_b"),
-            ret: Ref(8),
+            ret: done_b_ref,
         },
         WitLedgerEffect::Resume {
             target: ProcessId(3),
-            val: Ref(7),
-            ret: Ref(8),
+            val: init_b_ref,
+            ret: done_b_ref,
             id_prev: Some(ProcessId(2)),
         },
     ];
@@ -310,7 +375,7 @@ fn test_transaction_with_coord_and_utxos() {
             input_utxo_1,
             Some(CoroutineState {
                 pc: 1,
-                last_yield: Ref(2),
+                last_yield: v(b"continued_1"),
             }),
             input_1_trace,
         )
@@ -319,7 +384,7 @@ fn test_transaction_with_coord_and_utxos() {
             NewOutput {
                 state: CoroutineState {
                     pc: 0,
-                    last_yield: Ref(6),
+                    last_yield: v(b"done_a"),
                 },
                 contract_hash: utxo_hash_a.clone(),
             },
@@ -329,7 +394,7 @@ fn test_transaction_with_coord_and_utxos() {
             NewOutput {
                 state: CoroutineState {
                     pc: 0,
-                    last_yield: Ref(8),
+                    last_yield: v(b"done_b"),
                 },
                 contract_hash: utxo_hash_b.clone(),
             },
@@ -342,23 +407,87 @@ fn test_transaction_with_coord_and_utxos() {
 
     let ledger = ledger.apply_transaction(&proven_tx).unwrap();
 
-    assert_eq!(ledger.utxos.len(), 3); 
+    assert_eq!(ledger.utxos.len(), 3);
     assert_eq!(ledger.ownership_registry.len(), 1);
 }
 
 #[test]
 fn test_effect_handlers() {
+    // Create a transaction with:
+    // - 1 coordination script (process 1) that acts as an effect handler
+    // - 1 new UTXO (process 0) that calls the effect handler
+    //
+    // Roughly models this:
+    //
+    // interface Interface {
+    //   Effect(int): int
+    // }
+    //
+    // utxo Utxo {
+    //   main {
+    //     raise Interface::Effect(42);
+    //   }
+    // }
+    //
+    // script {
+    //   fn main() {
+    //     let utxo = Utxo::new();
+    //
+    //     try {
+    //       utxo.resume(utxo);
+    //     }
+    //     with Interface {
+    //       do Effect(x) = {
+    //         resume(43)
+    //       }
+    //     }
+    //   }
+    // }
+    //
+    // This test simulates a coordination script acting as an algebraic effect handler
+    // for a UTXO. The UTXO "raises" an effect by calling the handler, and the
+    // handler resumes the UTXO with the result.
+    //
+    //  P1 (Coord/Handler)                                    P0 (UTXO)
+    //           |                                                |
+    //      (entrypoint)                                          |
+    //           |                                                |
+    //  InstallHandler (interface)                                |
+    //           |                                                |
+    //  r1 = NewRef("init_utxo")                                  |
+    //           |                                                |
+    //       NewUtxo -----------------------------------------> (P0 created)
+    //      (val=r1)                                              |
+    //           |                                                |
+    //       Resume --------------------------------------------->|
+    //      (val=r1)                                              |
+    //           |                                   Activation (val=r1, caller=P1)
+    //           |                                   ProgramHash(P1) -> (attest caller)
+    //           |                                   GetHandlerFor(interface) -> P1
+    //           |                                   r2 = NewRef("Interface::Effect(42)")
+    //           |<----------------------------------Resume (Effect call)
+    //           |                                   (val=r2, ret=r3)
+    //   (handles effect)                                         |
+    //           |                                                |
+    //  r3 = NewRef("EffectResponse")                             |
+    //  r4 = NewRef("utxo_final")                                 |
+    //           |                                                |
+    //       Resume --------------------------------------------->| (Resume with result)
+    //      (val=r3, ret=r4)                                      |
+    //           |                                                |
+    //           |<-------------------------------------------- Yield (val=r4)
+    // UninstallHandler(interface)                                |
+    //           |                                                |
+    //        (end)                                               |
     let coord_hash = h(1);
     let utxo_hash = h(2);
     let interface_id = h(42);
 
+    let mut ref_gen = RefGenerator::new();
+
     let utxo_trace = vec![
-        WitLedgerEffect::Init {
-            val: v(b"init_utxo"),
-            caller: ProcessId(1),
-        },
         WitLedgerEffect::Activation {
-            val: v(b"init_utxo"),
+            val: ref_gen.get("init_utxo"),
             caller: ProcessId(1),
         },
         WitLedgerEffect::ProgramHash {
@@ -369,14 +498,18 @@ fn test_effect_handlers() {
             interface_id: interface_id.clone(),
             handler_id: ProcessId(1),
         },
+        WitLedgerEffect::NewRef {
+            val: v(b"Interface::Effect(42)"),
+            ret: ref_gen.get("effect_request"),
+        },
         WitLedgerEffect::Resume {
             target: ProcessId(1),
-            val: Ref(2),
-            ret: Ref(3),
+            val: ref_gen.get("effect_request"),
+            ret: ref_gen.get("effect_request_response"),
             id_prev: Some(ProcessId(1)),
         },
         WitLedgerEffect::Yield {
-            val: Ref(4),
+            val: ref_gen.get("utxo_final"),
             ret: None,
             id_prev: Some(ProcessId(1)),
         },
@@ -386,37 +519,33 @@ fn test_effect_handlers() {
         WitLedgerEffect::InstallHandler {
             interface_id: interface_id.clone(),
         },
+        WitLedgerEffect::NewRef {
+            val: v(b"init_utxo"),
+            ret: ref_gen.get("init_utxo"),
+        },
         WitLedgerEffect::NewUtxo {
             program_hash: h(2),
-            val: v(b"init_utxo"),
+            val: ref_gen.get("init_utxo"),
             id: ProcessId(0),
-        },
-        WitLedgerEffect::NewRef {
-            val: v(b"init_utxo"),
-            ret: Ref(1),
-        },
-        WitLedgerEffect::NewRef {
-            val: v(b"Interface::Effect(42)"),
-            ret: Ref(2),
         },
         WitLedgerEffect::Resume {
             target: ProcessId(0),
-            val: Ref(1),
-            ret: Ref(2),
+            val: ref_gen.get("init_utxo"),
+            ret: ref_gen.get("effect_request"),
             id_prev: None,
         },
         WitLedgerEffect::NewRef {
             val: v(b"Interface::EffectResponse(43)"),
-            ret: Ref(3),
+            ret: ref_gen.get("effect_request_response"),
         },
         WitLedgerEffect::NewRef {
             val: v(b"utxo_final"),
-            ret: Ref(4),
+            ret: ref_gen.get("utxo_final"),
         },
         WitLedgerEffect::Resume {
             target: ProcessId(0),
-            val: Ref(3),
-            ret: Ref(4),
+            val: ref_gen.get("effect_request_response"),
+            ret: ref_gen.get("utxo_final"),
             id_prev: Some(ProcessId(0)),
         },
         WitLedgerEffect::UninstallHandler { interface_id },
@@ -427,7 +556,7 @@ fn test_effect_handlers() {
             NewOutput {
                 state: CoroutineState {
                     pc: 0,
-                    last_yield: Ref(4),
+                    last_yield: v(b"utxo_final"),
                 },
                 contract_hash: utxo_hash.clone(),
             },
@@ -458,10 +587,13 @@ fn test_burn_with_continuation_fails() {
             input_utxo_1,
             Some(CoroutineState {
                 pc: 1,
-                last_yield: Ref(1),
+                last_yield: v(b"burned"),
             }),
             vec![
-                WitLedgerEffect::NewRef { val: v(b"burned"), ret: Ref(1) },
+                WitLedgerEffect::NewRef {
+                    val: v(b"burned"),
+                    ret: Ref(1),
+                },
                 WitLedgerEffect::Burn { ret: Ref(1) },
             ],
         )
@@ -484,7 +616,10 @@ fn test_utxo_resumes_utxo_fails() {
             input_utxo_1,
             None,
             vec![
-                WitLedgerEffect::NewRef { val: v(b""), ret: Ref(1) },
+                WitLedgerEffect::NewRef {
+                    val: v(b""),
+                    ret: Ref(1),
+                },
                 WitLedgerEffect::Resume {
                     target: ProcessId(1),
                     val: Ref(1),
@@ -513,7 +648,7 @@ fn test_continuation_without_yield_fails() {
             input_utxo_1,
             Some(CoroutineState {
                 pc: 1,
-                last_yield: Ref(1),
+                last_yield: v(b""),
             }),
             vec![],
         )
@@ -565,7 +700,7 @@ fn test_duplicate_input_utxo_fails() {
         UtxoEntry {
             state: CoroutineState {
                 pc: 0,
-                last_yield: Ref(0),
+                last_yield: Value::nil(),
             },
             contract_hash: h(1),
         },
@@ -598,14 +733,20 @@ fn test_duplicate_input_utxo_fails() {
             input_id.clone(),
             None,
             vec![
-                WitLedgerEffect::NewRef { val: Value::nil(), ret: Ref(1) },
-                WitLedgerEffect::Burn { ret: Ref(1) }
+                WitLedgerEffect::NewRef {
+                    val: Value::nil(),
+                    ret: Ref(2),
+                },
+                WitLedgerEffect::Burn { ret: Ref(1) },
             ],
         )
         .with_coord_script(
             coord_hash,
             vec![
-                WitLedgerEffect::NewRef { val: Value::nil(), ret: Ref(1) },
+                WitLedgerEffect::NewRef {
+                    val: Value::nil(),
+                    ret: Ref(1),
+                },
                 WitLedgerEffect::Resume {
                     target: 0.into(),
                     val: Ref(1),
