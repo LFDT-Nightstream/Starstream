@@ -168,6 +168,9 @@ pub enum InterleavingError {
 
     #[error("ref not found: {0:?}")]
     RefNotFound(Ref),
+
+    #[error("NewRef result mismatch. Got: {0:?}. Expected: {0:?}")]
+    RefInitializationMismatch(Ref, Ref),
 }
 
 // ---------------------------- verifier ----------------------------
@@ -394,7 +397,7 @@ pub fn state_transition(
 
     state.counters[id_curr.0] += 1;
 
-    match op {
+    match dbg!(op) {
         WitLedgerEffect::Resume {
             target,
             val,
@@ -682,7 +685,7 @@ pub fn state_transition(
             state.ref_counter += 1;
             let new_ref = Ref(state.ref_counter);
             if new_ref != ret {
-                return Err(InterleavingError::Shape("NewRef result mismatch"));
+                return Err(InterleavingError::RefInitializationMismatch(ret, new_ref));
             }
             state.ref_store.insert(new_ref, val);
         }
