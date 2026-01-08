@@ -1,7 +1,6 @@
 use crate::{prove, test_utils::init_test_logging};
 use starstream_mock_ledger::{
-    CoroutineState, Hash, InterleavingInstance, MockedLookupTableCommitment, ProcessId, Ref, Value,
-    WitLedgerEffect,
+    Hash, InterleavingInstance, MockedLookupTableCommitment, ProcessId, Ref, Value, WitLedgerEffect,
 };
 
 pub fn h<T>(n: u8) -> Hash<T> {
@@ -16,7 +15,7 @@ pub fn v(data: &[u8]) -> Value {
 }
 
 #[test]
-fn test_circuit_simple_resume() {
+fn test_circuit_many_steps() {
     init_test_logging();
 
     let utxo_id = 0;
@@ -146,6 +145,74 @@ fn test_circuit_simple_resume() {
         must_burn: vec![false, false, false],
         ownership_in: vec![None, None, None],
         ownership_out: vec![None, Some(ProcessId(0)), None],
+        host_calls_roots: traces,
+        host_calls_lens: trace_lens,
+        input_states: vec![],
+    };
+
+    let result = prove(instance);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_circuit_small() {
+    init_test_logging();
+
+    let utxo_id = 0;
+    let coord_id = 1;
+
+    let p0 = ProcessId(utxo_id);
+    let p1 = ProcessId(coord_id);
+
+    let val_0 = v(&[0]);
+
+    let ref_0 = Ref(0);
+
+    let utxo_trace = MockedLookupTableCommitment {
+        trace: vec![WitLedgerEffect::Yield {
+            val: ref_0.clone(), // Yielding nothing
+            ret: None,          // Not expecting to be resumed again
+            id_prev: Some(p1),
+        }],
+    };
+
+    let coord_trace = MockedLookupTableCommitment {
+        trace: vec![
+            WitLedgerEffect::NewRef {
+                val: val_0,
+                ret: ref_0,
+            },
+            WitLedgerEffect::NewUtxo {
+                program_hash: h(0),
+                val: ref_0,
+                id: p0,
+            },
+            WitLedgerEffect::Resume {
+                target: p0,
+                val: ref_0.clone(),
+                ret: ref_0.clone(),
+                id_prev: None,
+            },
+        ],
+    };
+
+    let traces = vec![utxo_trace, coord_trace];
+
+    let trace_lens = traces
+        .iter()
+        .map(|t| t.trace.len() as u32)
+        .collect::<Vec<_>>();
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 1,
+        n_coords: 1,
+        entrypoint: p1,
+        process_table: vec![h(0), h(1)],
+        is_utxo: vec![true, false],
+        must_burn: vec![false, false],
+        ownership_in: vec![None, None],
+        ownership_out: vec![None, None],
         host_calls_roots: traces,
         host_calls_lens: trace_lens,
         input_states: vec![],
