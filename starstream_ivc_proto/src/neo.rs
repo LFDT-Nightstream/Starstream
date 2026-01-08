@@ -2,7 +2,9 @@ use crate::{
     ccs_step_shape,
     circuit::{InterRoundWires, StepCircuitBuilder},
     goldilocks::FpGoldilocks,
-    memory::twist_and_shout::{TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints},
+    memory::twist_and_shout::{
+        TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints, TWIST_DEBUG_FILTER,
+    },
 };
 use ark_ff::PrimeField;
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
@@ -48,6 +50,18 @@ impl StepCircuitNeo {
             ts_mem_init,
         }
     }
+
+    fn get_mem_content_iter<'a>(
+        &'a self,
+        tag: &'a u64,
+    ) -> impl Iterator<Item = (u64, neo_math::F)> + 'a {
+        self.ts_mem_init
+            .init
+            .get(tag)
+            .into_iter()
+            .flat_map(|content| content.iter())
+            .map(|(addr, val)| (*addr, ark_field_to_p3_goldilocks(val)))
+    }
 }
 
 #[derive(Clone)]
@@ -58,7 +72,7 @@ impl WitnessLayout for CircuitLayout {
     const M_IN: usize = 1;
 
     // instance.len()+witness.len()
-    const USED_COLS: usize = 182;
+    const USED_COLS: usize = 332;
 
     fn new_layout() -> Self {
         CircuitLayout {}
@@ -82,27 +96,39 @@ impl NeoCircuit for StepCircuitNeo {
         for (tag, (_dims, lanes, ty, _)) in &self.ts_mem_init.mems {
             match ty {
                 crate::memory::MemType::Rom => {
-                    let mut content: Vec<neo_math::F> = self
-                        .ts_mem_init
-                        .init
-                        .get(tag)
-                        .map(|content| {
-                            content
-                                .iter()
-                                .map(ark_field_to_p3_goldilocks)
-                                .collect()
-                        })
-                        .unwrap_or(vec![]);
+                    let size = *max_rom_size.unwrap();
+                    let mut dense_content = vec![neo_math::F::ZERO; size];
 
-                    content.resize(max_rom_size.copied().unwrap(), neo_math::F::ZERO);
+                    for (addr, val) in self.get_mem_content_iter(tag) {
+                        dense_content[addr as usize] = val;
+                    }
 
                     resources
                         .shout(*tag as u32)
                         .lanes(lanes.0)
-                        .padded_binary_table(content);
+                        .padded_binary_table(dense_content);
                 }
                 crate::memory::MemType::Ram => {
-                    // TODO
+                    if !TWIST_DEBUG_FILTER.iter().any(|f| *tag == *f as u64) {
+                        continue;
+                    }
+
+                    let twist_id = *tag as u32;
+                    let k = 64usize; // TODO: hardcoded number
+                    assert!(k > 0, "set_binary_mem_layout: k must be > 0");
+                    assert!(
+                        k.is_power_of_two(),
+                        "set_binary_mem_layout: k must be a power of two"
+                    );
+                    resources
+                        .twist(twist_id)
+                        .layout(neo_memory::PlainMemLayout {
+                            k,
+                            d: k.trailing_zeros() as usize,
+                            n_side: 2,
+                            lanes: lanes.0,
+                        })
+                        .init(self.get_mem_content_iter(tag));
                 }
             }
         }
@@ -172,7 +198,24 @@ impl NeoCircuit for StepCircuitNeo {
             }
         }
 
-        Ok((shout_map, HashMap::new()))
+        let mut twist_map: HashMap<u32, Vec<TwistCpuBinding>> = HashMap::new();
+
+        for (tag, layouts) in &self.ts_mem_spec.twist_bindings {
+            for layout in layouts {
+                let entry = twist_map.entry(*tag as u32).or_default();
+                entry.push(TwistCpuBinding {
+                    read_addr: Self::Layout::M_IN + layout.ra,
+                    has_read: Self::Layout::M_IN + layout.has_read,
+                    rv: Self::Layout::M_IN + layout.rv,
+                    write_addr: Self::Layout::M_IN + layout.wa,
+                    has_write: Self::Layout::M_IN + layout.has_write,
+                    wv: Self::Layout::M_IN + layout.wv,
+                    inc: None,
+                });
+            }
+        }
+
+        Ok((shout_map, twist_map))
     }
 }
 
@@ -231,7 +274,7 @@ impl VmCpu<u64, u64> for StarstreamVm {
 
     fn step<T, S>(
         &mut self,
-        _twist: &mut T,
+        twist: &mut T,
         shout: &mut S,
     ) -> Result<neo_vm_trace::StepMeta<u64>, Self::Error>
     where
@@ -241,7 +284,7 @@ impl VmCpu<u64, u64> for StarstreamVm {
         let cs = ConstraintSystem::<crate::F>::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
 
-        let (irw, mem_trace_data) = self.step_circuit_builder.make_step_circuit(
+        let (irw, (shout_events, twist_events)) = self.step_circuit_builder.make_step_circuit(
             self.step_i,
             &mut self.mem,
             cs.clone(),
@@ -266,11 +309,37 @@ impl VmCpu<u64, u64> for StarstreamVm {
             )
             .collect();
 
-        for event in mem_trace_data {
+        for event in shout_events {
             assert_eq!(
                 shout.lookup(neo_vm_trace::ShoutId(event.shout_id), event.key),
                 event.value
             );
+        }
+
+        for event in twist_events {
+            match event.op {
+                neo_vm_trace::TwistOpKind::Read => {
+                    assert_eq!(
+                        twist.load_if_lane(
+                            event.cond,
+                            neo_vm_trace::TwistId(event.twist_id),
+                            event.addr,
+                            event.val,
+                            event.lane.unwrap(),
+                        ),
+                        event.val,
+                    );
+                }
+                neo_vm_trace::TwistOpKind::Write => {
+                    twist.store_if_lane(
+                        event.cond,
+                        neo_vm_trace::TwistId(event.twist_id),
+                        event.addr,
+                        event.val,
+                        event.lane.unwrap(),
+                    );
+                }
+            }
         }
 
         Ok(neo_vm_trace::StepMeta {
@@ -280,14 +349,14 @@ impl VmCpu<u64, u64> for StarstreamVm {
     }
 }
 
-pub fn ark_field_to_p3_goldilocks(col_v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
-    let original_u64 = col_v.into_bigint().0[0];
+pub fn ark_field_to_p3_goldilocks(v: &FpGoldilocks) -> p3_goldilocks::Goldilocks {
+    let original_u64 = v.into_bigint().0[0];
     let result = neo_math::F::from_u64(original_u64);
 
     // Assert that we can convert back and get the same element
     let converted_back = FpGoldilocks::from(original_u64);
     assert_eq!(
-        *col_v, converted_back,
+        *v, converted_back,
         "Field element conversion is not reversible"
     );
 

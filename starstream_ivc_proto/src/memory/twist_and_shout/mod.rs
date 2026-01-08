@@ -1,6 +1,7 @@
 use super::Address;
 use super::IVCMemory;
 use super::IVCMemoryAllocated;
+use crate::circuit::MemoryTag;
 use crate::memory::AllocatedAddress;
 use crate::memory::MemType;
 use ark_ff::PrimeField;
@@ -12,20 +13,64 @@ use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::ConstraintSystemRef;
 use ark_relations::gr1cs::SynthesisError;
-use neo_vm_trace::Shout;
+use neo_vm_trace::{Shout, Twist, TwistId, TwistOpKind};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 
-/// CPU binding mapping for Shout protocol
+pub const TWIST_DEBUG_FILTER: &[u32] = &[
+    MemoryTag::ExpectedInput as u32,
+    MemoryTag::Activation as u32,
+    MemoryTag::Counters as u32,
+    MemoryTag::Initialized as u32,
+    MemoryTag::Finalized as u32,
+    MemoryTag::DidBurn as u32,
+    MemoryTag::Ownership as u32,
+    MemoryTag::Init as u32,
+    MemoryTag::RefArena as u32,
+    MemoryTag::HandlerStackArenaProcess as u32,
+    MemoryTag::HandlerStackArenaNextPtr as u32,
+    MemoryTag::HandlerStackHeads as u32,
+];
+
 #[derive(Debug, Clone)]
 pub struct ShoutCpuBinding {
-    /// Witness column index for the lookup flag
     pub has_lookup: usize,
-    /// Witness column index for the lookup address
     pub addr: usize,
-    /// Witness column index for the lookup value
     pub val: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct TwistCpuBinding {
+    pub ra: usize,
+    pub has_read: usize,
+    pub rv: usize,
+    pub wa: usize,
+    pub has_write: usize,
+    pub wv: usize,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PartialTwistCpuBinding {
+    pub ra: Option<usize>,
+    pub has_read: Option<usize>,
+    pub rv: Option<usize>,
+    pub wa: Option<usize>,
+    pub has_write: Option<usize>,
+    pub wv: Option<usize>,
+}
+
+impl PartialTwistCpuBinding {
+    pub fn to_complete(&self) -> TwistCpuBinding {
+        TwistCpuBinding {
+            ra: self.ra.unwrap(),
+            has_read: self.has_read.unwrap(),
+            rv: self.rv.unwrap(),
+            wa: self.wa.unwrap(),
+            has_write: self.has_write.unwrap(),
+            wv: self.wv.unwrap(),
+        }
+    }
 }
 
 /// Event representing a shout lookup operation
@@ -34,6 +79,17 @@ pub struct ShoutEvent {
     pub shout_id: u32,
     pub key: u64,
     pub value: u64,
+}
+
+/// Event representing a twist memory operation
+#[derive(Debug, Clone)]
+pub struct TwistEvent {
+    pub twist_id: u32,
+    pub addr: u64,
+    pub val: u64,
+    pub op: TwistOpKind,
+    pub cond: bool,
+    pub lane: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -47,18 +103,21 @@ pub struct TSMemory<F> {
 
     /// Captured shout events for witness generation, organized by address
     pub(crate) shout_events: BTreeMap<Address<u64>, VecDeque<ShoutEvent>>,
+    /// Captured twist events for witness generation, organized by address
+    pub(crate) twist_events: BTreeMap<Address<u64>, VecDeque<TwistEvent>>,
 }
 
 /// Initial ROM tables computed by TSMemory
 pub struct TSMemInitTables<F> {
     pub mems: BTreeMap<u64, (u64, Lanes, MemType, &'static str)>,
     pub rom_sizes: BTreeMap<u64, usize>,
-    pub init: BTreeMap<u64, Vec<F>>,
+    pub init: BTreeMap<u64, BTreeMap<u64, F>>,
 }
 
 /// Layout/bindings computed by TSMemoryConstraints
 pub struct TSMemLayouts {
     pub shout_bindings: BTreeMap<u64, Vec<ShoutCpuBinding>>,
+    pub twist_bindings: BTreeMap<u64, Vec<TwistCpuBinding>>,
 }
 
 #[derive(Clone, Copy)]
@@ -82,6 +141,7 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
             init: BTreeMap::default(),
             mems: BTreeMap::default(),
             shout_events: BTreeMap::default(),
+            twist_events: BTreeMap::default(),
         }
     }
 
@@ -102,37 +162,44 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
 
     fn conditional_read(&mut self, cond: bool, address: Address<u64>) -> Vec<F> {
         if let Some(&(_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
-            // For ROM memories, we need to capture the shout event
             if cond {
-                // Get the value from init (ROM is read-only)
                 let value = self.init.get(&address).unwrap().clone();
-
-                // Record this as a shout event for witness generation
                 let shout_event = ShoutEvent {
                     shout_id: address.tag as u32,
                     key: address.addr,
-                    value: value[0].into_bigint().as_ref()[0], // Convert F to u64
+                    value: value[0].into_bigint().as_ref()[0],
                 };
                 let shout_events = self.shout_events.entry(address.clone()).or_default();
                 shout_events.push_back(shout_event);
-
                 value
             } else {
-                // No lookup, return zero
                 let mem_value_size = self.mems.get(&address.tag).unwrap().0;
                 std::iter::repeat_n(F::from(0), mem_value_size as usize).collect()
             }
         } else {
             let reads = self.reads.entry(address.clone()).or_default();
-
             if cond {
                 let last = self
                     .writes
                     .get(&address)
                     .and_then(|writes| writes.back().cloned())
                     .unwrap_or_else(|| self.init.get(&address).unwrap().clone());
-
                 reads.push_back(last.clone());
+
+                let twist_event = TwistEvent {
+                    twist_id: address.tag as u32,
+                    addr: address.addr,
+                    val: last[0].into_bigint().as_ref()[0],
+                    op: TwistOpKind::Read,
+                    cond,
+                    lane: None,
+                };
+
+                self.twist_events
+                    .entry(address.clone())
+                    .or_default()
+                    .push_back(twist_event);
+
                 last
             } else {
                 let mem_value_size = self.mems.get(&address.tag).unwrap().0;
@@ -147,9 +214,25 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
             values.len(),
             "write doesn't match mem value size"
         );
-
         if cond {
-            self.writes.entry(address).or_default().push_back(values);
+            self.writes
+                .entry(address.clone())
+                .or_default()
+                .push_back(values.clone());
+
+            let twist_event = TwistEvent {
+                twist_id: address.tag as u32,
+                addr: address.addr,
+                val: values[0].into_bigint().as_ref()[0],
+                op: TwistOpKind::Write,
+                cond,
+                lane: None,
+            };
+
+            self.twist_events
+                .entry(address)
+                .or_default()
+                .push_back(twist_event);
         }
     }
 
@@ -160,13 +243,16 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
     fn constraints(self) -> Self::Allocator {
         TSMemoryConstraints {
             cs: None,
-            reads: self.reads,
-            writes: self.writes,
             mems: self.mems,
             shout_events: self.shout_events,
+            twist_events: self.twist_events,
             shout_bindings: BTreeMap::new(),
-            step_events: vec![],
+            partial_twist_bindings: BTreeMap::new(),
+            step_events_shout: vec![],
+            step_events_twist: vec![],
             is_first_step: true,
+            write_lanes: BTreeMap::new(),
+            read_lanes: BTreeMap::new(),
         }
     }
 }
@@ -174,13 +260,22 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
 impl<F: PrimeField> TSMemory<F> {
     pub fn init_tables(&self) -> TSMemInitTables<F> {
         let mut rom_sizes = BTreeMap::new();
-        let mut init = BTreeMap::new();
+        let mut init = BTreeMap::<u64, BTreeMap<u64, F>>::new();
 
         for (address, val) in &self.init {
-            if let Some((_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
+            let is_rom = if let Some((_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
                 *rom_sizes.entry(address.tag).or_insert(0) += 1;
+
+                true
+            } else {
+                false
+            };
+
+            if is_rom || TWIST_DEBUG_FILTER.contains(&(address.tag as u32)) {
+                init.entry(address.tag)
+                    .or_default()
+                    .insert(address.addr, val[0]);
             }
-            init.entry(address.tag).or_insert(vec![]).push(val[0]);
         }
 
         TSMemInitTables {
@@ -189,9 +284,39 @@ impl<F: PrimeField> TSMemory<F> {
             init,
         }
     }
+
+    pub fn split(self) -> (TSMemoryConstraints<F>, TracedShout<F>, TracedTwist) {
+        let (init, twist_events, mems, shout_events) =
+            (self.init, self.twist_events, self.mems, self.shout_events);
+
+        let traced_shout = TracedShout { init };
+        let traced_twist = TracedTwist {
+            twist_events: twist_events.clone(),
+        };
+
+        let constraints = TSMemoryConstraints {
+            cs: None,
+            mems,
+            shout_events,
+            twist_events,
+            shout_bindings: BTreeMap::new(),
+            partial_twist_bindings: BTreeMap::new(),
+            step_events_shout: vec![],
+            step_events_twist: vec![],
+            is_first_step: true,
+            write_lanes: BTreeMap::new(),
+            read_lanes: BTreeMap::new(),
+        };
+
+        (constraints, traced_shout, traced_twist)
+    }
 }
 
-impl Shout<u64> for TSMemory<crate::F> {
+pub struct TracedShout<F> {
+    pub init: BTreeMap<Address<u64>, Vec<F>>,
+}
+
+impl<F: PrimeField> Shout<u64> for TracedShout<F> {
     fn lookup(&mut self, shout_id: neo_vm_trace::ShoutId, key: u64) -> u64 {
         let value = self
             .init
@@ -202,72 +327,292 @@ impl Shout<u64> for TSMemory<crate::F> {
             .unwrap()
             .clone();
 
-        value[0].into_bigint().0[0]
+        value[0].into_bigint().as_ref()[0]
     }
 }
 
-pub type ShoutWitnessTuple<F> = (FpVar<F>, FpVar<F>, FpVar<F>);
+pub struct TracedTwist {
+    pub twist_events: BTreeMap<Address<u64>, VecDeque<TwistEvent>>,
+}
+
+impl Twist<u64, u64> for TracedTwist {
+    fn load(&mut self, id: TwistId, addr: u64) -> u64 {
+        let address = Address {
+            tag: id.0 as u64,
+            addr,
+        };
+
+        let event = self
+            .twist_events
+            .get_mut(&address)
+            .unwrap()
+            .pop_front()
+            .unwrap();
+
+        assert_eq!(event.op, TwistOpKind::Read);
+        event.val
+    }
+
+    fn store(&mut self, id: TwistId, addr: u64, val: u64) {
+        let address = Address {
+            tag: id.0 as u64,
+            addr,
+        };
+        let event = self
+            .twist_events
+            .get_mut(&address)
+            .unwrap()
+            .pop_front()
+            .unwrap();
+
+        assert_eq!(event.op, TwistOpKind::Write);
+        assert_eq!(event.val, val);
+    }
+}
 
 pub struct TSMemoryConstraints<F: PrimeField> {
     pub(crate) cs: Option<ConstraintSystemRef<F>>,
-    pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
-    pub(crate) writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
 
     pub(crate) mems: BTreeMap<u64, (u64, Lanes, MemType, &'static str)>,
 
-    /// Captured shout events for witness generation, organized by address
     pub(crate) shout_events: BTreeMap<Address<u64>, VecDeque<ShoutEvent>>,
+    pub(crate) twist_events: BTreeMap<Address<u64>, VecDeque<TwistEvent>>,
 
-    /// Captured shout CPU bindings with actual witness indices
     pub(crate) shout_bindings: BTreeMap<u64, Vec<ShoutCpuBinding>>,
+    pub(crate) partial_twist_bindings: BTreeMap<u64, Vec<PartialTwistCpuBinding>>,
 
-    step_events: Vec<ShoutEvent>,
+    step_events_shout: Vec<ShoutEvent>,
+    step_events_twist: Vec<TwistEvent>,
 
-    /// We only need to compute ShoutBinding layouts once
     is_first_step: bool,
+
+    write_lanes: BTreeMap<u32, u32>,
+    read_lanes: BTreeMap<u32, u32>,
 }
 
 impl<F: PrimeField> TSMemoryConstraints<F> {
-    /// Generate the memory layouts with actual witness indices
     pub fn ts_mem_layouts(&self) -> TSMemLayouts {
+        let mut twist_bindings = BTreeMap::new();
+
+        for (tag, partials) in &self.partial_twist_bindings {
+            let mut complete = Vec::new();
+            for p in partials {
+                complete.push(p.to_complete());
+            }
+
+            if TWIST_DEBUG_FILTER.contains(&(*tag as u32)) {
+                twist_bindings.insert(*tag, complete);
+            }
+        }
+
         TSMemLayouts {
             shout_bindings: self.shout_bindings.clone(),
+            twist_bindings,
         }
     }
 
-    /// Allocate witness variables for shout protocol based on address
-    pub fn allocate_shout_witnesses(
+    pub fn get_shout_traced_values(
         &mut self,
         address: &Address<u64>,
-    ) -> Result<ShoutWitnessTuple<F>, SynthesisError> {
-        let cs = self.get_cs();
-
+    ) -> Result<(F, F, F), SynthesisError> {
         let (has_lookup_val, addr_val, val_val) = {
             let event = self
                 .shout_events
-                .get_mut(dbg!(address))
+                .get_mut(address)
                 .unwrap()
                 .pop_front()
                 .unwrap();
 
-            self.step_events.push(event.clone());
+            self.step_events_shout.push(event.clone());
 
             (F::from(1), F::from(event.key), F::from(event.value))
         };
 
-        let has_lookup = FpVar::new_witness(cs.clone(), || Ok(has_lookup_val))?;
-        let addr = FpVar::new_witness(cs.clone(), || Ok(addr_val))?;
-        let val = FpVar::new_witness(cs.clone(), || Ok(val_val))?;
+        Ok((has_lookup_val, addr_val, val_val))
+    }
 
-        Ok((has_lookup, addr, val))
+    pub fn get_twist_traced_values(
+        &mut self,
+        address: &Address<u64>,
+        lane: u32,
+        kind: TwistOpKind,
+    ) -> Result<(F, F, F), SynthesisError> {
+        let (ra, rv) = {
+            let mut event = self
+                .twist_events
+                .get_mut(address)
+                .unwrap()
+                .pop_front()
+                .unwrap();
+
+            event.lane.replace(lane);
+
+            assert_eq!(event.op, kind);
+
+            if TWIST_DEBUG_FILTER.contains(&event.twist_id) {
+                self.step_events_twist.push(event.clone());
+            }
+
+            (F::from(event.addr), F::from(event.val))
+        };
+
+        Ok((F::one(), ra, rv))
+    }
+}
+
+impl<F: PrimeField> TSMemoryConstraints<F> {
+    fn get_next_read_lane(&mut self, twist_id: u64) -> u32 {
+        *self
+            .read_lanes
+            .entry(twist_id.try_into().unwrap())
+            .and_modify(|l| *l += 1)
+            .or_insert(0)
+    }
+
+    fn get_next_write_lane(&mut self, twist_id: u64) -> u32 {
+        *self
+            .write_lanes
+            .entry(twist_id.try_into().unwrap())
+            .and_modify(|l| *l += 1)
+            .or_insert(0)
+    }
+
+    fn update_partial_twist_bindings_read(&mut self, tag: u64, base_index: usize, lane: usize) {
+        let bindings = self.partial_twist_bindings.entry(tag).or_default();
+
+        while bindings.len() <= lane {
+            bindings.push(PartialTwistCpuBinding::default());
+        }
+
+        let b = &mut bindings[lane];
+        b.has_read = Some(base_index);
+        b.ra = Some(base_index + 1);
+        b.rv = Some(base_index + 2);
+    }
+
+    fn update_partial_twist_bindings_write(&mut self, tag: u64, base_index: usize, lane: usize) {
+        let bindings = self.partial_twist_bindings.entry(tag).or_default();
+
+        while bindings.len() <= lane {
+            bindings.push(PartialTwistCpuBinding::default());
+        }
+
+        let b = &mut bindings[lane];
+        b.has_write = Some(base_index);
+        b.wa = Some(base_index + 1);
+        b.wv = Some(base_index + 2);
+    }
+
+    fn conditional_read_rom(
+        &mut self,
+        cond: &Boolean<F>,
+        address: &AllocatedAddress,
+    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let address_val = Address {
+            addr: address.address_value(),
+            tag: address.tag_value(),
+        };
+
+        let cs = self.get_cs();
+
+        let base_index = cs.num_witness_variables();
+
+        let (has_lookup_val, addr_witness_val, val_witness_val) = if cond.value()? {
+            self.get_shout_traced_values(&address_val)?
+        } else {
+            (F::ZERO, F::from(address.address_value()), F::ZERO)
+        };
+
+        let has_lookup = FpVar::new_witness(cs.clone(), || Ok(has_lookup_val))?;
+        let addr_witness = FpVar::new_witness(cs.clone(), || Ok(addr_witness_val))?;
+        let val_witness = FpVar::new_witness(cs.clone(), || Ok(val_witness_val))?;
+
+        let tag = address.tag_value();
+
+        if let Some(&(_, _lanes, MemType::Rom, _)) = self.mems.get(&tag)
+            && self.is_first_step
+        {
+            let binding = ShoutCpuBinding {
+                has_lookup: base_index,
+                addr: base_index + 1,
+                val: base_index + 2,
+            };
+            self.shout_bindings.entry(tag).or_default().push(binding);
+        }
+
+        FpVar::from(cond.clone()).enforce_equal(&has_lookup)?;
+
+        let addr_fp = FpVar::new_witness(self.get_cs(), || Ok(F::from(address.address_value())))?;
+        addr_witness.enforce_equal(&addr_fp)?;
+
+        Ok(vec![val_witness])
+    }
+
+    fn conditional_read_ram(
+        &mut self,
+        cond: &Boolean<F>,
+        address: &AllocatedAddress,
+    ) -> Result<Vec<FpVar<F>>, SynthesisError> {
+        let twist_id = address.tag_value();
+        let address_val = Address {
+            addr: address.address_value(),
+            tag: twist_id,
+        };
+
+        let cs = self.get_cs();
+        let base_index = cs.num_witness_variables();
+
+        let cond_val = cond.value()?;
+
+        let lane = self.get_next_read_lane(twist_id);
+
+        let (has_read_val, ra_val, rv_val) = if cond_val {
+            self.get_twist_traced_values(&address_val, lane, TwistOpKind::Read)?
+        } else {
+            if TWIST_DEBUG_FILTER.contains(&(twist_id as u32)) {
+                self.step_events_twist.push(TwistEvent {
+                    twist_id: twist_id as u32,
+                    addr: 0,
+                    val: 0,
+                    op: TwistOpKind::Write,
+                    cond: cond_val,
+                    lane: Some(lane),
+                });
+            }
+
+            (F::ZERO, F::ZERO, F::ZERO)
+        };
+
+        let has_read = FpVar::new_witness(cs.clone(), || Ok(has_read_val))?;
+        let ra = FpVar::new_witness(cs.clone(), || Ok(ra_val))?;
+        let rv = FpVar::new_witness(cs.clone(), || Ok(rv_val))?;
+
+        assert_eq!(cs.num_witness_variables(), base_index + 3);
+
+        let tag = address.tag_value();
+
+        if let Some(&(_, _lanes, MemType::Ram, _)) = self.mems.get(&tag)
+            && self.is_first_step
+            && TWIST_DEBUG_FILTER.contains(&(tag as u32))
+        {
+            self.update_partial_twist_bindings_read(tag, base_index, lane as usize);
+        }
+
+        FpVar::from(cond.clone()).enforce_equal(&has_read)?;
+
+        let addr_fp = FpVar::new_witness(self.get_cs(), || Ok(F::from(address.address_value())))?;
+        let addr_constraint = cond.select(&addr_fp, &FpVar::zero())?;
+        ra.enforce_equal(&addr_constraint)?;
+
+        Ok(vec![rv])
     }
 }
 
 impl<F: PrimeField> IVCMemoryAllocated<F> for TSMemoryConstraints<F> {
-    type FinishStepPayload = Vec<ShoutEvent>;
+    type FinishStepPayload = (Vec<ShoutEvent>, Vec<TwistEvent>);
 
     fn start_step(&mut self, cs: ConstraintSystemRef<F>) -> Result<(), SynthesisError> {
-        self.cs.replace(cs);
+        self.cs.replace(cs.clone());
 
         Ok(())
     }
@@ -278,12 +623,18 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for TSMemoryConstraints<F> {
     ) -> Result<Self::FinishStepPayload, SynthesisError> {
         self.cs = None;
 
-        let mut step_events = vec![];
-        std::mem::swap(&mut step_events, &mut self.step_events);
+        let mut step_events_shout = vec![];
+        std::mem::swap(&mut step_events_shout, &mut self.step_events_shout);
+
+        let mut step_events_twist = vec![];
+        std::mem::swap(&mut step_events_twist, &mut self.step_events_twist);
 
         self.is_first_step = false;
 
-        Ok(step_events)
+        self.read_lanes.clear();
+        self.write_lanes.clear();
+
+        Ok((step_events_shout, step_events_twist))
     }
 
     fn get_cs(&self) -> ConstraintSystemRef<F> {
@@ -300,96 +651,14 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for TSMemoryConstraints<F> {
 
         let mem = self.mems.get(&address.tag_value()).copied().unwrap();
 
-        // Check if this is a ROM memory that should use Shout protocol
         if mem.2 == MemType::Rom {
-            // For ROM memories, allocate witnesses using Shout protocol
-            let address_val = Address {
-                addr: address.address_value(),
-                tag: address.tag_value(),
-            };
-
-            let cs = self.get_cs();
-            let (has_lookup, addr_witness, val_witness) = if cond.value()? {
-                self.allocate_shout_witnesses(&address_val)?
-            } else {
-                (
-                    FpVar::new_witness(cs.clone(), || Ok(F::ZERO))?,
-                    FpVar::new_witness(cs.clone(), || Ok(F::ZERO))?,
-                    FpVar::new_witness(cs.clone(), || Ok(F::ZERO))?,
-                )
-            };
-
-            let tag = address.tag_value();
-
-            if let Some(&(_, _lanes, MemType::Rom, _)) = self.mems.get(&tag)
-                && self.is_first_step
-            {
-                let binding = ShoutCpuBinding {
-                    has_lookup: cs.num_witness_variables() - 3,
-                    addr: cs.num_witness_variables() - 2,
-                    val: cs.num_witness_variables() - 1,
-                };
-
-                self.shout_bindings.entry(tag).or_default().push(binding);
-                // TODO: maybe check that size is <= lanes
-            }
-
-            tracing::debug!(
-                "read ({}) {:?} at address {} in segment {}",
-                cond.value()?,
-                val_witness.value()?,
-                address_val.addr,
-                mem.2,
-            );
-
-            // Enforce that has_lookup matches the condition
-            FpVar::from(cond.clone()).enforce_equal(&has_lookup)?;
-
-            // Enforce that addr_witness matches the address when lookup is active
-            let addr_fp =
-                FpVar::new_witness(self.get_cs(), || Ok(F::from(address.address_value())))?;
-            let addr_constraint = cond.select(&addr_fp, &FpVar::zero())?;
-            addr_witness.enforce_equal(&addr_constraint)?;
-
-            // Return the value witness as a single-element vector
-            Ok(vec![val_witness])
+            self.conditional_read_rom(cond, address)
         } else {
-            // Existing logic for RAM memories
-            if cond.value().unwrap() {
-                let address_val = Address {
-                    addr: address.address_value(),
-                    tag: address.tag_value(),
-                };
-
-                let vals = self.reads.get_mut(&address_val).unwrap();
-                let v = vals.pop_front().unwrap().clone();
-
-                let vals = v
-                    .into_iter()
-                    .map(|v| FpVar::new_witness(self.get_cs(), || Ok(v)).unwrap())
-                    .collect::<Vec<_>>();
-
-                tracing::debug!(
-                    "read {:?} at address {} in segment {}",
-                    vals.iter()
-                        .map(|v| v.value().unwrap().into_bigint())
-                        .collect::<Vec<_>>(),
-                    address_val.addr,
-                    mem.2,
-                );
-
-                Ok(vals)
-            } else {
-                let vals = std::iter::repeat_with(|| {
-                    FpVar::new_witness(self.get_cs(), || Ok(F::from(0))).unwrap()
-                })
-                .take(mem.0 as usize);
-
-                Ok(vals.collect())
-            }
+            self.conditional_read_ram(cond, address)
         }
     }
 
+    #[tracing::instrument(target = "gr1cs", skip_all)]
     fn conditional_write(
         &mut self,
         cond: &Boolean<F>,
@@ -398,37 +667,68 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for TSMemoryConstraints<F> {
     ) -> Result<(), SynthesisError> {
         let _guard = tracing::debug_span!("conditional_write").entered();
 
+        let mem_tag = address.tag_value();
+        let mem = self.mems.get(&mem_tag).copied().unwrap();
+
+        if mem.2 != MemType::Ram {
+            unreachable!("can't write to Rom memory");
+        }
+
         if cond.value().unwrap() {
-            let address = Address {
-                addr: address.address_value(),
-                tag: address.tag_value(),
-            };
-
-            let writes = self.writes.get_mut(&address).unwrap();
-
-            let expected_vals = writes.pop_front().unwrap().clone();
-
-            for ((_, val), expected) in vals.iter().enumerate().zip(expected_vals.iter()) {
-                assert_eq!(val.value().unwrap(), *expected);
-            }
-
-            let mem = self.mems.get(&address.tag).copied().unwrap();
-
             assert_eq!(
                 mem.0 as usize,
                 vals.len(),
                 "write doesn't match mem value size"
             );
-
-            tracing::debug!(
-                "write values {:?} at address {} in segment {}",
-                vals.iter()
-                    .map(|v| v.value().unwrap().into_bigint())
-                    .collect::<Vec<_>>(),
-                address.addr,
-                mem.2,
-            );
         }
+
+        let twist_id = address.tag_value();
+        let address_cpu = Address {
+            addr: address.address_value(),
+            tag: twist_id,
+        };
+
+        let cs = self.get_cs();
+        let base_index = cs.num_witness_variables();
+
+        let cond_val = cond.value()?;
+
+        let lane = self.get_next_write_lane(twist_id);
+
+        let (has_write_val, wa_val, wv_val) = if cond_val {
+            self.get_twist_traced_values(&address_cpu, lane, TwistOpKind::Write)?
+        } else {
+            if TWIST_DEBUG_FILTER.contains(&(twist_id as u32)) {
+                self.step_events_twist.push(TwistEvent {
+                    twist_id: twist_id as u32,
+                    addr: 0,
+                    val: 0,
+                    op: TwistOpKind::Write,
+                    cond: cond_val,
+                    lane: Some(lane),
+                });
+            }
+
+            (
+                F::ZERO,
+                F::from(address.address_value()),
+                vals[0].value().unwrap_or(F::ZERO),
+            )
+        };
+
+        let has_write = FpVar::new_witness(cs.clone(), || Ok(has_write_val))?;
+        let wa = FpVar::new_witness(cs.clone(), || Ok(wa_val))?;
+        let wv = FpVar::new_witness(cs.clone(), || Ok(wv_val))?;
+
+        if self.is_first_step && TWIST_DEBUG_FILTER.contains(&(address_cpu.tag as u32)) {
+            self.update_partial_twist_bindings_write(mem_tag, base_index, lane as usize);
+        }
+
+        FpVar::from(cond.clone()).enforce_equal(&has_write)?;
+
+        let addr_fp = FpVar::new_witness(self.get_cs(), || Ok(F::from(address.address_value())))?;
+        wa.enforce_equal(&addr_fp)?;
+        wv.enforce_equal(&vals[0])?;
 
         Ok(())
     }
