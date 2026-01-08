@@ -45,7 +45,7 @@ impl<const SCAN_BATCH_SIZE: usize> NebulaMemory<SCAN_BATCH_SIZE> {
                 .unwrap_or_else(|| {
                     self.is
                         .get(address)
-                        .expect(&format!("read uninitialized address: {address:?}"))
+                        .unwrap_or_else(|| panic!("read uninitialized address: {address:?}"))
                         .clone()
                 })
         } else {
@@ -174,7 +174,7 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
 
         let padding_required = SCAN_BATCH_SIZE - (self.is.len() % SCAN_BATCH_SIZE);
 
-        let mut max_address = self.is.keys().rev().next().unwrap().clone();
+        let mut max_address = self.is.keys().next_back().unwrap().clone();
 
         max_address.tag += 1;
 

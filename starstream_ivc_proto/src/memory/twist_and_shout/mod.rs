@@ -206,6 +206,8 @@ impl Shout<u64> for TSMemory<crate::F> {
     }
 }
 
+pub type ShoutWitnessTuple<F> = (FpVar<F>, FpVar<F>, FpVar<F>);
+
 pub struct TSMemoryConstraints<F: PrimeField> {
     pub(crate) cs: Option<ConstraintSystemRef<F>>,
     pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
@@ -237,7 +239,7 @@ impl<F: PrimeField> TSMemoryConstraints<F> {
     pub fn allocate_shout_witnesses(
         &mut self,
         address: &Address<u64>,
-    ) -> Result<(FpVar<F>, FpVar<F>, FpVar<F>), SynthesisError> {
+    ) -> Result<ShoutWitnessTuple<F>, SynthesisError> {
         let cs = self.get_cs();
 
         let (has_lookup_val, addr_val, val_val) = {

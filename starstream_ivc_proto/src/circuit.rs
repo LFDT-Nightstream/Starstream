@@ -595,7 +595,7 @@ pub struct InterRoundWires {
     handler_stack_counter: F,
 
     p_len: F,
-    n_finalized: F,
+    _n_finalized: F,
 }
 
 impl ProgramStateWires {
@@ -1039,7 +1039,7 @@ impl InterRoundWires {
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
             p_len,
-            n_finalized: F::from(0),
+            _n_finalized: F::from(0),
             ref_arena_counter: F::ZERO,
             handler_stack_counter: F::ZERO,
         }
@@ -1677,7 +1677,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::Resume { target, .. } => {
                     irw.id_prev_is_some = true;
                     irw.id_prev_value = irw.id_curr;
-                    irw.id_curr = target.clone();
+                    irw.id_curr = *target;
                 }
                 LedgerOperation::Yield { .. } | LedgerOperation::Burn { .. } => {
                     irw.id_curr = irw.id_prev_value;
@@ -1697,7 +1697,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                             tag: MemoryTag::RefArena.into(),
                             addr: ret.into_bigint().0[0],
                         },
-                        vec![val.clone()],
+                        vec![*val],
                     );
 
                     Some(ret)
@@ -1907,8 +1907,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 let irw = PreWires {
                     switches: ExecutionSwitches::resume(),
                     target: *target,
-                    val: val.clone(),
-                    ret: ret.clone(),
+                    val: *val,
+                    ret: *ret,
                     id_prev_is_some: id_prev.is_some(),
                     id_prev_value: id_prev.unwrap_or_default(),
                     ..default
@@ -1920,7 +1920,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 let irw = PreWires {
                     switches: ExecutionSwitches::yield_op(),
                     target: irw.id_prev_value,
-                    val: val.clone(),
+                    val: *val,
                     ret: ret.unwrap_or_default(),
                     ret_is_some: ret.is_some(),
                     id_prev_is_some: id_prev.is_some(),
@@ -1934,7 +1934,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 let irw = PreWires {
                     switches: ExecutionSwitches::burn(),
                     target: irw.id_prev_value,
-                    ret: ret.clone(),
+                    ret: *ret,
                     id_prev_is_some: irw.id_prev_is_some,
                     id_prev_value: irw.id_prev_value,
                     ..default
@@ -2082,7 +2082,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .target_read_wires
             .initialized
-            .conditional_enforce_equal(&wires.constant_true.clone().into(), switch)?;
+            .conditional_enforce_equal(&wires.constant_true, switch)?;
 
         // 4. Re-entrancy check (target's arg must be None/0)
         wires
@@ -2241,7 +2241,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .target_read_wires
             .initialized
-            .conditional_enforce_equal(&wires.constant_false.clone().into(), &switch)?;
+            .conditional_enforce_equal(&wires.constant_false, &switch)?;
 
         // Mark new process as initialized
         // TODO: There is no need to have this asignment, actually
