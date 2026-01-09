@@ -1441,7 +1441,7 @@ impl Compiler {
                 Err(self.todo("raise is not supported in Wasm yet".into()))
             }
             TypedExprKind::Runtime { .. } => {
-                todo!()
+                Err(self.todo("runtime is not supported in Wasm yet".into()))
             }
         }
     }
