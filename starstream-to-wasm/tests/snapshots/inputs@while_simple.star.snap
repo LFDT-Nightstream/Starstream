@@ -182,6 +182,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {

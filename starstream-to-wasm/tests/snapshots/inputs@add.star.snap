@@ -158,6 +158,7 @@ TypedProgram {
                     },
                 ],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(

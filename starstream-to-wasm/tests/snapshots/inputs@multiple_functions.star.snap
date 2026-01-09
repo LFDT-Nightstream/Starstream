@@ -248,6 +248,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
@@ -337,6 +338,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
