@@ -7,3 +7,5 @@ target
 papers/
 *.snap.new
 .claude/settings.local.json
+.nvim.lua
+tree-sitter-starstream/queries/starstream

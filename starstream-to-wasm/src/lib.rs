@@ -267,6 +267,7 @@ impl Compiler {
                 name: Identifier::anon("get_storage"),
                 params: Vec::new(),
                 return_type: storage_struct.clone(),
+                effect: EffectKind::Pure,
                 body: TypedBlock::from(Spanned::none(TypedExpr {
                     ty: storage_struct.clone(),
                     kind: TypedExprKind::StructLiteral {
@@ -292,6 +293,7 @@ impl Compiler {
                     ty: storage_struct.clone(),
                 }],
                 return_type: Type::Unit,
+                effect: EffectKind::Pure,
                 body: TypedBlock::from(
                     fields
                         .iter()

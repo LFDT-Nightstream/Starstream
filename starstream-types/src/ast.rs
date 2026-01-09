@@ -96,6 +96,33 @@ impl std::fmt::Display for Identifier {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Comment(pub Span);
 
+impl Comment {
+    /// Extracts doc comments (lines starting with `///`) from a slice of comments.
+    /// Consecutive `///` lines are joined with newlines. Returns None if no doc comments.
+    pub fn extract_doc(comments: &[Comment], source: &str) -> Option<String> {
+        let doc_lines: Vec<&str> = comments
+            .iter()
+            .filter_map(|c| {
+                let text = source.get(c.0.start..c.0.end)?;
+                if text.starts_with("///") {
+                    // Strip "///" and optional leading space
+                    let content = text.strip_prefix("///").unwrap_or("");
+                    let content = content.strip_prefix(' ').unwrap_or(content);
+                    Some(content)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        if doc_lines.is_empty() {
+            None
+        } else {
+            Some(doc_lines.join("\n"))
+        }
+    }
+}
+
 /// Entire program: a sequence of definitions.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Program {
@@ -427,4 +454,60 @@ pub enum EnumPatternPayload {
     Unit,
     Tuple(Vec<Pattern>),
     Struct(Vec<StructPatternField>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chumsky::span::Span as SpanTrait;
+
+    fn span(start: usize, end: usize) -> Span {
+        Span::new((), start..end)
+    }
+
+    #[test]
+    fn extract_doc_single_line() {
+        let source = "/// This is a doc comment";
+        let comments = vec![Comment(span(0, source.len()))];
+        let doc = Comment::extract_doc(&comments, source);
+        assert_eq!(doc, Some("This is a doc comment".to_string()));
+    }
+
+    #[test]
+    fn extract_doc_multiple_lines() {
+        let source = "/// First line\n/// Second line\n";
+        let comments = vec![
+            Comment(span(0, 14)),  // "/// First line"
+            Comment(span(15, 30)), // "/// Second line"
+        ];
+        let doc = Comment::extract_doc(&comments, source);
+        assert_eq!(doc, Some("First line\nSecond line".to_string()));
+    }
+
+    #[test]
+    fn extract_doc_no_doc_comments() {
+        let source = "// Regular comment";
+        let comments = vec![Comment(span(0, 18))];
+        let doc = Comment::extract_doc(&comments, source);
+        assert_eq!(doc, None);
+    }
+
+    #[test]
+    fn extract_doc_mixed_comments() {
+        let source = "// Regular\n/// Doc comment";
+        let comments = vec![
+            Comment(span(0, 10)),  // "// Regular"
+            Comment(span(11, 26)), // "/// Doc comment"
+        ];
+        let doc = Comment::extract_doc(&comments, source);
+        assert_eq!(doc, Some("Doc comment".to_string()));
+    }
+
+    #[test]
+    fn extract_doc_no_space_after_slashes() {
+        let source = "///No space";
+        let comments = vec![Comment(span(0, 11))];
+        let doc = Comment::extract_doc(&comments, source);
+        assert_eq!(doc, Some("No space".to_string()));
+    }
 }

@@ -160,7 +160,7 @@ impl Type {
 
                 let effect_prefix = match effect {
                     EffectKind::Pure => RcDoc::text("fn"),
-                    EffectKind::Effectful => RcDoc::text("effectful fn"),
+                    EffectKind::Effectful => RcDoc::text("effect fn"),
                     EffectKind::Runtime => RcDoc::text("runtime fn"),
                 };
 
