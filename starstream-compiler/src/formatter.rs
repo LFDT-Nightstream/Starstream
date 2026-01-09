@@ -1075,6 +1075,20 @@ mod tests {
     }
 
     #[test]
+    fn doc_comment_on_function() {
+        assert_format_snapshot!(
+            r#"
+            struct Thing { x: i64 } // some comment
+
+            /// Adds two integers together.
+            fn add(a: i64, b: i64) -> i64 {
+                a + b
+            }
+            "#,
+        );
+    }
+
+    #[test]
     fn function_call_simple() {
         assert_format_snapshot!(
             r#"
