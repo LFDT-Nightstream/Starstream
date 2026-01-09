@@ -110,9 +110,11 @@ struct Compiler {
     errors: Vec<CompileError>,
 
     // Function building.
-    raw_func_type_cache: HashMap<FuncType, u32>,
+    core_func_type_cache: HashMap<FuncType, u32>,
     global_vars: HashMap<String, u32>,
     global_record_type: Vec<TypedStructField>,
+    /// Map from name to function index.
+    callables: HashMap<String, u32>,
 
     // Memory building.
     bump_ptr: u32,
@@ -303,13 +305,13 @@ impl Compiler {
 
     /// Add a function signature to the `types` section if needed, and return
     /// the index of the new or existing entry.
-    fn add_raw_func_type(&mut self, ty: FuncType) -> u32 {
-        match self.raw_func_type_cache.get(&ty) {
+    fn add_core_func_type(&mut self, ty: FuncType) -> u32 {
+        match self.core_func_type_cache.get(&ty) {
             Some(&index) => index,
             None => {
                 let index = self.types.len();
                 self.types.ty().func_type(&ty);
-                self.raw_func_type_cache.insert(ty, index);
+                self.core_func_type_cache.insert(ty, index);
                 index
             }
         }
@@ -322,7 +324,7 @@ impl Compiler {
         // is called, as Wasm requires all imports to precede all of the
         // module's own functions.
 
-        let type_index = self.add_raw_func_type(ty);
+        let type_index = self.add_core_func_type(ty);
         let func_index = self.functions.len();
         self.functions.function(type_index);
 
@@ -360,7 +362,7 @@ impl Compiler {
         (idx, self.world_type.ty())
     }
 
-    fn add_component_type_fn(&mut self, function: &TypedFunctionDef) -> u32 {
+    fn encode_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
         let mut params = Vec::with_capacity(function.params.len());
         for p in &function.params {
             if let Some(ty) = self.star_to_component_type(&p.ty) {
@@ -433,7 +435,7 @@ impl Compiler {
         if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
             self.export_core_fn(&name, func_idx);
-            let type_idx = self.add_component_type_fn(function);
+            let type_idx = self.encode_component_func_type(function);
             self.world_type
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else if params.len() <= MAX_FLAT_PARAMS {
@@ -461,7 +463,7 @@ impl Compiler {
             );
 
             self.export_core_fn(&name, wrapper_func_idx);
-            let type_idx = self.add_component_type_fn(function);
+            let type_idx = self.encode_component_func_type(function);
             self.world_type
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else {
@@ -610,8 +612,18 @@ impl Compiler {
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
+        // In the Wasm output, imported functions must precede defined
+        // functions, so take care of them now.
         for definition in &program.definitions {
             match definition {
+                TypedDefinition::Import(def) => self.visit_import(def),
+                _ => {}
+            }
+        }
+
+        for definition in &program.definitions {
+            match definition {
+                TypedDefinition::Import(_) => { /* handled above */ }
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
@@ -624,10 +636,59 @@ impl Compiler {
                     // ABI definitions don't produce Wasm code directly;
                     // events are handled at emit sites.
                 }
-                // TODO: Implement imports in Wasm codegen.
-                TypedDefinition::Import(_) => {
-                    // Imports are resolved at type-check time; no Wasm output yet.
+            }
+        }
+    }
+
+    fn visit_import(&mut self, def: &TypedImportDef) {
+        let (namespace, list) = match &def.items {
+            TypedImportItems::Named(functions) => (None, functions),
+            TypedImportItems::Namespace { alias, functions } => (Some(alias), functions),
+        };
+        for item in list {
+            let local_name = if let Some(namespace) = namespace {
+                format!("{}::{}", namespace, item.local)
+            } else {
+                item.local.to_string()
+            };
+
+            match &item.ty {
+                Type::Function {
+                    params,
+                    result,
+                    effect: _,
+                } => {
+                    let mut core_params = Vec::with_capacity(16);
+                    let mut core_results = Vec::with_capacity(1);
+                    for p in params {
+                        if !self.star_to_core_types(&mut core_params, &p) {
+                            self.push_error(
+                                item.local.span.unwrap_or(Span::from(0..0)),
+                                format!("unknown lowering for parameter type {:?}", p),
+                            );
+                        }
+                    }
+                    if !self.star_to_core_types(&mut core_results, result) {
+                        self.push_error(
+                            item.local.span.unwrap_or(Span::from(0..0)),
+                            format!("unknown lowering for return type {:?}", result),
+                        );
+                    }
+
+                    // Core import
+                    let core_fn_ty = self.add_core_func_type(FuncType::new(
+                        core_params.iter().copied(),
+                        core_results.iter().copied(),
+                    ));
+                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
+                    self.imports.import(
+                        &def.from.to_string(),
+                        item.imported.as_str(),
+                        EntityType::Function(core_fn_ty),
+                    );
+                    self.callables.insert(local_name, func);
                 }
+                _ => todo!(),
             }
         }
     }
@@ -1440,10 +1501,36 @@ impl Compiler {
             TypedExprKind::Raise { .. } => {
                 Err(self.todo("raise is not supported in Wasm yet".into()))
             }
-            TypedExprKind::Runtime { .. } => {
-                Err(self.todo("runtime is not supported in Wasm yet".into()))
+            TypedExprKind::Runtime { expr: inner } => {
+                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
+                    panic!("runtime expr must be a call");
+                };
+                let TypedExprKind::Identifier(i) = &callee.node.kind else {
+                    return Err(self.todo("runtime expr cannot call non-identifier".into()));
+                };
+                let target = *self
+                    .callables
+                    .get(i.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
             }
         }
+    }
+
+    fn visit_call(
+        &mut self,
+        func: &mut Function,
+        locals: &dyn Locals,
+        span: Span,
+        core_fn_idx: u32,
+        args: &[Spanned<TypedExpr>],
+    ) -> Result<()> {
+        let _ = span;
+        for arg in args {
+            self.visit_expr_stack(func, locals, arg.span, &arg.node)?;
+        }
+        func.instructions().call(core_fn_idx);
+        Ok(())
     }
 }
 

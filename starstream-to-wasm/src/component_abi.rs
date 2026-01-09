@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use wasm_encoder::{InstructionSink, MemArg};
 
-/// Despecialized component type.
+/// Despecialized component value type. Like [wasm_encoder::ComponentValType].
 #[derive(Hash, PartialEq, Eq, Debug)]
 pub enum ComponentAbiType {
     Bool,
