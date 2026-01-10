@@ -134,7 +134,6 @@ impl ComponentAbiType {
             align: log2(self.alignment()),
             memory_index,
         };
-        dbg!(self, mem_arg);
         match self {
             ComponentAbiType::Bool => {
                 out.push(Box::new(move |mut i| {

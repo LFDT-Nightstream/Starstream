@@ -85,6 +85,7 @@ struct Compiler {
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
+    imported_interfaces: HashMap<String, TypeBuilder<InstanceType>>,
 
     // Diagnostics.
     fatal: bool,
@@ -158,6 +159,14 @@ impl Compiler {
             )
         )
         */
+
+        for (interface_name, instance) in self.imported_interfaces {
+            let i = self.world_type.inner.type_count();
+            self.world_type.inner.ty().instance(&instance.inner);
+            self.world_type
+                .inner
+                .import(&interface_name, ComponentTypeRef::Instance(i));
+        }
 
         // The package type must always have 0 imports and 1 export which is the world.
         // Export must be named namespace:package/world, but @version is optional.
@@ -636,6 +645,8 @@ impl Compiler {
                         );
                     }
 
+                    let kebab = to_kebab_case(&item.imported.name);
+
                     // Core import
                     let core_fn_ty = self.add_core_func_type(FuncType::new(
                         core_params.iter().copied(),
@@ -644,10 +655,26 @@ impl Compiler {
                     let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
                     self.imports.import(
                         &def.from.to_string(),
-                        item.imported.as_str(),
+                        &kebab,
                         EntityType::Function(core_fn_ty),
                     );
                     self.callables.insert(local_name, func);
+
+                    // Component import
+                    let comp_params = params
+                        .iter()
+                        .flat_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                        .collect::<Vec<_>>();
+                    let comp_result = self.star_to_component_type(result);
+                    let iface = self
+                        .imported_interfaces
+                        .entry(def.from.to_string())
+                        .or_default();
+                    let comp_fn_ty =
+                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
+                    iface
+                        .inner
+                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
                 _ => todo!(),
             }

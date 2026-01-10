@@ -247,10 +247,44 @@ TypedProgram {
 }
 
 ==== Core WebAssembly ====
-  x TODO: runtime is not supported in Wasm yet
-   ,-[1:1]
- 1 | import { blockHeight } from starstream:std/cardano;
-   : ^
-   : `-- TODO: runtime is not supported in Wasm yet
- 2 | 
-   `----
+(module
+  (type (;0;) (func (result i64)))
+  (import "starstream:std/cardano" "block-height" (func (;0;) (type 0)))
+  (export "reexport" (func 0))
+  (func (;1;) (type 0) (result i64)
+    (call 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func (result s64)))
+              (export (;0;) "reexport" (func (type 0)))
+              (type (;1;)
+                (instance
+                  (type (;0;) (func (result s64)))
+                  (export (;0;) "block-height" (func (type 0)))
+                )
+              )
+              (import "starstream:std/cardano" (instance (;0;) (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:std/cardano;
+
+  export reexport: func() -> s64;
+}
