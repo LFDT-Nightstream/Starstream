@@ -288,3 +288,8 @@ world root {
 
   export reexport: func() -> s64;
 }
+package starstream:std {
+  interface cardano {
+    block-height: func() -> s64;
+  }
+}

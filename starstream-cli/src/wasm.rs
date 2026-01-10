@@ -76,8 +76,16 @@ impl Wasm {
             if let Some(output_wit) = &self.output_wit {
                 let decoded = wit_component::decode(&wasm).unwrap();
                 let mut printer = wit_component::WitPrinter::default();
+                printer.emit_docs(true);
+                let ids = decoded
+                    .resolve()
+                    .packages
+                    .iter()
+                    .map(|(id, _)| id)
+                    .filter(|id| *id != decoded.package())
+                    .collect::<Vec<_>>();
                 printer
-                    .print(decoded.resolve(), decoded.package(), &[])
+                    .print(decoded.resolve(), decoded.package(), &ids)
                     .unwrap();
                 let output = printer.output.to_string();
                 std::fs::write(output_wit, output.as_bytes()).expect("Error writing WIT output");
