@@ -585,9 +585,8 @@ impl Compiler {
         // In the Wasm output, imported functions must precede defined
         // functions, so take care of them now.
         for definition in &program.definitions {
-            match definition {
-                TypedDefinition::Import(def) => self.visit_import(def),
-                _ => {}
+            if let TypedDefinition::Import(def) = definition {
+                self.visit_import(def)
             }
         }
 
@@ -631,7 +630,7 @@ impl Compiler {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
                     for p in params {
-                        if !self.star_to_core_types(&mut core_params, &p) {
+                        if !self.star_to_core_types(&mut core_params, p) {
                             self.push_error(
                                 item.local.span.unwrap_or(Span::from(0..0)),
                                 format!("unknown lowering for parameter type {:?}", p),
@@ -1555,9 +1554,10 @@ struct Function {
 
 impl Function {
     fn from_params(params: &[ValType]) -> Function {
-        let mut this = Function::default();
-        this.num_locals = u32::try_from(params.len()).unwrap();
-        this
+        Function {
+            num_locals: u32::try_from(params.len()).unwrap(),
+            ..Function::default()
+        }
     }
 
     fn add_locals(&mut self, types: impl IntoIterator<Item = ValType>) -> u32 {
