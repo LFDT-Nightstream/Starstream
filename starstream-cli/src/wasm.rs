@@ -64,10 +64,12 @@ impl Wasm {
 
         // Componentize
         if self.output_component.is_some() || self.output_wit.is_some() {
-            let mut encoder = ComponentEncoder::default().validate(true);
-            // TODO: less .unwrap()
-            encoder = encoder.module(&wasm).unwrap();
-            let wasm = encoder.encode().unwrap();
+            let wasm = ComponentEncoder::default()
+                .validate(true)
+                .module(&wasm)
+                .expect("ComponentEncoder::module failed")
+                .encode()
+                .expect("ComponentEncoder::encode failed");
 
             if let Some(output_component) = &self.output_component {
                 std::fs::write(output_component, &wasm).expect("Error writing Wasm output");
