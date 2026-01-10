@@ -9,7 +9,7 @@ use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
 
-use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
+use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS, TypeBuilder};
 
 mod component_abi;
 
@@ -83,27 +83,8 @@ struct Compiler {
     data: DataSection,
 
     // Component binary output.
-    /*
-        (@custom "component-type"
-            (component ;; the component embedded in the file exports a single Package type
-                (type
-                    (component ;; that Package exports a single World type
-                        (type
-                            (component ;; that World exports our actual functions
-                                (type (func ...))
-                                (export "function-name" (func (type 0)))
-                            )
-                        )
-                        (export "namespace-name:package-name/world-name@0.1.0" (component (type 0)))
-                    )
-                )
-                (export "anything here, it's ignored" (type 0))
-            )
-        )
-    */
-    world_type: ComponentType,
+    world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
-    component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
 
     // Diagnostics.
     fatal: bool,
@@ -152,10 +133,36 @@ impl Compiler {
             return (None, self.errors);
         }
 
+        // Build the component custom section.
+        /*
+        (@custom "component-type"
+            (component ;; the component embedded in the file exports a single Package type
+                (type
+                    (component ;; that Package exports a single World type
+                        (type
+                            (component ;; that World exports our actual functions
+                                (type (instance (
+                                    (type (func ...))
+                                    (export "something-we-import" (func (type 0)))
+                                )))
+                                (import "foo:bar/baz@0.0.0" (instance (type 0)))
+
+                                (type (func ...))
+                                (export "function-name" (func (type 1)))
+                            )
+                        )
+                        (export "namespace-name:package-name/world-name@0.1.0" (component (type 0)))
+                    )
+                )
+                (export "anything here, it's ignored" (type 0))
+            )
+        )
+        */
+
         // The package type must always have 0 imports and 1 export which is the world.
         // Export must be named namespace:package/world, but @version is optional.
         let mut package_type = ComponentType::new();
-        package_type.ty().component(&self.world_type);
+        package_type.ty().component(&self.world_type.inner);
         package_type.export(
             "my-namespace:my-package/my-world",
             ComponentTypeRef::Component(0),
@@ -178,7 +185,7 @@ impl Compiler {
         component.section(&component_exports);
         let component = component.finish();
 
-        // Write sections to module.
+        // Write sections to core module.
         // Mandatory WASM order per https://webassembly.github.io/spec/core/binary/modules.html#binary-module:
         // type, import, func, table, mem, tag, global, export, start, elem, datacount, code, data.
         let mut module = Module::new();
@@ -357,70 +364,22 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Component table management
 
-    fn add_component_type_raw(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.world_type.type_count();
-        (idx, self.world_type.ty())
-    }
-
     fn encode_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
-        let mut params = Vec::with_capacity(function.params.len());
-        for p in &function.params {
-            if let Some(ty) = self.star_to_component_type(&p.ty) {
-                params.push((p.name.as_str(), self.encode_component_type(&ty)));
-            }
-        }
-
-        let result = self
-            .star_to_component_type(&function.return_type)
-            .map(|ty| self.encode_component_type(&ty));
-
-        let (idx, ty) = self.add_component_type_raw();
-        ty.function().params(params).result(result);
-        idx
+        let params = function
+            .params
+            .iter()
+            .flat_map(|p| {
+                self.star_to_component_type(&p.ty)
+                    .map(|t| (p.name.as_str(), t))
+            })
+            .collect::<Vec<_>>();
+        let result = self.star_to_component_type(&function.return_type);
+        self.world_type
+            .encode_func(params.into_iter(), result.as_ref())
     }
 
     fn encode_component_type(&mut self, ty: &Rc<ComponentAbiType>) -> ComponentValType {
-        if let Some(&cvt) = self.component_to_encoded.get(ty) {
-            return cvt;
-        }
-
-        let cvt = match &**ty {
-            ComponentAbiType::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
-            ComponentAbiType::S8 => ComponentValType::Primitive(PrimitiveValType::S8),
-            ComponentAbiType::U8 => ComponentValType::Primitive(PrimitiveValType::U8),
-            ComponentAbiType::S16 => ComponentValType::Primitive(PrimitiveValType::S16),
-            ComponentAbiType::U16 => ComponentValType::Primitive(PrimitiveValType::U16),
-            ComponentAbiType::S32 => ComponentValType::Primitive(PrimitiveValType::S32),
-            ComponentAbiType::U32 => ComponentValType::Primitive(PrimitiveValType::U32),
-            ComponentAbiType::S64 => ComponentValType::Primitive(PrimitiveValType::S64),
-            ComponentAbiType::U64 => ComponentValType::Primitive(PrimitiveValType::U64),
-            ComponentAbiType::F32 => ComponentValType::Primitive(PrimitiveValType::F32),
-            ComponentAbiType::F64 => ComponentValType::Primitive(PrimitiveValType::F64),
-            ComponentAbiType::Char => ComponentValType::Primitive(PrimitiveValType::Char),
-            ComponentAbiType::String => ComponentValType::Primitive(PrimitiveValType::String),
-            ComponentAbiType::ErrorContext => {
-                ComponentValType::Primitive(PrimitiveValType::ErrorContext)
-            }
-            ComponentAbiType::List { .. } => todo!(),
-            ComponentAbiType::Record { fields } => {
-                let fields: Vec<_> = fields
-                    .iter()
-                    .map(|f| (f.0.as_str(), self.encode_component_type(&f.1)))
-                    .collect();
-                let (idx, ty) = self.add_component_type_raw();
-                ty.defined_type().record(fields);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Variant { .. } => todo!(),
-            ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own => todo!(),
-            ComponentAbiType::Borrow => todo!(),
-            ComponentAbiType::Stream => todo!(),
-            ComponentAbiType::Future => todo!(),
-        };
-
-        self.component_to_encoded.insert(ty.clone(), cvt);
-        cvt
+        self.world_type.encode_value(ty)
     }
 
     fn export_component_fn(
@@ -437,6 +396,7 @@ impl Compiler {
             self.export_core_fn(&name, func_idx);
             let type_idx = self.encode_component_func_type(function);
             self.world_type
+                .inner
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else if params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
@@ -465,6 +425,7 @@ impl Compiler {
             self.export_core_fn(&name, wrapper_func_idx);
             let type_idx = self.encode_component_func_type(function);
             self.world_type
+                .inner
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else {
             self.push_error(
@@ -745,13 +706,14 @@ impl Compiler {
             unreachable!()
         };
         // "Exporting" a type consists of importing it with an equality constraint.
-        let new_idx = self.world_type.type_count();
-        self.world_type.import(
+        let new_idx = self.world_type.inner.type_count();
+        self.world_type.inner.import(
             &to_kebab_case(struct_.name.as_str()),
             ComponentTypeRef::Type(TypeBounds::Eq(idx)),
         );
         // Future uses must also refer to the imported version.
-        self.component_to_encoded
+        self.world_type
+            .component_to_encoded
             .insert(component_ty, ComponentValType::Type(new_idx));
     }
 
