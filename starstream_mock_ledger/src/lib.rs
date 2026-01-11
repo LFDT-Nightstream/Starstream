@@ -24,21 +24,18 @@ impl<T> Clone for Hash<T> {
 pub struct WasmModule(Vec<u8>);
 
 /// Opaque user data.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Value(pub Vec<u8>);
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Value(pub u64);
 
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match std::str::from_utf8(&self.0) {
-            Ok(s) => write!(f, "Value(\"{}\")", s),
-            Err(_) => write!(f, "Value({:?})", self.0),
-        }
+        write!(f, "Value({})", self.0)
     }
 }
 
 impl Value {
     pub fn nil() -> Self {
-        Value(vec![])
+        Value(0)
     }
 }
 

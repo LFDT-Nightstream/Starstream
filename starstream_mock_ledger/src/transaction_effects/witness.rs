@@ -64,11 +64,15 @@ pub enum WitLedgerEffect {
     },
 
     NewRef {
-        val: Value,
+        size: usize,
         ret: Ref,
+    },
+    RefPush {
+        val: Value,
     },
     Get {
         reff: Ref,
+        offset: usize,
         ret: Value,
     },
 
