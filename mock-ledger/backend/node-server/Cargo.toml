@@ -30,4 +30,5 @@ wasmtime = { workspace = true }
 wit-bindgen-wrpc = { workspace = true }
 wrpc-transport = { workspace = true, features = ["net"] }
 starstream-ledger = { workspace = true }
+starstream-registry = { workspace = true }
 wrpc-runtime-wasmtime = { workspace = true }

@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     } = Args::parse();
 
     let wrpc = wrpc_transport::tcp::Client::from(addr);
-    let interface = rpc::bindings::starstream::node_rpc::registry::get_wit(
+    let interface = rpc::bindings::starstream::registry::handler::get_wit(
         &wrpc,
         (),
         &contract_hash.clone(),
@@ -47,37 +47,37 @@ async fn main() -> anyhow::Result<()> {
     )
     .await
     .with_context(|| format!("failed to get wit `{contract_hash}`"))?;
-    println!("result: {interface:?}");
+    println!("Wit: {:?}", interface);
 
     let mut resolve = Resolve::new();
     let main = resolve.push_str(interface.entrypoint.clone(), &interface.wit)?;
     let untyped_call = UntypedFuncCall::parse(&call)?;
     let func_name = untyped_call.name().to_string();
-    let func_type = get_func_type(&resolve, &main, &func_name)?;
-    let param_types = func_type.params().collect::<Vec<_>>();
+    let func_info = get_func_info(&resolve, &main, &func_name)?;
+    let param_types = func_info.func_type.params().collect::<Vec<_>>();
 
-    println!("Calling {func_name} ({func_type})");
+    println!("Calling {} ({})", func_info.qualified_name, func_info.func_type);
 
     let mut params = BytesMut::new();
     let values: Vec<Value> = untyped_call.to_wasm_params::<Value>(&param_types)?;
-    if let Some(tuple_ty) = wasm_wave::value::Type::tuple(param_types) {
+    if let Some(tuple_ty) = wasm_wave::value::Type::tuple(param_types.clone()) {
         let tuple_val = Value::make_tuple(&tuple_ty, values)?;
         let mut encoder = WaveEncoder::new(&tuple_ty);
         encoder.encode(&tuple_val, &mut params)?;
     }
 
-    // TODO: properly error if wrong params (this bug is hidden by param parsing above)
+    // Use the qualified function name for the RPC call
     let result = rpc::bindings::starstream::wrpc_multiplexer::handler::call(
         &wrpc,
         (),
         &contract_hash.clone(),
-        &func_name.clone(),
+        &func_info.qualified_name,
         &params.into(),
     )
     .await
-    .with_context(|| format!("failed to call `{contract_hash}.{func_name}`"))?;
+    .with_context(|| format!("failed to call `{contract_hash}.{}`", func_info.qualified_name))?;
 
-    let result_types = func_type.results().collect::<Vec<_>>();
+    let result_types = func_info.func_type.results().collect::<Vec<_>>();
     let mut values = Vec::new();
     for result_type in result_types.iter() {
         let val = read_value_sync(result_type, &result)?;
@@ -98,24 +98,57 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_func_type(
+/// Result of looking up a function, including its qualified name for RPC calls
+struct FuncLookup {
+    /// The qualified function name for RPC (e.g., "add" or "test:foo/add#add")
+    qualified_name: String,
+    /// The function type
+    func_type: FuncType,
+}
+
+fn get_func_info(
     resolve: &Resolve,
     pkg_id: &PackageId,
     func_name: &str,
-) -> anyhow::Result<FuncType> {
+) -> anyhow::Result<FuncLookup> {
     let world_id = resolve.select_world(&[*pkg_id], None)?;
+    let world = &resolve.worlds[world_id];
 
+    // First, try to find a direct function export with the given name
     let key = wit_parser::WorldKey::Name(func_name.to_string());
-    let world_item = resolve.worlds[world_id]
-        .exports
-        .get(&key)
-        .ok_or_else(|| anyhow::anyhow!("function '{func_name}' not found in world exports"))?;
-    let func = match world_item {
-        wit_parser::WorldItem::Function(func) => func,
-        _ => return Err(anyhow::anyhow!("'{func_name}' is not a function")),
-    };
-    resolve_wit_func_type(&resolve, func)
-        .map_err(|e| anyhow::anyhow!("failed to resolve function type for '{func_name}': {e}"))
+    if let Some(wit_parser::WorldItem::Function(func)) = world.exports.get(&key) {
+        let func_type = resolve_wit_func_type(resolve, func)
+            .map_err(|e| anyhow::anyhow!("failed to resolve function type for '{func_name}': {e}"))?;
+        return Ok(FuncLookup {
+            qualified_name: func_name.to_string(),
+            func_type,
+        });
+    }
+
+    // If not found directly, search inside exported interfaces
+    for (_key, item) in &world.exports {
+        if let wit_parser::WorldItem::Interface { id, .. } = item {
+            let interface = &resolve.interfaces[*id];
+            if let Some(func) = interface.functions.get(func_name) {
+                let func_type = resolve_wit_func_type(resolve, func).map_err(|e| {
+                    anyhow::anyhow!("failed to resolve function type for '{func_name}': {e}")
+                })?;
+
+                // Build the qualified name: "namespace:package/interface#function"
+                let interface_id = resolve.id_of(*id).unwrap_or_else(|| "unknown".to_string());
+                let qualified_name = format!("{}#{}", interface_id, func_name);
+
+                return Ok(FuncLookup {
+                    qualified_name,
+                    func_type,
+                });
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!(
+        "function '{func_name}' not found in world exports or exported interfaces"
+    ))
 }
 
 #[cfg(test)]

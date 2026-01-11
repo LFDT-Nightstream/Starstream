@@ -12,6 +12,7 @@ members = [
     "node-client",
     "wrpc-multiplexer",
     "ledger",
+    "registry",
 ]
 resolver = "3"
 
@@ -34,6 +35,7 @@ p3-field = { version = "0.3", default-features = false }
 rand = { version = "0.9", default-features = false }
 hex = { version = "0.4", default-features = false }
 starstream-ledger = { path = "ledger" }
+starstream-registry = { path = "registry" }
 wrpc-multiplexer = { path = "wrpc-multiplexer" }
 wit-bindgen-wrpc = { path = "../../../wrpc/crates/wit-bindgen", default-features = false }
 wrpc-transport = { path = "../../../wrpc/crates/transport", default-features = false }
@@ -45,3 +47,9 @@ wrpc-wave = { path = "../../../wrpc/crates/wave", default-features = false }
 wrpc-pack = { path = "../../../wrpc/crates/pack", default-features = false }
 wit-parser = { version = "0.243", default-features = false }
 wit-encoder = { version = "0.243", default-features = false }
+wit-component = { version = "0.243", default-features = false }
+semver = { version = "1", default-features = false }
+sha2 = { version = "0.10", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde_json = { version = "1", default-features = false }
+thiserror = { version = "2", default-features = false }

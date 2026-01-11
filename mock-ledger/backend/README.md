@@ -34,6 +34,8 @@ Start client with parameters
 
 ```bash
 cargo run -p starstream-node-client -- --addr='[::1]:7762' --contract-hash='0x54AD8533C20E995DB809D203131C45F3D308322631B514044DF5B7B9E4EDABBC' --call='get-value(5)'
+cargo run -p starstream-node-client -- --addr='[::1]:7762' --contract-hash='0x58A71921DA8E8558755C37B8EEAB79E416DDDE1B2B516155767EEC868BE26C5E' --call='total-value({ amount: 10, price: 5})'
+cargo run -p starstream-node-client -- --addr='[::1]:7762' --contract-hash='0x64A32FE5D3B3237E13BF47A38497C1D9E3298F5489578DAACB5C9A170753FF34' --call='add(3,4)'
 ```
 
 ## Concept
@@ -79,10 +81,14 @@ Ledger client
 Registry:
 - [ ] accept WIT files placed into it
     - [ ] flatten dependencies (and make sure they're all in the registry)
-    - [ ] make sure the package name is the WIT hash (incl hash of all dependencies) - reuse wit-deps logic for this
-    - [ ] only use most strict semver possible (to guarantee unique result)
+    - [ ] make sure the package somehow includes the WIT hash (incl hash of all dependencies) - reuse logic for this (maybe wit-deps?)
+    - [ ] Probably need to rewrite any version numbers to the explicit semver they are bundled with (to guarantee unique result)
     - [ ] careful about wit deduplication causing file content to change due to semver (i.e an `import` disappears because it is redundant as it's covered my another import)
-
+- [ ] 4 options for downloading stuff
+    - [ ] The wasm component
+    - [ ] The WIT (as a .wit file)
+    - [ ] The WIT (as a .wasm package format file)
+  
 External connections
 - [ ] connect to the real Starstream
 - [ ] connect to the playground

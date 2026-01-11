@@ -1,0 +1,18 @@
+package starstream:registry;
+
+interface handler {
+    record component-interface {
+        wit: string,
+        entrypoint: string
+    }
+
+    get-wit: func(hash: string, resolve: bool) -> component-interface;
+}
+
+world client {
+    import handler;
+}
+
+world server {
+    export handler;
+}

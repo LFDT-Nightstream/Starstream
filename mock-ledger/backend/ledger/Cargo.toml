@@ -22,3 +22,4 @@ tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 wrpc-runtime-wasmtime = { workspace = true }
 wrpc-transport = { workspace = true }
 wasmtime-wasi = { workspace = true }
+starstream-registry = { workspace = true }

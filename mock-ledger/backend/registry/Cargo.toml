@@ -1,0 +1,25 @@
+[package]
+name = "starstream-registry"
+version = "0.1.0"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+sha2 = { workspace = true, features = ["std"] }
+hex = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["std"] }
+serde_json = { workspace = true, features = ["std"] }
+thiserror = { workspace = true }
+semver = { workspace = true, features = ["std"] }
+wit-parser = { workspace = true }
+wit-component = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+tokio-test = "0.4"
