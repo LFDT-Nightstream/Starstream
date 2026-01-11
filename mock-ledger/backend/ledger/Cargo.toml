@@ -1,0 +1,24 @@
+[package]
+name = "starstream-ledger"
+version = "0.1.0"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+wasmtime = { workspace = true }
+p3-poseidon2 = { workspace = true }
+p3-goldilocks = { workspace = true }
+p3-symmetric = { workspace = true }
+p3-field = { workspace = true }
+rand = { workspace = true, features = ["std_rng"] }
+once_cell = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
+wrpc-runtime-wasmtime = { workspace = true }
+wrpc-transport = { workspace = true }
+wasmtime-wasi = { workspace = true }

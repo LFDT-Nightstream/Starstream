@@ -1,0 +1,17 @@
+[package]
+name = "wrpc-multiplexer"
+version = "0.1.0"
+
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true, features = ["async-await"] }
+tokio = { workspace = true }
+wrpc-transport = { workspace = true }
+wit-bindgen-wrpc = { workspace = true }

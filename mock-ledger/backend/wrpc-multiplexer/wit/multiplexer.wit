@@ -1,0 +1,26 @@
+package starstream:wrpc-multiplexer;
+
+/// A generic handler that can forward calls to any component
+interface handler {
+    /// Call a function on a component instance dynamically
+    /// 
+    /// - hash: The contract hash
+    /// - function: The function name (e.g., "hello")
+    /// - params: Encoded tuple of parameters as bytes (Component Model value encoding)
+    /// - Returns: Encoded tuple of results as bytes (Component Model value encoding)
+    call: func(
+        hash: string,
+        function: string,
+        params: list<u8>,
+    ) -> list<u8>;
+}
+
+
+world client {
+    import handler;
+}
+
+world server {
+    export handler;
+}
+

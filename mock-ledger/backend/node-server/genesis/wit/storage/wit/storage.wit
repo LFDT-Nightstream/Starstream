@@ -1,0 +1,11 @@
+package root:component;
+
+world root {
+  record storage {
+    counter: s64,
+  }
+
+  export increment: func() -> s64;
+  export get-storage: func() -> storage;
+  export set-storage: func(storage: storage);
+}

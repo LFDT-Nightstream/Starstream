@@ -1,0 +1,4 @@
+[starstream-wrpc-multiplexer]
+path = "../../../wrpc-multiplexer/wit"
+sha256 = "608b5fb66c0ad82f907d20793b782d99b5dd0bfd0282e86fdd9ec8b670a2e74d"
+sha512 = "b9f384124fd773c4c25e388b7403448ae3e0e19001cddc64e18c4bada3938ab0a2cfe0ec64d1f35b22f0bccc3c335f05de201baec25bcd32bd66c07fd3a3b4d7"

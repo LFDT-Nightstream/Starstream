@@ -1,0 +1,6 @@
+package starstream:node-rpc-client-ext;
+
+world root {
+    include root:component/root;
+}
+

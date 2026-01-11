@@ -1,0 +1,9 @@
+[starstream-wrpc-multiplexer]
+sha256 = "608b5fb66c0ad82f907d20793b782d99b5dd0bfd0282e86fdd9ec8b670a2e74d"
+sha512 = "b9f384124fd773c4c25e388b7403448ae3e0e19001cddc64e18c4bada3938ab0a2cfe0ec64d1f35b22f0bccc3c335f05de201baec25bcd32bd66c07fd3a3b4d7"
+
+["starstream:node-rpc"]
+path = "../../wit/node-rpc/wit"
+sha256 = "8f89ceeaf3c5cb8f90f52b5113408822991ac1617d167a17523f9aa077a32df7"
+sha512 = "895e9f429f985c9f3b4a43c3896efdc3537a34254a4689812f4c4e3a2094fb3d8d51c88bceb74a2430276328a6fbe4543ce7716c4a81b0d8eab28c2b8b3d503e"
+deps = ["starstream-wrpc-multiplexer"]
