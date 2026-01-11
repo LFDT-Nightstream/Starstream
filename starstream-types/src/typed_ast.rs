@@ -8,7 +8,7 @@
 use crate::{
     FunctionExport, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
-    types::Type,
+    types::{EffectKind, Type},
 };
 
 /// Entire program with types attached.
@@ -65,6 +65,7 @@ pub struct TypedFunctionDef {
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
+    pub effect: EffectKind,
     pub body: TypedBlock,
 }
 

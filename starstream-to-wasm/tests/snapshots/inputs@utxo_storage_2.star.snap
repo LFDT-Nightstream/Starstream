@@ -376,6 +376,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Assignment {
@@ -488,6 +489,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Assignment {

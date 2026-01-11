@@ -271,7 +271,30 @@ Comments and whitespace may appear between terminal tokens.
 
 - `/*` starts a comment that ends at the first `*/` (no nesting).
 - `//` starts a comment that ends at a new line.
+- `///` starts a doc comment that ends at a new line. Multiple consecutive `///`
+  lines form a single doc block. Doc comments attach to the definition
+  immediately following them and are displayed in IDE hover information.
 - `#!` at the start of a program starts a comment that ends at a new line.
+
+### Doc comments
+
+Doc comments use the `///` prefix and document the definition that follows:
+
+```starstream
+/// Adds two integers and returns their sum.
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+/// A point in 2D space.
+struct Point {
+    x: i64,
+    y: i64,
+}
+```
+
+The content after `/// ` (including the optional space) is extracted and
+displayed in IDE hover tooltips above the type information.
 
 ## Precedence and Associativity
 

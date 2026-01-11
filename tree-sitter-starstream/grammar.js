@@ -427,9 +427,13 @@ module.exports = grammar({
 
     // Comments
     shebang: ($) => token(seq("#!", /.*/)),
+    doc_comment: ($) => token(seq("///", /.*/)),
     comment: ($) =>
       token(
-        choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
+        choice(
+          seq("//", /.*/),
+          seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/"),
+        ),
       ),
   },
   conflicts: ($) => [
@@ -437,5 +441,5 @@ module.exports = grammar({
     [$.field_expression, $.raise_expression],
     [$.field_expression, $.runtime_expression],
   ],
-  extras: ($) => [/\s/, $.comment],
+  extras: ($) => [/\s/, $.comment, $.doc_comment],
 });
