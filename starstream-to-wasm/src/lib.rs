@@ -9,7 +9,7 @@ use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
 
-use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
+use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS, TypeBuilder};
 
 mod component_abi;
 
@@ -83,36 +83,20 @@ struct Compiler {
     data: DataSection,
 
     // Component binary output.
-    /*
-        (@custom "component-type"
-            (component ;; the component embedded in the file exports a single Package type
-                (type
-                    (component ;; that Package exports a single World type
-                        (type
-                            (component ;; that World exports our actual functions
-                                (type (func ...))
-                                (export "function-name" (func (type 0)))
-                            )
-                        )
-                        (export "namespace-name:package-name/world-name@0.1.0" (component (type 0)))
-                    )
-                )
-                (export "anything here, it's ignored" (type 0))
-            )
-        )
-    */
-    world_type: ComponentType,
+    world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
-    component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
+    imported_interfaces: HashMap<String, TypeBuilder<InstanceType>>,
 
     // Diagnostics.
     fatal: bool,
     errors: Vec<CompileError>,
 
     // Function building.
-    raw_func_type_cache: HashMap<FuncType, u32>,
+    core_func_type_cache: HashMap<FuncType, u32>,
     global_vars: HashMap<String, u32>,
     global_record_type: Vec<TypedStructField>,
+    /// Map from name to function index.
+    callables: HashMap<String, u32>,
 
     // Memory building.
     bump_ptr: u32,
@@ -150,10 +134,44 @@ impl Compiler {
             return (None, self.errors);
         }
 
+        // Build the component custom section.
+        /*
+        (@custom "component-type"
+            (component ;; the component embedded in the file exports a single Package type
+                (type
+                    (component ;; that Package exports a single World type
+                        (type
+                            (component ;; that World exports our actual functions
+                                (type (instance (
+                                    (type (func ...))
+                                    (export "something-we-import" (func (type 0)))
+                                )))
+                                (import "foo:bar/baz@0.0.0" (instance (type 0)))
+
+                                (type (func ...))
+                                (export "function-name" (func (type 1)))
+                            )
+                        )
+                        (export "namespace-name:package-name/world-name@0.1.0" (component (type 0)))
+                    )
+                )
+                (export "anything here, it's ignored" (type 0))
+            )
+        )
+        */
+
+        for (interface_name, instance) in self.imported_interfaces {
+            let i = self.world_type.inner.type_count();
+            self.world_type.inner.ty().instance(&instance.inner);
+            self.world_type
+                .inner
+                .import(&interface_name, ComponentTypeRef::Instance(i));
+        }
+
         // The package type must always have 0 imports and 1 export which is the world.
         // Export must be named namespace:package/world, but @version is optional.
         let mut package_type = ComponentType::new();
-        package_type.ty().component(&self.world_type);
+        package_type.ty().component(&self.world_type.inner);
         package_type.export(
             "my-namespace:my-package/my-world",
             ComponentTypeRef::Component(0),
@@ -176,7 +194,7 @@ impl Compiler {
         component.section(&component_exports);
         let component = component.finish();
 
-        // Write sections to module.
+        // Write sections to core module.
         // Mandatory WASM order per https://webassembly.github.io/spec/core/binary/modules.html#binary-module:
         // type, import, func, table, mem, tag, global, export, start, elem, datacount, code, data.
         let mut module = Module::new();
@@ -303,13 +321,13 @@ impl Compiler {
 
     /// Add a function signature to the `types` section if needed, and return
     /// the index of the new or existing entry.
-    fn add_raw_func_type(&mut self, ty: FuncType) -> u32 {
-        match self.raw_func_type_cache.get(&ty) {
+    fn add_core_func_type(&mut self, ty: FuncType) -> u32 {
+        match self.core_func_type_cache.get(&ty) {
             Some(&index) => index,
             None => {
                 let index = self.types.len();
                 self.types.ty().func_type(&ty);
-                self.raw_func_type_cache.insert(ty, index);
+                self.core_func_type_cache.insert(ty, index);
                 index
             }
         }
@@ -322,7 +340,7 @@ impl Compiler {
         // is called, as Wasm requires all imports to precede all of the
         // module's own functions.
 
-        let type_index = self.add_raw_func_type(ty);
+        let type_index = self.add_core_func_type(ty);
         let func_index = self.functions.len();
         self.functions.function(type_index);
 
@@ -355,70 +373,22 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Component table management
 
-    fn add_component_type_raw(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.world_type.type_count();
-        (idx, self.world_type.ty())
-    }
-
-    fn add_component_type_fn(&mut self, function: &TypedFunctionDef) -> u32 {
-        let mut params = Vec::with_capacity(function.params.len());
-        for p in &function.params {
-            if let Some(ty) = self.star_to_component_type(&p.ty) {
-                params.push((p.name.as_str(), self.encode_component_type(&ty)));
-            }
-        }
-
-        let result = self
-            .star_to_component_type(&function.return_type)
-            .map(|ty| self.encode_component_type(&ty));
-
-        let (idx, ty) = self.add_component_type_raw();
-        ty.function().params(params).result(result);
-        idx
+    fn encode_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
+        let params = function
+            .params
+            .iter()
+            .flat_map(|p| {
+                self.star_to_component_type(&p.ty)
+                    .map(|t| (p.name.as_str(), t))
+            })
+            .collect::<Vec<_>>();
+        let result = self.star_to_component_type(&function.return_type);
+        self.world_type
+            .encode_func(params.into_iter(), result.as_ref())
     }
 
     fn encode_component_type(&mut self, ty: &Rc<ComponentAbiType>) -> ComponentValType {
-        if let Some(&cvt) = self.component_to_encoded.get(ty) {
-            return cvt;
-        }
-
-        let cvt = match &**ty {
-            ComponentAbiType::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
-            ComponentAbiType::S8 => ComponentValType::Primitive(PrimitiveValType::S8),
-            ComponentAbiType::U8 => ComponentValType::Primitive(PrimitiveValType::U8),
-            ComponentAbiType::S16 => ComponentValType::Primitive(PrimitiveValType::S16),
-            ComponentAbiType::U16 => ComponentValType::Primitive(PrimitiveValType::U16),
-            ComponentAbiType::S32 => ComponentValType::Primitive(PrimitiveValType::S32),
-            ComponentAbiType::U32 => ComponentValType::Primitive(PrimitiveValType::U32),
-            ComponentAbiType::S64 => ComponentValType::Primitive(PrimitiveValType::S64),
-            ComponentAbiType::U64 => ComponentValType::Primitive(PrimitiveValType::U64),
-            ComponentAbiType::F32 => ComponentValType::Primitive(PrimitiveValType::F32),
-            ComponentAbiType::F64 => ComponentValType::Primitive(PrimitiveValType::F64),
-            ComponentAbiType::Char => ComponentValType::Primitive(PrimitiveValType::Char),
-            ComponentAbiType::String => ComponentValType::Primitive(PrimitiveValType::String),
-            ComponentAbiType::ErrorContext => {
-                ComponentValType::Primitive(PrimitiveValType::ErrorContext)
-            }
-            ComponentAbiType::List { .. } => todo!(),
-            ComponentAbiType::Record { fields } => {
-                let fields: Vec<_> = fields
-                    .iter()
-                    .map(|f| (f.0.as_str(), self.encode_component_type(&f.1)))
-                    .collect();
-                let (idx, ty) = self.add_component_type_raw();
-                ty.defined_type().record(fields);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Variant { .. } => todo!(),
-            ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own => todo!(),
-            ComponentAbiType::Borrow => todo!(),
-            ComponentAbiType::Stream => todo!(),
-            ComponentAbiType::Future => todo!(),
-        };
-
-        self.component_to_encoded.insert(ty.clone(), cvt);
-        cvt
+        self.world_type.encode_value(ty)
     }
 
     fn export_component_fn(
@@ -433,8 +403,9 @@ impl Compiler {
         if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
             self.export_core_fn(&name, func_idx);
-            let type_idx = self.add_component_type_fn(function);
+            let type_idx = self.encode_component_func_type(function);
             self.world_type
+                .inner
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else if params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
@@ -461,8 +432,9 @@ impl Compiler {
             );
 
             self.export_core_fn(&name, wrapper_func_idx);
-            let type_idx = self.add_component_type_fn(function);
+            let type_idx = self.encode_component_func_type(function);
             self.world_type
+                .inner
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else {
             self.push_error(
@@ -610,8 +582,17 @@ impl Compiler {
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
+        // In the Wasm output, imported functions must precede defined
+        // functions, so take care of them now.
+        for definition in &program.definitions {
+            if let TypedDefinition::Import(def) = definition {
+                self.visit_import(def)
+            }
+        }
+
         for definition in &program.definitions {
             match definition {
+                TypedDefinition::Import(_) => { /* handled above */ }
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
@@ -624,10 +605,77 @@ impl Compiler {
                     // ABI definitions don't produce Wasm code directly;
                     // events are handled at emit sites.
                 }
-                // TODO: Implement imports in Wasm codegen.
-                TypedDefinition::Import(_) => {
-                    // Imports are resolved at type-check time; no Wasm output yet.
+            }
+        }
+    }
+
+    fn visit_import(&mut self, def: &TypedImportDef) {
+        let (namespace, list) = match &def.items {
+            TypedImportItems::Named(functions) => (None, functions),
+            TypedImportItems::Namespace { alias, functions } => (Some(alias), functions),
+        };
+        for item in list {
+            let local_name = if let Some(namespace) = namespace {
+                format!("{}::{}", namespace, item.local)
+            } else {
+                item.local.to_string()
+            };
+
+            match &item.ty {
+                Type::Function {
+                    params,
+                    result,
+                    effect: _,
+                } => {
+                    let mut core_params = Vec::with_capacity(16);
+                    let mut core_results = Vec::with_capacity(1);
+                    for p in params {
+                        if !self.star_to_core_types(&mut core_params, p) {
+                            self.push_error(
+                                item.local.span.unwrap_or(Span::from(0..0)),
+                                format!("unknown lowering for parameter type {:?}", p),
+                            );
+                        }
+                    }
+                    if !self.star_to_core_types(&mut core_results, result) {
+                        self.push_error(
+                            item.local.span.unwrap_or(Span::from(0..0)),
+                            format!("unknown lowering for return type {:?}", result),
+                        );
+                    }
+
+                    let kebab = to_kebab_case(&item.imported.name);
+
+                    // Core import
+                    let core_fn_ty = self.add_core_func_type(FuncType::new(
+                        core_params.iter().copied(),
+                        core_results.iter().copied(),
+                    ));
+                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
+                    self.imports.import(
+                        &def.from.to_string(),
+                        &kebab,
+                        EntityType::Function(core_fn_ty),
+                    );
+                    self.callables.insert(local_name, func);
+
+                    // Component import
+                    let comp_params = params
+                        .iter()
+                        .flat_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                        .collect::<Vec<_>>();
+                    let comp_result = self.star_to_component_type(result);
+                    let iface = self
+                        .imported_interfaces
+                        .entry(def.from.to_string())
+                        .or_default();
+                    let comp_fn_ty =
+                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
+                    iface
+                        .inner
+                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
+                _ => todo!(),
             }
         }
     }
@@ -684,13 +732,14 @@ impl Compiler {
             unreachable!()
         };
         // "Exporting" a type consists of importing it with an equality constraint.
-        let new_idx = self.world_type.type_count();
-        self.world_type.import(
+        let new_idx = self.world_type.inner.type_count();
+        self.world_type.inner.import(
             &to_kebab_case(struct_.name.as_str()),
             ComponentTypeRef::Type(TypeBounds::Eq(idx)),
         );
         // Future uses must also refer to the imported version.
-        self.component_to_encoded
+        self.world_type
+            .component_to_encoded
             .insert(component_ty, ComponentValType::Type(new_idx));
     }
 
@@ -1440,10 +1489,36 @@ impl Compiler {
             TypedExprKind::Raise { .. } => {
                 Err(self.todo("raise is not supported in Wasm yet".into()))
             }
-            TypedExprKind::Runtime { .. } => {
-                todo!()
+            TypedExprKind::Runtime { expr: inner } => {
+                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
+                    panic!("runtime expr must be a call");
+                };
+                let TypedExprKind::Identifier(i) = &callee.node.kind else {
+                    return Err(self.todo("runtime expr cannot call non-identifier".into()));
+                };
+                let target = *self
+                    .callables
+                    .get(i.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
             }
         }
+    }
+
+    fn visit_call(
+        &mut self,
+        func: &mut Function,
+        locals: &dyn Locals,
+        span: Span,
+        core_fn_idx: u32,
+        args: &[Spanned<TypedExpr>],
+    ) -> Result<()> {
+        let _ = span;
+        for arg in args {
+            self.visit_expr_stack(func, locals, arg.span, &arg.node)?;
+        }
+        func.instructions().call(core_fn_idx);
+        Ok(())
     }
 }
 
@@ -1479,9 +1554,10 @@ struct Function {
 
 impl Function {
     fn from_params(params: &[ValType]) -> Function {
-        let mut this = Function::default();
-        this.num_locals = u32::try_from(params.len()).unwrap();
-        this
+        Function {
+            num_locals: u32::try_from(params.len()).unwrap(),
+            ..Function::default()
+        }
     }
 
     fn add_locals(&mut self, types: impl IntoIterator<Item = ValType>) -> u32 {

@@ -59,6 +59,16 @@ pub struct TypedImportSource {
     pub interface: Option<Identifier>,
 }
 
+impl std::fmt::Display for TypedImportSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}:{}", self.namespace, self.package)?;
+        if let Some(interface) = &self.interface {
+            write!(f, "/{}", interface)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TypedFunctionDef {
     pub export: Option<FunctionExport>,
