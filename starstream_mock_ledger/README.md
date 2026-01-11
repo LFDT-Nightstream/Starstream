@@ -506,20 +506,47 @@ Rule: Unbind (owner calls)
 
 ## NewRef
 
+Allocates a new reference with a specific size.
+
 ```text
 Rule: NewRef
 ==============
-    op = NewRef(val) -> ref
+    op = NewRef(size) -> ref
 
     1. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <NewRef, val, ref>
+            t[c] == <NewRef, size, ref>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. ref_store'[ref] <- val
+    1. ref_store'[ref] <- [uninitialized; size] (conceptually)
     2. counters'[id_curr] += 1
+    3. ref_state[id_curr] <- (ref, 0, size) // storing the ref being built, current offset, and total size
+```
+
+## RefPush
+
+Appends data to the currently building reference.
+
+```text
+Rule: RefPush
+==============
+    op = RefPush(val)
+
+    1. let (ref, offset, size) = ref_state[id_curr]
+    2. offset < size
+
+    3. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <RefPush, val>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. ref_store'[ref][offset] <- val
+    2. ref_state[id_curr] <- (ref, offset + 1, size)
+    3. counters'[id_curr] += 1
 ```
 
 ## Get
@@ -527,14 +554,14 @@ Rule: NewRef
 ```text
 Rule: Get
 ==============
-    op = Get(ref) -> val
+    op = Get(ref, offset) -> val
 
-    1. ref_store[ref] == val
+    1. ref_store[ref][offset] == val
 
     2. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Get, ref, val>
+            t[c] == <Get, ref, offset, val>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------

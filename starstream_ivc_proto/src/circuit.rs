@@ -187,6 +187,7 @@ struct ExecutionSwitches<T> {
     bind: T,
     unbind: T,
     new_ref: T,
+    ref_push: T,
     get: T,
     install_handler: T,
     uninstall_handler: T,
@@ -278,6 +279,13 @@ impl ExecutionSwitches<bool> {
         }
     }
 
+    fn ref_push() -> Self {
+        Self {
+            ref_push: true,
+            ..Self::default()
+        }
+    }
+
     fn get() -> Self {
         Self {
             get: true,
@@ -324,6 +332,7 @@ impl ExecutionSwitches<bool> {
             self.bind,
             self.unbind,
             self.new_ref,
+            self.ref_push,
             self.get,
             self.install_handler,
             self.uninstall_handler,
@@ -361,6 +370,7 @@ impl ExecutionSwitches<bool> {
             bind,
             unbind,
             new_ref,
+            ref_push,
             get,
             install_handler,
             uninstall_handler,
@@ -383,6 +393,7 @@ impl ExecutionSwitches<bool> {
             bind: bind.clone(),
             unbind: unbind.clone(),
             new_ref: new_ref.clone(),
+            ref_push: ref_push.clone(),
             get: get.clone(),
             install_handler: install_handler.clone(),
             uninstall_handler: uninstall_handler.clone(),
@@ -395,6 +406,8 @@ struct OpcodeVarValues {
     target: F,
     val: F,
     ret: F,
+    offset: F,
+    size: F,
     program_hash: F,
     caller: F,
     ret_is_some: bool,
@@ -416,6 +429,7 @@ impl Default for ExecutionSwitches<bool> {
             bind: false,
             unbind: false,
             new_ref: false,
+            ref_push: false,
             get: false,
             install_handler: false,
             uninstall_handler: false,
@@ -431,6 +445,8 @@ impl Default for OpcodeVarValues {
             target: F::ZERO,
             val: F::ZERO,
             ret: F::ZERO,
+            offset: F::ZERO,
+            size: F::ZERO,
             program_hash: F::ZERO,
             caller: F::ZERO,
             ret_is_some: false,
@@ -503,6 +519,9 @@ pub struct Wires {
     ref_arena_stack_ptr: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
 
+    ref_building_remaining: FpVar<F>,
+    ref_building_ptr: FpVar<F>,
+
     p_len: FpVar<F>,
 
     switches: ExecutionSwitches<Boolean<F>>,
@@ -510,6 +529,8 @@ pub struct Wires {
     target: FpVar<F>,
     val: FpVar<F>,
     ret: FpVar<F>,
+    offset: FpVar<F>,
+    size: FpVar<F>,
     program_hash: FpVar<F>,
     caller: FpVar<F>,
     ret_is_some: Boolean<F>,
@@ -552,6 +573,8 @@ pub struct PreWires {
     target: F,
     val: F,
     ret: F,
+    offset: F,
+    size: F,
 
     program_hash: F,
 
@@ -594,6 +617,9 @@ pub struct InterRoundWires {
     id_prev_value: F,
     ref_arena_counter: F,
     handler_stack_counter: F,
+
+    ref_building_remaining: F,
+    ref_building_ptr: F,
 
     p_len: F,
     _n_finalized: F,
@@ -733,6 +759,10 @@ impl Wires {
         let handler_stack_counter =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.handler_stack_counter))?;
 
+        let ref_building_remaining =
+            FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_building_remaining))?;
+        let ref_building_ptr = FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_building_ptr))?;
+
         // Allocate switches and enforce exactly one is true
         let switches = vals.switches.allocate_and_constrain(cs.clone())?;
 
@@ -740,6 +770,8 @@ impl Wires {
 
         let val = FpVar::<F>::new_witness(ns!(cs.clone(), "val"), || Ok(vals.val))?;
         let ret = FpVar::<F>::new_witness(ns!(cs.clone(), "ret"), || Ok(vals.ret))?;
+        let offset = FpVar::<F>::new_witness(ns!(cs.clone(), "offset"), || Ok(vals.offset))?;
+        let size = FpVar::<F>::new_witness(ns!(cs.clone(), "size"), || Ok(vals.size))?;
 
         let ret_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.ret_is_some))?;
         let program_hash = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.program_hash))?;
@@ -819,14 +851,30 @@ impl Wires {
         )?[0]
             .clone();
 
+        // addr = ref + offset
+        let get_addr = &val + &offset;
+
         let ref_arena_read = rm.conditional_read(
-            &(&switches.get | &switches.new_ref),
+            &switches.get,
             &Address {
                 tag: MemoryTag::RefArena.allocate(cs.clone())?,
-                addr: switches.get.select(&val, &ret)?,
+                addr: get_addr,
             },
         )?[0]
             .clone();
+
+        // We also need to write for RefPush.
+        // Address for write: ref_building_ptr
+        let push_addr = ref_building_ptr.clone();
+
+        rm.conditional_write(
+            &switches.ref_push,
+            &Address {
+                tag: MemoryTag::RefArena.allocate(cs.clone())?,
+                addr: push_addr,
+            },
+            &[val.clone()],
+        )?;
 
         let handler_switches =
             HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
@@ -916,6 +964,9 @@ impl Wires {
             ref_arena_stack_ptr,
             handler_stack_ptr: handler_stack_counter,
 
+            ref_building_remaining,
+            ref_building_ptr,
+
             p_len,
 
             switches,
@@ -928,6 +979,8 @@ impl Wires {
             target,
             val,
             ret,
+            offset,
+            size,
             program_hash,
             caller,
             ret_is_some,
@@ -1059,6 +1112,8 @@ impl InterRoundWires {
             _n_finalized: F::from(0),
             ref_arena_counter: F::ZERO,
             handler_stack_counter: F::ZERO,
+            ref_building_remaining: F::ZERO,
+            ref_building_ptr: F::ZERO,
         }
     }
 
@@ -1107,6 +1162,9 @@ impl InterRoundWires {
         );
 
         self.handler_stack_counter = res.handler_stack_ptr.value().unwrap();
+
+        self.ref_building_remaining = res.ref_building_remaining.value().unwrap();
+        self.ref_building_ptr = res.ref_building_ptr.value().unwrap();
     }
 }
 
@@ -1269,16 +1327,22 @@ impl LedgerOperation<crate::F> {
 
                 config.opcode_var_values.target = *token_id;
             }
-            LedgerOperation::NewRef { val, ret } => {
+            LedgerOperation::NewRef { size, ret } => {
                 config.execution_switches.new_ref = true;
 
-                config.opcode_var_values.val = *val;
+                config.opcode_var_values.size = *size;
                 config.opcode_var_values.ret = *ret;
             }
-            LedgerOperation::Get { reff, ret } => {
+            LedgerOperation::RefPush { val } => {
+                config.execution_switches.ref_push = true;
+
+                config.opcode_var_values.val = *val;
+            }
+            LedgerOperation::Get { reff, offset, ret } => {
                 config.execution_switches.get = true;
 
                 config.opcode_var_values.val = *reff;
+                config.opcode_var_values.offset = *offset;
                 config.opcode_var_values.ret = *ret;
             }
             LedgerOperation::InstallHandler { interface_id } => {
@@ -1450,6 +1514,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_bind(next_wires)?;
         let next_wires = self.visit_unbind(next_wires)?;
         let next_wires = self.visit_new_ref(next_wires)?;
+        let next_wires = self.visit_ref_push(next_wires)?;
         let next_wires = self.visit_get_ref(next_wires)?;
         let next_wires = self.visit_install_handler(next_wires)?;
         let next_wires = self.visit_uninstall_handler(next_wires)?;
@@ -1459,6 +1524,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // input <-> output mappings are done by modifying next_wires
         ivcify_wires(&cs, &wires_in, &next_wires)?;
+
+        // Enforce global invariant: If building ref, must be RefPush
+        let is_building = wires_in.ref_building_remaining.is_zero()?.not();
+        is_building.enforce_equal(&wires_in.switches.ref_push)?;
 
         irw.update(next_wires);
 
@@ -1705,33 +1774,46 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
         }
 
+        let mut ref_building_id = F::ZERO;
+        let mut ref_building_offset = F::ZERO;
+
         for instr in &self.ops {
-            let ref_read_arena_address = match instr {
-                LedgerOperation::NewRef { val, ret } => {
-                    // we never pop from this, actually
-                    mb.init(
+            match instr {
+                LedgerOperation::NewRef { size: _, ret } => {
+                    ref_building_id = *ret;
+                    ref_building_offset = F::ZERO;
+                }
+                LedgerOperation::RefPush { val } => {
+                    let addr =
+                        ref_building_id.into_bigint().0[0] + ref_building_offset.into_bigint().0[0];
+
+                    mb.conditional_write(
+                        true,
                         Address {
                             tag: MemoryTag::RefArena.into(),
-                            addr: ret.into_bigint().0[0],
+                            addr,
                         },
                         vec![*val],
                     );
 
-                    Some(ret)
+                    ref_building_offset += F::ONE;
                 }
-                LedgerOperation::Get { reff, ret: _ } => Some(reff),
-                _ => None,
-            };
-
-            mb.conditional_read(
-                ref_read_arena_address.is_some(),
-                Address {
-                    tag: MemoryTag::RefArena.into(),
-                    addr: ref_read_arena_address
-                        .map(|addr| addr.into_bigint().0[0])
-                        .unwrap_or(0),
-                },
-            );
+                LedgerOperation::Get {
+                    reff,
+                    offset,
+                    ret: _,
+                } => {
+                    let addr = reff.into_bigint().0[0] + offset.into_bigint().0[0];
+                    mb.conditional_read(
+                        true,
+                        Address {
+                            tag: MemoryTag::RefArena.into(),
+                            addr,
+                        },
+                    );
+                }
+                _ => {}
+            }
         }
 
         // Handler stack memory operations - always perform for uniform circuit
@@ -2061,19 +2143,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::NewRef { val, ret } => {
+            LedgerOperation::NewRef { size, ret } => {
                 let irw = PreWires {
                     switches: ExecutionSwitches::new_ref(),
-                    val: *val,
+                    size: *size,
                     ret: *ret,
                     ..default
                 };
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
-            LedgerOperation::Get { reff, ret } => {
+            LedgerOperation::RefPush { val } => {
+                let irw = PreWires {
+                    switches: ExecutionSwitches::ref_push(),
+                    val: *val,
+                    ..default
+                };
+                Wires::from_irw(&irw, rm, curr_write, target_write)
+            }
+            LedgerOperation::Get { reff, offset, ret } => {
                 let irw = PreWires {
                     switches: ExecutionSwitches::get(),
                     val: *reff,
+                    offset: *offset,
                     ret: *ret,
                     ..default
                 };
@@ -2394,16 +2485,26 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_new_ref(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.new_ref;
 
+        // 1. Must not be building
+        wires
+            .ref_building_remaining
+            .is_zero()?
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // 2. Ret must be fresh ID
         wires
             .ret
             .conditional_enforce_equal(&wires.ref_arena_stack_ptr, switch)?;
 
-        wires
-            .val
-            .conditional_enforce_equal(&wires.ref_arena_read, switch)?;
+        // 3. Init building state
+        // remaining = size
+        wires.ref_building_remaining = switch.select(&wires.size, &wires.ref_building_remaining)?;
+        // ptr = ret
+        wires.ref_building_ptr = switch.select(&wires.ret, &wires.ref_building_ptr)?;
 
+        // 4. Increment stack ptr by size
         wires.ref_arena_stack_ptr = switch.select(
-            &(&wires.ref_arena_stack_ptr + &wires.constant_one),
+            &(&wires.ref_arena_stack_ptr + &wires.size),
             &wires.ref_arena_stack_ptr,
         )?;
 
@@ -2411,17 +2512,27 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_ref_push(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.switches.ref_push;
+
+        let is_building = wires.ref_building_remaining.is_zero()?.not();
+        is_building.conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // Update state
+                // remaining -= 1
+                let next_remaining = &wires.ref_building_remaining - &wires.constant_one;
+                wires.ref_building_remaining = switch.select(&next_remaining, &wires.ref_building_remaining)?;
+        
+                // ptr += 1
+                let next_ptr = &wires.ref_building_ptr + &wires.constant_one;
+                wires.ref_building_ptr = switch.select(&next_ptr, &wires.ref_building_ptr)?;
+        
+                Ok(wires)
+            }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_get_ref(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.get;
-
-        // TODO: prove that reff is < ref_arena_stack_ptr ?
-        // or is it not needed? since we never decrease?
-        //
-        // the problem is that this seems to require range checks
-        //
-        // but technically it shouldn't be possible to ask for a value that is
-        // not allocated yet (even if in zk we can allocate everything from the beginning
-        // since we don't pop)
 
         wires
             .ret
@@ -2542,7 +2653,8 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Rom,
         "ROM_INTERFACES",
     );
-    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Rom, "ROM_REF_ARENA");
+
+    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Ram, "RAM_REF_ARENA");
 
     mb.register_mem_with_lanes(
         MemoryTag::ExpectedInput.into(),
@@ -2670,6 +2782,8 @@ impl PreWires {
             target: F::ZERO,
             val: F::ZERO,
             ret: F::ZERO,
+            offset: F::ZERO,
+            size: F::ZERO,
             program_hash: F::ZERO,
             caller: F::ZERO,
             interface_index,

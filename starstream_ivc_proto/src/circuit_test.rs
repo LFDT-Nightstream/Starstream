@@ -11,7 +11,10 @@ pub fn h<T>(n: u8) -> Hash<T> {
 }
 
 pub fn v(data: &[u8]) -> Value {
-    Value(data.to_vec())
+    let mut bytes = [0u8; 8];
+    let len = data.len().min(8);
+    bytes[..len].copy_from_slice(&data[..len]);
+    Value(u64::from_le_bytes(bytes))
 }
 
 #[test]
@@ -42,6 +45,7 @@ fn test_circuit_many_steps() {
             },
             WitLedgerEffect::Get {
                 reff: ref_4,
+                offset: 0,
                 ret: val_4.clone(),
             },
             WitLedgerEffect::Activation {
@@ -68,6 +72,7 @@ fn test_circuit_many_steps() {
             },
             WitLedgerEffect::Get {
                 reff: ref_1,
+                offset: 0,
                 ret: val_1.clone(),
             },
             WitLedgerEffect::Activation {
@@ -86,17 +91,20 @@ fn test_circuit_many_steps() {
     let coord_trace = MockedLookupTableCommitment {
         trace: vec![
             WitLedgerEffect::NewRef {
-                val: val_0,
+                size: 1,
                 ret: ref_0,
             },
+            WitLedgerEffect::RefPush { val: val_0 },
             WitLedgerEffect::NewRef {
-                val: val_1.clone(),
+                size: 1,
                 ret: ref_1,
             },
+            WitLedgerEffect::RefPush { val: val_1.clone() },
             WitLedgerEffect::NewRef {
-                val: val_4.clone(),
+                size: 1,
                 ret: ref_4,
             },
+            WitLedgerEffect::RefPush { val: val_4.clone() },
             WitLedgerEffect::NewUtxo {
                 program_hash: h(0),
                 val: ref_4,
@@ -179,9 +187,10 @@ fn test_circuit_small() {
     let coord_trace = MockedLookupTableCommitment {
         trace: vec![
             WitLedgerEffect::NewRef {
-                val: val_0,
+                size: 1,
                 ret: ref_0,
             },
+            WitLedgerEffect::RefPush { val: val_0 },
             WitLedgerEffect::NewUtxo {
                 program_hash: h(0),
                 val: ref_0,

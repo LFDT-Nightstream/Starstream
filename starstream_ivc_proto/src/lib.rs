@@ -89,11 +89,15 @@ pub enum LedgerOperation<F> {
     },
 
     NewRef {
-        val: F,
+        size: F,
         ret: F,
+    },
+    RefPush {
+        val: F,
     },
     Get {
         reff: F,
+        offset: F,
         ret: F,
     },
     InstallHandler {
@@ -298,16 +302,24 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                     token_id: (token_id.0 as u64).into(),
                 }
             }
-            starstream_mock_ledger::WitLedgerEffect::NewRef { val, ret } => {
+            starstream_mock_ledger::WitLedgerEffect::NewRef { size, ret } => {
                 LedgerOperation::NewRef {
-                    val: value_to_field(val),
+                    size: F::from(size as u64),
                     ret: F::from(ret.0),
                 }
             }
-            starstream_mock_ledger::WitLedgerEffect::Get { reff, ret } => LedgerOperation::Get {
-                reff: F::from(reff.0),
-                ret: value_to_field(ret),
-            },
+            starstream_mock_ledger::WitLedgerEffect::RefPush { val } => {
+                LedgerOperation::RefPush {
+                    val: value_to_field(val),
+                }
+            }
+            starstream_mock_ledger::WitLedgerEffect::Get { reff, offset, ret } => {
+                LedgerOperation::Get {
+                    reff: F::from(reff.0),
+                    offset: F::from(offset as u64),
+                    ret: value_to_field(ret),
+                }
+            }
             starstream_mock_ledger::WitLedgerEffect::ProgramHash {
                 target,
                 program_hash,
@@ -341,7 +353,7 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
 }
 
 fn value_to_field(val: starstream_mock_ledger::Value) -> F {
-    F::from(val.0[0])
+    F::from(val.0)
 }
 
 fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts), SynthesisError> {
