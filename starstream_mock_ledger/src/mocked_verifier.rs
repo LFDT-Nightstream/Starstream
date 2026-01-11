@@ -76,8 +76,8 @@ pub enum InterleavingError {
     #[error("yield claim mismatch: id_prev={id_prev:?} expected={expected:?} got={got:?}")]
     YieldClaimMismatch {
         id_prev: Option<ProcessId>,
-        expected: Value,
-        got: Value,
+        expected: Vec<Value>,
+        got: Vec<Value>,
     },
 
     #[error("program hash mismatch: target={target} expected={expected:?} got={got:?}")]
@@ -169,6 +169,18 @@ pub enum InterleavingError {
     #[error("ref not found: {0:?}")]
     RefNotFound(Ref),
 
+    #[error("RefPush called but not building ref (pid={0})")]
+    RefPushNotBuilding(ProcessId),
+
+    #[error("building ref but called other op (pid={0})")]
+    BuildingRefButCalledOther(ProcessId),
+
+    #[error("RefPush called but full (pid={pid} size={size})")]
+    RefPushFull { pid: ProcessId, size: usize },
+
+    #[error("Get offset out of bounds: ref={0:?} offset={1} len={2}")]
+    GetOutOfBounds(Ref, usize, usize),
+
     #[error("NewRef result mismatch. Got: {0:?}. Expected: {0:?}")]
     RefInitializationMismatch(Ref, Ref),
 }
@@ -197,7 +209,8 @@ pub struct InterleavingState {
 
     counters: Vec<usize>,
     ref_counter: u64,
-    ref_store: HashMap<Ref, Value>,
+    ref_store: HashMap<Ref, Vec<Value>>,
+    ref_building: HashMap<ProcessId, (Ref, usize, usize)>,
 
     /// If a new output or coordination script is created, it must be through a
     /// spawn from a coordinator script
@@ -254,6 +267,7 @@ pub fn verify_interleaving_semantics(
         counters: vec![0; n],
         ref_counter: 0,
         ref_store: HashMap::new(),
+        ref_building: HashMap::new(),
         handler_stack: HashMap::new(),
         ownership: inst.ownership_in.clone(),
         initialized: vec![false; n],
@@ -393,6 +407,12 @@ pub fn state_transition(
             expected: op,
             got,
         });
+    }
+
+    if state.ref_building.contains_key(&id_curr) {
+        if !matches!(op, WitLedgerEffect::RefPush { .. }) {
+            return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
+        }
     }
 
     state.counters[id_curr.0] += 1;
@@ -681,20 +701,51 @@ pub fn state_transition(
             }
         }
 
-        WitLedgerEffect::NewRef { val, ret } => {
-            state.ref_counter += 1;
+        WitLedgerEffect::NewRef { size, ret } => {
+            if state.ref_building.contains_key(&id_curr) {
+                return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
+            }
             let new_ref = Ref(state.ref_counter);
+            state.ref_counter += size as u64;
             if new_ref != ret {
                 return Err(InterleavingError::RefInitializationMismatch(ret, new_ref));
             }
-            state.ref_store.insert(new_ref, val);
+            state.ref_store.insert(new_ref, Vec::new());
+            state.ref_building.insert(id_curr, (new_ref, 0, size));
         }
 
-        WitLedgerEffect::Get { reff, ret } => {
-            let val = state
+        WitLedgerEffect::RefPush { val } => {
+            let (reff, offset, size) = state
+                .ref_building
+                .remove(&id_curr)
+                .ok_or(InterleavingError::RefPushNotBuilding(id_curr))?;
+
+            if offset >= size {
+                return Err(InterleavingError::RefPushFull { pid: id_curr, size });
+            }
+
+            let vec = state
+                .ref_store
+                .get_mut(&reff)
+                .ok_or(InterleavingError::RefNotFound(reff))?;
+            vec.push(val);
+
+            let new_offset = offset + 1;
+            if new_offset < size {
+                state
+                    .ref_building
+                    .insert(id_curr, (reff, new_offset, size));
+            }
+        }
+
+        WitLedgerEffect::Get { reff, offset, ret } => {
+            let vec = state
                 .ref_store
                 .get(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
+            let val = vec
+                .get(offset)
+                .ok_or(InterleavingError::GetOutOfBounds(reff, offset, vec.len()))?;
             if val != &ret {
                 return Err(InterleavingError::Shape("Get result mismatch"));
             }
