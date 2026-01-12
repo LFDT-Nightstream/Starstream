@@ -1,5 +1,5 @@
 use crate::{
-    CoroutineState, Hash, MockedLookupTableCommitment, WasmModule,
+    CoroutineState, Hash, mocked_verifier::MockedLookupTableCommitment, WasmModule,
     mocked_verifier::InterleavingError, transaction_effects::ProcessId,
 };
 
@@ -59,11 +59,11 @@ impl InterleavingInstance {
             return Err(InterleavingError::Shape("is_utxo len != process_table len"));
         }
 
-        if self.ownership_in.len() != (self.n_inputs + self.n_new)
-            || self.ownership_out.len() != (self.n_inputs + self.n_new)
+        if self.ownership_in.len() != dbg!(dbg!(self.n_inputs) + dbg!(self.n_new))
+            || self.ownership_out.len() != dbg!(self.n_inputs + self.n_new)
         {
             return Err(InterleavingError::Shape(
-                "ownership_* len != process_table len",
+                "ownership_* len != self.n_inputs len + self.n_new len",
             ));
         }
 

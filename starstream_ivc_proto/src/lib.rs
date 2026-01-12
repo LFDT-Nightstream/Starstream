@@ -4,15 +4,10 @@ mod circuit_test;
 // #[cfg(test)]
 // mod e2e;
 mod goldilocks;
+mod logging;
 mod memory;
 mod neo;
 mod poseidon2;
-#[cfg(test)]
-mod test_utils;
-
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::Instant;
 
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
@@ -28,7 +23,12 @@ use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
 use neo_fold::shard::StepLinkingConfig;
 use neo_params::NeoParams;
 use rand::SeedableRng as _;
-use starstream_mock_ledger::{InterleavingInstance, ProcessId};
+use starstream_mock_ledger::{
+    InterleavingInstance, InterleavingWitness, ProcessId, ZkTransactionProof,
+};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Instant;
 
 type F = FpGoldilocks;
 
@@ -117,15 +117,15 @@ pub enum LedgerOperation<F> {
     Nop {},
 }
 
-pub struct ProverOutput {
-    // pub proof: Proof,
-    pub proof: (),
-}
+pub fn prove(
+    inst: InterleavingInstance,
+    wit: InterleavingWitness,
+) -> Result<ZkTransactionProof, SynthesisError> {
+    logging::setup_logger();
 
-pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError> {
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
-    let ops = make_interleaved_trace(&inst);
+    let ops = make_interleaved_trace(&inst, &wit);
     let max_steps = ops.len();
 
     tracing::info!("making proof, steps {}", ops.len());
@@ -180,14 +180,22 @@ pub fn prove(inst: InterleavingInstance) -> Result<ProverOutput, SynthesisError>
     let run = session.fold_and_prove(prover.ccs()).unwrap();
     tracing::info!("proof generated in {} ms", t_prove.elapsed().as_millis());
 
-    let ok = session
-        .verify_collected(prover.ccs(), &run)
-        .expect("verify should run");
+    let status = session.verify_collected(prover.ccs(), &run).unwrap();
 
-    assert!(ok, "optimized verification should pass");
+    assert!(status, "optimized verification should pass");
 
-    // TODO: extract the actual proof
-    Ok(ProverOutput { proof: () })
+    let mcss_public = session.mcss_public();
+    let steps_public = session.steps_public();
+
+    let prover_output = ZkTransactionProof::NeoProof {
+        proof: run,
+        session,
+        ccs: prover.ccs().clone(),
+        mcss_public,
+        steps_public,
+    };
+
+    Ok(prover_output)
 }
 
 fn setup_ajtai_committer(m: usize, kappa: usize) -> AjtaiSModule {
@@ -196,7 +204,10 @@ fn setup_ajtai_committer(m: usize, kappa: usize) -> AjtaiSModule {
     AjtaiSModule::new(Arc::new(pp))
 }
 
-fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<crate::F>> {
+fn make_interleaved_trace(
+    inst: &InterleavingInstance,
+    wit: &InterleavingWitness,
+) -> Vec<LedgerOperation<crate::F>> {
     let mut ops = vec![];
     let mut id_curr = inst.entrypoint.0;
     let mut id_prev: Option<usize> = None;
@@ -205,18 +216,18 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
     loop {
         let c = counters.entry(id_curr).or_insert(0);
 
-        let Some(trace) = inst.host_calls_roots.get(id_curr) else {
+        let Some(trace) = wit.traces.get(id_curr) else {
             // No trace for this process, this indicates the end of the transaction
             // as the entrypoint script has finished and not jumped to another process.
             break;
         };
 
-        if *c >= trace.trace.len() {
+        if *c >= trace.len() {
             // We've reached the end of the current trace. This is the end.
             break;
         }
 
-        let instr = trace.trace[*c].clone();
+        let instr = trace[*c].clone();
         *c += 1;
 
         let op = match instr {
@@ -308,11 +319,9 @@ fn make_interleaved_trace(inst: &InterleavingInstance) -> Vec<LedgerOperation<cr
                     ret: F::from(ret.0),
                 }
             }
-            starstream_mock_ledger::WitLedgerEffect::RefPush { val } => {
-                LedgerOperation::RefPush {
-                    val: value_to_field(val),
-                }
-            }
+            starstream_mock_ledger::WitLedgerEffect::RefPush { val } => LedgerOperation::RefPush {
+                val: value_to_field(val),
+            },
             starstream_mock_ledger::WitLedgerEffect::Get { reff, offset, ret } => {
                 LedgerOperation::Get {
                     reff: F::from(reff.0),

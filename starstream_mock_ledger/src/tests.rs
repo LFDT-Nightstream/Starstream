@@ -1,42 +1,6 @@
 use super::*;
+use crate::builder::{RefGenerator, TransactionBuilder, h, v};
 use crate::{mocked_verifier::InterleavingError, transaction_effects::witness::WitLedgerEffect};
-
-struct RefGenerator {
-    counter: u64,
-    map: HashMap<&'static str, Ref>,
-}
-
-impl RefGenerator {
-    fn new() -> Self {
-        Self {
-            counter: 1,
-            map: HashMap::new(),
-        }
-    }
-
-    fn get(&mut self, name: &'static str) -> Ref {
-        let entry = self.map.entry(name).or_insert_with(|| {
-            let r = Ref(self.counter);
-            self.counter += 1;
-            r
-        });
-        *entry
-    }
-}
-
-pub fn h<T>(n: u8) -> Hash<T> {
-    // TODO: actual hashing
-    let mut bytes = [0u8; 32];
-    bytes[0] = n;
-    Hash(bytes, std::marker::PhantomData)
-}
-
-pub fn v(data: &[u8]) -> Value {
-    let mut bytes = [0u8; 8];
-    let len = data.len().min(8);
-    bytes[..len].copy_from_slice(&data[..len]);
-    Value(u64::from_le_bytes(bytes))
-}
 
 fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
     let input_hash_1 = h(10);
@@ -111,85 +75,6 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
         input_1_coroutine,
         input_2_coroutine,
     )
-}
-
-struct TransactionBuilder {
-    body: TransactionBody,
-    spending_proofs: Vec<ZkWasmProof>,
-    new_output_proofs: Vec<ZkWasmProof>,
-    coordination_scripts: Vec<ZkWasmProof>,
-}
-
-impl TransactionBuilder {
-    fn new() -> Self {
-        Self {
-            body: TransactionBody {
-                inputs: vec![],
-                continuations: vec![],
-                new_outputs: vec![],
-                ownership_out: HashMap::new(),
-                coordination_scripts_keys: vec![],
-                entrypoint: 0,
-            },
-            spending_proofs: vec![],
-            new_output_proofs: vec![],
-            coordination_scripts: vec![],
-        }
-    }
-
-    fn with_input(
-        mut self,
-        utxo: UtxoId,
-        continuation: Option<CoroutineState>,
-        trace: Vec<WitLedgerEffect>,
-    ) -> Self {
-        self.body.inputs.push(utxo);
-        self.body.continuations.push(continuation);
-        self.spending_proofs.push(ZkWasmProof {
-            host_calls_root: MockedLookupTableCommitment { trace },
-        });
-        self
-    }
-
-    fn with_fresh_output(mut self, output: NewOutput, trace: Vec<WitLedgerEffect>) -> Self {
-        self.body.new_outputs.push(output);
-        self.new_output_proofs.push(ZkWasmProof {
-            host_calls_root: MockedLookupTableCommitment { trace },
-        });
-        self
-    }
-
-    fn with_coord_script(mut self, key: Hash<WasmModule>, trace: Vec<WitLedgerEffect>) -> Self {
-        self.body.coordination_scripts_keys.push(key);
-        self.coordination_scripts.push(ZkWasmProof {
-            host_calls_root: MockedLookupTableCommitment { trace },
-        });
-        self
-    }
-
-    fn with_ownership(mut self, token: OutputRef, owner: OutputRef) -> Self {
-        self.body.ownership_out.insert(token, owner);
-        self
-    }
-
-    fn with_entrypoint(mut self, entrypoint: usize) -> Self {
-        self.body.entrypoint = entrypoint;
-        self
-    }
-
-    fn build(self) -> ProvenTransaction {
-        let witness = TransactionWitness {
-            spending_proofs: self.spending_proofs,
-            new_output_proofs: self.new_output_proofs,
-            interleaving_proof: ZkTransactionProof {},
-            coordination_scripts: self.coordination_scripts,
-        };
-
-        ProvenTransaction {
-            body: self.body,
-            witness,
-        }
-    }
 }
 
 fn mock_genesis_and_apply_tx(proven_tx: ProvenTransaction) -> Result<Ledger, VerificationError> {
@@ -422,7 +307,7 @@ fn test_transaction_with_coord_and_utxos() {
         .with_coord_script(coord_hash, coord_trace)
         .with_ownership(OutputRef(2), OutputRef(3))
         .with_entrypoint(4)
-        .build();
+        .build(ZkTransactionProof::Dummy);
 
     let ledger = ledger.apply_transaction(&proven_tx).unwrap();
 
@@ -529,7 +414,7 @@ fn test_effect_handlers() {
         )
         .with_coord_script(coord_hash, coord_trace)
         .with_entrypoint(1)
-        .build();
+        .build(ZkTransactionProof::Dummy);
 
     let ledger = Ledger {
         utxos: HashMap::new(),
@@ -557,14 +442,14 @@ fn test_burn_with_continuation_fails() {
             vec![
                 WitLedgerEffect::NewRef {
                     size: 1,
-                    ret: Ref(1),
+                    ret: Ref(0),
                 },
                 WitLedgerEffect::RefPush { val: v(b"burned") },
-                WitLedgerEffect::Burn { ret: Ref(1) },
+                WitLedgerEffect::Burn { ret: Ref(0) },
             ],
         )
         .with_entrypoint(0)
-        .build();
+        .build(ZkTransactionProof::Dummy);
     let result = mock_genesis_and_apply_tx(tx);
     assert!(matches!(
         result,
@@ -584,20 +469,20 @@ fn test_utxo_resumes_utxo_fails() {
             vec![
                 WitLedgerEffect::NewRef {
                     size: 1,
-                    ret: Ref(1),
+                    ret: Ref(0),
                 },
                 WitLedgerEffect::RefPush { val: v(b"") },
                 WitLedgerEffect::Resume {
                     target: ProcessId(1),
-                    val: Ref(1),
-                    ret: Ref(1),
+                    val: Ref(0),
+                    ret: Ref(0),
                     id_prev: None,
                 },
             ],
         )
         .with_input(input_utxo_2, None, vec![])
         .with_entrypoint(0)
-        .build();
+        .build(ZkTransactionProof::Dummy);
     let result = mock_genesis_and_apply_tx(tx);
     assert!(matches!(
         result,
@@ -620,7 +505,7 @@ fn test_continuation_without_yield_fails() {
             vec![],
         )
         .with_entrypoint(0)
-        .build();
+        .build(ZkTransactionProof::Dummy);
     let result = mock_genesis_and_apply_tx(tx);
     assert!(matches!(
         result,
@@ -643,7 +528,7 @@ fn test_unbind_not_owner_fails() {
             }],
         )
         .with_entrypoint(1)
-        .build();
+        .build(ZkTransactionProof::Dummy);
     let result = mock_genesis_and_apply_tx(tx);
     assert!(matches!(
         result,
@@ -702,10 +587,10 @@ fn test_duplicate_input_utxo_fails() {
             vec![
                 WitLedgerEffect::NewRef {
                     size: 1,
-                    ret: Ref(2),
+                    ret: Ref(1),
                 },
                 WitLedgerEffect::RefPush { val: Value::nil() },
-                WitLedgerEffect::Burn { ret: Ref(1) },
+                WitLedgerEffect::Burn { ret: Ref(0) },
             ],
         )
         .with_coord_script(
@@ -713,19 +598,19 @@ fn test_duplicate_input_utxo_fails() {
             vec![
                 WitLedgerEffect::NewRef {
                     size: 1,
-                    ret: Ref(1),
+                    ret: Ref(0),
                 },
                 WitLedgerEffect::RefPush { val: Value::nil() },
                 WitLedgerEffect::Resume {
                     target: 0.into(),
-                    val: Ref(1),
-                    ret: Ref(1),
+                    val: Ref(0),
+                    ret: Ref(0),
                     id_prev: None,
                 },
             ],
         )
         .with_entrypoint(1)
-        .build();
+        .build(ZkTransactionProof::Dummy);
 
     let _ledger = ledger.apply_transaction(&tx).unwrap();
 }

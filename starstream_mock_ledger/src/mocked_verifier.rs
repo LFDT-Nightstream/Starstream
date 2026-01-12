@@ -15,12 +15,8 @@ use crate::{
 use std::collections::HashMap;
 use thiserror;
 
-#[derive(Clone, PartialEq, Eq)]
-pub struct MockedLookupTableCommitment {
-    // obviously the actual commitment shouldn't have this
-    // but this is used for the mocked circuit
-    pub trace: Vec<WitLedgerEffect>,
-}
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct MockedLookupTableCommitment(pub u64);
 
 /// A “proof input” for tests: provide per-process traces directly.
 #[derive(Clone, Debug)]
@@ -245,8 +241,8 @@ pub fn verify_interleaving_semantics(
     // initialized with the same data.
     //
     // TODO: maybe we also need to assert/prove that it starts with a Yield
-    let mut claims_memory = vec![Ref(0); n];
-    for i in 0..inst.n_inputs {
+    let claims_memory = vec![Ref(0); n];
+    for _ in 0..inst.n_inputs {
         // TODO: This is not correct, last_yield is a Value, not a Ref
         // claims_memory[i] = inst.input_states[i].last_yield.clone();
     }
@@ -417,7 +413,7 @@ pub fn state_transition(
 
     state.counters[id_curr.0] += 1;
 
-    match dbg!(op) {
+    match op {
         WitLedgerEffect::Resume {
             target,
             val,
@@ -732,9 +728,7 @@ pub fn state_transition(
 
             let new_offset = offset + 1;
             if new_offset < size {
-                state
-                    .ref_building
-                    .insert(id_curr, (reff, new_offset, size));
+                state.ref_building.insert(id_curr, (reff, new_offset, size));
             }
         }
 
@@ -743,9 +737,11 @@ pub fn state_transition(
                 .ref_store
                 .get(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
-            let val = vec
-                .get(offset)
-                .ok_or(InterleavingError::GetOutOfBounds(reff, offset, vec.len()))?;
+            let val = vec.get(offset).ok_or(InterleavingError::GetOutOfBounds(
+                reff,
+                offset,
+                vec.len(),
+            ))?;
             if val != &ret {
                 return Err(InterleavingError::Shape("Get result mismatch"));
             }

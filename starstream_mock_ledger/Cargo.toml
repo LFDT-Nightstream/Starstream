@@ -7,3 +7,12 @@ edition = "2024"
 hex = "0.4.3"
 imbl = "6.1.0"
 thiserror = "2.0.17"
+
+# TODO: move to workspace deps
+neo-fold = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
+neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
+neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
+neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
+neo-memory = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
+
+p3-field = "0.4.1"
