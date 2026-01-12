@@ -622,7 +622,6 @@ pub struct InterRoundWires {
     ref_building_ptr: F,
 
     p_len: F,
-    _n_finalized: F,
 }
 
 impl ProgramStateWires {
@@ -1109,7 +1108,6 @@ impl InterRoundWires {
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
             p_len,
-            _n_finalized: F::from(0),
             ref_arena_counter: F::ZERO,
             handler_stack_counter: F::ZERO,
             ref_building_remaining: F::ZERO,
@@ -1248,6 +1246,8 @@ impl LedgerOperation<crate::F> {
                 program_hash,
             } => {
                 config.execution_switches.program_hash = true;
+
+                config.rom_switches.read_program_hash_target = true;
 
                 config.opcode_var_values.target = *target;
                 config.opcode_var_values.program_hash = *program_hash;
@@ -2519,16 +2519,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         is_building.conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // Update state
-                // remaining -= 1
-                let next_remaining = &wires.ref_building_remaining - &wires.constant_one;
-                wires.ref_building_remaining = switch.select(&next_remaining, &wires.ref_building_remaining)?;
-        
-                // ptr += 1
-                let next_ptr = &wires.ref_building_ptr + &wires.constant_one;
-                wires.ref_building_ptr = switch.select(&next_ptr, &wires.ref_building_ptr)?;
-        
-                Ok(wires)
-            }
+        // remaining -= 1
+        let next_remaining = &wires.ref_building_remaining - &wires.constant_one;
+        wires.ref_building_remaining =
+            switch.select(&next_remaining, &wires.ref_building_remaining)?;
+
+        // ptr += 1
+        let next_ptr = &wires.ref_building_ptr + &wires.constant_one;
+        wires.ref_building_ptr = switch.select(&next_ptr, &wires.ref_building_ptr)?;
+
+        Ok(wires)
+    }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
     fn visit_get_ref(&self, wires: Wires) -> Result<Wires, SynthesisError> {
@@ -2545,7 +2546,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_program_hash(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.program_hash;
 
-        // Check that the program hash from the opcode matches the ROM lookup result
         wires
             .program_hash
             .conditional_enforce_equal(&wires.rom_program_hash, switch)?;

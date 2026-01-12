@@ -1,13 +1,21 @@
+pub mod builder;
 mod mocked_verifier;
 mod transaction_effects;
 
 #[cfg(test)]
 mod tests;
 
-pub use crate::{mocked_verifier::MockedLookupTableCommitment, transaction_effects::ProcessId};
+pub use crate::{
+    mocked_verifier::InterleavingWitness, mocked_verifier::MockedLookupTableCommitment,
+    transaction_effects::ProcessId,
+};
 use imbl::{HashMap, HashSet};
+use neo_ajtai::Commitment;
+use p3_field::PrimeCharacteristicRing;
 use std::{hash::Hasher, marker::PhantomData};
-pub use transaction_effects::{instance::InterleavingInstance, witness::WitLedgerEffect};
+pub use transaction_effects::{
+    InterfaceId, instance::InterleavingInstance, witness::WitLedgerEffect,
+};
 
 #[derive(PartialEq, Eq)]
 pub struct Hash<T>(pub [u8; 32], pub PhantomData<T>);
@@ -53,35 +61,102 @@ pub struct CoroutineState {
     // entry-point, or whether those should actually be different things (in
     // which case last_yield could be used to persist the storage, and pc could
     // be instead the call stack).
-    pc: u64,
+    pub pc: u64,
     pub last_yield: Value,
 }
 
-pub struct ZkTransactionProof {}
+// pub struct ZkTransactionProof {}
+
+pub enum ZkTransactionProof {
+    NeoProof {
+        // does the verifier need this?
+        session: neo_fold::session::FoldingSession<neo_ajtai::AjtaiSModule>,
+        proof: neo_fold::shard::ShardProof,
+        mcss_public: Vec<neo_ccs::McsInstance<Commitment, neo_math::F>>,
+        steps_public: Vec<neo_memory::StepInstanceBundle<Commitment, neo_math::F, neo_math::K>>,
+        // TODO: this shouldn't be here I think, the ccs should be known somehow by
+        // the verifier
+        ccs: neo_ccs::CcsStructure<neo_math::F>,
+    },
+    Dummy,
+}
 
 impl ZkTransactionProof {
-    pub fn verify(&self, inst: &InterleavingInstance) -> Result<(), VerificationError> {
-        let traces = inst
-            .host_calls_roots
-            .iter()
-            .map(|lt| lt.trace.clone())
-            .collect();
+    pub fn verify(
+        &self,
+        inst: &InterleavingInstance,
+        wit: &InterleavingWitness,
+    ) -> Result<(), VerificationError> {
+        match self {
+            ZkTransactionProof::NeoProof {
+                session,
+                proof,
+                mcss_public,
+                steps_public,
+                ccs,
+            } => {
+                let ok = { session.verify(&ccs, &mcss_public, &proof) }.expect("verify should run");
 
-        let wit = mocked_verifier::InterleavingWitness { traces };
+                assert!(ok, "optimized verification should pass");
 
-        Ok(mocked_verifier::verify_interleaving_semantics(inst, &wit)?)
+                // dbg!(&self.steps_public[0].lut_insts[0].table);
+
+                // NOTE: the indices in steps_public match the memory initializations
+                // ordered by MemoryTag in the circuit
+                assert!(
+                    inst.process_table
+                        .iter()
+                        .zip(steps_public[0].lut_insts[0].table.iter())
+                        // TODO: the table should actually contain the full hash, this needs to be updated in the circuit first though
+                        .all(
+                            |(expected, found)| neo_math::F::from_u64(expected.0[0].into())
+                                == *found
+                        ),
+                    "program hash table mismatch"
+                );
+
+                assert!(
+                    inst.must_burn
+                        .iter()
+                        .zip(steps_public[0].lut_insts[1].table.iter())
+                        .all(|(expected, found)| {
+                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
+                        }),
+                    "must burn table mismatch"
+                );
+
+                assert!(
+                    inst.is_utxo
+                        .iter()
+                        .zip(steps_public[0].lut_insts[2].table.iter())
+                        .all(|(expected, found)| {
+                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
+                        }),
+                    "must burn table mismatch"
+                );
+
+                // TODO: check interfaces? but I think this can be private
+                // dbg!(&self.steps_public[0].lut_insts[3].table);
+
+                dbg!(&steps_public[0].mcs_inst.x);
+            }
+            ZkTransactionProof::Dummy => {}
+        }
+
+        Ok(mocked_verifier::verify_interleaving_semantics(inst, wit)?)
     }
 }
 
 pub struct ZkWasmProof {
     pub host_calls_root: MockedLookupTableCommitment,
+    pub trace: Vec<WitLedgerEffect>,
 }
 
 impl ZkWasmProof {
     pub fn public_instance(&self) -> WasmInstance {
         WasmInstance {
             host_calls_root: self.host_calls_root.clone(),
-            host_calls_len: self.host_calls_root.trace.len() as u32,
+            host_calls_len: self.trace.len() as u32,
         }
     }
 
@@ -171,6 +246,12 @@ pub struct TransactionBody {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OutputRef(usize);
 
+impl From<usize> for OutputRef {
+    fn from(v: usize) -> Self {
+        OutputRef(v)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct NewOutput {
     pub state: CoroutineState,
@@ -210,6 +291,8 @@ pub struct TransactionWitness {
     ///
     /// Note that the circuit for this is fixed in the ledger (just like the
     /// zkwasm one), so in practice this encodes the transaction rules.
+    ///
+    // NOTE: this is optional for now just for testing purposes
     pub interleaving_proof: ZkTransactionProof,
 
     /// Coordination script proofs.
@@ -245,6 +328,15 @@ pub struct UtxoEntry {
 }
 
 impl Ledger {
+    pub fn new() -> Self {
+        Ledger {
+            utxos: HashMap::new(),
+            contract_counters: HashMap::new(),
+            utxo_to_coroutine: HashMap::new(),
+            ownership_registry: HashMap::new(),
+        }
+    }
+
     pub fn apply_transaction(&self, tx: &ProvenTransaction) -> Result<Ledger, VerificationError> {
         let mut new_ledger = self.clone();
 
@@ -593,11 +685,21 @@ impl Ledger {
 
         let interleaving_proof: &ZkTransactionProof = &witness.interleaving_proof;
 
+        let wit = InterleavingWitness {
+            traces: witness
+                .spending_proofs
+                .iter()
+                .map(|p| p.trace.clone())
+                .chain(witness.new_output_proofs.iter().map(|p| p.trace.clone()))
+                .chain(witness.coordination_scripts.iter().map(|p| p.trace.clone()))
+                .collect(),
+        };
+
         // note however that this is mocked right now, and it's using a non-zk
         // verifier.
         //
         // but the circuit in theory in theory encode the same machine
-        interleaving_proof.verify(&inst)?;
+        interleaving_proof.verify(&inst, &wit)?;
 
         Ok(())
     }

@@ -4,3 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+starstream_ivc_proto = { path = "../starstream_ivc_proto" }
