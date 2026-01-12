@@ -9,6 +9,7 @@ The Starstream node runs a mock ledger consisting of
 ```bash
 cargo install wit-deps-cli
 cd wrpc-multiplexer && wit-deps update && cd ..
+cd registry && wit-deps update && cd ..
 cd wit/node-rpc && wit-deps update && cd ../..
 cd node-server && wit-deps update && cd ..
 cd node-client/wit/rpc && wit-deps update && cd ../../..

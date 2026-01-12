@@ -1,3 +1,8 @@
+[starstream-registry]
+path = "../../../registry/wit"
+sha256 = "8a4ba86dd45562e636f6a9652101d253d3f3233da3a85888f0f4898eb21a93a1"
+sha512 = "84f12ddda332f6a449395cdff9c2c701878556a3495000342cdf098dfe6e19e9d059361ad84cfdfe020a125d795b2c3f525045751b408ef02b60b33e00fdd388"
+
 [starstream-wrpc-multiplexer]
 path = "../../../wrpc-multiplexer/wit"
 sha256 = "608b5fb66c0ad82f907d20793b782d99b5dd0bfd0282e86fdd9ec8b670a2e74d"

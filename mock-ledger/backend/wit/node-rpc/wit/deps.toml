@@ -1,2 +1,5 @@
 [starstream-wrpc-multiplexer]
 path = "../../../wrpc-multiplexer/wit"
+
+[starstream-registry]
+path = "../../../registry/wit"
