@@ -10,7 +10,8 @@ members = [
   "starstream-to-wasm",
   "starstream-types",
   "starstream_ivc_proto",
-  "starstream_mock_ledger"
+  "starstream_mock_ledger",
+  "starstream-runtime"
 ]
 exclude = ["old"]
 

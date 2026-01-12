@@ -1,0 +1,19 @@
+[package]
+name = "starstream-runtime"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+starstream_ivc_proto = { path = "../starstream_ivc_proto"}
+starstream_mock_ledger = { path = "../starstream_mock_ledger" }
+thiserror = "2.0.17"
+wasmi = "1.0.7"
+sha2 = "0.10"
+
+[dev-dependencies]
+imbl = "6.1.0"
+wat = "1.0"

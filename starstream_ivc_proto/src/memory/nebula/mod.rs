@@ -77,12 +77,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logging::setup_logger;
     use crate::memory::IVCMemory;
     use crate::memory::IVCMemoryAllocated;
     use crate::memory::MemType;
     use crate::memory::nebula::tracer::NebulaMemory;
     use crate::memory::nebula::tracer::NebulaMemoryParams;
-    use crate::test_utils::init_test_logging;
     use ark_r1cs_std::alloc::AllocVar;
     use ark_r1cs_std::fields::fp::FpVar;
     use ark_r1cs_std::prelude::Boolean;
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn test_nebula_memory_constraints_satisfiability() {
-        init_test_logging();
+        setup_logger();
 
         let mut memory = NebulaMemory::<1>::new(NebulaMemoryParams {
             unsound_disable_poseidon_commitment: false,
@@ -169,7 +169,7 @@ mod tests {
     // gated, but we still want to keep the same shape across steps
     #[test]
     fn test_circuit_shape_consistency_across_conditions() {
-        init_test_logging();
+        setup_logger();
         fn create_constraint_system_with_conditions(
             read_cond: bool,
             write_cond: bool,
@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_scan_batch_size_multi_step() {
-        init_test_logging();
+        setup_logger();
 
         const SCAN_BATCH_SIZE: usize = 2;
         let num_steps = 3;
