@@ -1,5 +1,6 @@
 use crate::memory::twist_and_shout::Lanes;
 use crate::memory::{self, Address, IVCMemory, MemType};
+use crate::poseidon2::{self};
 use crate::value_to_field;
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
@@ -111,6 +112,7 @@ pub enum MemoryTag {
     HandlerStackArenaProcess = 14,
     HandlerStackArenaNextPtr = 15,
     HandlerStackHeads = 16,
+    TraceCommitments = 17,
 }
 
 impl From<MemoryTag> for u64 {
@@ -956,6 +958,9 @@ impl Wires {
             interface_rom_read: interface_rom_read.clone(),
         };
 
+        // Read current trace commitment (4 field elements)
+        trace_ic_wires(p_len.clone(), id_curr.clone(), rm, &cs, &target, &val, &ret)?;
+
         Ok(Wires {
             id_curr,
             id_prev_is_some,
@@ -1618,6 +1623,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     },
                     vec![F::from(0u64)], // None
                 );
+
+                for offset in 0..4 {
+                    let addr = (pid * 4) + offset;
+                    mb.init(
+                        Address {
+                            addr: addr as u64,
+                            tag: MemoryTag::TraceCommitments.into(),
+                        },
+                        vec![F::ZERO],
+                    );
+                }
             }
 
             for (pid, must_burn) in self.instance.must_burn.iter().enumerate() {
@@ -1680,6 +1696,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         for instr in &self.ops {
             let config = instr.get_config(&irw);
+
+            dbg!(&instr);
+            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
 
             let curr_switches = config.mem_switches_curr;
             let target_switches = config.mem_switches_target;
@@ -2730,6 +2749,13 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Ram,
         "RAM_HANDLER_STACK_HEADS",
     );
+    mb.register_mem_with_lanes(
+        MemoryTag::TraceCommitments.into(),
+        1,
+        MemType::Ram,
+        Lanes(4),
+        "RAM_TRACE_COMMITMENTS",
+    );
 }
 
 #[tracing::instrument(target = "gr1cs", skip_all)]
@@ -2882,4 +2908,107 @@ impl ProgramState {
         tracing::debug!("did_burn={}", self.did_burn);
         tracing::debug!("ownership={}", self.ownership);
     }
+}
+
+fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig) {
+    let mut concat_data = [F::ZERO; 8];
+
+    for i in 0..4 {
+        let addr = (curr_pid * 4) + i;
+
+        concat_data[i] = mb.conditional_read(
+            true,
+            Address {
+                tag: MemoryTag::TraceCommitments.into(),
+                addr: dbg!(addr as u64),
+            },
+        )[0];
+
+        dbg!(concat_data[i]);
+    }
+
+    let operation_data = [
+        // config.opcode_var_values.target,
+        // config.opcode_var_values.val,
+        // config.opcode_var_values.ret,
+        F::from(1),
+        F::from(1),
+        F::from(1),
+        F::from(1), // placeholder
+    ];
+
+    for i in 0..4 {
+        concat_data[i + 4] = operation_data[i];
+    }
+
+    let new_commitment = poseidon2::compress_trace(&concat_data).unwrap();
+
+    for i in 0..4 {
+        let addr = (curr_pid * 4) + i;
+
+        mb.conditional_write(
+            true,
+            Address {
+                addr: dbg!(addr as u64),
+                tag: MemoryTag::TraceCommitments.into(),
+            },
+            vec![dbg!(new_commitment[i])],
+        );
+    }
+}
+
+fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
+    p_len: FpVar<F>,
+    id_curr: FpVar<F>,
+    rm: &mut M,
+    cs: &ConstraintSystemRef<F>,
+    target: &FpVar<F>,
+    val: &FpVar<F>,
+    ret: &FpVar<F>,
+) -> Result<(), SynthesisError> {
+    let mut current_commitment = vec![];
+
+    let mut addresses = vec![];
+
+    for i in 0..4 {
+        let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
+        let addr = &(id_curr.clone() * FpVar::new_constant(cs.clone(), F::from(4))?) + &offset;
+        dbg!(addr.value().unwrap());
+        let address = Address {
+            tag: MemoryTag::TraceCommitments.allocate(cs.clone())?,
+            addr,
+        };
+
+        addresses.push(address.clone());
+
+        let rv = rm.conditional_read(&Boolean::TRUE, &address)?[0].clone();
+        dbg!(rv.value().unwrap());
+        current_commitment.push(rv);
+    }
+
+    let new_data = vec![target.clone(), val.clone(), ret.clone(), FpVar::zero()];
+
+    let compress_input = [
+        current_commitment[0].clone(),
+        current_commitment[1].clone(),
+        current_commitment[2].clone(),
+        current_commitment[3].clone(),
+        // new_data[0].clone(),
+        // new_data[1].clone(),
+        // new_data[2].clone(),
+        // new_data[3].clone(),
+        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
+        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
+        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
+        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
+    ];
+
+    let new_commitment = poseidon2::compress(&compress_input)?;
+
+    for i in 0..4 {
+        dbg!(new_commitment[i].value().unwrap());
+        rm.conditional_write(&Boolean::TRUE, &addresses[i], &[new_commitment[i].clone()])?;
+    }
+
+    Ok(())
 }

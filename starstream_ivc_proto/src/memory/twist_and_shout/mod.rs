@@ -31,6 +31,7 @@ pub const TWIST_DEBUG_FILTER: &[u32] = &[
     MemoryTag::HandlerStackArenaProcess as u32,
     MemoryTag::HandlerStackArenaNextPtr as u32,
     MemoryTag::HandlerStackHeads as u32,
+    MemoryTag::TraceCommitments as u32,
 ];
 
 #[derive(Debug, Clone)]
