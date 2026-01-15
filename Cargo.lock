@@ -227,6 +227,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ark-goldilocks"
+version = "0.0.0"
+dependencies = [
+ "ark-ff",
+]
+
+[[package]]
 name = "ark-poly"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -264,6 +271,19 @@ dependencies = [
  "num-traits",
  "rand 0.8.5",
  "rayon",
+]
+
+[[package]]
+name = "ark-poseidon2"
+version = "0.0.0"
+dependencies = [
+ "ark-bn254",
+ "ark-ff",
+ "ark-goldilocks",
+ "ark-poly",
+ "ark-poly-commit",
+ "ark-r1cs-std",
+ "ark-relations",
 ]
 
 [[package]]
@@ -2575,8 +2595,10 @@ version = "0.1.0"
 dependencies = [
  "ark-bn254",
  "ark-ff",
+ "ark-goldilocks",
  "ark-poly",
  "ark-poly-commit",
+ "ark-poseidon2",
  "ark-r1cs-std",
  "ark-relations",
  "neo-ajtai",
