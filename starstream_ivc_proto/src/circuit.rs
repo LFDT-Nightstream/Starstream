@@ -173,7 +173,6 @@ struct OpcodeConfig {
     rom_switches: RomSwitchboard,
     handler_switches: HandlerSwitchboard,
     execution_switches: ExecutionSwitches<bool>,
-    opcode_var_values: OpcodeVarValues,
 }
 
 #[derive(Clone)]
@@ -404,19 +403,6 @@ impl ExecutionSwitches<bool> {
     }
 }
 
-struct OpcodeVarValues {
-    target: F,
-    val: F,
-    ret: F,
-    offset: F,
-    size: F,
-    program_hash: F,
-    caller: F,
-    ret_is_some: bool,
-    id_prev_is_some: bool,
-    id_prev_value: F,
-}
-
 impl Default for ExecutionSwitches<bool> {
     fn default() -> Self {
         Self {
@@ -437,23 +423,6 @@ impl Default for ExecutionSwitches<bool> {
             uninstall_handler: false,
             get_handler_for: false,
             nop: false,
-        }
-    }
-}
-
-impl Default for OpcodeVarValues {
-    fn default() -> Self {
-        Self {
-            target: F::ZERO,
-            val: F::ZERO,
-            ret: F::ZERO,
-            offset: F::ZERO,
-            size: F::ZERO,
-            program_hash: F::ZERO,
-            caller: F::ZERO,
-            ret_is_some: false,
-            id_prev_is_some: false,
-            id_prev_value: F::ZERO,
         }
     }
 }
@@ -1172,14 +1141,13 @@ impl InterRoundWires {
 }
 
 impl LedgerOperation<crate::F> {
-    fn get_config(&self, irw: &InterRoundWires) -> OpcodeConfig {
+    fn get_config(&self) -> OpcodeConfig {
         let mut config = OpcodeConfig {
             mem_switches_curr: MemSwitchboard::default(),
             mem_switches_target: MemSwitchboard::default(),
             rom_switches: RomSwitchboard::default(),
             handler_switches: HandlerSwitchboard::default(),
             execution_switches: ExecutionSwitches::default(),
-            opcode_var_values: OpcodeVarValues::default(),
         };
 
         // All ops increment counter of the current process, except Nop
@@ -1189,12 +1157,7 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::Nop {} => {
                 config.execution_switches.nop = true;
             }
-            LedgerOperation::Resume {
-                target,
-                val,
-                ret,
-                id_prev,
-            } => {
+            LedgerOperation::Resume { .. } => {
                 config.execution_switches.resume = true;
 
                 config.mem_switches_curr.activation = true;
@@ -1207,14 +1170,8 @@ impl LedgerOperation<crate::F> {
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
-
-                config.opcode_var_values.target = *target;
-                config.opcode_var_values.val = *val;
-                config.opcode_var_values.ret = *ret;
-                config.opcode_var_values.id_prev_is_some = id_prev.is_some();
-                config.opcode_var_values.id_prev_value = id_prev.unwrap_or_default();
             }
-            LedgerOperation::Yield { val, ret, id_prev } => {
+            LedgerOperation::Yield { ret, .. } => {
                 config.execution_switches.yield_op = true;
 
                 config.mem_switches_curr.activation = true;
@@ -1222,15 +1179,8 @@ impl LedgerOperation<crate::F> {
                     config.mem_switches_curr.expected_input = true;
                 }
                 config.mem_switches_curr.finalized = true;
-
-                config.opcode_var_values.target = irw.id_prev_value;
-                config.opcode_var_values.val = *val;
-                config.opcode_var_values.ret = ret.unwrap_or_default();
-                config.opcode_var_values.ret_is_some = ret.is_some();
-                config.opcode_var_values.id_prev_is_some = id_prev.is_some();
-                config.opcode_var_values.id_prev_value = id_prev.unwrap_or_default();
             }
-            LedgerOperation::Burn { ret } => {
+            LedgerOperation::Burn { .. } => {
                 config.execution_switches.burn = true;
 
                 config.mem_switches_curr.activation = true;
@@ -1240,28 +1190,13 @@ impl LedgerOperation<crate::F> {
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_must_burn_curr = true;
-
-                config.opcode_var_values.target = irw.id_prev_value;
-                config.opcode_var_values.ret = *ret;
-                config.opcode_var_values.id_prev_is_some = irw.id_prev_is_some;
-                config.opcode_var_values.id_prev_value = irw.id_prev_value;
             }
-            LedgerOperation::ProgramHash {
-                target,
-                program_hash,
-            } => {
+            LedgerOperation::ProgramHash { .. } => {
                 config.execution_switches.program_hash = true;
 
                 config.rom_switches.read_program_hash_target = true;
-
-                config.opcode_var_values.target = *target;
-                config.opcode_var_values.program_hash = *program_hash;
             }
-            LedgerOperation::NewUtxo {
-                program_hash,
-                val,
-                target,
-            } => {
+            LedgerOperation::NewUtxo { .. } => {
                 config.execution_switches.new_utxo = true;
 
                 config.mem_switches_target.initialized = true;
@@ -1271,16 +1206,8 @@ impl LedgerOperation<crate::F> {
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
                 config.rom_switches.read_program_hash_target = true;
-
-                config.opcode_var_values.target = *target;
-                config.opcode_var_values.val = *val;
-                config.opcode_var_values.program_hash = *program_hash;
             }
-            LedgerOperation::NewCoord {
-                program_hash,
-                val,
-                target,
-            } => {
+            LedgerOperation::NewCoord { .. } => {
                 config.execution_switches.new_coord = true;
 
                 config.mem_switches_target.initialized = true;
@@ -1290,28 +1217,18 @@ impl LedgerOperation<crate::F> {
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
                 config.rom_switches.read_program_hash_target = true;
-
-                config.opcode_var_values.target = *target;
-                config.opcode_var_values.val = *val;
-                config.opcode_var_values.program_hash = *program_hash;
             }
-            LedgerOperation::Activation { val, caller } => {
+            LedgerOperation::Activation { .. } => {
                 config.execution_switches.activation = true;
 
                 config.mem_switches_curr.activation = true;
-
-                config.opcode_var_values.val = *val;
-                config.opcode_var_values.caller = *caller;
             }
-            LedgerOperation::Init { val, caller } => {
+            LedgerOperation::Init { .. } => {
                 config.execution_switches.init = true;
 
                 config.mem_switches_curr.init = true;
-
-                config.opcode_var_values.val = *val;
-                config.opcode_var_values.caller = *caller;
             }
-            LedgerOperation::Bind { owner_id } => {
+            LedgerOperation::Bind { .. } => {
                 config.execution_switches.bind = true;
 
                 config.mem_switches_target.initialized = true;
@@ -1319,38 +1236,25 @@ impl LedgerOperation<crate::F> {
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
-
-                config.opcode_var_values.target = *owner_id;
             }
-            LedgerOperation::Unbind { token_id } => {
+            LedgerOperation::Unbind { .. } => {
                 config.execution_switches.unbind = true;
 
                 config.mem_switches_target.ownership = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
-
-                config.opcode_var_values.target = *token_id;
             }
-            LedgerOperation::NewRef { size, ret } => {
+            LedgerOperation::NewRef { .. } => {
                 config.execution_switches.new_ref = true;
-
-                config.opcode_var_values.size = *size;
-                config.opcode_var_values.ret = *ret;
             }
-            LedgerOperation::RefPush { val } => {
+            LedgerOperation::RefPush { .. } => {
                 config.execution_switches.ref_push = true;
-
-                config.opcode_var_values.val = *val;
             }
-            LedgerOperation::Get { reff, offset, ret } => {
+            LedgerOperation::Get { .. } => {
                 config.execution_switches.get = true;
-
-                config.opcode_var_values.val = *reff;
-                config.opcode_var_values.offset = *offset;
-                config.opcode_var_values.ret = *ret;
             }
-            LedgerOperation::InstallHandler { interface_id } => {
+            LedgerOperation::InstallHandler { .. } => {
                 config.execution_switches.install_handler = true;
                 config.rom_switches.read_is_utxo_curr = true;
 
@@ -1358,10 +1262,8 @@ impl LedgerOperation<crate::F> {
                 config.handler_switches.read_head = true;
                 config.handler_switches.write_node = true;
                 config.handler_switches.write_head = true;
-
-                config.opcode_var_values.val = *interface_id;
             }
-            LedgerOperation::UninstallHandler { interface_id } => {
+            LedgerOperation::UninstallHandler { .. } => {
                 config.execution_switches.uninstall_handler = true;
                 config.rom_switches.read_is_utxo_curr = true;
 
@@ -1369,21 +1271,13 @@ impl LedgerOperation<crate::F> {
                 config.handler_switches.read_head = true;
                 config.handler_switches.read_node = true;
                 config.handler_switches.write_head = true;
-
-                config.opcode_var_values.val = *interface_id;
             }
-            LedgerOperation::GetHandlerFor {
-                interface_id,
-                handler_id,
-            } => {
+            LedgerOperation::GetHandlerFor { .. } => {
                 config.execution_switches.get_handler_for = true;
 
                 config.handler_switches.read_interface = true;
                 config.handler_switches.read_head = true;
                 config.handler_switches.read_node = true;
-
-                config.opcode_var_values.val = *interface_id;
-                config.opcode_var_values.ret = *handler_id;
             }
         }
 
@@ -1695,9 +1589,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in &self.ops {
-            let config = instr.get_config(&irw);
+            let config = instr.get_config();
 
-            dbg!(&instr);
             trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
 
             let curr_switches = config.mem_switches_curr;
@@ -1902,7 +1795,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in self.ops.iter() {
-            let config = instr.get_config(&irw);
+            let config = instr.get_config();
 
             // Get interface index for handler operations
             let interface_index = match instr {
@@ -2920,11 +2813,9 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
             true,
             Address {
                 tag: MemoryTag::TraceCommitments.into(),
-                addr: dbg!(addr as u64),
+                addr: addr as u64,
             },
         )[0];
-
-        dbg!(concat_data[i]);
     }
 
     let operation_data = [
@@ -2949,10 +2840,10 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         mb.conditional_write(
             true,
             Address {
-                addr: dbg!(addr as u64),
+                addr: addr as u64,
                 tag: MemoryTag::TraceCommitments.into(),
             },
-            vec![dbg!(new_commitment[i])],
+            vec![new_commitment[i]],
         );
     }
 }
@@ -2973,7 +2864,6 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
     for i in 0..4 {
         let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
         let addr = &(id_curr.clone() * FpVar::new_constant(cs.clone(), F::from(4))?) + &offset;
-        dbg!(addr.value().unwrap());
         let address = Address {
             tag: MemoryTag::TraceCommitments.allocate(cs.clone())?,
             addr,
@@ -2982,7 +2872,6 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         addresses.push(address.clone());
 
         let rv = rm.conditional_read(&Boolean::TRUE, &address)?[0].clone();
-        dbg!(rv.value().unwrap());
         current_commitment.push(rv);
     }
 
@@ -3006,7 +2895,6 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
     let new_commitment = poseidon2::compress(&compress_input)?;
 
     for i in 0..4 {
-        dbg!(new_commitment[i].value().unwrap());
         rm.conditional_write(&Boolean::TRUE, &addresses[i], &[new_commitment[i].clone()])?;
     }
 
