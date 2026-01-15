@@ -173,6 +173,7 @@ struct OpcodeConfig {
     rom_switches: RomSwitchboard,
     handler_switches: HandlerSwitchboard,
     execution_switches: ExecutionSwitches<bool>,
+    opcode_args: [F; OPCODE_ARG_COUNT],
 }
 
 #[derive(Clone)]
@@ -480,6 +481,41 @@ pub struct StepCircuitBuilder<M> {
     mem: PhantomData<M>,
 }
 
+const OPCODE_ARG_COUNT: usize = 4;
+
+#[derive(Copy, Clone, Debug)]
+pub enum ArgName {
+    Target,
+    Val,
+    Ret,
+    IdPrev,
+    Offset,
+    Size,
+    ProgramHash,
+    Caller,
+    OwnerId,
+    TokenId,
+    InterfaceId,
+}
+
+impl ArgName {
+    // maps argument names to positional indices
+    //
+    // these need to match the order in the ABI used by the wasm/program vm.
+    const fn idx(self) -> usize {
+        match self {
+            ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
+            ArgName::Val | ArgName::InterfaceId => 1,
+            ArgName::Ret => 2,
+            ArgName::IdPrev
+            | ArgName::Offset
+            | ArgName::Size
+            | ArgName::ProgramHash
+            | ArgName::Caller => 3,
+        }
+    }
+}
+
 /// common circuit variables to all the opcodes
 #[derive(Clone)]
 pub struct Wires {
@@ -497,13 +533,7 @@ pub struct Wires {
 
     switches: ExecutionSwitches<Boolean<F>>,
 
-    target: FpVar<F>,
-    val: FpVar<F>,
-    ret: FpVar<F>,
-    offset: FpVar<F>,
-    size: FpVar<F>,
-    program_hash: FpVar<F>,
-    caller: FpVar<F>,
+    opcode_args: [FpVar<F>; OPCODE_ARG_COUNT],
     ret_is_some: Boolean<F>,
 
     curr_read_wires: ProgramStateWires,
@@ -541,18 +571,11 @@ pub struct ProgramStateWires {
 
 // helper so that we always allocate witnesses in the same order
 pub struct PreWires {
-    target: F,
-    val: F,
-    ret: F,
-    offset: F,
-    size: F,
-
-    program_hash: F,
-
-    caller: F,
     interface_index: F,
 
     switches: ExecutionSwitches<bool>,
+
+    opcode_args: [F; OPCODE_ARG_COUNT],
 
     curr_mem_switches: MemSwitchboard,
     target_mem_switches: MemSwitchboard,
@@ -707,6 +730,10 @@ define_program_state_operations!(
 );
 
 impl Wires {
+    fn arg(&self, kind: ArgName) -> FpVar<F> {
+        self.opcode_args[kind.idx()].clone()
+    }
+
     // IMPORTANT: no rust branches in this function, since the purpose of this
     // is to get the exact same layout for all the opcodes
     pub fn from_irw<M: IVCMemoryAllocated<F>>(
@@ -736,17 +763,18 @@ impl Wires {
         // Allocate switches and enforce exactly one is true
         let switches = vals.switches.allocate_and_constrain(cs.clone())?;
 
-        let target = FpVar::<F>::new_witness(ns!(cs.clone(), "target"), || Ok(vals.target))?;
+        let opcode_args_cs = ns!(cs.clone(), "opcode_args");
+        let opcode_args_vec = (0..OPCODE_ARG_COUNT)
+            .map(|i| FpVar::<F>::new_witness(opcode_args_cs.clone(), || Ok(vals.opcode_args[i])))
+            .collect::<Result<Vec<_>, _>>()?;
+        let opcode_args: [FpVar<F>; OPCODE_ARG_COUNT] =
+            opcode_args_vec.try_into().expect("opcode args length");
 
-        let val = FpVar::<F>::new_witness(ns!(cs.clone(), "val"), || Ok(vals.val))?;
-        let ret = FpVar::<F>::new_witness(ns!(cs.clone(), "ret"), || Ok(vals.ret))?;
-        let offset = FpVar::<F>::new_witness(ns!(cs.clone(), "offset"), || Ok(vals.offset))?;
-        let size = FpVar::<F>::new_witness(ns!(cs.clone(), "size"), || Ok(vals.size))?;
+        let target = opcode_args[ArgName::Target.idx()].clone();
+        let val = opcode_args[ArgName::Val.idx()].clone();
+        let offset = opcode_args[ArgName::Offset.idx()].clone();
 
         let ret_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.ret_is_some))?;
-        let program_hash = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.program_hash))?;
-
-        let caller = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.caller))?;
 
         let curr_mem_switches = MemSwitchboardWires::allocate(cs.clone(), &vals.curr_mem_switches)?;
         let target_mem_switches =
@@ -757,7 +785,7 @@ impl Wires {
             program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
 
         // TODO: make conditional for opcodes without target
-        let target_address = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.target))?;
+        let target_address = target.clone();
         let target_read_wires =
             program_state_read_wires(rm, &cs, target_address.clone(), &target_mem_switches)?;
 
@@ -928,7 +956,7 @@ impl Wires {
         };
 
         // Read current trace commitment (4 field elements)
-        trace_ic_wires(p_len.clone(), id_curr.clone(), rm, &cs, &target, &val, &ret)?;
+        trace_ic_wires(id_curr.clone(), rm, &cs, &opcode_args)?;
 
         Ok(Wires {
             id_curr,
@@ -949,13 +977,7 @@ impl Wires {
             constant_one: FpVar::new_constant(cs.clone(), F::from(1))?,
 
             // wit_wires
-            target,
-            val,
-            ret,
-            offset,
-            size,
-            program_hash,
-            caller,
+            opcode_args,
             ret_is_some,
 
             curr_read_wires,
@@ -1141,13 +1163,14 @@ impl InterRoundWires {
 }
 
 impl LedgerOperation<crate::F> {
-    fn get_config(&self) -> OpcodeConfig {
+    fn get_config(&self, irw: &InterRoundWires) -> OpcodeConfig {
         let mut config = OpcodeConfig {
             mem_switches_curr: MemSwitchboard::default(),
             mem_switches_target: MemSwitchboard::default(),
             rom_switches: RomSwitchboard::default(),
             handler_switches: HandlerSwitchboard::default(),
             execution_switches: ExecutionSwitches::default(),
+            opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
         };
 
         // All ops increment counter of the current process, except Nop
@@ -1278,6 +1301,89 @@ impl LedgerOperation<crate::F> {
                 config.handler_switches.read_interface = true;
                 config.handler_switches.read_head = true;
                 config.handler_switches.read_node = true;
+            }
+        }
+
+        match self {
+            LedgerOperation::Nop {} => {}
+            LedgerOperation::Resume {
+                target,
+                val,
+                ret,
+                id_prev,
+            } => {
+                config.opcode_args[ArgName::Target.idx()] = *target;
+                config.opcode_args[ArgName::Val.idx()] = *val;
+                config.opcode_args[ArgName::Ret.idx()] = *ret;
+                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.unwrap_or_default();
+            }
+            LedgerOperation::Yield { val, ret, id_prev } => {
+                config.opcode_args[ArgName::Target.idx()] = irw.id_prev_value;
+                config.opcode_args[ArgName::Val.idx()] = *val;
+                config.opcode_args[ArgName::Ret.idx()] = ret.unwrap_or_default();
+                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.unwrap_or_default();
+            }
+            LedgerOperation::Burn { ret } => {
+                config.opcode_args[ArgName::Target.idx()] = irw.id_prev_value;
+                config.opcode_args[ArgName::Ret.idx()] = *ret;
+            }
+            LedgerOperation::ProgramHash {
+                target,
+                program_hash,
+            } => {
+                config.opcode_args[ArgName::Target.idx()] = *target;
+                config.opcode_args[ArgName::ProgramHash.idx()] = *program_hash;
+            }
+            LedgerOperation::NewUtxo {
+                program_hash,
+                val,
+                target,
+            }
+            | LedgerOperation::NewCoord {
+                program_hash,
+                val,
+                target,
+            } => {
+                config.opcode_args[ArgName::Target.idx()] = *target;
+                config.opcode_args[ArgName::Val.idx()] = *val;
+                config.opcode_args[ArgName::ProgramHash.idx()] = *program_hash;
+            }
+            LedgerOperation::Activation { val, caller } => {
+                config.opcode_args[ArgName::Val.idx()] = *val;
+                config.opcode_args[ArgName::Caller.idx()] = *caller;
+            }
+            LedgerOperation::Init { val, caller } => {
+                config.opcode_args[ArgName::Val.idx()] = *val;
+                config.opcode_args[ArgName::Caller.idx()] = *caller;
+            }
+            LedgerOperation::Bind { owner_id } => {
+                config.opcode_args[ArgName::OwnerId.idx()] = *owner_id;
+            }
+            LedgerOperation::Unbind { token_id } => {
+                config.opcode_args[ArgName::TokenId.idx()] = *token_id;
+            }
+            LedgerOperation::NewRef { size, ret } => {
+                config.opcode_args[ArgName::Size.idx()] = *size;
+                config.opcode_args[ArgName::Ret.idx()] = *ret;
+            }
+            LedgerOperation::RefPush { val } => {
+                config.opcode_args[ArgName::Val.idx()] = *val;
+            }
+            LedgerOperation::Get { reff, offset, ret } => {
+                config.opcode_args[ArgName::Val.idx()] = *reff;
+                config.opcode_args[ArgName::Offset.idx()] = *offset;
+                config.opcode_args[ArgName::Ret.idx()] = *ret;
+            }
+            LedgerOperation::InstallHandler { interface_id }
+            | LedgerOperation::UninstallHandler { interface_id } => {
+                config.opcode_args[ArgName::InterfaceId.idx()] = *interface_id;
+            }
+            LedgerOperation::GetHandlerFor {
+                interface_id,
+                handler_id,
+            } => {
+                config.opcode_args[ArgName::InterfaceId.idx()] = *interface_id;
+                config.opcode_args[ArgName::Ret.idx()] = *handler_id;
             }
         }
 
@@ -1589,7 +1695,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in &self.ops {
-            let config = instr.get_config();
+            let config = instr.get_config(&irw);
 
             trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
 
@@ -1795,7 +1901,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in self.ops.iter() {
-            let config = instr.get_config();
+            let config = instr.get_config(&irw);
 
             // Get interface index for handler operations
             let interface_index = match instr {
@@ -1943,41 +2049,43 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 ret,
                 id_prev,
             } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::resume(),
-                    target: *target,
-                    val: *val,
-                    ret: *ret,
                     id_prev_is_some: id_prev.is_some(),
                     id_prev_value: id_prev.unwrap_or_default(),
                     ..default
                 };
+                irw.set_arg(ArgName::Target, *target);
+                irw.set_arg(ArgName::Val, *val);
+                irw.set_arg(ArgName::Ret, *ret);
+                irw.set_arg(ArgName::IdPrev, id_prev.unwrap_or_default());
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Yield { val, ret, id_prev } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::yield_op(),
-                    target: irw.id_prev_value,
-                    val: *val,
-                    ret: ret.unwrap_or_default(),
                     ret_is_some: ret.is_some(),
                     id_prev_is_some: id_prev.is_some(),
                     id_prev_value: id_prev.unwrap_or_default(),
                     ..default
                 };
+                irw.set_arg(ArgName::Target, irw.id_prev_value);
+                irw.set_arg(ArgName::Val, *val);
+                irw.set_arg(ArgName::Ret, ret.unwrap_or_default());
+                irw.set_arg(ArgName::IdPrev, id_prev.unwrap_or_default());
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Burn { ret } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::burn(),
-                    target: irw.id_prev_value,
-                    ret: *ret,
                     id_prev_is_some: irw.id_prev_is_some,
                     id_prev_value: irw.id_prev_value,
                     ..default
                 };
+                irw.set_arg(ArgName::Target, irw.id_prev_value);
+                irw.set_arg(ArgName::Ret, *ret);
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -1985,12 +2093,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 target,
                 program_hash,
             } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::program_hash(),
-                    target: *target,
-                    program_hash: *program_hash,
                     ..default
                 };
+                irw.set_arg(ArgName::Target, *target);
+                irw.set_arg(ArgName::ProgramHash, *program_hash);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::NewUtxo {
@@ -1998,13 +2106,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 val,
                 target,
             } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::new_utxo(),
-                    target: *target,
-                    val: *val,
-                    program_hash: *program_hash,
                     ..default
                 };
+                irw.set_arg(ArgName::Target, *target);
+                irw.set_arg(ArgName::Val, *val);
+                irw.set_arg(ArgName::ProgramHash, *program_hash);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::NewCoord {
@@ -2012,102 +2120,102 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 val,
                 target,
             } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::new_coord(),
-                    target: *target,
-                    val: *val,
-                    program_hash: *program_hash,
                     ..default
                 };
+                irw.set_arg(ArgName::Target, *target);
+                irw.set_arg(ArgName::Val, *val);
+                irw.set_arg(ArgName::ProgramHash, *program_hash);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Activation { val, caller } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::activation(),
-                    val: *val,
-                    caller: *caller,
                     ..default
                 };
+                irw.set_arg(ArgName::Val, *val);
+                irw.set_arg(ArgName::Caller, *caller);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Init { val, caller } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::init(),
-                    val: *val,
-                    caller: *caller,
                     ..default
                 };
+                irw.set_arg(ArgName::Val, *val);
+                irw.set_arg(ArgName::Caller, *caller);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Bind { owner_id } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::bind(),
-                    target: *owner_id,
                     ..default
                 };
+                irw.set_arg(ArgName::OwnerId, *owner_id);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Unbind { token_id } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::unbind(),
-                    target: *token_id,
                     ..default
                 };
+                irw.set_arg(ArgName::TokenId, *token_id);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::NewRef { size, ret } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::new_ref(),
-                    size: *size,
-                    ret: *ret,
                     ..default
                 };
+                irw.set_arg(ArgName::Size, *size);
+                irw.set_arg(ArgName::Ret, *ret);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::RefPush { val } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::ref_push(),
-                    val: *val,
                     ..default
                 };
+                irw.set_arg(ArgName::Val, *val);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Get { reff, offset, ret } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::get(),
-                    val: *reff,
-                    offset: *offset,
-                    ret: *ret,
                     ..default
                 };
+                irw.set_arg(ArgName::Val, *reff);
+                irw.set_arg(ArgName::Offset, *offset);
+                irw.set_arg(ArgName::Ret, *ret);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::InstallHandler { interface_id } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::install_handler(),
-                    val: *interface_id,
                     ..default
                 };
+                irw.set_arg(ArgName::InterfaceId, *interface_id);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::UninstallHandler { interface_id } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::uninstall_handler(),
-                    val: *interface_id,
                     ..default
                 };
+                irw.set_arg(ArgName::InterfaceId, *interface_id);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::GetHandlerFor {
                 interface_id,
                 handler_id,
             } => {
-                let irw = PreWires {
+                let mut irw = PreWires {
                     switches: ExecutionSwitches::get_handler_for(),
-                    val: *interface_id,
-                    ret: *handler_id,
                     ..default
                 };
+                irw.set_arg(ArgName::InterfaceId, *interface_id);
+                irw.set_arg(ArgName::Ret, *handler_id);
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
         }
@@ -2119,7 +2227,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 1. self-resume check
         wires
             .id_curr
-            .conditional_enforce_not_equal(&wires.target, switch)?;
+            .conditional_enforce_not_equal(&wires.arg(ArgName::Target), switch)?;
 
         // 2. UTXO cannot resume UTXO.
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
@@ -2142,14 +2250,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .target_read_wires
             .expected_input
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Val), switch)?;
 
         // ---
         // IVC state updates
         // ---
         // On resume, current program becomes the target, and the old current program
         // becomes the new previous program.
-        let next_id_curr = switch.select(&wires.target, &wires.id_curr)?;
+        let next_id_curr = switch.select(&wires.arg(ArgName::Target), &wires.id_curr)?;
         let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
         let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
 
@@ -2190,7 +2298,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .target_read_wires
             .expected_input
-            .conditional_enforce_equal(&wires.ret, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Ret), switch)?;
 
         // ---
         // IVC state updates
@@ -2220,7 +2328,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .target_read_wires
             .expected_input
-            .conditional_enforce_equal(&wires.val, &(switch & (&wires.ret_is_some)))?;
+            .conditional_enforce_equal(
+                &wires.arg(ArgName::Val),
+                &(switch & (&wires.ret_is_some)),
+            )?;
 
         // ---
         // State update enforcement
@@ -2234,7 +2345,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.ret_is_some.clone().not(), switch)?;
 
         // The next `expected_input` should be `ret_value` if `ret` is Some, and 0 otherwise.
-        let new_expected_input = wires.ret_is_some.select(&wires.ret, &FpVar::zero())?;
+        let new_expected_input = wires
+            .ret_is_some
+            .select(&wires.arg(ArgName::Ret), &FpVar::zero())?;
         wires
             .curr_write_wires
             .expected_input
@@ -2277,7 +2390,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 3. Program hash check
         wires
             .rom_program_hash
-            .conditional_enforce_equal(&wires.program_hash, &switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::ProgramHash), &switch)?;
 
         // 4. Target counter must be 0.
         wires
@@ -2296,7 +2409,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires.target_write_wires.initialized =
             switch.select(&wires.constant_true, &wires.target_read_wires.initialized)?;
 
-        wires.target_write_wires.init = switch.select(&wires.val, &wires.target_read_wires.init)?;
+        wires.target_write_wires.init =
+            switch.select(&wires.arg(ArgName::Val), &wires.target_read_wires.init)?;
 
         Ok(wires)
     }
@@ -2312,12 +2426,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .curr_read_wires
             .activation
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Val), switch)?;
 
         // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
         wires
             .id_prev_value
-            .conditional_enforce_equal(&wires.caller, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
         Ok(wires)
     }
@@ -2333,12 +2447,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .curr_read_wires
             .init
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Val), switch)?;
 
         // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
         wires
             .id_prev_value
-            .conditional_enforce_equal(&wires.caller, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
         Ok(wires)
     }
@@ -2364,8 +2478,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.p_len, switch)?;
 
         // TODO: no need to have this assignment, probably
-        wires.curr_write_wires.ownership =
-            switch.select(&wires.target, &wires.curr_read_wires.ownership)?;
+        wires.curr_write_wires.ownership = switch.select(
+            &wires.arg(ArgName::OwnerId),
+            &wires.curr_read_wires.ownership,
+        )?;
 
         Ok(wires)
     }
@@ -2405,18 +2521,20 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Ret must be fresh ID
         wires
-            .ret
+            .arg(ArgName::Ret)
             .conditional_enforce_equal(&wires.ref_arena_stack_ptr, switch)?;
 
         // 3. Init building state
         // remaining = size
-        wires.ref_building_remaining = switch.select(&wires.size, &wires.ref_building_remaining)?;
+        wires.ref_building_remaining =
+            switch.select(&wires.arg(ArgName::Size), &wires.ref_building_remaining)?;
         // ptr = ret
-        wires.ref_building_ptr = switch.select(&wires.ret, &wires.ref_building_ptr)?;
+        wires.ref_building_ptr =
+            switch.select(&wires.arg(ArgName::Ret), &wires.ref_building_ptr)?;
 
         // 4. Increment stack ptr by size
         wires.ref_arena_stack_ptr = switch.select(
-            &(&wires.ref_arena_stack_ptr + &wires.size),
+            &(&wires.ref_arena_stack_ptr + &wires.arg(ArgName::Size)),
             &wires.ref_arena_stack_ptr,
         )?;
 
@@ -2448,7 +2566,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let switch = &wires.switches.get;
 
         wires
-            .ret
+            .arg(ArgName::Ret)
             .conditional_enforce_equal(&wires.ref_arena_read, switch)?;
 
         Ok(wires)
@@ -2459,7 +2577,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let switch = &wires.switches.program_hash;
 
         wires
-            .program_hash
+            .arg(ArgName::ProgramHash)
             .conditional_enforce_equal(&wires.rom_program_hash, switch)?;
 
         Ok(wires)
@@ -2480,7 +2598,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .handler_state
             .interface_rom_read
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::InterfaceId), switch)?;
 
         // Update handler stack counter (allocate new node)
         wires.handler_stack_ptr = switch.select(
@@ -2506,7 +2624,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .handler_state
             .interface_rom_read
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::InterfaceId), switch)?;
 
         // Read the node at current head: should contain (process_id, next_ptr)
         let node_process = &wires.handler_state.handler_stack_node_process;
@@ -2528,13 +2646,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .handler_state
             .interface_rom_read
-            .conditional_enforce_equal(&wires.val, switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::InterfaceId), switch)?;
 
         // Read the node at current head: should contain (process_id, next_ptr)
         let node_process = &wires.handler_state.handler_stack_node_process;
 
         // The process_id in the node IS the handler_id we want to return
-        wires.ret.conditional_enforce_equal(node_process, switch)?;
+        wires
+            .arg(ArgName::Ret)
+            .conditional_enforce_equal(node_process, switch)?;
 
         Ok(wires)
     }
@@ -2698,29 +2818,32 @@ impl PreWires {
         Self {
             switches: ExecutionSwitches::default(),
             irw,
-            target: F::ZERO,
-            val: F::ZERO,
-            ret: F::ZERO,
-            offset: F::ZERO,
-            size: F::ZERO,
-            program_hash: F::ZERO,
-            caller: F::ZERO,
             interface_index,
             ret_is_some: false,
             id_prev_is_some: false,
             id_prev_value: F::ZERO,
+            opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
             curr_mem_switches,
             target_mem_switches,
             rom_switches,
             handler_switches,
         }
     }
+
+    pub fn set_arg(&mut self, kind: ArgName, value: F) {
+        self.opcode_args[kind.idx()] = value;
+    }
+
+    pub fn arg(&self, kind: ArgName) -> F {
+        self.opcode_args[kind.idx()]
+    }
+
     pub fn debug_print(&self) {
         let _guard = debug_span!("witness assignments").entered();
 
-        tracing::debug!("target={}", self.target);
-        tracing::debug!("val={}", self.val);
-        tracing::debug!("ret={}", self.ret);
+        tracing::debug!("target={}", self.arg(ArgName::Target));
+        tracing::debug!("val={}", self.arg(ArgName::Val));
+        tracing::debug!("ret={}", self.arg(ArgName::Ret));
         tracing::debug!("id_prev=({}, {})", self.id_prev_is_some, self.id_prev_value);
     }
 }
@@ -2816,20 +2939,8 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
                 addr: addr as u64,
             },
         )[0];
-    }
 
-    let operation_data = [
-        // config.opcode_var_values.target,
-        // config.opcode_var_values.val,
-        // config.opcode_var_values.ret,
-        F::from(1),
-        F::from(1),
-        F::from(1),
-        F::from(1), // placeholder
-    ];
-
-    for i in 0..4 {
-        concat_data[i + 4] = operation_data[i];
+        concat_data[i + 4] = config.opcode_args[i];
     }
 
     let new_commitment = poseidon2::compress_trace(&concat_data).unwrap();
@@ -2849,13 +2960,10 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
 }
 
 fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
-    p_len: FpVar<F>,
     id_curr: FpVar<F>,
     rm: &mut M,
     cs: &ConstraintSystemRef<F>,
-    target: &FpVar<F>,
-    val: &FpVar<F>,
-    ret: &FpVar<F>,
+    opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
 ) -> Result<(), SynthesisError> {
     let mut current_commitment = vec![];
 
@@ -2875,21 +2983,18 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         current_commitment.push(rv);
     }
 
-    let new_data = vec![target.clone(), val.clone(), ret.clone(), FpVar::zero()];
-
     let compress_input = [
         current_commitment[0].clone(),
         current_commitment[1].clone(),
         current_commitment[2].clone(),
         current_commitment[3].clone(),
-        // new_data[0].clone(),
-        // new_data[1].clone(),
-        // new_data[2].clone(),
-        // new_data[3].clone(),
-        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
-        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
-        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
-        FpVar::new_witness(cs.clone(), || Ok(F::from(1)))?,
+        opcode_args[0].clone(),
+        opcode_args[1].clone(),
+        opcode_args[2].clone(),
+        opcode_args[3].clone(),
+        // TODO:
+        // this is either missing one arg (in which case I need to increase the permutation size)
+        // or it we need a better encoding for the id_prev conditional.
     ];
 
     let new_commitment = poseidon2::compress(&compress_input)?;
