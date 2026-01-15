@@ -10,6 +10,7 @@ mod neo;
 mod poseidon2;
 
 use crate::circuit::InterRoundWires;
+pub use crate::circuit::OptionalF;
 use crate::memory::IVCMemory;
 use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{StarstreamVm, StepCircuitNeo};
@@ -47,14 +48,14 @@ pub enum LedgerOperation<F> {
         target: F,
         val: F,
         ret: F,
-        id_prev: Option<F>,
+        id_prev: OptionalF,
     },
     /// Called by utxo to yield.
     ///
     Yield {
         val: F,
         ret: Option<F>,
-        id_prev: Option<F>,
+        id_prev: OptionalF,
     },
     ProgramHash {
         target: F,
@@ -115,6 +116,41 @@ pub enum LedgerOperation<F> {
     /// Nop is used as a dummy instruction to build the circuit layout on the
     /// verifier side.
     Nop {},
+}
+
+pub const OPCODE_ARG_COUNT: usize = 4;
+
+#[derive(Copy, Clone, Debug)]
+pub enum ArgName {
+    Target,
+    Val,
+    Ret,
+    IdPrev,
+    Offset,
+    Size,
+    ProgramHash,
+    Caller,
+    OwnerId,
+    TokenId,
+    InterfaceId,
+}
+
+impl ArgName {
+    // maps argument names to positional indices
+    //
+    // these need to match the order in the ABI used by the wasm/program vm.
+    pub const fn idx(self) -> usize {
+        match self {
+            ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
+            ArgName::Val | ArgName::InterfaceId => 1,
+            ArgName::Ret => 2,
+            ArgName::IdPrev
+            | ArgName::Offset
+            | ArgName::Size
+            | ArgName::ProgramHash
+            | ArgName::Caller => 3,
+        }
+    }
 }
 
 pub fn prove(
@@ -246,7 +282,7 @@ fn make_interleaved_trace(
                     // maybe for now just assume that these are short/fixed size
                     val: F::from(val.0),
                     ret: F::from(ret.0),
-                    id_prev: op_id_prev.map(|p| (p.0 as u64).into()),
+                    id_prev: OptionalF::from_option(op_id_prev.map(|p| (p.0 as u64).into())),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Yield {
@@ -262,7 +298,7 @@ fn make_interleaved_trace(
                 LedgerOperation::Yield {
                     val: F::from(val.0),
                     ret: ret.map(|ret| F::from(ret.0)),
-                    id_prev: op_id_prev.map(|p| (p.0 as u64).into()),
+                    id_prev: OptionalF::from_option(op_id_prev.map(|p| (p.0 as u64).into())),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Burn { ret } => {

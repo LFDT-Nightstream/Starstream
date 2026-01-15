@@ -73,7 +73,7 @@ impl WitnessLayout for CircuitLayout {
 
     // instance.len()+witness.len()
     // const USED_COLS: usize = 350;
-    const USED_COLS: usize = 726;
+    const USED_COLS: usize = 734;
 
     fn new_layout() -> Self {
         CircuitLayout {}
