@@ -2521,6 +2521,7 @@ dependencies = [
 name = "starstream-runtime"
 version = "0.0.0"
 dependencies = [
+ "imbl",
  "sha2",
  "starstream_ivc_proto",
  "starstream_mock_ledger",
@@ -2602,6 +2603,12 @@ version = "0.1.0"
 dependencies = [
  "hex",
  "imbl",
+ "neo-ajtai",
+ "neo-ccs",
+ "neo-fold",
+ "neo-math",
+ "neo-memory",
+ "p3-field",
  "thiserror 2.0.17",
 ]
 
