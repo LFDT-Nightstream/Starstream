@@ -12,7 +12,7 @@ members = [
   "starstream_ivc_proto",
   "starstream_mock_ledger",
   "starstream-runtime"
-]
+, "ark-poseidon2", "ark-goldilocks"]
 exclude = ["old"]
 
 [workspace.package]

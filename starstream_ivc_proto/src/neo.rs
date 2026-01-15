@@ -1,12 +1,12 @@
 use crate::{
     ccs_step_shape,
     circuit::{InterRoundWires, StepCircuitBuilder},
-    goldilocks::FpGoldilocks,
     memory::twist_and_shout::{
         TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints, TWIST_DEBUG_FILTER,
     },
 };
 use ark_ff::PrimeField;
+use ark_goldilocks::FpGoldilocks;
 use ark_relations::gr1cs::{ConstraintSystem, OptimizationGoal, SynthesisError};
 use neo_fold::session::{NeoCircuit, WitnessLayout};
 use neo_memory::{ShoutCpuBinding, TwistCpuBinding};

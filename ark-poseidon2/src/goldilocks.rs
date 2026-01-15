@@ -1,4 +1,4 @@
-use crate::goldilocks::FpGoldilocks;
+use ark_goldilocks::FpGoldilocks;
 use std::sync::OnceLock;
 
 pub static MATRIX_DIAG_8_GOLDILOCKS: OnceLock<[FpGoldilocks; 8]> = OnceLock::new();
