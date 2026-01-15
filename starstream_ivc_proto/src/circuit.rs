@@ -1,7 +1,7 @@
 use crate::memory::twist_and_shout::Lanes;
 use crate::memory::{self, Address, IVCMemory, MemType};
 use crate::poseidon2::{self};
-use crate::value_to_field;
+use crate::{ArgName, OPCODE_ARG_COUNT, value_to_field};
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::fields::FieldVar;
@@ -481,38 +481,72 @@ pub struct StepCircuitBuilder<M> {
     mem: PhantomData<M>,
 }
 
-const OPCODE_ARG_COUNT: usize = 4;
+#[derive(Copy, Clone, Debug, Default)]
+pub struct OptionalF(F);
 
-#[derive(Copy, Clone, Debug)]
-pub enum ArgName {
-    Target,
-    Val,
-    Ret,
-    IdPrev,
-    Offset,
-    Size,
-    ProgramHash,
-    Caller,
-    OwnerId,
-    TokenId,
-    InterfaceId,
+impl OptionalF {
+    pub fn none() -> Self {
+        Self(F::ZERO)
+    }
+
+    pub fn from_pid(value: F) -> Self {
+        Self(value + F::ONE)
+    }
+
+    pub fn from_option(value: Option<F>) -> Self {
+        value.map(Self::from_pid).unwrap_or_else(Self::none)
+    }
+
+    pub fn encoded(self) -> F {
+        self.0
+    }
+
+    pub fn to_option(self) -> Option<F> {
+        if self.0 == F::ZERO {
+            None
+        } else {
+            Some(self.0 - F::ONE)
+        }
+    }
+
+    pub fn decode_or_zero(self) -> F {
+        self.to_option().unwrap_or(F::ZERO)
+    }
 }
 
-impl ArgName {
-    // maps argument names to positional indices
-    //
-    // these need to match the order in the ABI used by the wasm/program vm.
-    const fn idx(self) -> usize {
-        match self {
-            ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
-            ArgName::Val | ArgName::InterfaceId => 1,
-            ArgName::Ret => 2,
-            ArgName::IdPrev
-            | ArgName::Offset
-            | ArgName::Size
-            | ArgName::ProgramHash
-            | ArgName::Caller => 3,
-        }
+#[derive(Clone)]
+struct OptionalFpVar(FpVar<F>);
+
+impl OptionalFpVar {
+    fn new(value: FpVar<F>) -> Self {
+        Self(value)
+    }
+
+    fn encoded(&self) -> FpVar<F> {
+        self.0.clone()
+    }
+
+    fn is_some(&self) -> Result<Boolean<F>, SynthesisError> {
+        Ok(self.0.is_zero()?.not())
+    }
+
+    fn decode_or_zero(&self, one: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
+        let is_zero = self.0.is_zero()?;
+        let value = &self.0 - one;
+        is_zero.select(&FpVar::zero(), &value)
+    }
+
+    fn select_encoded(
+        switch: &Boolean<F>,
+        when_true: &FpVar<F>,
+        when_false: &OptionalFpVar,
+    ) -> Result<OptionalFpVar, SynthesisError> {
+        let selected = switch.select(when_true, &when_false.encoded())?;
+        Ok(OptionalFpVar::new(selected))
+    }
+
+    fn value(&self) -> Result<F, SynthesisError> {
+        self.0.value()
     }
 }
 
@@ -521,8 +555,7 @@ impl ArgName {
 pub struct Wires {
     // irw
     id_curr: FpVar<F>,
-    id_prev_is_some: Boolean<F>,
-    id_prev_value: FpVar<F>,
+    id_prev: OptionalFpVar,
     ref_arena_stack_ptr: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
 
@@ -583,9 +616,6 @@ pub struct PreWires {
     handler_switches: HandlerSwitchboard,
 
     irw: InterRoundWires,
-
-    id_prev_is_some: bool,
-    id_prev_value: F,
     ret_is_some: bool,
 }
 
@@ -607,8 +637,7 @@ pub struct ProgramState {
 #[derive(Clone)]
 pub struct InterRoundWires {
     id_curr: F,
-    id_prev_is_some: bool,
-    id_prev_value: F,
+    id_prev: OptionalF,
     ref_arena_counter: F,
     handler_stack_counter: F,
 
@@ -734,6 +763,14 @@ impl Wires {
         self.opcode_args[kind.idx()].clone()
     }
 
+    fn id_prev_is_some(&self) -> Result<Boolean<F>, SynthesisError> {
+        self.id_prev.is_some()
+    }
+
+    fn id_prev_value(&self) -> Result<FpVar<F>, SynthesisError> {
+        self.id_prev.decode_or_zero(&self.constant_one)
+    }
+
     // IMPORTANT: no rust branches in this function, since the purpose of this
     // is to get the exact same layout for all the opcodes
     pub fn from_irw<M: IVCMemoryAllocated<F>>(
@@ -749,8 +786,9 @@ impl Wires {
         // io vars
         let id_curr = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
         let p_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
-        let id_prev_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.irw.id_prev_is_some))?;
-        let id_prev_value = FpVar::new_witness(cs.clone(), || Ok(vals.irw.id_prev_value))?;
+        let id_prev = OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+            Ok(vals.irw.id_prev.encoded())
+        })?);
         let ref_arena_stack_ptr =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_counter))?;
         let handler_stack_counter =
@@ -960,8 +998,7 @@ impl Wires {
 
         Ok(Wires {
             id_curr,
-            id_prev_is_some,
-            id_prev_value,
+            id_prev,
             ref_arena_stack_ptr,
             handler_stack_ptr: handler_stack_counter,
 
@@ -1101,8 +1138,7 @@ impl InterRoundWires {
     pub fn new(p_len: F, entrypoint: u64) -> Self {
         InterRoundWires {
             id_curr: F::from(entrypoint),
-            id_prev_is_some: false,
-            id_prev_value: F::ZERO,
+            id_prev: OptionalF::none(),
             p_len,
             ref_arena_counter: F::ZERO,
             handler_stack_counter: F::ZERO,
@@ -1122,16 +1158,14 @@ impl InterRoundWires {
 
         self.id_curr = res.id_curr.value().unwrap();
 
+        let res_id_prev = res.id_prev.value().unwrap();
         tracing::debug!(
-            "prev_program from ({}, {}) to ({}, {})",
-            self.id_prev_is_some,
-            self.id_prev_value,
-            res.id_prev_is_some.value().unwrap(),
-            res.id_prev_value.value().unwrap(),
+            "prev_program from {} to {}",
+            self.id_prev.encoded(),
+            res_id_prev
         );
 
-        self.id_prev_is_some = res.id_prev_is_some.value().unwrap();
-        self.id_prev_value = res.id_prev_value.value().unwrap();
+        self.id_prev = OptionalF(res_id_prev);
 
         tracing::debug!(
             "utxos_len from {} to {}",
@@ -1315,16 +1349,16 @@ impl LedgerOperation<crate::F> {
                 config.opcode_args[ArgName::Target.idx()] = *target;
                 config.opcode_args[ArgName::Val.idx()] = *val;
                 config.opcode_args[ArgName::Ret.idx()] = *ret;
-                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.unwrap_or_default();
+                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.encoded();
             }
             LedgerOperation::Yield { val, ret, id_prev } => {
-                config.opcode_args[ArgName::Target.idx()] = irw.id_prev_value;
+                config.opcode_args[ArgName::Target.idx()] = irw.id_prev.decode_or_zero();
                 config.opcode_args[ArgName::Val.idx()] = *val;
                 config.opcode_args[ArgName::Ret.idx()] = ret.unwrap_or_default();
-                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.unwrap_or_default();
+                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.encoded();
             }
             LedgerOperation::Burn { ret } => {
-                config.opcode_args[ArgName::Target.idx()] = irw.id_prev_value;
+                config.opcode_args[ArgName::Target.idx()] = irw.id_prev.decode_or_zero();
                 config.opcode_args[ArgName::Ret.idx()] = *ret;
             }
             LedgerOperation::ProgramHash {
@@ -1712,8 +1746,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
-                LedgerOperation::Yield { .. } => irw.id_prev_is_some.then_some(irw.id_prev_value),
-                LedgerOperation::Burn { .. } => irw.id_prev_is_some.then_some(irw.id_prev_value),
+                LedgerOperation::Yield { .. } => irw.id_prev.to_option(),
+                LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
                 LedgerOperation::ProgramHash { target, .. } => Some(*target),
@@ -1779,14 +1813,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             // update pids for next iteration
             match instr {
                 LedgerOperation::Resume { target, .. } => {
-                    irw.id_prev_is_some = true;
-                    irw.id_prev_value = irw.id_curr;
+                    irw.id_prev = OptionalF::from_pid(irw.id_curr);
                     irw.id_curr = *target;
                 }
                 LedgerOperation::Yield { .. } | LedgerOperation::Burn { .. } => {
-                    irw.id_curr = irw.id_prev_value;
-                    irw.id_prev_is_some = true;
-                    irw.id_prev_value = irw.id_curr;
+                    let old_curr = irw.id_curr;
+                    irw.id_curr = irw.id_prev.decode_or_zero();
+                    irw.id_prev = OptionalF::from_pid(old_curr);
                 }
                 _ => {}
             }
@@ -2051,14 +2084,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             } => {
                 let mut irw = PreWires {
                     switches: ExecutionSwitches::resume(),
-                    id_prev_is_some: id_prev.is_some(),
-                    id_prev_value: id_prev.unwrap_or_default(),
                     ..default
                 };
                 irw.set_arg(ArgName::Target, *target);
                 irw.set_arg(ArgName::Val, *val);
                 irw.set_arg(ArgName::Ret, *ret);
-                irw.set_arg(ArgName::IdPrev, id_prev.unwrap_or_default());
+                irw.set_arg(ArgName::IdPrev, id_prev.encoded());
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
@@ -2066,25 +2097,21 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 let mut irw = PreWires {
                     switches: ExecutionSwitches::yield_op(),
                     ret_is_some: ret.is_some(),
-                    id_prev_is_some: id_prev.is_some(),
-                    id_prev_value: id_prev.unwrap_or_default(),
                     ..default
                 };
-                irw.set_arg(ArgName::Target, irw.id_prev_value);
+                irw.set_arg(ArgName::Target, irw.irw.id_prev.decode_or_zero());
                 irw.set_arg(ArgName::Val, *val);
                 irw.set_arg(ArgName::Ret, ret.unwrap_or_default());
-                irw.set_arg(ArgName::IdPrev, id_prev.unwrap_or_default());
+                irw.set_arg(ArgName::IdPrev, id_prev.encoded());
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
             }
             LedgerOperation::Burn { ret } => {
                 let mut irw = PreWires {
                     switches: ExecutionSwitches::burn(),
-                    id_prev_is_some: irw.id_prev_is_some,
-                    id_prev_value: irw.id_prev_value,
                     ..default
                 };
-                irw.set_arg(ArgName::Target, irw.id_prev_value);
+                irw.set_arg(ArgName::Target, irw.irw.id_prev.decode_or_zero());
                 irw.set_arg(ArgName::Ret, *ret);
 
                 Wires::from_irw(&irw, rm, curr_write, target_write)
@@ -2228,6 +2255,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .id_curr
             .conditional_enforce_not_equal(&wires.arg(ArgName::Target), switch)?;
+        wires
+            .arg(ArgName::IdPrev)
+            .conditional_enforce_equal(&wires.id_prev.encoded(), switch)?;
 
         // 2. UTXO cannot resume UTXO.
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
@@ -2258,12 +2288,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // On resume, current program becomes the target, and the old current program
         // becomes the new previous program.
         let next_id_curr = switch.select(&wires.arg(ArgName::Target), &wires.id_curr)?;
-        let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
-        let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            switch,
+            &(&wires.id_curr + &wires.constant_one),
+            &wires.id_prev,
+        )?;
 
         wires.id_curr = next_id_curr;
-        wires.id_prev_is_some = next_id_prev_is_some;
-        wires.id_prev_value = next_id_prev_value;
+        wires.id_prev = next_id_prev;
 
         Ok(wires)
     }
@@ -2290,7 +2322,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 3. Parent must exist.
         wires
-            .id_prev_is_some
+            .id_prev_is_some()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // 2. Claim check: burned value `ret` must match parent's `expected_input`.
@@ -2304,12 +2336,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // IVC state updates
         // ---
         // Like yield, current program becomes the parent, and new prev is the one that burned.
-        let next_id_curr = switch.select(&wires.id_prev_value, &wires.id_curr)?;
-        let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
-        let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
+        let prev_value = wires.id_prev_value()?;
+        let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            switch,
+            &(&wires.id_curr + &wires.constant_one),
+            &wires.id_prev,
+        )?;
         wires.id_curr = next_id_curr;
-        wires.id_prev_is_some = next_id_prev_is_some;
-        wires.id_prev_value = next_id_prev_value;
+        wires.id_prev = next_id_prev;
 
         Ok(wires)
     }
@@ -2320,11 +2355,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 1. Must have a parent.
         wires
-            .id_prev_is_some
+            .id_prev_is_some()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        wires
+            .arg(ArgName::IdPrev)
+            .conditional_enforce_equal(&wires.id_prev.encoded(), switch)?;
 
         // 2. Claim check: yielded value `val` must match parent's `expected_input`.
-        // The parent's state is in `target_read_wires` because we set `target = irw.id_prev_value`.
+        // The parent's state is in `target_read_wires` because we set `target = irw.id_prev`.
         wires
             .target_read_wires
             .expected_input
@@ -2358,12 +2396,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // ---
         // On yield, the current program becomes the parent (old id_prev),
         // and the new prev program is the one that just yielded.
-        let next_id_curr = switch.select(&wires.id_prev_value, &wires.id_curr)?;
-        let next_id_prev_is_some = switch.select(&Boolean::TRUE, &wires.id_prev_is_some)?;
-        let next_id_prev_value = switch.select(&wires.id_curr, &wires.id_prev_value)?;
+        let prev_value = wires.id_prev_value()?;
+        let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            switch,
+            &(&wires.id_curr + &wires.constant_one),
+            &wires.id_prev,
+        )?;
         wires.id_curr = next_id_curr;
-        wires.id_prev_is_some = next_id_prev_is_some;
-        wires.id_prev_value = next_id_prev_value;
+        wires.id_prev = next_id_prev;
 
         Ok(wires)
     }
@@ -2430,7 +2471,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
         wires
-            .id_prev_value
+            .id_prev_value()?
             .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
         Ok(wires)
@@ -2451,7 +2492,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
         wires
-            .id_prev_value
+            .id_prev_value()?
             .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
         Ok(wires)
@@ -2820,8 +2861,6 @@ impl PreWires {
             irw,
             interface_index,
             ret_is_some: false,
-            id_prev_is_some: false,
-            id_prev_value: F::ZERO,
             opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
             curr_mem_switches,
             target_mem_switches,
@@ -2844,7 +2883,7 @@ impl PreWires {
         tracing::debug!("target={}", self.arg(ArgName::Target));
         tracing::debug!("val={}", self.arg(ArgName::Val));
         tracing::debug!("ret={}", self.arg(ArgName::Ret));
-        tracing::debug!("id_prev=({}, {})", self.id_prev_is_some, self.id_prev_value);
+        tracing::debug!("id_prev={}", self.irw.id_prev.encoded());
     }
 }
 
@@ -2992,9 +3031,6 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         opcode_args[1].clone(),
         opcode_args[2].clone(),
         opcode_args[3].clone(),
-        // TODO:
-        // this is either missing one arg (in which case I need to increase the permutation size)
-        // or it we need a better encoding for the id_prev conditional.
     ];
 
     let new_commitment = poseidon2::compress(&compress_input)?;
