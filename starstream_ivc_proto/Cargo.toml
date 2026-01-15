@@ -29,3 +29,6 @@ p3-symmetric = "0.4.1"
 p3-poseidon2 = "0.4.1"
 rand_chacha = "0.9.0"
 rand = "0.9"
+
+ark-goldilocks = { path = "../ark-goldilocks" }
+ark-poseidon2 = { path = "../ark-poseidon2" }
