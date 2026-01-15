@@ -16,3 +16,10 @@ ark-poly = "0.5.0"
 ark-poly-commit = "0.5.0"
 
 ark-goldilocks = { path = "../ark-goldilocks" }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "poseidon2_gadget"
+harness = false
