@@ -3,7 +3,6 @@ use super::MemOp;
 use crate::F;
 use crate::memory::AllocatedAddress;
 use crate::nebula::MemOpAllocated;
-use crate::poseidon2::compress;
 use ark_ff::AdditiveGroup as _;
 use ark_r1cs_std::GR1CSVar as _;
 use ark_r1cs_std::alloc::AllocVar as _;
@@ -40,7 +39,7 @@ impl ICPlain {
                 }
             });
 
-            let hash_to_field = crate::poseidon2::compress_trace(&hash_input)?;
+            let hash_to_field = ark_poseidon2::compress_trace(&hash_input)?;
 
             let concat = array::from_fn(|i| {
                 if i < 4 {
@@ -50,7 +49,7 @@ impl ICPlain {
                 }
             });
 
-            self.comm = crate::poseidon2::compress_trace(&concat)?;
+            self.comm = ark_poseidon2::compress_trace(&concat)?;
         }
 
         Ok(())
@@ -93,7 +92,7 @@ impl IC {
         if !unsound_make_nop {
             let cs = self.comm.cs();
 
-            let hash_to_field = compress(&array::from_fn(|i| {
+            let hash_to_field = ark_poseidon2::compress(&array::from_fn(|i| {
                 if i == 0 {
                     a.addr.clone()
                 } else if i == 1 {
@@ -116,7 +115,7 @@ impl IC {
                 }
             });
 
-            self.comm = compress(&concat)?;
+            self.comm = ark_poseidon2::compress(&concat)?;
         }
 
         Ok(())

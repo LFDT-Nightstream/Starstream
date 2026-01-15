@@ -1,6 +1,6 @@
 use super::constants::RoundConstants;
 use super::linear_layers::{ExternalLinearLayer, InternalLinearLayer};
-use crate::poseidon2::constants::{GOLDILOCKS_S_BOX_DEGREE, HALF_FULL_ROUNDS, PARTIAL_ROUNDS};
+use crate::constants::{GOLDILOCKS_S_BOX_DEGREE, HALF_FULL_ROUNDS, PARTIAL_ROUNDS};
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::*;

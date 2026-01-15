@@ -1,9 +1,6 @@
 //! Linear layer implementations for Poseidon2 R1CS gadget
 
-use crate::{
-    F,
-    poseidon2::{goldilocks::matrix_diag_8_goldilocks, math::mds_light_permutation},
-};
+use crate::{F, goldilocks::matrix_diag_8_goldilocks, math::mds_light_permutation};
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::gr1cs::SynthesisError;

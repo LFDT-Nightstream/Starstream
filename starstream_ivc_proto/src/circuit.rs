@@ -1,6 +1,5 @@
 use crate::memory::twist_and_shout::Lanes;
 use crate::memory::{self, Address, IVCMemory, MemType};
-use crate::poseidon2::{self};
 use crate::{ArgName, OPCODE_ARG_COUNT, value_to_field};
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
@@ -2982,7 +2981,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         concat_data[i + 4] = config.opcode_args[i];
     }
 
-    let new_commitment = poseidon2::compress_trace(&concat_data).unwrap();
+    let new_commitment = ark_poseidon2::compress_trace(&concat_data).unwrap();
 
     for i in 0..4 {
         let addr = (curr_pid * 4) + i;
@@ -3033,7 +3032,7 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         opcode_args[3].clone(),
     ];
 
-    let new_commitment = poseidon2::compress(&compress_input)?;
+    let new_commitment = ark_poseidon2::compress(&compress_input)?;
 
     for i in 0..4 {
         rm.conditional_write(&Boolean::TRUE, &addresses[i], &[new_commitment[i].clone()])?;

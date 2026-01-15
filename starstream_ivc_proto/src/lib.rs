@@ -3,11 +3,9 @@ mod circuit;
 mod circuit_test;
 // #[cfg(test)]
 // mod e2e;
-mod goldilocks;
 mod logging;
 mod memory;
 mod neo;
-mod poseidon2;
 
 use crate::circuit::InterRoundWires;
 pub use crate::circuit::OptionalF;
@@ -16,7 +14,6 @@ use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{StarstreamVm, StepCircuitNeo};
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
 use circuit::StepCircuitBuilder;
-use goldilocks::FpGoldilocks;
 pub use memory::nebula;
 use neo_ajtai::AjtaiSModule;
 use neo_fold::pi_ccs::FoldingMode;
@@ -31,7 +28,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-type F = FpGoldilocks;
+pub type F = ark_goldilocks::FpGoldilocks;
 
 pub type ProgramId = F;
 

@@ -2,7 +2,6 @@ use super::Address;
 use super::ic::{IC, ICPlain};
 use super::{MemOp, MemOpAllocated};
 use crate::F;
-use crate::goldilocks::FpGoldilocks;
 use crate::memory::nebula::tracer::NebulaMemoryParams;
 use crate::memory::{AllocatedAddress, IVCMemoryAllocated};
 use ark_ff::Field;
@@ -532,7 +531,7 @@ impl NebulaMemoryConstraints<F> {
 }
 
 fn enforce_monotonic_commitment(
-    cs: &ConstraintSystemRef<FpGoldilocks>,
+    cs: &ConstraintSystemRef<F>,
     address: &Address<FpVar<F>, FpVar<F>>,
     last_addr: &mut Address<FpVar<F>, FpVar<F>>,
 ) -> Result<(), SynthesisError> {

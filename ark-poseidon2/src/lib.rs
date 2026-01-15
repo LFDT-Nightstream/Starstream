@@ -6,12 +6,11 @@ pub mod goldilocks;
 pub mod linear_layers;
 pub mod math;
 
+pub type F = ark_goldilocks::FpGoldilocks;
+
 use crate::{
-    F,
-    poseidon2::{
-        gadget::poseidon2_compress_8_to_4,
-        linear_layers::{GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8},
-    },
+    gadget::poseidon2_compress_8_to_4,
+    linear_layers::{GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8},
 };
 use ark_r1cs_std::{GR1CSVar as _, alloc::AllocVar as _, fields::fp::FpVar};
 use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
@@ -56,11 +55,9 @@ mod tests {
     use super::*;
     use crate::{
         F,
-        poseidon2::{
-            constants::GOLDILOCKS_S_BOX_DEGREE,
-            gadget::poseidon2_hash,
-            linear_layers::{GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8},
-        },
+        constants::GOLDILOCKS_S_BOX_DEGREE,
+        gadget::poseidon2_hash,
+        linear_layers::{GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8},
     };
     use ark_r1cs_std::{GR1CSVar, alloc::AllocVar, fields::fp::FpVar};
     use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
