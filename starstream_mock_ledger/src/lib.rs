@@ -16,7 +16,7 @@ use std::{hash::Hasher, marker::PhantomData};
 pub use transaction_effects::{
     InterfaceId,
     instance::InterleavingInstance,
-    witness::{WitEffectOutput, WitLedgerEffect},
+    witness::{EffectDiscriminant, WitEffectOutput, WitLedgerEffect},
 };
 
 #[derive(PartialEq, Eq)]

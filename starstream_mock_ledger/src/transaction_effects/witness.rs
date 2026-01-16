@@ -3,6 +3,27 @@ use crate::{
     transaction_effects::{InterfaceId, ProcessId},
 };
 
+// Discriminants for host calls
+#[derive(Debug)]
+pub enum EffectDiscriminant {
+    Resume = 0,
+    Yield = 1,
+    NewUtxo = 2,
+    NewCoord = 3,
+    InstallHandler = 4,
+    UninstallHandler = 5,
+    GetHandlerFor = 6,
+    Burn = 7,
+    Activation = 8,
+    Init = 9,
+    NewRef = 10,
+    RefPush = 11,
+    Get = 12,
+    Bind = 13,
+    Unbind = 14,
+    ProgramHash = 15,
+}
+
 // Both used to indicate which fields are outputs, and to have a placeholder
 // value for the runtime executor (trace generator)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -157,6 +178,30 @@ impl<T> From<Option<T>> for WitEffectOutput<T> {
         match value {
             Some(t) => WitEffectOutput::Resolved(t),
             None => WitEffectOutput::Thunk,
+        }
+    }
+}
+
+impl From<u64> for EffectDiscriminant {
+    fn from(value: u64) -> Self {
+        match value {
+            0 => EffectDiscriminant::Resume,
+            1 => EffectDiscriminant::Yield,
+            2 => EffectDiscriminant::NewUtxo,
+            3 => EffectDiscriminant::NewCoord,
+            4 => EffectDiscriminant::InstallHandler,
+            5 => EffectDiscriminant::UninstallHandler,
+            6 => EffectDiscriminant::GetHandlerFor,
+            7 => EffectDiscriminant::Burn,
+            8 => EffectDiscriminant::Activation,
+            9 => EffectDiscriminant::Init,
+            10 => EffectDiscriminant::NewRef,
+            11 => EffectDiscriminant::RefPush,
+            12 => EffectDiscriminant::Get,
+            13 => EffectDiscriminant::Bind,
+            14 => EffectDiscriminant::Unbind,
+            15 => EffectDiscriminant::ProgramHash,
+            _ => todo!(),
         }
     }
 }

@@ -115,7 +115,7 @@ fn test_circuit_many_steps() {
             target: p1,
             val: ref_0.clone(),
             ret: ref_1.clone().into(),
-            id_prev: None.into(),
+            id_prev: WitEffectOutput::Resolved(None),
         },
         WitLedgerEffect::InstallHandler {
             interface_id: h(100),
@@ -191,7 +191,7 @@ fn test_circuit_small() {
             target: p0,
             val: ref_0.clone(),
             ret: ref_0.clone().into(),
-            id_prev: None.into(),
+            id_prev: WitEffectOutput::Resolved(None.into()),
         },
     ];
 
