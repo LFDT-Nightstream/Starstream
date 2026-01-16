@@ -1,6 +1,11 @@
+use ark_ff::PrimeField as _;
+use neo_fold::output_binding::OutputBindingConfig;
+use neo_memory::ProgramIO;
+use p3_field::PrimeCharacteristicRing;
+
 use crate::{
     CoroutineState, Hash, WasmModule, mocked_verifier::InterleavingError,
-    mocked_verifier::MockedLookupTableCommitment, transaction_effects::ProcessId,
+    mocked_verifier::LedgerEffectsCommitment, transaction_effects::ProcessId,
 };
 
 // this mirrors the configuration described in SEMANTICS.md
@@ -8,7 +13,7 @@ use crate::{
 pub struct InterleavingInstance {
     /// Digest of all per-process host call tables the circuit is wired to.
     /// One per wasm proof.
-    pub host_calls_roots: Vec<MockedLookupTableCommitment>,
+    pub host_calls_roots: Vec<LedgerEffectsCommitment>,
     #[allow(dead_code)]
     pub host_calls_lens: Vec<u32>,
 
@@ -76,5 +81,27 @@ impl InterleavingInstance {
         }
 
         Ok(())
+    }
+
+    pub fn output_binding_config(&self) -> OutputBindingConfig {
+        let mut program_io = ProgramIO::new();
+
+        let mut addr = 0;
+        for comm in self.host_calls_roots.iter() {
+            for v in comm.0 {
+                program_io =
+                    program_io.with_output(addr, neo_math::F::from_u64(v.into_bigint().0[0]));
+                addr += 1;
+            }
+        }
+
+        let num_bits = 6;
+        // currently the twist tables have a size of 64, so 2**6 == 6
+        //
+        // need to figure out if that can be generalized, or if we need a bound or not
+
+        let output_binding_config = OutputBindingConfig::new(num_bits, program_io).with_mem_idx(12);
+
+        output_binding_config
     }
 }

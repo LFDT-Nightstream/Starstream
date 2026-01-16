@@ -412,21 +412,20 @@ Rule: Burn
 ==========
 Destroys the UTXO state.
 
-    op = Burn(val_ref)
+    op = Burn(ret)
 
     1. is_utxo[id_curr]
     2. is_initialized[id_curr]
     3. is_burned[id_curr]
 
-    4. let val = ref_store[val_ref] in
-       M[id_prev] == val
+    4. expected_input[id_prev] == ret
 
-    (Resume receives val)
+    (Resume receives ret)
 
-    4. let
+    5. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Burn>
+            t[c] == <Burn, ret>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
