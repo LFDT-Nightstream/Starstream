@@ -1,6 +1,10 @@
 //! Linear layer implementations for Poseidon2 R1CS gadget
 
-use crate::{F, goldilocks::matrix_diag_8_goldilocks, math::mds_light_permutation};
+use crate::{
+    F,
+    goldilocks::{matrix_diag_12_goldilocks, matrix_diag_8_goldilocks},
+    math::mds_light_permutation,
+};
 use ark_ff::PrimeField;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::gr1cs::SynthesisError;
@@ -24,6 +28,7 @@ impl<const WIDTH: usize> ExternalLinearLayer<F, WIDTH> for GoldilocksExternalLin
 }
 
 pub enum GoldilocksInternalLinearLayer8 {}
+pub enum GoldilocksInternalLinearLayer12 {}
 
 pub fn matmul_internal<const WIDTH: usize>(
     state: &mut [FpVar<F>; WIDTH],
@@ -39,6 +44,14 @@ pub fn matmul_internal<const WIDTH: usize>(
 impl InternalLinearLayer<F, 8> for GoldilocksInternalLinearLayer8 {
     fn apply(state: &mut [FpVar<F>; 8]) -> Result<(), SynthesisError> {
         matmul_internal(state, matrix_diag_8_goldilocks());
+
+        Ok(())
+    }
+}
+
+impl InternalLinearLayer<F, 12> for GoldilocksInternalLinearLayer12 {
+    fn apply(state: &mut [FpVar<F>; 12]) -> Result<(), SynthesisError> {
+        matmul_internal(state, matrix_diag_12_goldilocks());
 
         Ok(())
     }

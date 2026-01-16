@@ -149,19 +149,21 @@ pub fn poseidon2_hash<
     gadget.permute(inputs)
 }
 
-pub fn poseidon2_compress_8_to_4<
+pub fn poseidon2_compress<
+    const WIDTH: usize,
+    const TARGET: usize,
     F: PrimeField,
-    ExtLinear: ExternalLinearLayer<F, 8>,
-    IntLinear: InternalLinearLayer<F, 8>,
+    ExtLinear: ExternalLinearLayer<F, WIDTH>,
+    IntLinear: InternalLinearLayer<F, WIDTH>,
 >(
-    inputs: &[FpVar<F>; 8],
-    constants: &RoundConstants<F, 8, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
-) -> Result<[FpVar<F>; 4], SynthesisError> {
+    inputs: &[FpVar<F>; WIDTH],
+    constants: &RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+) -> Result<[FpVar<F>; TARGET], SynthesisError> {
     let gadget = Poseidon2Gadget::<
         F,
         ExtLinear,
         IntLinear,
-        8,
+        WIDTH,
         GOLDILOCKS_S_BOX_DEGREE,
         HALF_FULL_ROUNDS,
         PARTIAL_ROUNDS,
@@ -169,7 +171,7 @@ pub fn poseidon2_compress_8_to_4<
     let p_x = gadget.permute(inputs)?;
 
     // truncation
-    let mut p_x: [FpVar<F>; 4] = std::array::from_fn(|i| p_x[i].clone());
+    let mut p_x: [FpVar<F>; TARGET] = std::array::from_fn(|i| p_x[i].clone());
 
     for (p_x, x) in p_x.iter_mut().zip(inputs) {
         // feed-forward operation
@@ -177,4 +179,43 @@ pub fn poseidon2_compress_8_to_4<
     }
 
     Ok(p_x)
+}
+
+pub fn poseidon2_sponge_absorb<
+    F: PrimeField,
+    ExtLinear: ExternalLinearLayer<F, WIDTH>,
+    IntLinear: InternalLinearLayer<F, WIDTH>,
+    const WIDTH: usize,
+    const RATE: usize,
+    const SBOX_DEGREE: u64,
+    const HALF_FULL_ROUNDS: usize,
+    const PARTIAL_ROUNDS: usize,
+>(
+    inputs: &[FpVar<F>],
+    constants: &RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+) -> Result<[FpVar<F>; WIDTH], SynthesisError> {
+    if RATE >= WIDTH {
+        return Err(SynthesisError::Unsatisfiable);
+    }
+
+    let gadget = Poseidon2Gadget::<
+        F,
+        ExtLinear,
+        IntLinear,
+        WIDTH,
+        SBOX_DEGREE,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+    >::new(constants.clone());
+
+    let mut state = std::array::from_fn(|_| FpVar::zero());
+
+    for chunk in inputs.chunks(RATE) {
+        for (i, value) in chunk.iter().enumerate() {
+            state[i] += value.clone();
+        }
+        state = gadget.permute(&state)?;
+    }
+
+    Ok(state)
 }

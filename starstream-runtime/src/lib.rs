@@ -1,8 +1,9 @@
 use sha2::{Digest, Sha256};
 use starstream_mock_ledger::{
-    CoroutineState, Hash, InterfaceId, InterleavingInstance, InterleavingWitness,
-    MockedLookupTableCommitment, NewOutput, OutputRef, ProcessId, ProvenTransaction, Ref, UtxoId,
-    Value, WasmModule, WitEffectOutput, WitLedgerEffect, builder::TransactionBuilder,
+    CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
+    InterleavingWitness, MockedLookupTableCommitment, NewOutput, OutputRef, ProcessId,
+    ProvenTransaction, Ref, UtxoId, Value, WasmModule, WitEffectOutput, WitLedgerEffect,
+    builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
 use wasmi::{
@@ -32,29 +33,6 @@ impl std::fmt::Display for Interrupt {
 }
 
 impl HostError for Interrupt {}
-
-// Discriminants for host calls
-#[derive(Debug)]
-pub enum HostCallDiscriminant {
-    Resume = 0,
-    Yield = 1,
-    NewUtxo = 2,
-    NewCoord = 3,
-    InstallHandler = 4,
-    UninstallHandler = 5,
-    GetHandlerFor = 6,
-    Burn = 7,
-    Activation = 8,
-    Init = 9,
-    NewRef = 10,
-    RefPush = 11,
-    Get = 12,
-    Bind = 13,
-    Unbind = 14,
-    ProgramHash = 15,
-}
-
-use HostCallDiscriminant::*;
 
 pub struct UnprovenTransaction {
     pub inputs: Vec<UtxoId>,
@@ -154,8 +132,8 @@ impl Runtime {
                         buffer
                     };
 
-                    let effect = match HostCallDiscriminant::from(discriminant) {
-                        Resume => {
+                    let effect = match EffectDiscriminant::from(discriminant) {
+                        EffectDiscriminant::Resume => {
                             let target = ProcessId(arg1 as usize);
                             let val = Ref(arg2);
                             let ret = WitEffectOutput::Thunk;
@@ -174,7 +152,7 @@ impl Runtime {
                                 id_prev: WitEffectOutput::Resolved(id_prev),
                             })
                         }
-                        Yield => {
+                        EffectDiscriminant::Yield => {
                             let val = Ref(arg1);
                             let ret = WitEffectOutput::Thunk;
                             let id_prev = caller.data().prev_id;
@@ -185,7 +163,7 @@ impl Runtime {
                                 id_prev: WitEffectOutput::Resolved(id_prev),
                             })
                         }
-                        NewUtxo => {
+                        EffectDiscriminant::NewUtxo => {
                             let h = Hash(
                                 args_to_hash(arg1, arg2, arg3, arg4),
                                 std::marker::PhantomData,
@@ -225,7 +203,7 @@ impl Runtime {
                                 id: WitEffectOutput::Resolved(id),
                             })
                         }
-                        NewCoord => {
+                        EffectDiscriminant::NewCoord => {
                             let h = Hash(
                                 args_to_hash(arg1, arg2, arg3, arg4),
                                 std::marker::PhantomData,
@@ -265,7 +243,7 @@ impl Runtime {
                                 id: WitEffectOutput::Resolved(id),
                             })
                         }
-                        InstallHandler => {
+                        EffectDiscriminant::InstallHandler => {
                             let interface_id = Hash(
                                 args_to_hash(arg1, arg2, arg3, arg4),
                                 std::marker::PhantomData,
@@ -278,7 +256,7 @@ impl Runtime {
                                 .push(current_pid);
                             Some(WitLedgerEffect::InstallHandler { interface_id })
                         }
-                        UninstallHandler => {
+                        EffectDiscriminant::UninstallHandler => {
                             let interface_id = Hash(
                                 args_to_hash(arg1, arg2, arg3, arg4),
                                 std::marker::PhantomData,
@@ -293,7 +271,7 @@ impl Runtime {
                             }
                             Some(WitLedgerEffect::UninstallHandler { interface_id })
                         }
-                        GetHandlerFor => {
+                        EffectDiscriminant::GetHandlerFor => {
                             let interface_id = Hash(
                                 args_to_hash(arg1, arg2, arg3, arg4),
                                 std::marker::PhantomData,
@@ -313,7 +291,7 @@ impl Runtime {
                                 handler_id: WitEffectOutput::Resolved(*handler_id),
                             })
                         }
-                        Activation => {
+                        EffectDiscriminant::Activation => {
                             let (val, caller_id) = caller
                                 .data()
                                 .pending_activation
@@ -324,7 +302,7 @@ impl Runtime {
                                 caller: WitEffectOutput::Resolved(*caller_id),
                             })
                         }
-                        Init => {
+                        EffectDiscriminant::Init => {
                             let (val, caller_id) = caller
                                 .data()
                                 .pending_init
@@ -335,7 +313,7 @@ impl Runtime {
                                 caller: WitEffectOutput::Resolved(*caller_id),
                             })
                         }
-                        NewRef => {
+                        EffectDiscriminant::NewRef => {
                             let size = arg1 as usize;
                             let ref_id = Ref(caller.data().next_ref);
                             caller.data_mut().next_ref += size as u64;
@@ -354,7 +332,7 @@ impl Runtime {
                                 ret: WitEffectOutput::Resolved(ref_id),
                             })
                         }
-                        RefPush => {
+                        EffectDiscriminant::RefPush => {
                             let val = Value(arg1);
                             let (ref_id, offset, size) = *caller
                                 .data()
@@ -380,7 +358,7 @@ impl Runtime {
 
                             Some(WitLedgerEffect::RefPush { val })
                         }
-                        Get => {
+                        EffectDiscriminant::Get => {
                             let ref_id = Ref(arg1);
                             let offset = arg2 as usize;
 
@@ -400,7 +378,7 @@ impl Runtime {
                                 ret: WitEffectOutput::Resolved(val),
                             })
                         }
-                        Bind => {
+                        EffectDiscriminant::Bind => {
                             let owner_id = ProcessId(arg1 as usize);
                             caller
                                 .data_mut()
@@ -408,20 +386,20 @@ impl Runtime {
                                 .insert(current_pid, Some(owner_id));
                             Some(WitLedgerEffect::Bind { owner_id })
                         }
-                        Unbind => {
+                        EffectDiscriminant::Unbind => {
                             let token_id = ProcessId(arg1 as usize);
                             if caller.data().ownership.get(&token_id) != Some(&Some(current_pid)) {}
                             caller.data_mut().ownership.insert(token_id, None);
                             Some(WitLedgerEffect::Unbind { token_id })
                         }
-                        Burn => {
+                        EffectDiscriminant::Burn => {
                             caller.data_mut().must_burn.insert(current_pid);
 
                             Some(WitLedgerEffect::Burn {
                                 ret: WitEffectOutput::Resolved(Ref(arg1)),
                             })
                         }
-                        ProgramHash => {
+                        EffectDiscriminant::ProgramHash => {
                             unreachable!();
                         }
                     };
@@ -837,29 +815,5 @@ impl UnprovenTransaction {
         let witness = starstream_mock_ledger::InterleavingWitness { traces };
 
         Ok((instance, runtime.store.into_data(), witness))
-    }
-}
-
-impl From<u64> for HostCallDiscriminant {
-    fn from(value: u64) -> Self {
-        match value {
-            0 => Resume,
-            1 => Yield,
-            2 => NewUtxo,
-            3 => NewCoord,
-            4 => InstallHandler,
-            5 => UninstallHandler,
-            6 => GetHandlerFor,
-            7 => Burn,
-            8 => Activation,
-            9 => Init,
-            10 => NewRef,
-            11 => RefPush,
-            12 => Get,
-            13 => Bind,
-            14 => Unbind,
-            15 => ProgramHash,
-            _ => todo!(),
-        }
     }
 }
