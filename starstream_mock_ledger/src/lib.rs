@@ -14,7 +14,9 @@ use neo_ajtai::Commitment;
 use p3_field::PrimeCharacteristicRing;
 use std::{hash::Hasher, marker::PhantomData};
 pub use transaction_effects::{
-    InterfaceId, instance::InterleavingInstance, witness::WitLedgerEffect,
+    InterfaceId,
+    instance::InterleavingInstance,
+    witness::{WitEffectOutput, WitLedgerEffect},
 };
 
 #[derive(PartialEq, Eq)]
