@@ -297,6 +297,8 @@ dependencies = [
  "ark-r1cs-std",
  "ark-relations",
  "criterion",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
 ]
 
 [[package]]
@@ -3282,6 +3284,8 @@ dependencies = [
 name = "starstream_mock_ledger"
 version = "0.1.0"
 dependencies = [
+ "ark-ff",
+ "ark-goldilocks",
  "hex",
  "imbl",
  "neo-ajtai",
