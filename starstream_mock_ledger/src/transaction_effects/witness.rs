@@ -3,6 +3,14 @@ use crate::{
     transaction_effects::{InterfaceId, ProcessId},
 };
 
+// Both used to indicate which fields are outputs, and to have a placeholder
+// value for the runtime executor (trace generator)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WitEffectOutput<T> {
+    Resolved(T),
+    Thunk,
+}
+
 /// One entry in the per-process trace.
 //
 // Note that since these are witnesses, they include the inputs and the outputs
@@ -14,28 +22,28 @@ pub enum WitLedgerEffect {
         target: ProcessId,
         val: Ref,
         // out
-        ret: Ref,
-        id_prev: Option<ProcessId>,
+        ret: WitEffectOutput<Ref>,
+        id_prev: WitEffectOutput<Option<ProcessId>>,
     },
     Yield {
         // in
         val: Ref,
         // out
-        ret: Option<Ref>,
-        id_prev: Option<ProcessId>,
+        ret: WitEffectOutput<Ref>,
+        id_prev: WitEffectOutput<Option<ProcessId>>,
     },
     ProgramHash {
         // in
         target: ProcessId,
         // out
-        program_hash: Hash<WasmModule>,
+        program_hash: WitEffectOutput<Hash<WasmModule>>,
     },
     NewUtxo {
         // in
         program_hash: Hash<WasmModule>,
         val: Ref,
         // out
-        id: ProcessId,
+        id: WitEffectOutput<ProcessId>,
     },
     NewCoord {
         // int
@@ -43,7 +51,7 @@ pub enum WitLedgerEffect {
         val: Ref,
 
         // out
-        id: ProcessId,
+        id: WitEffectOutput<ProcessId>,
     },
     // Scoped handlers for custom effects
     //
@@ -63,34 +71,34 @@ pub enum WitLedgerEffect {
         // in
         interface_id: InterfaceId,
         // out
-        handler_id: ProcessId,
+        handler_id: WitEffectOutput<ProcessId>,
     },
 
     // UTXO-only
     Burn {
         // out
-        ret: Ref,
+        ret: WitEffectOutput<Ref>,
     },
 
     Activation {
         // in
         val: Ref,
         // out
-        caller: ProcessId,
+        caller: WitEffectOutput<ProcessId>,
     },
 
     Init {
         // in
         val: Ref,
         // out
-        caller: ProcessId,
+        caller: WitEffectOutput<ProcessId>,
     },
 
     NewRef {
         // in
         size: usize,
         // out
-        ret: Ref,
+        ret: WitEffectOutput<Ref>,
     },
     RefPush {
         // in
@@ -104,7 +112,7 @@ pub enum WitLedgerEffect {
         offset: usize,
 
         // out
-        ret: Value,
+        ret: WitEffectOutput<Value>,
     },
 
     // Tokens
@@ -116,4 +124,39 @@ pub enum WitLedgerEffect {
         token_id: ProcessId,
         // does not return anything
     },
+}
+
+impl<T> WitEffectOutput<T> {
+    pub fn unwrap(self) -> T {
+        match self {
+            WitEffectOutput::Resolved(v) => v,
+            WitEffectOutput::Thunk => panic!("Called unwrap on a Thunk"),
+        }
+    }
+
+    pub fn is_resolved(&self) -> bool {
+        matches!(self, WitEffectOutput::Resolved(_))
+    }
+
+    pub fn to_option(self) -> Option<T> {
+        match self {
+            WitEffectOutput::Resolved(t) => Some(t),
+            WitEffectOutput::Thunk => None,
+        }
+    }
+}
+
+impl<T> From<T> for WitEffectOutput<T> {
+    fn from(value: T) -> WitEffectOutput<T> {
+        WitEffectOutput::Resolved(value)
+    }
+}
+
+impl<T> From<Option<T>> for WitEffectOutput<T> {
+    fn from(value: Option<T>) -> WitEffectOutput<T> {
+        match value {
+            Some(t) => WitEffectOutput::Resolved(t),
+            None => WitEffectOutput::Thunk,
+        }
+    }
 }

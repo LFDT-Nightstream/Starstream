@@ -1,8 +1,8 @@
 use sha2::{Digest, Sha256};
 use starstream_mock_ledger::{
-    CoroutineState, Hash, InterfaceId, InterleavingInstance, MockedLookupTableCommitment,
-    NewOutput, OutputRef, ProcessId, ProvenTransaction, Ref, UtxoId, Value, WasmModule,
-    WitLedgerEffect, builder::TransactionBuilder, InterleavingWitness,
+    CoroutineState, Hash, InterfaceId, InterleavingInstance, InterleavingWitness,
+    MockedLookupTableCommitment, NewOutput, OutputRef, ProcessId, ProvenTransaction, Ref, UtxoId,
+    Value, WasmModule, WitEffectOutput, WitLedgerEffect, builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
 use wasmi::{
@@ -158,7 +158,7 @@ impl Runtime {
                         Resume => {
                             let target = ProcessId(arg1 as usize);
                             let val = Ref(arg2);
-                            let ret = Ref(0); // Placeholder, updated on resume
+                            let ret = WitEffectOutput::Thunk;
                             let id_prev = caller.data().prev_id;
 
                             // Update state
@@ -171,15 +171,19 @@ impl Runtime {
                                 target,
                                 val,
                                 ret,
-                                id_prev,
+                                id_prev: WitEffectOutput::Resolved(id_prev),
                             })
                         }
                         Yield => {
                             let val = Ref(arg1);
-                            let ret = None; // Placeholder, updated on resume
+                            let ret = WitEffectOutput::Thunk;
                             let id_prev = caller.data().prev_id;
 
-                            Some(WitLedgerEffect::Yield { val, ret, id_prev })
+                            Some(WitLedgerEffect::Yield {
+                                val,
+                                ret,
+                                id_prev: WitEffectOutput::Resolved(id_prev),
+                            })
                         }
                         NewUtxo => {
                             let h = Hash(
@@ -218,7 +222,7 @@ impl Runtime {
                             Some(WitLedgerEffect::NewUtxo {
                                 program_hash: h,
                                 val,
-                                id,
+                                id: WitEffectOutput::Resolved(id),
                             })
                         }
                         NewCoord => {
@@ -258,7 +262,7 @@ impl Runtime {
                             Some(WitLedgerEffect::NewCoord {
                                 program_hash: h,
                                 val,
-                                id,
+                                id: WitEffectOutput::Resolved(id),
                             })
                         }
                         InstallHandler => {
@@ -306,7 +310,7 @@ impl Runtime {
 
                             Some(WitLedgerEffect::GetHandlerFor {
                                 interface_id,
-                                handler_id: *handler_id,
+                                handler_id: WitEffectOutput::Resolved(*handler_id),
                             })
                         }
                         Activation => {
@@ -317,7 +321,7 @@ impl Runtime {
                                 .ok_or(wasmi::Error::new("no pending activation"))?;
                             Some(WitLedgerEffect::Activation {
                                 val: *val,
-                                caller: *caller_id,
+                                caller: WitEffectOutput::Resolved(*caller_id),
                             })
                         }
                         Init => {
@@ -328,7 +332,7 @@ impl Runtime {
                                 .ok_or(wasmi::Error::new("no pending init"))?;
                             Some(WitLedgerEffect::Init {
                                 val: *val,
-                                caller: *caller_id,
+                                caller: WitEffectOutput::Resolved(*caller_id),
                             })
                         }
                         NewRef => {
@@ -345,7 +349,10 @@ impl Runtime {
                                 .ref_state
                                 .insert(current_pid, (ref_id, 0, size));
 
-                            Some(WitLedgerEffect::NewRef { size, ret: ref_id })
+                            Some(WitLedgerEffect::NewRef {
+                                size,
+                                ret: WitEffectOutput::Resolved(ref_id),
+                            })
                         }
                         RefPush => {
                             let val = Value(arg1);
@@ -390,7 +397,7 @@ impl Runtime {
                             Some(WitLedgerEffect::Get {
                                 reff: ref_id,
                                 offset,
-                                ret: val,
+                                ret: WitEffectOutput::Resolved(val),
                             })
                         }
                         Bind => {
@@ -410,7 +417,9 @@ impl Runtime {
                         Burn => {
                             caller.data_mut().must_burn.insert(current_pid);
 
-                            Some(WitLedgerEffect::Burn { ret: Ref(arg1) })
+                            Some(WitLedgerEffect::Burn {
+                                ret: WitEffectOutput::Resolved(Ref(arg1)),
+                            })
                         }
                         ProgramHash => {
                             unreachable!();
@@ -450,7 +459,7 @@ impl Runtime {
 
                     let effect = WitLedgerEffect::ProgramHash {
                         target,
-                        program_hash,
+                        program_hash: WitEffectOutput::Resolved(program_hash),
                     };
 
                     caller
@@ -504,10 +513,7 @@ impl UnprovenTransaction {
                 None
             } else {
                 let last_yield = self.get_last_yield(i, &state)?;
-                Some(CoroutineState {
-                    pc: 0,
-                    last_yield,
-                })
+                Some(CoroutineState { pc: 0, last_yield })
             };
 
             builder = builder.with_input(utxo_id, continuation, trace);
@@ -521,10 +527,7 @@ impl UnprovenTransaction {
 
             builder = builder.with_fresh_output(
                 NewOutput {
-                    state: CoroutineState {
-                        pc: 0,
-                        last_yield,
-                    },
+                    state: CoroutineState { pc: 0, last_yield },
                     contract_hash,
                 },
                 trace,
@@ -541,7 +544,8 @@ impl UnprovenTransaction {
         // Ownership
         for (token, owner_opt) in state.ownership {
             if let Some(owner) = owner_opt {
-                builder = builder.with_ownership(OutputRef::from(token.0), OutputRef::from(owner.0));
+                builder =
+                    builder.with_ownership(OutputRef::from(token.0), OutputRef::from(owner.0));
             }
         }
 
@@ -580,7 +584,9 @@ impl UnprovenTransaction {
         self.execute().unwrap().0
     }
 
-    pub fn execute(&self) -> Result<(InterleavingInstance, RuntimeState, InterleavingWitness), Error> {
+    pub fn execute(
+        &self,
+    ) -> Result<(InterleavingInstance, RuntimeState, InterleavingWitness), Error> {
         let mut runtime = Runtime::new();
 
         let mut instances = Vec::new();
@@ -665,10 +671,10 @@ impl UnprovenTransaction {
                     if let Some(last) = trace.last_mut() {
                         match last {
                             WitLedgerEffect::Resume { ret, .. } => {
-                                *ret = Ref(next_args[0]);
+                                *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
                             }
                             WitLedgerEffect::Yield { ret, .. } => {
-                                *ret = Some(Ref(next_args[0]));
+                                *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
                             }
                             _ => {}
                         }
@@ -686,8 +692,7 @@ impl UnprovenTransaction {
             } else {
                 let instance = instances[current_pid.0];
                 // Start with _start, 0 args, 0 results
-                let func = instance
-                    .get_typed_func::<(), ()>(&runtime.store, "_start")?;
+                let func = instance.get_typed_func::<(), ()>(&runtime.store, "_start")?;
                 func.call_resumable(&mut runtime.store, ()).unwrap()
             };
 
@@ -740,28 +745,28 @@ impl UnprovenTransaction {
                             current_pid = caller;
                         }
                         WitLedgerEffect::NewUtxo { id, .. } => {
-                            next_args = [id.0 as u64, 0, 0, 0];
+                            next_args = [id.unwrap().0 as u64, 0, 0, 0];
                         }
                         WitLedgerEffect::NewCoord { id, .. } => {
-                            next_args = [id.0 as u64, 0, 0, 0];
+                            next_args = [id.unwrap().0 as u64, 0, 0, 0];
                         }
                         WitLedgerEffect::GetHandlerFor { handler_id, .. } => {
-                            next_args = [handler_id.0 as u64, 0, 0, 0];
+                            next_args = [handler_id.unwrap().0 as u64, 0, 0, 0];
                         }
                         WitLedgerEffect::Activation { val, caller } => {
-                            next_args = [val.0, caller.0 as u64, 0, 0];
+                            next_args = [val.0, caller.unwrap().0 as u64, 0, 0];
                         }
                         WitLedgerEffect::Init { val, caller } => {
-                            next_args = [val.0, caller.0 as u64, 0, 0];
+                            next_args = [val.0, caller.unwrap().0 as u64, 0, 0];
                         }
                         WitLedgerEffect::NewRef { ret, .. } => {
-                            next_args = [ret.0, 0, 0, 0];
+                            next_args = [ret.unwrap().0, 0, 0, 0];
                         }
                         WitLedgerEffect::Get { ret, .. } => {
-                            next_args = [ret.0, 0, 0, 0];
+                            next_args = [ret.unwrap().0, 0, 0, 0];
                         }
                         WitLedgerEffect::ProgramHash { program_hash, .. } => {
-                            let limbs = program_hash.0;
+                            let limbs = program_hash.unwrap().0;
                             next_args = [
                                 u64::from_le_bytes(limbs[0..8].try_into().unwrap()),
                                 u64::from_le_bytes(limbs[8..16].try_into().unwrap()),

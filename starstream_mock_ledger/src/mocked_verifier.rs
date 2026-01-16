@@ -9,7 +9,7 @@
 //! It's mainly a direct translation of the algorithm in the README
 
 use crate::{
-    Hash, InterleavingInstance, Ref, Value, WasmModule,
+    Hash, InterleavingInstance, Ref, Value, WasmModule, WitEffectOutput,
     transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
 };
 use std::collections::HashMap;
@@ -464,9 +464,9 @@ pub fn state_transition(
 
             state.activation[target.0] = Some((val, id_curr));
 
-            state.expected_input[id_curr.0] = ret;
+            state.expected_input[id_curr.0] = ret.unwrap();
 
-            if id_prev != state.id_prev {
+            if id_prev.unwrap() != state.id_prev {
                 return Err(InterleavingError::HostCallMismatch {
                     pid: id_curr,
                     counter: c,
@@ -474,7 +474,7 @@ pub fn state_transition(
                         target,
                         val,
                         ret,
-                        id_prev: state.id_prev,
+                        id_prev: WitEffectOutput::Resolved(state.id_prev),
                     },
                     got: WitLedgerEffect::Resume {
                         target,
@@ -493,14 +493,14 @@ pub fn state_transition(
         }
 
         WitLedgerEffect::Yield { val, ret, id_prev } => {
-            if id_prev != state.id_prev {
+            if id_prev.unwrap() != state.id_prev {
                 return Err(InterleavingError::HostCallMismatch {
                     pid: id_curr,
                     counter: c,
                     expected: WitLedgerEffect::Yield {
                         val,
                         ret,
-                        id_prev: state.id_prev,
+                        id_prev: WitEffectOutput::Resolved(state.id_prev),
                     },
                     got: WitLedgerEffect::Yield { val, ret, id_prev },
                 });
@@ -515,7 +515,7 @@ pub fn state_transition(
                 .get(&val)
                 .ok_or(InterleavingError::RefNotFound(val))?;
 
-            match ret {
+            match ret.to_option() {
                 Some(retv) => {
                     state.expected_input[id_curr.0] = retv;
 
@@ -556,11 +556,11 @@ pub fn state_transition(
         } => {
             // check lookup against process_table
             let expected = rom.process_table[target.0].clone();
-            if expected != program_hash {
+            if expected != program_hash.unwrap() {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target,
                     expected,
-                    got: program_hash,
+                    got: program_hash.unwrap(),
                 });
             }
         }
@@ -570,6 +570,7 @@ pub fn state_transition(
             val,
             id,
         } => {
+            let id = id.unwrap();
             if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
@@ -602,6 +603,7 @@ pub fn state_transition(
             val,
             id,
         } => {
+            let id = id.unwrap();
             if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
@@ -662,11 +664,11 @@ pub fn state_transition(
         } => {
             let stack = state.handler_stack.entry(interface_id.clone()).or_default();
             let expected = stack.last().copied();
-            if expected != Some(handler_id) {
+            if expected != Some(handler_id.unwrap()) {
                 return Err(InterleavingError::HandlerGetMismatch {
                     interface_id,
                     expected,
-                    got: handler_id,
+                    got: handler_id.unwrap(),
                 });
             }
         }
@@ -680,7 +682,7 @@ pub fn state_transition(
                 ));
             };
 
-            if v != &val || c != &caller {
+            if v != &val || c != &caller.unwrap() {
                 return Err(InterleavingError::Shape("Activation result mismatch"));
             }
         }
@@ -692,7 +694,7 @@ pub fn state_transition(
                 return Err(InterleavingError::Shape("Init called with no arg set"));
             };
 
-            if v != val || c != caller {
+            if v != val || c != caller.unwrap() {
                 return Err(InterleavingError::Shape("Init result mismatch"));
             }
         }
@@ -703,8 +705,11 @@ pub fn state_transition(
             }
             let new_ref = Ref(state.ref_counter);
             state.ref_counter += size as u64;
-            if new_ref != ret {
-                return Err(InterleavingError::RefInitializationMismatch(ret, new_ref));
+            if new_ref != ret.unwrap() {
+                return Err(InterleavingError::RefInitializationMismatch(
+                    ret.unwrap(),
+                    new_ref,
+                ));
             }
             state.ref_store.insert(new_ref, Vec::new());
             state.ref_building.insert(id_curr, (new_ref, 0, size));
@@ -742,12 +747,13 @@ pub fn state_transition(
                 offset,
                 vec.len(),
             ))?;
-            if val != &ret {
+            if val != &ret.unwrap() {
                 return Err(InterleavingError::Shape("Get result mismatch"));
             }
         }
 
         WitLedgerEffect::Burn { ret } => {
+            let ret = ret.unwrap();
             if !rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::UtxoOnly(id_curr));
             }
