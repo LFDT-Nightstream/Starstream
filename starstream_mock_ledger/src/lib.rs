@@ -6,7 +6,7 @@ mod transaction_effects;
 mod tests;
 
 pub use crate::{
-    mocked_verifier::InterleavingWitness, mocked_verifier::MockedLookupTableCommitment,
+    mocked_verifier::InterleavingWitness, mocked_verifier::LedgerEffectsCommitment,
     transaction_effects::ProcessId,
 };
 use imbl::{HashMap, HashSet};
@@ -97,7 +97,16 @@ impl ZkTransactionProof {
                 steps_public,
                 ccs,
             } => {
-                let ok = { session.verify(&ccs, &mcss_public, &proof) }.expect("verify should run");
+                let output_binding_config = inst.output_binding_config();
+
+                let ok = session
+                    .verify_with_output_binding_simple(
+                        &ccs,
+                        &mcss_public,
+                        &proof,
+                        &output_binding_config,
+                    )
+                    .expect("verify should run");
 
                 assert!(ok, "optimized verification should pass");
 
@@ -150,7 +159,7 @@ impl ZkTransactionProof {
 }
 
 pub struct ZkWasmProof {
-    pub host_calls_root: MockedLookupTableCommitment,
+    pub host_calls_root: LedgerEffectsCommitment,
     pub trace: Vec<WitLedgerEffect>,
 }
 
@@ -264,7 +273,7 @@ pub struct NewOutput {
 pub struct WasmInstance {
     /// Commitment to the ordered list of host calls performed by this vm. Each
     /// entry encodes opcode + args + return.
-    pub host_calls_root: MockedLookupTableCommitment,
+    pub host_calls_root: LedgerEffectsCommitment,
 
     /// Number of host calls (length of the list committed by host_calls_root).
     pub host_calls_len: u32,

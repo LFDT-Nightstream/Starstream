@@ -1,6 +1,6 @@
 use crate::{logging::setup_logger, prove};
 use starstream_mock_ledger::{
-    Hash, InterleavingInstance, InterleavingWitness, MockedLookupTableCommitment, ProcessId, Ref,
+    Hash, InterleavingInstance, InterleavingWitness, LedgerEffectsCommitment, ProcessId, Ref,
     Value, WitEffectOutput, WitLedgerEffect,
 };
 
@@ -16,6 +16,18 @@ pub fn v(data: &[u8]) -> Value {
     let len = data.len().min(8);
     bytes[..len].copy_from_slice(&data[..len]);
     Value(u64::from_le_bytes(bytes))
+}
+
+fn host_calls_roots(traces: &[Vec<WitLedgerEffect>]) -> Vec<LedgerEffectsCommitment> {
+    traces
+        .iter()
+        .map(|trace| {
+            trace.iter().cloned().fold(
+                LedgerEffectsCommitment::zero(),
+                |acc, op| crate::commit(acc, op),
+            )
+        })
+        .collect()
 }
 
 #[test]
@@ -135,6 +147,8 @@ fn test_circuit_many_steps() {
 
     let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
 
+    let host_calls_roots = host_calls_roots(&traces);
+
     let instance = InterleavingInstance {
         n_inputs: 0,
         n_new: 2,
@@ -145,7 +159,7 @@ fn test_circuit_many_steps() {
         must_burn: vec![false, false, false],
         ownership_in: vec![None, None, None],
         ownership_out: vec![None, Some(ProcessId(0)), None],
-        host_calls_roots: vec![MockedLookupTableCommitment(0); traces.len()],
+        host_calls_roots,
         host_calls_lens: trace_lens,
         input_states: vec![],
     };
@@ -199,6 +213,8 @@ fn test_circuit_small() {
 
     let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
 
+    let host_calls_roots = host_calls_roots(&traces);
+
     let instance = InterleavingInstance {
         n_inputs: 0,
         n_new: 1,
@@ -209,7 +225,7 @@ fn test_circuit_small() {
         must_burn: vec![false, false],
         ownership_in: vec![None, None],
         ownership_out: vec![None, None],
-        host_calls_roots: vec![MockedLookupTableCommitment(0); traces.len()],
+        host_calls_roots,
         host_calls_lens: trace_lens,
         input_states: vec![],
     };

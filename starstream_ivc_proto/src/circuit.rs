@@ -1,6 +1,6 @@
 use crate::memory::twist_and_shout::Lanes;
 use crate::memory::{self, Address, IVCMemory, MemType};
-use crate::{ArgName, OPCODE_ARG_COUNT, value_to_field};
+use crate::{ArgName, OPCODE_ARG_COUNT, abi};
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::fields::FieldVar;
@@ -1239,7 +1239,7 @@ impl InterRoundWires {
 }
 
 impl LedgerOperation<crate::F> {
-    fn get_config(&self, irw: &InterRoundWires) -> OpcodeConfig {
+    fn get_config(&self) -> OpcodeConfig {
         let mut config = OpcodeConfig {
             mem_switches_curr: MemSwitchboard::default(),
             mem_switches_target: MemSwitchboard::default(),
@@ -1253,31 +1253,7 @@ impl LedgerOperation<crate::F> {
         // All ops increment counter of the current process, except Nop
         config.mem_switches_curr.counters = !matches!(self, LedgerOperation::Nop {});
 
-        config.opcode_discriminant = match self {
-            LedgerOperation::Nop {} => F::ZERO,
-            LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
-            LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
-            LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
-            LedgerOperation::ProgramHash { .. } => F::from(EffectDiscriminant::ProgramHash as u64),
-            LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
-            LedgerOperation::NewCoord { .. } => F::from(EffectDiscriminant::NewCoord as u64),
-            LedgerOperation::Activation { .. } => F::from(EffectDiscriminant::Activation as u64),
-            LedgerOperation::Init { .. } => F::from(EffectDiscriminant::Init as u64),
-            LedgerOperation::Bind { .. } => F::from(EffectDiscriminant::Bind as u64),
-            LedgerOperation::Unbind { .. } => F::from(EffectDiscriminant::Unbind as u64),
-            LedgerOperation::NewRef { .. } => F::from(EffectDiscriminant::NewRef as u64),
-            LedgerOperation::RefPush { .. } => F::from(EffectDiscriminant::RefPush as u64),
-            LedgerOperation::Get { .. } => F::from(EffectDiscriminant::Get as u64),
-            LedgerOperation::InstallHandler { .. } => {
-                F::from(EffectDiscriminant::InstallHandler as u64)
-            }
-            LedgerOperation::UninstallHandler { .. } => {
-                F::from(EffectDiscriminant::UninstallHandler as u64)
-            }
-            LedgerOperation::GetHandlerFor { .. } => {
-                F::from(EffectDiscriminant::GetHandlerFor as u64)
-            }
-        };
+        config.opcode_discriminant = abi::opcode_discriminant(self);
 
         match self {
             LedgerOperation::Nop {} => {
@@ -1407,88 +1383,7 @@ impl LedgerOperation<crate::F> {
             }
         }
 
-        match self {
-            LedgerOperation::Nop {} => {}
-            LedgerOperation::Resume {
-                target,
-                val,
-                ret,
-                id_prev,
-            } => {
-                config.opcode_args[ArgName::Target.idx()] = *target;
-                config.opcode_args[ArgName::Val.idx()] = *val;
-                config.opcode_args[ArgName::Ret.idx()] = *ret;
-                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.encoded();
-            }
-            LedgerOperation::Yield { val, ret, id_prev } => {
-                config.opcode_args[ArgName::Target.idx()] = irw.id_prev.decode_or_zero();
-                config.opcode_args[ArgName::Val.idx()] = *val;
-                config.opcode_args[ArgName::Ret.idx()] = ret.unwrap_or_default();
-                config.opcode_args[ArgName::IdPrev.idx()] = id_prev.encoded();
-            }
-            LedgerOperation::Burn { ret } => {
-                config.opcode_args[ArgName::Target.idx()] = irw.id_prev.decode_or_zero();
-                config.opcode_args[ArgName::Ret.idx()] = *ret;
-            }
-            LedgerOperation::ProgramHash {
-                target,
-                program_hash,
-            } => {
-                config.opcode_args[ArgName::Target.idx()] = *target;
-                config.opcode_args[ArgName::ProgramHash.idx()] = *program_hash;
-            }
-            LedgerOperation::NewUtxo {
-                program_hash,
-                val,
-                target,
-            }
-            | LedgerOperation::NewCoord {
-                program_hash,
-                val,
-                target,
-            } => {
-                config.opcode_args[ArgName::Target.idx()] = *target;
-                config.opcode_args[ArgName::Val.idx()] = *val;
-                config.opcode_args[ArgName::ProgramHash.idx()] = *program_hash;
-            }
-            LedgerOperation::Activation { val, caller } => {
-                config.opcode_args[ArgName::Val.idx()] = *val;
-                config.opcode_args[ArgName::Caller.idx()] = *caller;
-            }
-            LedgerOperation::Init { val, caller } => {
-                config.opcode_args[ArgName::Val.idx()] = *val;
-                config.opcode_args[ArgName::Caller.idx()] = *caller;
-            }
-            LedgerOperation::Bind { owner_id } => {
-                config.opcode_args[ArgName::OwnerId.idx()] = *owner_id;
-            }
-            LedgerOperation::Unbind { token_id } => {
-                config.opcode_args[ArgName::TokenId.idx()] = *token_id;
-            }
-            LedgerOperation::NewRef { size, ret } => {
-                config.opcode_args[ArgName::Size.idx()] = *size;
-                config.opcode_args[ArgName::Ret.idx()] = *ret;
-            }
-            LedgerOperation::RefPush { val } => {
-                config.opcode_args[ArgName::Val.idx()] = *val;
-            }
-            LedgerOperation::Get { reff, offset, ret } => {
-                config.opcode_args[ArgName::Val.idx()] = *reff;
-                config.opcode_args[ArgName::Offset.idx()] = *offset;
-                config.opcode_args[ArgName::Ret.idx()] = *ret;
-            }
-            LedgerOperation::InstallHandler { interface_id }
-            | LedgerOperation::UninstallHandler { interface_id } => {
-                config.opcode_args[ArgName::InterfaceId.idx()] = *interface_id;
-            }
-            LedgerOperation::GetHandlerFor {
-                interface_id,
-                handler_id,
-            } => {
-                config.opcode_args[ArgName::InterfaceId.idx()] = *interface_id;
-                config.opcode_args[ArgName::Ret.idx()] = *handler_id;
-            }
-        }
+        config.opcode_args = abi::opcode_args(self);
 
         config
     }
@@ -1573,7 +1468,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let last_yield = instance
             .input_states
             .iter()
-            .map(|v| value_to_field(v.last_yield.clone()))
+            .map(|v| abi::value_to_field(v.last_yield.clone()))
             .collect();
 
         let interface_resolver = InterfaceResolver::new(&ops);
@@ -1798,7 +1693,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in &self.ops {
-            let config = instr.get_config(&irw);
+            let config = instr.get_config();
 
             trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
 
@@ -2003,7 +1898,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         );
 
         for instr in self.ops.iter() {
-            let config = instr.get_config(&irw);
+            let config = instr.get_config();
 
             // Get interface index for handler operations
             let interface_index = match instr {
@@ -2127,223 +2022,90 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             _ => F::ZERO,
         };
 
-        let default = PreWires::new(
+        let mut default = PreWires::new(
             irw.clone(),
             curr_mem_switches.clone(),
             target_mem_switches.clone(),
             rom_switches.clone(),
             handler_switches.clone(),
             interface_index,
-            match instruction {
-                LedgerOperation::Nop {} => F::ZERO,
-                LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
-                LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
-                LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
-                LedgerOperation::ProgramHash { .. } => {
-                    F::from(EffectDiscriminant::ProgramHash as u64)
-                }
-                LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
-                LedgerOperation::NewCoord { .. } => F::from(EffectDiscriminant::NewCoord as u64),
-                LedgerOperation::Activation { .. } => {
-                    F::from(EffectDiscriminant::Activation as u64)
-                }
-                LedgerOperation::Init { .. } => F::from(EffectDiscriminant::Init as u64),
-                LedgerOperation::Bind { .. } => F::from(EffectDiscriminant::Bind as u64),
-                LedgerOperation::Unbind { .. } => F::from(EffectDiscriminant::Unbind as u64),
-                LedgerOperation::NewRef { .. } => F::from(EffectDiscriminant::NewRef as u64),
-                LedgerOperation::RefPush { .. } => F::from(EffectDiscriminant::RefPush as u64),
-                LedgerOperation::Get { .. } => F::from(EffectDiscriminant::Get as u64),
-                LedgerOperation::InstallHandler { .. } => {
-                    F::from(EffectDiscriminant::InstallHandler as u64)
-                }
-                LedgerOperation::UninstallHandler { .. } => {
-                    F::from(EffectDiscriminant::UninstallHandler as u64)
-                }
-                LedgerOperation::GetHandlerFor { .. } => {
-                    F::from(EffectDiscriminant::GetHandlerFor as u64)
-                }
-            },
+            abi::opcode_discriminant(instruction),
         );
+        default.opcode_args = abi::opcode_args(instruction);
 
-        match instruction {
-            LedgerOperation::Nop {} => {
-                let irw = PreWires {
-                    switches: ExecutionSwitches::nop(),
-                    ..default
-                };
+        let prewires = match instruction {
+            LedgerOperation::Nop {} => PreWires {
+                switches: ExecutionSwitches::nop(),
+                ..default
+            },
+            LedgerOperation::Resume { .. } => PreWires {
+                switches: ExecutionSwitches::resume(),
+                ..default
+            },
+            LedgerOperation::Yield { ret, .. } => PreWires {
+                switches: ExecutionSwitches::yield_op(),
+                ret_is_some: ret.is_some(),
+                ..default
+            },
+            LedgerOperation::Burn { .. } => PreWires {
+                switches: ExecutionSwitches::burn(),
+                ..default
+            },
+            LedgerOperation::ProgramHash { .. } => PreWires {
+                switches: ExecutionSwitches::program_hash(),
+                ..default
+            },
+            LedgerOperation::NewUtxo { .. } => PreWires {
+                switches: ExecutionSwitches::new_utxo(),
+                ..default
+            },
+            LedgerOperation::NewCoord { .. } => PreWires {
+                switches: ExecutionSwitches::new_coord(),
+                ..default
+            },
+            LedgerOperation::Activation { .. } => PreWires {
+                switches: ExecutionSwitches::activation(),
+                ..default
+            },
+            LedgerOperation::Init { .. } => PreWires {
+                switches: ExecutionSwitches::init(),
+                ..default
+            },
+            LedgerOperation::Bind { .. } => PreWires {
+                switches: ExecutionSwitches::bind(),
+                ..default
+            },
+            LedgerOperation::Unbind { .. } => PreWires {
+                switches: ExecutionSwitches::unbind(),
+                ..default
+            },
+            LedgerOperation::NewRef { .. } => PreWires {
+                switches: ExecutionSwitches::new_ref(),
+                ..default
+            },
+            LedgerOperation::RefPush { .. } => PreWires {
+                switches: ExecutionSwitches::ref_push(),
+                ..default
+            },
+            LedgerOperation::Get { .. } => PreWires {
+                switches: ExecutionSwitches::get(),
+                ..default
+            },
+            LedgerOperation::InstallHandler { .. } => PreWires {
+                switches: ExecutionSwitches::install_handler(),
+                ..default
+            },
+            LedgerOperation::UninstallHandler { .. } => PreWires {
+                switches: ExecutionSwitches::uninstall_handler(),
+                ..default
+            },
+            LedgerOperation::GetHandlerFor { .. } => PreWires {
+                switches: ExecutionSwitches::get_handler_for(),
+                ..default
+            },
+        };
 
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Resume {
-                target,
-                val,
-                ret,
-                id_prev,
-            } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::resume(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Target, *target);
-                irw.set_arg(ArgName::Val, *val);
-                irw.set_arg(ArgName::Ret, *ret);
-                irw.set_arg(ArgName::IdPrev, id_prev.encoded());
-
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Yield { val, ret, id_prev } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::yield_op(),
-                    ret_is_some: ret.is_some(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Target, irw.irw.id_prev.decode_or_zero());
-                irw.set_arg(ArgName::Val, *val);
-                irw.set_arg(ArgName::Ret, ret.unwrap_or_default());
-                irw.set_arg(ArgName::IdPrev, id_prev.encoded());
-
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Burn { ret } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::burn(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Target, irw.irw.id_prev.decode_or_zero());
-                irw.set_arg(ArgName::Ret, *ret);
-
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::ProgramHash {
-                target,
-                program_hash,
-            } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::program_hash(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Target, *target);
-                irw.set_arg(ArgName::ProgramHash, *program_hash);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::NewUtxo {
-                program_hash,
-                val,
-                target,
-            } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::new_utxo(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Target, *target);
-                irw.set_arg(ArgName::Val, *val);
-                irw.set_arg(ArgName::ProgramHash, *program_hash);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::NewCoord {
-                program_hash,
-                val,
-                target,
-            } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::new_coord(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Target, *target);
-                irw.set_arg(ArgName::Val, *val);
-                irw.set_arg(ArgName::ProgramHash, *program_hash);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Activation { val, caller } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::activation(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Val, *val);
-                irw.set_arg(ArgName::Caller, *caller);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Init { val, caller } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::init(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Val, *val);
-                irw.set_arg(ArgName::Caller, *caller);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Bind { owner_id } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::bind(),
-                    ..default
-                };
-                irw.set_arg(ArgName::OwnerId, *owner_id);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Unbind { token_id } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::unbind(),
-                    ..default
-                };
-                irw.set_arg(ArgName::TokenId, *token_id);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::NewRef { size, ret } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::new_ref(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Size, *size);
-                irw.set_arg(ArgName::Ret, *ret);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::RefPush { val } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::ref_push(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Val, *val);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::Get { reff, offset, ret } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::get(),
-                    ..default
-                };
-                irw.set_arg(ArgName::Val, *reff);
-                irw.set_arg(ArgName::Offset, *offset);
-                irw.set_arg(ArgName::Ret, *ret);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::InstallHandler { interface_id } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::install_handler(),
-                    ..default
-                };
-                irw.set_arg(ArgName::InterfaceId, *interface_id);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::UninstallHandler { interface_id } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::uninstall_handler(),
-                    ..default
-                };
-                irw.set_arg(ArgName::InterfaceId, *interface_id);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-            LedgerOperation::GetHandlerFor {
-                interface_id,
-                handler_id,
-            } => {
-                let mut irw = PreWires {
-                    switches: ExecutionSwitches::get_handler_for(),
-                    ..default
-                };
-                irw.set_arg(ArgName::InterfaceId, *interface_id);
-                irw.set_arg(ArgName::Ret, *handler_id);
-                Wires::from_irw(&irw, rm, curr_write, target_write)
-            }
-        }
+        Wires::from_irw(&prewires, rm, curr_write, target_write)
     }
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_resume(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
@@ -2967,10 +2729,6 @@ impl PreWires {
             rom_switches,
             handler_switches,
         }
-    }
-
-    pub fn set_arg(&mut self, kind: ArgName, value: F) {
-        self.opcode_args[kind.idx()] = value;
     }
 
     pub fn arg(&self, kind: ArgName) -> F {

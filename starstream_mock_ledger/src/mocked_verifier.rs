@@ -12,11 +12,25 @@ use crate::{
     Hash, InterleavingInstance, Ref, Value, WasmModule, WitEffectOutput,
     transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
 };
+use ark_ff::Zero;
+use ark_goldilocks::FpGoldilocks;
 use std::collections::HashMap;
 use thiserror;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct MockedLookupTableCommitment(pub u64);
+pub struct LedgerEffectsCommitment(pub [FpGoldilocks; 4]);
+
+impl Default for LedgerEffectsCommitment {
+    fn default() -> Self {
+        Self([FpGoldilocks::zero(); 4])
+    }
+}
+
+impl LedgerEffectsCommitment {
+    pub fn zero() -> Self {
+        Self::default()
+    }
+}
 
 /// A “proof input” for tests: provide per-process traces directly.
 #[derive(Clone, Debug)]
