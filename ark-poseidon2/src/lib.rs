@@ -9,23 +9,75 @@ pub mod math;
 pub type F = ark_goldilocks::FpGoldilocks;
 
 use crate::{
-    gadget::poseidon2_compress_8_to_4,
-    linear_layers::{GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8},
+    gadget::{poseidon2_compress, poseidon2_sponge_absorb},
+    linear_layers::{
+        GoldilocksExternalLinearLayer, GoldilocksInternalLinearLayer8,
+        GoldilocksInternalLinearLayer12,
+    },
 };
 use ark_r1cs_std::{GR1CSVar as _, alloc::AllocVar as _, fields::fp::FpVar};
 use ark_relations::gr1cs::{ConstraintSystem, SynthesisError};
 pub use constants::RoundConstants;
+use constants::{GOLDILOCKS_S_BOX_DEGREE, HALF_FULL_ROUNDS, PARTIAL_ROUNDS};
 
-pub fn compress(inputs: &[FpVar<F>; 8]) -> Result<[FpVar<F>; 4], SynthesisError> {
+pub fn compress_8(inputs: &[FpVar<F>; 8]) -> Result<[FpVar<F>; 4], SynthesisError> {
     let constants = RoundConstants::new_goldilocks_8_constants();
 
-    poseidon2_compress_8_to_4::<F, GoldilocksExternalLinearLayer<8>, GoldilocksInternalLinearLayer8>(
+    poseidon2_compress::<8, 4, F, GoldilocksExternalLinearLayer<8>, GoldilocksInternalLinearLayer8>(
         inputs, &constants,
     )
 }
 
-#[allow(unused)]
-pub fn compress_trace(inputs: &[F; 8]) -> Result<[F; 4], SynthesisError> {
+pub fn compress_12(inputs: &[FpVar<F>; 12]) -> Result<[FpVar<F>; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_12_constants();
+
+    poseidon2_compress::<12, 4, F, GoldilocksExternalLinearLayer<12>, GoldilocksInternalLinearLayer12>(
+        inputs, &constants,
+    )
+}
+
+pub fn sponge_8(inputs: &[FpVar<F>]) -> Result<[FpVar<F>; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_8_constants();
+
+    let state = poseidon2_sponge_absorb::<
+        F,
+        GoldilocksExternalLinearLayer<8>,
+        GoldilocksInternalLinearLayer8,
+        8,
+        4,
+        GOLDILOCKS_S_BOX_DEGREE,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+    >(inputs, &constants)?;
+
+    Ok(std::array::from_fn(|i| state[i].clone()))
+}
+
+pub fn sponge_12(inputs: &[FpVar<F>]) -> Result<[FpVar<F>; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_12_constants();
+
+    let state = poseidon2_sponge_absorb::<
+        F,
+        GoldilocksExternalLinearLayer<12>,
+        GoldilocksInternalLinearLayer12,
+        12,
+        8,
+        GOLDILOCKS_S_BOX_DEGREE,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+    >(inputs, &constants)?;
+
+    Ok(std::array::from_fn(|i| state[i].clone()))
+}
+
+fn compress_trace_generic<
+    const WIDTH: usize,
+    ExtLinear: crate::linear_layers::ExternalLinearLayer<F, WIDTH>,
+    IntLinear: crate::linear_layers::InternalLinearLayer<F, WIDTH>,
+>(
+    inputs: &[F; WIDTH],
+    constants: &RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+) -> Result<[F; 4], SynthesisError> {
     // TODO: obviously this is not a good way of implementing this, but the
     // implementation is currently not general enough to be used over both FpVar and
     // just plain field elements
@@ -39,15 +91,76 @@ pub fn compress_trace(inputs: &[F; 8]) -> Result<[F; 4], SynthesisError> {
         .map(|input| FpVar::new_witness(cs.clone(), || Ok(input)))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let constants = RoundConstants::new_goldilocks_8_constants();
-
-    let compressed = poseidon2_compress_8_to_4::<
-        F,
-        GoldilocksExternalLinearLayer<8>,
-        GoldilocksInternalLinearLayer8,
-    >(inputs[..].try_into().unwrap(), &constants)?;
+    let compressed = poseidon2_compress::<WIDTH, 4, F, ExtLinear, IntLinear>(
+        inputs[..].try_into().unwrap(),
+        &constants,
+    )?;
 
     Ok(std::array::from_fn(|i| compressed[i].value().unwrap()))
+}
+
+pub fn compress_8_trace(inputs: &[F; 8]) -> Result<[F; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_8_constants();
+    compress_trace_generic::<8, GoldilocksExternalLinearLayer<8>, GoldilocksInternalLinearLayer8>(
+        inputs, &constants,
+    )
+}
+
+pub fn compress_12_trace(inputs: &[F; 12]) -> Result<[F; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_12_constants();
+    compress_trace_generic::<12, GoldilocksExternalLinearLayer<12>, GoldilocksInternalLinearLayer12>(
+        inputs, &constants,
+    )
+}
+
+pub fn sponge_8_trace(inputs: &[F; 8]) -> Result<[F; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_8_constants();
+    sponge_trace_generic::<8, 4, GoldilocksExternalLinearLayer<8>, GoldilocksInternalLinearLayer8>(
+        inputs, &constants,
+    )
+}
+
+pub fn sponge_12_trace(inputs: &[F; 12]) -> Result<[F; 4], SynthesisError> {
+    let constants = RoundConstants::new_goldilocks_12_constants();
+    sponge_trace_generic::<12, 8, GoldilocksExternalLinearLayer<12>, GoldilocksInternalLinearLayer12>(
+        inputs, &constants,
+    )
+}
+
+fn sponge_trace_generic<
+    const WIDTH: usize,
+    const RATE: usize,
+    ExtLinear: crate::linear_layers::ExternalLinearLayer<F, WIDTH>,
+    IntLinear: crate::linear_layers::InternalLinearLayer<F, WIDTH>,
+>(
+    inputs: &[F; WIDTH],
+    constants: &RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
+) -> Result<[F; 4], SynthesisError> {
+    // TODO: obviously this is not a good way of implementing this, but the
+    // implementation is currently not general enough to be used over both FpVar and
+    // just plain field elements
+    //
+    // for now, we just create a throw-away constraint system and get the values
+    // from that computation
+    let cs = ConstraintSystem::<F>::new_ref();
+
+    let inputs = inputs
+        .iter()
+        .map(|input| FpVar::new_witness(cs.clone(), || Ok(input)))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let state = poseidon2_sponge_absorb::<
+        F,
+        ExtLinear,
+        IntLinear,
+        WIDTH,
+        RATE,
+        GOLDILOCKS_S_BOX_DEGREE,
+        HALF_FULL_ROUNDS,
+        PARTIAL_ROUNDS,
+    >(&inputs, constants)?;
+
+    Ok(std::array::from_fn(|i| state[i].value().unwrap()))
 }
 
 #[cfg(test)]

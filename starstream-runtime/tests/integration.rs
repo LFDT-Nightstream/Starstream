@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
-use starstream_mock_ledger::Ledger;
-use starstream_runtime::{HostCallDiscriminant, UnprovenTransaction};
+use starstream_mock_ledger::{EffectDiscriminant, Ledger};
+use starstream_runtime::UnprovenTransaction;
 use wat::parse_str;
 
 #[test]
@@ -55,13 +55,13 @@ module
     )
 )
 "#,
-        ACTIVATION = HostCallDiscriminant::Activation as u64,
-        GET_HANDLER_FOR = HostCallDiscriminant::GetHandlerFor as u64,
-        NEW_REF = HostCallDiscriminant::NewRef as u64,
-        REF_PUSH = HostCallDiscriminant::RefPush as u64,
-        RESUME = HostCallDiscriminant::Resume as u64,
-        YIELD = HostCallDiscriminant::Yield as u64,
-        PROGRAM_HASH = HostCallDiscriminant::ProgramHash as u64,
+        ACTIVATION = EffectDiscriminant::Activation as u64,
+        GET_HANDLER_FOR = EffectDiscriminant::GetHandlerFor as u64,
+        NEW_REF = EffectDiscriminant::NewRef as u64,
+        REF_PUSH = EffectDiscriminant::RefPush as u64,
+        RESUME = EffectDiscriminant::Resume as u64,
+        YIELD = EffectDiscriminant::Yield as u64,
+        PROGRAM_HASH = EffectDiscriminant::ProgramHash as u64,
     );
     let utxo_bin = parse_str(&utxo_wat).unwrap();
 
@@ -151,12 +151,12 @@ module
     )
 )
 "#,
-        INSTALL_HANDLER = HostCallDiscriminant::InstallHandler as u64,
-        NEW_REF = HostCallDiscriminant::NewRef as u64,
-        REF_PUSH = HostCallDiscriminant::RefPush as u64,
-        NEW_UTXO = HostCallDiscriminant::NewUtxo as u64,
-        RESUME = HostCallDiscriminant::Resume as u64,
-        UNINSTALL_HANDLER = HostCallDiscriminant::UninstallHandler as u64,
+        INSTALL_HANDLER = EffectDiscriminant::InstallHandler as u64,
+        NEW_REF = EffectDiscriminant::NewRef as u64,
+        REF_PUSH = EffectDiscriminant::RefPush as u64,
+        NEW_UTXO = EffectDiscriminant::NewUtxo as u64,
+        RESUME = EffectDiscriminant::Resume as u64,
+        UNINSTALL_HANDLER = EffectDiscriminant::UninstallHandler as u64,
     );
     let coord_bin = parse_str(&coord_wat).unwrap();
 

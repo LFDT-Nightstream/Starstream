@@ -1,5 +1,7 @@
 use crate::F;
-use ark_ff::PrimeField;
+use ark_ff::{PrimeField, UniformRand};
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 
 /// Degree of the chosen permutation polynomial for Goldilocks, used as the Poseidon2 S-Box.
 ///
@@ -148,6 +150,23 @@ impl RoundConstants<F, 8, 4, 22> {
                 .try_into()
                 .unwrap(),
             ending_full_round_constants: constants_to_ark_arrays(ending_full_round_constants),
+        }
+    }
+}
+
+impl RoundConstants<F, 12, 4, 22> {
+    pub fn new_goldilocks_12_constants() -> Self {
+        // TODO: hardcoded seed
+        let mut rng = ChaCha20Rng::seed_from_u64(77);
+
+        Self {
+            beginning_full_round_constants: std::array::from_fn(|_| {
+                std::array::from_fn(|_| F::rand(&mut rng))
+            }),
+            partial_round_constants: std::array::from_fn(|_| F::rand(&mut rng)),
+            ending_full_round_constants: std::array::from_fn(|_| {
+                std::array::from_fn(|_| F::rand(&mut rng))
+            }),
         }
     }
 }

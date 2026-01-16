@@ -11,7 +11,7 @@ use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
     ns,
 };
-use starstream_mock_ledger::InterleavingInstance;
+use starstream_mock_ledger::{EffectDiscriminant, InterleavingInstance};
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::ops::Not;
@@ -173,6 +173,7 @@ struct OpcodeConfig {
     handler_switches: HandlerSwitchboard,
     execution_switches: ExecutionSwitches<bool>,
     opcode_args: [F; OPCODE_ARG_COUNT],
+    opcode_discriminant: F,
 }
 
 #[derive(Clone)]
@@ -319,6 +320,7 @@ impl ExecutionSwitches<bool> {
     fn allocate_and_constrain(
         &self,
         cs: ConstraintSystemRef<F>,
+        opcode_discriminant: &FpVar<F>,
     ) -> Result<ExecutionSwitches<Boolean<F>>, SynthesisError> {
         let switches = [
             self.resume,
@@ -380,6 +382,34 @@ impl ExecutionSwitches<bool> {
         else {
             unreachable!()
         };
+
+        let terms = [
+            (resume, EffectDiscriminant::Resume as u64),
+            (yield_op, EffectDiscriminant::Yield as u64),
+            (burn, EffectDiscriminant::Burn as u64),
+            (program_hash, EffectDiscriminant::ProgramHash as u64),
+            (new_utxo, EffectDiscriminant::NewUtxo as u64),
+            (new_coord, EffectDiscriminant::NewCoord as u64),
+            (activation, EffectDiscriminant::Activation as u64),
+            (init, EffectDiscriminant::Init as u64),
+            (bind, EffectDiscriminant::Bind as u64),
+            (unbind, EffectDiscriminant::Unbind as u64),
+            (new_ref, EffectDiscriminant::NewRef as u64),
+            (ref_push, EffectDiscriminant::RefPush as u64),
+            (get, EffectDiscriminant::Get as u64),
+            (install_handler, EffectDiscriminant::InstallHandler as u64),
+            (
+                uninstall_handler,
+                EffectDiscriminant::UninstallHandler as u64,
+            ),
+            (get_handler_for, EffectDiscriminant::GetHandlerFor as u64),
+        ];
+
+        let expected_opcode = terms.iter().fold(FpVar::zero(), |acc, (switch, disc)| {
+            acc + FpVar::from((*switch).clone()) * F::from(*disc)
+        });
+
+        expected_opcode.enforce_equal(opcode_discriminant)?;
 
         Ok(ExecutionSwitches {
             resume: resume.clone(),
@@ -608,6 +638,7 @@ pub struct PreWires {
     switches: ExecutionSwitches<bool>,
 
     opcode_args: [F; OPCODE_ARG_COUNT],
+    opcode_discriminant: F,
 
     curr_mem_switches: MemSwitchboard,
     target_mem_switches: MemSwitchboard,
@@ -797,15 +828,19 @@ impl Wires {
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_building_remaining))?;
         let ref_building_ptr = FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_building_ptr))?;
 
-        // Allocate switches and enforce exactly one is true
-        let switches = vals.switches.allocate_and_constrain(cs.clone())?;
-
         let opcode_args_cs = ns!(cs.clone(), "opcode_args");
         let opcode_args_vec = (0..OPCODE_ARG_COUNT)
             .map(|i| FpVar::<F>::new_witness(opcode_args_cs.clone(), || Ok(vals.opcode_args[i])))
             .collect::<Result<Vec<_>, _>>()?;
         let opcode_args: [FpVar<F>; OPCODE_ARG_COUNT] =
             opcode_args_vec.try_into().expect("opcode args length");
+        let opcode_discriminant =
+            FpVar::<F>::new_witness(cs.clone(), || Ok(vals.opcode_discriminant))?;
+
+        // Allocate switches and enforce exactly one is true
+        let switches = vals
+            .switches
+            .allocate_and_constrain(cs.clone(), &opcode_discriminant)?;
 
         let target = opcode_args[ArgName::Target.idx()].clone();
         let val = opcode_args[ArgName::Val.idx()].clone();
@@ -993,7 +1028,15 @@ impl Wires {
         };
 
         // Read current trace commitment (4 field elements)
-        trace_ic_wires(id_curr.clone(), rm, &cs, &opcode_args)?;
+        let should_trace = switches.nop.clone().not();
+        trace_ic_wires(
+            id_curr.clone(),
+            rm,
+            &cs,
+            &should_trace,
+            &opcode_discriminant,
+            &opcode_args,
+        )?;
 
         Ok(Wires {
             id_curr,
@@ -1204,10 +1247,37 @@ impl LedgerOperation<crate::F> {
             handler_switches: HandlerSwitchboard::default(),
             execution_switches: ExecutionSwitches::default(),
             opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
+            opcode_discriminant: F::ZERO,
         };
 
         // All ops increment counter of the current process, except Nop
         config.mem_switches_curr.counters = !matches!(self, LedgerOperation::Nop {});
+
+        config.opcode_discriminant = match self {
+            LedgerOperation::Nop {} => F::ZERO,
+            LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
+            LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
+            LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
+            LedgerOperation::ProgramHash { .. } => F::from(EffectDiscriminant::ProgramHash as u64),
+            LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
+            LedgerOperation::NewCoord { .. } => F::from(EffectDiscriminant::NewCoord as u64),
+            LedgerOperation::Activation { .. } => F::from(EffectDiscriminant::Activation as u64),
+            LedgerOperation::Init { .. } => F::from(EffectDiscriminant::Init as u64),
+            LedgerOperation::Bind { .. } => F::from(EffectDiscriminant::Bind as u64),
+            LedgerOperation::Unbind { .. } => F::from(EffectDiscriminant::Unbind as u64),
+            LedgerOperation::NewRef { .. } => F::from(EffectDiscriminant::NewRef as u64),
+            LedgerOperation::RefPush { .. } => F::from(EffectDiscriminant::RefPush as u64),
+            LedgerOperation::Get { .. } => F::from(EffectDiscriminant::Get as u64),
+            LedgerOperation::InstallHandler { .. } => {
+                F::from(EffectDiscriminant::InstallHandler as u64)
+            }
+            LedgerOperation::UninstallHandler { .. } => {
+                F::from(EffectDiscriminant::UninstallHandler as u64)
+            }
+            LedgerOperation::GetHandlerFor { .. } => {
+                F::from(EffectDiscriminant::GetHandlerFor as u64)
+            }
+        };
 
         match self {
             LedgerOperation::Nop {} => {
@@ -2064,6 +2134,35 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             rom_switches.clone(),
             handler_switches.clone(),
             interface_index,
+            match instruction {
+                LedgerOperation::Nop {} => F::ZERO,
+                LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
+                LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
+                LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
+                LedgerOperation::ProgramHash { .. } => {
+                    F::from(EffectDiscriminant::ProgramHash as u64)
+                }
+                LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
+                LedgerOperation::NewCoord { .. } => F::from(EffectDiscriminant::NewCoord as u64),
+                LedgerOperation::Activation { .. } => {
+                    F::from(EffectDiscriminant::Activation as u64)
+                }
+                LedgerOperation::Init { .. } => F::from(EffectDiscriminant::Init as u64),
+                LedgerOperation::Bind { .. } => F::from(EffectDiscriminant::Bind as u64),
+                LedgerOperation::Unbind { .. } => F::from(EffectDiscriminant::Unbind as u64),
+                LedgerOperation::NewRef { .. } => F::from(EffectDiscriminant::NewRef as u64),
+                LedgerOperation::RefPush { .. } => F::from(EffectDiscriminant::RefPush as u64),
+                LedgerOperation::Get { .. } => F::from(EffectDiscriminant::Get as u64),
+                LedgerOperation::InstallHandler { .. } => {
+                    F::from(EffectDiscriminant::InstallHandler as u64)
+                }
+                LedgerOperation::UninstallHandler { .. } => {
+                    F::from(EffectDiscriminant::UninstallHandler as u64)
+                }
+                LedgerOperation::GetHandlerFor { .. } => {
+                    F::from(EffectDiscriminant::GetHandlerFor as u64)
+                }
+            },
         );
 
         match instruction {
@@ -2854,6 +2953,7 @@ impl PreWires {
         rom_switches: RomSwitchboard,
         handler_switches: HandlerSwitchboard,
         interface_index: F,
+        opcode_discriminant: F,
     ) -> Self {
         Self {
             switches: ExecutionSwitches::default(),
@@ -2861,6 +2961,7 @@ impl PreWires {
             interface_index,
             ret_is_some: false,
             opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
+            opcode_discriminant,
             curr_mem_switches,
             target_mem_switches,
             rom_switches,
@@ -2965,7 +3066,11 @@ impl ProgramState {
 }
 
 fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig) {
-    let mut concat_data = [F::ZERO; 8];
+    if config.execution_switches.nop {
+        return;
+    }
+
+    let mut concat_data = [F::ZERO; 12];
 
     for i in 0..4 {
         let addr = (curr_pid * 4) + i;
@@ -2977,11 +3082,14 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
                 addr: addr as u64,
             },
         )[0];
-
-        concat_data[i + 4] = config.opcode_args[i];
     }
 
-    let new_commitment = ark_poseidon2::compress_trace(&concat_data).unwrap();
+    concat_data[4] = config.opcode_discriminant;
+    for i in 0..4 {
+        concat_data[i + 5] = config.opcode_args[i];
+    }
+
+    let new_commitment = ark_poseidon2::compress_12_trace(&concat_data).unwrap();
 
     for i in 0..4 {
         let addr = (curr_pid * 4) + i;
@@ -3001,6 +3109,8 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
     id_curr: FpVar<F>,
     rm: &mut M,
     cs: &ConstraintSystemRef<F>,
+    should_trace: &Boolean<F>,
+    opcode_discriminant: &FpVar<F>,
     opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
 ) -> Result<(), SynthesisError> {
     let mut current_commitment = vec![];
@@ -3017,7 +3127,7 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
 
         addresses.push(address.clone());
 
-        let rv = rm.conditional_read(&Boolean::TRUE, &address)?[0].clone();
+        let rv = rm.conditional_read(should_trace, &address)?[0].clone();
         current_commitment.push(rv);
     }
 
@@ -3026,16 +3136,20 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         current_commitment[1].clone(),
         current_commitment[2].clone(),
         current_commitment[3].clone(),
+        opcode_discriminant.clone(),
         opcode_args[0].clone(),
         opcode_args[1].clone(),
         opcode_args[2].clone(),
         opcode_args[3].clone(),
+        FpVar::new_witness(cs.clone(), || Ok(F::from(0)))?,
+        FpVar::new_witness(cs.clone(), || Ok(F::from(0)))?,
+        FpVar::new_witness(cs.clone(), || Ok(F::from(0)))?,
     ];
 
-    let new_commitment = ark_poseidon2::compress(&compress_input)?;
+    let new_commitment = ark_poseidon2::compress_12(&compress_input)?;
 
     for i in 0..4 {
-        rm.conditional_write(&Boolean::TRUE, &addresses[i], &[new_commitment[i].clone()])?;
+        rm.conditional_write(should_trace, &addresses[i], &[new_commitment[i].clone()])?;
     }
 
     Ok(())
