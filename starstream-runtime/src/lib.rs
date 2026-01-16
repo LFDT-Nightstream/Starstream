@@ -1,7 +1,8 @@
 use sha2::{Digest, Sha256};
+use starstream_ivc_proto::commit;
 use starstream_mock_ledger::{
     CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
-    InterleavingWitness, MockedLookupTableCommitment, NewOutput, OutputRef, ProcessId,
+    InterleavingWitness, LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId,
     ProvenTransaction, Ref, UtxoId, Value, WasmModule, WitEffectOutput, WitLedgerEffect,
     builder::TransactionBuilder,
 };
@@ -486,6 +487,7 @@ impl UnprovenTransaction {
         for i in 0..n_inputs {
             let trace = traces[i].clone();
             let utxo_id = self.inputs[i].clone();
+            let host_calls_root = instance.host_calls_roots[i].clone();
 
             let continuation = if instance.must_burn[i] {
                 None
@@ -494,7 +496,12 @@ impl UnprovenTransaction {
                 Some(CoroutineState { pc: 0, last_yield })
             };
 
-            builder = builder.with_input(utxo_id, continuation, trace);
+            builder = builder.with_input_and_trace_commitment(
+                utxo_id,
+                continuation,
+                trace,
+                host_calls_root,
+            );
         }
 
         // New Outputs
@@ -502,13 +509,15 @@ impl UnprovenTransaction {
             let trace = traces[i].clone();
             let last_yield = self.get_last_yield(i, &state)?;
             let contract_hash = state.process_hashes[&ProcessId(i)].clone();
+            let host_calls_root = instance.host_calls_roots[i].clone();
 
-            builder = builder.with_fresh_output(
+            builder = builder.with_fresh_output_and_trace_commitment(
                 NewOutput {
                     state: CoroutineState { pc: 0, last_yield },
                     contract_hash,
                 },
                 trace,
+                host_calls_root,
             );
         }
 
@@ -516,7 +525,12 @@ impl UnprovenTransaction {
         for i in (n_inputs + instance.n_new)..(n_inputs + instance.n_new + instance.n_coords) {
             let trace = traces[i].clone();
             let contract_hash = state.process_hashes[&ProcessId(i)].clone();
-            builder = builder.with_coord_script(contract_hash, trace);
+            let host_calls_root = instance.host_calls_roots[i].clone();
+            builder = builder.with_coord_script_and_trace_commitment(
+                contract_hash,
+                trace,
+                host_calls_root,
+            );
         }
 
         // Ownership
@@ -783,8 +797,11 @@ impl UnprovenTransaction {
                 .cloned()
                 .unwrap_or_default();
             host_calls_lens.push(trace.len() as u32);
-            // mocked commitment
-            host_calls_roots.push(MockedLookupTableCommitment(0));
+            let mut commitment = LedgerEffectsCommitment::zero();
+            for op in &trace {
+                commitment = commit(commitment, op.clone());
+            }
+            host_calls_roots.push(commitment);
             traces.push(trace);
 
             if pid < n_inputs {

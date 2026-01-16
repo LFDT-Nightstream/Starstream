@@ -3,6 +3,7 @@ mod circuit;
 mod circuit_test;
 // #[cfg(test)]
 // mod e2e;
+mod abi;
 mod logging;
 mod memory;
 mod neo;
@@ -12,6 +13,7 @@ pub use crate::circuit::OptionalF;
 use crate::memory::IVCMemory;
 use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{StarstreamVm, StepCircuitNeo};
+use abi::ledger_operation_from_wit;
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
 use circuit::StepCircuitBuilder;
 pub use memory::nebula;
@@ -31,6 +33,8 @@ use std::time::Instant;
 pub type F = ark_goldilocks::FpGoldilocks;
 
 pub type ProgramId = F;
+
+pub use abi::commit;
 
 #[derive(Debug, Clone)]
 pub enum LedgerOperation<F> {
@@ -156,6 +160,8 @@ pub fn prove(
 ) -> Result<ZkTransactionProof, SynthesisError> {
     logging::setup_logger();
 
+    let output_binding_config = inst.output_binding_config();
+
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
     let ops = make_interleaved_trace(&inst, &wit);
@@ -210,10 +216,14 @@ pub fn prove(
         .expect("execute_into_session should succeed");
 
     let t_prove = Instant::now();
-    let run = session.fold_and_prove(prover.ccs()).unwrap();
+    let run = session
+        .fold_and_prove_with_output_binding_auto_simple(prover.ccs(), &output_binding_config)
+        .unwrap();
     tracing::info!("proof generated in {} ms", t_prove.elapsed().as_millis());
 
-    let status = session.verify_collected(prover.ccs(), &run).unwrap();
+    let status = session
+        .verify_with_output_binding_collected_simple(prover.ccs(), &run, &output_binding_config)
+        .unwrap();
 
     assert!(status, "optimized verification should pass");
 
@@ -263,143 +273,32 @@ fn make_interleaved_trace(
         let instr = trace[*c].clone();
         *c += 1;
 
-        let op = match instr {
-            starstream_mock_ledger::WitLedgerEffect::Resume {
-                target,
-                val,
-                ret,
-                id_prev: op_id_prev,
-            } => {
+        match instr {
+            starstream_mock_ledger::WitLedgerEffect::Resume { target, .. } => {
                 id_prev = Some(id_curr);
                 id_curr = target.0;
-
-                LedgerOperation::Resume {
-                    target: (target.0 as u64).into(),
-                    // TODO: figure out how to manage these
-                    // maybe for now just assume that these are short/fixed size
-                    val: F::from(val.0),
-                    ret: F::from(ret.unwrap().0),
-                    id_prev: OptionalF::from_option(
-                        op_id_prev.unwrap().map(|p| (p.0 as u64).into()),
-                    ),
-                }
             }
-            starstream_mock_ledger::WitLedgerEffect::Yield {
-                val,
-                ret,
-                id_prev: op_id_prev,
-            } => {
+            starstream_mock_ledger::WitLedgerEffect::Yield { .. } => {
                 let parent = id_prev.expect("Yield called without a parent process");
                 let old_id_curr = id_curr;
                 id_curr = parent;
                 id_prev = Some(old_id_curr);
-
-                LedgerOperation::Yield {
-                    val: F::from(val.0),
-                    ret: ret.to_option().map(|ret| F::from(ret.0)),
-                    id_prev: OptionalF::from_option(
-                        op_id_prev.unwrap().map(|p| (p.0 as u64).into()),
-                    ),
-                }
             }
-            starstream_mock_ledger::WitLedgerEffect::Burn { ret } => {
+            starstream_mock_ledger::WitLedgerEffect::Burn { .. } => {
                 let parent = id_prev.expect("Burn called without a parent process");
                 let old_id_curr = id_curr;
                 id_curr = parent;
                 id_prev = Some(old_id_curr);
+            }
+            _ => {}
+        }
 
-                LedgerOperation::Burn {
-                    ret: F::from(ret.unwrap().0),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::NewUtxo {
-                program_hash,
-                val,
-                id,
-            } => LedgerOperation::NewUtxo {
-                program_hash: F::from(program_hash.0[0] as u64),
-                val: F::from(val.0),
-                target: (id.unwrap().0 as u64).into(),
-            },
-            starstream_mock_ledger::WitLedgerEffect::NewCoord {
-                program_hash,
-                val,
-                id,
-            } => LedgerOperation::NewCoord {
-                program_hash: F::from(program_hash.0[0] as u64),
-                val: F::from(val.0),
-                target: (id.unwrap().0 as u64).into(),
-            },
-            starstream_mock_ledger::WitLedgerEffect::Activation { val, caller } => {
-                LedgerOperation::Activation {
-                    val: F::from(val.0),
-                    caller: (caller.unwrap().0 as u64).into(),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::Init { val, caller } => {
-                LedgerOperation::Init {
-                    val: F::from(val.0),
-                    caller: (caller.unwrap().0 as u64).into(),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::Bind { owner_id } => LedgerOperation::Bind {
-                owner_id: (owner_id.0 as u64).into(),
-            },
-            starstream_mock_ledger::WitLedgerEffect::Unbind { token_id } => {
-                LedgerOperation::Unbind {
-                    token_id: (token_id.0 as u64).into(),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::NewRef { size, ret } => {
-                LedgerOperation::NewRef {
-                    size: F::from(size as u64),
-                    ret: F::from(ret.unwrap().0),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::RefPush { val } => LedgerOperation::RefPush {
-                val: value_to_field(val),
-            },
-            starstream_mock_ledger::WitLedgerEffect::Get { reff, offset, ret } => {
-                LedgerOperation::Get {
-                    reff: F::from(reff.0),
-                    offset: F::from(offset as u64),
-                    ret: value_to_field(ret.unwrap()),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::ProgramHash {
-                target,
-                program_hash,
-            } => LedgerOperation::ProgramHash {
-                target: (target.0 as u64).into(),
-                program_hash: F::from(program_hash.unwrap().0[0]),
-            },
-            starstream_mock_ledger::WitLedgerEffect::InstallHandler { interface_id } => {
-                LedgerOperation::InstallHandler {
-                    interface_id: F::from(interface_id.0[0]),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::UninstallHandler { interface_id } => {
-                LedgerOperation::UninstallHandler {
-                    interface_id: F::from(interface_id.0[0]),
-                }
-            }
-            starstream_mock_ledger::WitLedgerEffect::GetHandlerFor {
-                interface_id,
-                handler_id,
-            } => LedgerOperation::GetHandlerFor {
-                interface_id: F::from(interface_id.0[0]),
-                handler_id: (handler_id.unwrap().0 as u64).into(),
-            },
-        };
+        let op = ledger_operation_from_wit(&instr);
 
         ops.push(op);
     }
 
     ops
-}
-
-fn value_to_field(val: starstream_mock_ledger::Value) -> F {
-    F::from(val.0)
 }
 
 fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts), SynthesisError> {

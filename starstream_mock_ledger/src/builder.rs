@@ -63,33 +63,66 @@ impl TransactionBuilder {
     }
 
     pub fn with_input(
-        mut self,
+        self,
         utxo: UtxoId,
         continuation: Option<CoroutineState>,
         trace: Vec<WitLedgerEffect>,
     ) -> Self {
+        self.with_input_and_trace_commitment(
+            utxo,
+            continuation,
+            trace,
+            LedgerEffectsCommitment::zero(),
+        )
+    }
+
+    pub fn with_input_and_trace_commitment(
+        mut self,
+        utxo: UtxoId,
+        continuation: Option<CoroutineState>,
+        trace: Vec<WitLedgerEffect>,
+        host_calls_root: LedgerEffectsCommitment,
+    ) -> Self {
         self.body.inputs.push(utxo);
         self.body.continuations.push(continuation);
         self.spending_proofs.push(ZkWasmProof {
-            host_calls_root: MockedLookupTableCommitment(0),
+            host_calls_root,
             trace,
         });
         self
     }
 
-    pub fn with_fresh_output(mut self, output: NewOutput, trace: Vec<WitLedgerEffect>) -> Self {
+    pub fn with_fresh_output(self, output: NewOutput, trace: Vec<WitLedgerEffect>) -> Self {
+        self.with_fresh_output_and_trace_commitment(output, trace, LedgerEffectsCommitment::zero())
+    }
+
+    pub fn with_fresh_output_and_trace_commitment(
+        mut self,
+        output: NewOutput,
+        trace: Vec<WitLedgerEffect>,
+        host_calls_root: LedgerEffectsCommitment,
+    ) -> Self {
         self.body.new_outputs.push(output);
         self.new_output_proofs.push(ZkWasmProof {
-            host_calls_root: MockedLookupTableCommitment(0),
+            host_calls_root,
             trace,
         });
         self
     }
 
-    pub fn with_coord_script(mut self, key: Hash<WasmModule>, trace: Vec<WitLedgerEffect>) -> Self {
+    pub fn with_coord_script(self, key: Hash<WasmModule>, trace: Vec<WitLedgerEffect>) -> Self {
+        self.with_coord_script_and_trace_commitment(key, trace, LedgerEffectsCommitment::zero())
+    }
+
+    pub fn with_coord_script_and_trace_commitment(
+        mut self,
+        key: Hash<WasmModule>,
+        trace: Vec<WitLedgerEffect>,
+        host_calls_root: LedgerEffectsCommitment,
+    ) -> Self {
         self.body.coordination_scripts_keys.push(key);
         self.coordination_scripts.push(ZkWasmProof {
-            host_calls_root: MockedLookupTableCommitment(0),
+            host_calls_root,
             trace,
         });
         self
