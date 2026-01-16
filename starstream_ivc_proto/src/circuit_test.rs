@@ -1,7 +1,7 @@
 use crate::{logging::setup_logger, prove};
 use starstream_mock_ledger::{
     Hash, InterleavingInstance, InterleavingWitness, MockedLookupTableCommitment, ProcessId, Ref,
-    Value, WitLedgerEffect,
+    Value, WitEffectOutput, WitLedgerEffect,
 };
 
 pub fn h<T>(n: u8) -> Hash<T> {
@@ -41,81 +41,81 @@ fn test_circuit_many_steps() {
     let utxo_trace = vec![
         WitLedgerEffect::Init {
             val: ref_4,
-            caller: p2,
+            caller: p2.into(),
         },
         WitLedgerEffect::Get {
             reff: ref_4,
             offset: 0,
-            ret: val_4.clone(),
+            ret: val_4.clone().into(),
         },
         WitLedgerEffect::Activation {
             val: ref_0,
-            caller: p2,
+            caller: p2.into(),
         },
         WitLedgerEffect::GetHandlerFor {
             interface_id: h(100),
-            handler_id: p2,
+            handler_id: p2.into(),
         },
         WitLedgerEffect::Yield {
-            val: ref_1.clone(), // Yielding nothing
-            ret: None,          // Not expecting to be resumed again
-            id_prev: Some(p2),
+            val: ref_1.clone(),          // Yielding nothing
+            ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
+            id_prev: Some(p2).into(),
         },
     ];
 
     let token_trace = vec![
         WitLedgerEffect::Init {
             val: ref_1,
-            caller: p2,
+            caller: p2.into(),
         },
         WitLedgerEffect::Get {
             reff: ref_1,
             offset: 0,
-            ret: val_1.clone(),
+            ret: val_1.clone().into(),
         },
         WitLedgerEffect::Activation {
             val: ref_0,
-            caller: p2,
+            caller: p2.into(),
         },
         WitLedgerEffect::Bind { owner_id: p0 },
         WitLedgerEffect::Yield {
-            val: ref_1.clone(), // Yielding nothing
-            ret: None,          // Not expecting to be resumed again
-            id_prev: Some(p2),
+            val: ref_1.clone(),          // Yielding nothing
+            ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
+            id_prev: Some(p2).into(),
         },
     ];
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
             size: 1,
-            ret: ref_0,
+            ret: ref_0.into(),
         },
         WitLedgerEffect::RefPush { val: val_0 },
         WitLedgerEffect::NewRef {
             size: 1,
-            ret: ref_1,
+            ret: ref_1.into(),
         },
         WitLedgerEffect::RefPush { val: val_1.clone() },
         WitLedgerEffect::NewRef {
             size: 1,
-            ret: ref_4,
+            ret: ref_4.into(),
         },
         WitLedgerEffect::RefPush { val: val_4.clone() },
         WitLedgerEffect::NewUtxo {
             program_hash: h(0),
             val: ref_4,
-            id: p0,
+            id: p0.into(),
         },
         WitLedgerEffect::NewUtxo {
             program_hash: h(1),
             val: ref_1,
-            id: p1,
+            id: p1.into(),
         },
         WitLedgerEffect::Resume {
             target: p1,
             val: ref_0.clone(),
-            ret: ref_1.clone(),
-            id_prev: None,
+            ret: ref_1.clone().into(),
+            id_prev: None.into(),
         },
         WitLedgerEffect::InstallHandler {
             interface_id: h(100),
@@ -123,8 +123,8 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::Resume {
             target: p0,
             val: ref_0,
-            ret: ref_1,
-            id_prev: Some(p1),
+            ret: ref_1.into(),
+            id_prev: Some(p1).into(),
         },
         WitLedgerEffect::UninstallHandler {
             interface_id: h(100),
@@ -171,27 +171,27 @@ fn test_circuit_small() {
     let ref_0 = Ref(0);
 
     let utxo_trace = vec![WitLedgerEffect::Yield {
-        val: ref_0.clone(), // Yielding nothing
-        ret: None,          // Not expecting to be resumed again
-        id_prev: Some(p1),
+        val: ref_0.clone(),          // Yielding nothing
+        ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
+        id_prev: Some(p1).into(),    // This should be None actually?
     }];
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
             size: 1,
-            ret: ref_0,
+            ret: ref_0.into(),
         },
         WitLedgerEffect::RefPush { val: val_0 },
         WitLedgerEffect::NewUtxo {
             program_hash: h(0),
             val: ref_0,
-            id: p0,
+            id: p0.into(),
         },
         WitLedgerEffect::Resume {
             target: p0,
             val: ref_0.clone(),
-            ret: ref_0.clone(),
-            id_prev: None,
+            ret: ref_0.clone().into(),
+            id_prev: None.into(),
         },
     ];
 

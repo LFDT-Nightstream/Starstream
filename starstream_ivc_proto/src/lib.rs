@@ -278,8 +278,10 @@ fn make_interleaved_trace(
                     // TODO: figure out how to manage these
                     // maybe for now just assume that these are short/fixed size
                     val: F::from(val.0),
-                    ret: F::from(ret.0),
-                    id_prev: OptionalF::from_option(op_id_prev.map(|p| (p.0 as u64).into())),
+                    ret: F::from(ret.unwrap().0),
+                    id_prev: OptionalF::from_option(
+                        op_id_prev.unwrap().map(|p| (p.0 as u64).into()),
+                    ),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Yield {
@@ -294,8 +296,10 @@ fn make_interleaved_trace(
 
                 LedgerOperation::Yield {
                     val: F::from(val.0),
-                    ret: ret.map(|ret| F::from(ret.0)),
-                    id_prev: OptionalF::from_option(op_id_prev.map(|p| (p.0 as u64).into())),
+                    ret: ret.to_option().map(|ret| F::from(ret.0)),
+                    id_prev: OptionalF::from_option(
+                        op_id_prev.unwrap().map(|p| (p.0 as u64).into()),
+                    ),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Burn { ret } => {
@@ -305,7 +309,7 @@ fn make_interleaved_trace(
                 id_prev = Some(old_id_curr);
 
                 LedgerOperation::Burn {
-                    ret: F::from(ret.0),
+                    ret: F::from(ret.unwrap().0),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::NewUtxo {
@@ -315,7 +319,7 @@ fn make_interleaved_trace(
             } => LedgerOperation::NewUtxo {
                 program_hash: F::from(program_hash.0[0] as u64),
                 val: F::from(val.0),
-                target: (id.0 as u64).into(),
+                target: (id.unwrap().0 as u64).into(),
             },
             starstream_mock_ledger::WitLedgerEffect::NewCoord {
                 program_hash,
@@ -324,18 +328,18 @@ fn make_interleaved_trace(
             } => LedgerOperation::NewCoord {
                 program_hash: F::from(program_hash.0[0] as u64),
                 val: F::from(val.0),
-                target: (id.0 as u64).into(),
+                target: (id.unwrap().0 as u64).into(),
             },
             starstream_mock_ledger::WitLedgerEffect::Activation { val, caller } => {
                 LedgerOperation::Activation {
                     val: F::from(val.0),
-                    caller: (caller.0 as u64).into(),
+                    caller: (caller.unwrap().0 as u64).into(),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Init { val, caller } => {
                 LedgerOperation::Init {
                     val: F::from(val.0),
-                    caller: (caller.0 as u64).into(),
+                    caller: (caller.unwrap().0 as u64).into(),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::Bind { owner_id } => LedgerOperation::Bind {
@@ -349,7 +353,7 @@ fn make_interleaved_trace(
             starstream_mock_ledger::WitLedgerEffect::NewRef { size, ret } => {
                 LedgerOperation::NewRef {
                     size: F::from(size as u64),
-                    ret: F::from(ret.0),
+                    ret: F::from(ret.unwrap().0),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::RefPush { val } => LedgerOperation::RefPush {
@@ -359,7 +363,7 @@ fn make_interleaved_trace(
                 LedgerOperation::Get {
                     reff: F::from(reff.0),
                     offset: F::from(offset as u64),
-                    ret: value_to_field(ret),
+                    ret: value_to_field(ret.unwrap()),
                 }
             }
             starstream_mock_ledger::WitLedgerEffect::ProgramHash {
@@ -367,7 +371,7 @@ fn make_interleaved_trace(
                 program_hash,
             } => LedgerOperation::ProgramHash {
                 target: (target.0 as u64).into(),
-                program_hash: F::from(program_hash.0[0]),
+                program_hash: F::from(program_hash.unwrap().0[0]),
             },
             starstream_mock_ledger::WitLedgerEffect::InstallHandler { interface_id } => {
                 LedgerOperation::InstallHandler {
@@ -384,7 +388,7 @@ fn make_interleaved_trace(
                 handler_id,
             } => LedgerOperation::GetHandlerFor {
                 interface_id: F::from(interface_id.0[0]),
-                handler_id: (handler_id.0 as u64).into(),
+                handler_id: (handler_id.unwrap().0 as u64).into(),
             },
         };
 
