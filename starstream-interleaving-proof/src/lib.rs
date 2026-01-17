@@ -1,9 +1,7 @@
+mod abi;
 mod circuit;
 #[cfg(test)]
 mod circuit_test;
-// #[cfg(test)]
-// mod e2e;
-mod abi;
 mod logging;
 mod memory;
 mod neo;
