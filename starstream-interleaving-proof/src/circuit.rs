@@ -1,6 +1,6 @@
+use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
 use crate::memory::twist_and_shout::Lanes;
 use crate::memory::{self, Address, IVCMemory, MemType};
-use crate::{ArgName, OPCODE_ARG_COUNT, abi};
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::fields::FieldVar;
@@ -611,7 +611,7 @@ pub struct Wires {
     is_utxo_curr: FpVar<F>,
     is_utxo_target: FpVar<F>,
     must_burn_curr: FpVar<F>,
-    rom_program_hash: FpVar<F>,
+    rom_program_hash: [FpVar<F>; 4],
 
     constant_false: Boolean<F>,
     constant_true: Boolean<F>,
@@ -912,14 +912,24 @@ impl Wires {
         )?[0]
             .clone();
 
-        let rom_program_hash = rm.conditional_read(
-            &rom_switches.read_program_hash_target,
-            &Address {
-                addr: target_address.clone(),
-                tag: MemoryTag::ProcessTable.allocate(cs.clone())?,
-            },
-        )?[0]
-            .clone();
+        let mut rom_program_hash_vec = Vec::with_capacity(4);
+        let process_table_stride = FpVar::new_constant(cs.clone(), F::from(4))?;
+        for i in 0..4 {
+            let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
+            let addr = &target_address * &process_table_stride + offset;
+            let value = rm.conditional_read(
+                &rom_switches.read_program_hash_target,
+                &Address {
+                    addr,
+                    tag: MemoryTag::ProcessTable.allocate(cs.clone())?,
+                },
+            )?[0]
+                .clone();
+            rom_program_hash_vec.push(value);
+        }
+        let rom_program_hash: [FpVar<F>; 4] = rom_program_hash_vec
+            .try_into()
+            .expect("rom program hash length");
 
         // addr = ref + offset
         let get_addr = &val + &offset;
@@ -1027,7 +1037,6 @@ impl Wires {
             interface_rom_read: interface_rom_read.clone(),
         };
 
-        // Read current trace commitment (4 field elements)
         let should_trace = switches.nop.clone().not();
         trace_ic_wires(
             id_curr.clone(),
@@ -1547,14 +1556,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             register_memory_segments(&mut mb);
 
             for (pid, mod_hash) in self.instance.process_table.iter().enumerate() {
-                mb.init(
-                    Address {
-                        addr: pid as u64,
-                        tag: MemoryTag::ProcessTable.into(),
-                    },
-                    // TODO: use a proper conversion from hash to val, this is just a placeholder
-                    vec![F::from(mod_hash.0[0] as u64)],
-                );
+                let hash_fields = abi::encode_hash_as_fields(*mod_hash);
+                for (lane, field) in hash_fields.iter().enumerate() {
+                    let addr = (pid * 4) + lane;
+                    mb.init(
+                        Address {
+                            addr: addr as u64,
+                            tag: MemoryTag::ProcessTable.into(),
+                        },
+                        vec![*field],
+                    );
+                }
 
                 mb.init(
                     Address {
@@ -1747,13 +1759,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     tag: MemoryTag::MustBurn.into(),
                 },
             );
-            mb.conditional_read(
-                rom_switches.read_program_hash_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: MemoryTag::ProcessTable.into(),
-                },
-            );
+            let target_pid_value = target_pid.unwrap_or(0);
+            for lane in 0..4 {
+                let addr = (target_pid_value * 4) + lane;
+                mb.conditional_read(
+                    rom_switches.read_program_hash_target,
+                    Address {
+                        addr: addr as u64,
+                        tag: MemoryTag::ProcessTable.into(),
+                    },
+                );
+            }
 
             let (curr_write, target_write) =
                 instr.program_state_transitions(curr_read, target_read);
@@ -1767,12 +1783,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &curr_write,
                 &curr_switches,
             );
-            trace_program_state_writes(
-                &mut mb,
-                target_pid.unwrap_or(0),
-                &target_write,
-                &target_switches,
-            );
+            trace_program_state_writes(&mut mb, target_pid_value, &target_write, &target_switches);
 
             // update pids for next iteration
             match instr {
@@ -2289,9 +2300,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         target_is_utxo.conditional_enforce_equal(&wires.switches.new_utxo, &switch)?;
 
         // 3. Program hash check
-        wires
-            .rom_program_hash
-            .conditional_enforce_equal(&wires.arg(ArgName::ProgramHash), &switch)?;
+        let program_hash_args = [
+            ArgName::ProgramHash0,
+            ArgName::ProgramHash1,
+            ArgName::ProgramHash2,
+            ArgName::ProgramHash3,
+        ];
+        for (i, arg) in program_hash_args.iter().enumerate() {
+            wires.rom_program_hash[i].conditional_enforce_equal(&wires.arg(*arg), &switch)?;
+        }
 
         // 4. Target counter must be 0.
         wires
@@ -2477,9 +2494,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_program_hash(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.program_hash;
 
-        wires
-            .arg(ArgName::ProgramHash)
-            .conditional_enforce_equal(&wires.rom_program_hash, switch)?;
+        let program_hash_args = [
+            ArgName::ProgramHash0,
+            ArgName::ProgramHash1,
+            ArgName::ProgramHash2,
+            ArgName::ProgramHash3,
+        ];
+        for (i, arg) in program_hash_args.iter().enumerate() {
+            wires
+                .arg(*arg)
+                .conditional_enforce_equal(&wires.rom_program_hash[i], switch)?;
+        }
 
         Ok(wires)
     }
@@ -2566,10 +2591,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 }
 
 fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
-    mb.register_mem(
+    mb.register_mem_with_lanes(
         MemoryTag::ProcessTable.into(),
         1,
         MemType::Rom,
+        Lanes(4),
         "ROM_PROCESS_TABLE",
     );
     mb.register_mem(MemoryTag::MustBurn.into(), 1, MemType::Rom, "ROM_MUST_BURN");
@@ -2843,7 +2869,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
     }
 
     concat_data[4] = config.opcode_discriminant;
-    for i in 0..4 {
+    for i in 0..OPCODE_ARG_COUNT {
         concat_data[i + 5] = config.opcode_args[i];
     }
 
@@ -2899,9 +2925,9 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         opcode_args[1].clone(),
         opcode_args[2].clone(),
         opcode_args[3].clone(),
-        FpVar::new_witness(cs.clone(), || Ok(F::from(0)))?,
-        FpVar::new_witness(cs.clone(), || Ok(F::from(0)))?,
-        FpVar::new_witness(cs.clone(), || Ok(F::from(0)))?,
+        opcode_args[4].clone(),
+        opcode_args[5].clone(),
+        opcode_args[6].clone(),
     ];
 
     let new_commitment = ark_poseidon2::compress_12(&compress_input)?;

@@ -49,6 +49,15 @@ impl Value {
     }
 }
 
+fn encode_hash_to_fields<T>(hash: Hash<T>) -> [neo_math::F; 4] {
+    let mut out = [neo_math::F::from_u64(0); 4];
+    for (i, chunk) in hash.0.chunks_exact(8).take(4).enumerate() {
+        let bytes: [u8; 8] = chunk.try_into().expect("hash chunk size");
+        out[i] = neo_math::F::from_u64(u64::from_le_bytes(bytes));
+    }
+    out
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Ref(pub u64);
 
@@ -114,15 +123,18 @@ impl ZkTransactionProof {
 
                 // NOTE: the indices in steps_public match the memory initializations
                 // ordered by MemoryTag in the circuit
+                let process_table = &steps_public[0].lut_insts[0].table;
+                let mut expected_fields = Vec::with_capacity(inst.process_table.len() * 4);
+                for hash in &inst.process_table {
+                    let hash_fields = encode_hash_to_fields(*hash);
+                    expected_fields.extend(hash_fields.iter().copied());
+                }
                 assert!(
-                    inst.process_table
-                        .iter()
-                        .zip(steps_public[0].lut_insts[0].table.iter())
-                        // TODO: the table should actually contain the full hash, this needs to be updated in the circuit first though
-                        .all(
-                            |(expected, found)| neo_math::F::from_u64(expected.0[0].into())
-                                == *found
-                        ),
+                    expected_fields.len() == process_table.len()
+                        && expected_fields
+                            .iter()
+                            .zip(process_table.iter())
+                            .all(|(expected, found)| *expected == *found),
                     "program hash table mismatch"
                 );
 
