@@ -85,6 +85,8 @@ impl<F: PrimeField> IVCMemory<F> for DummyMemory<F> {
         }
     }
 
+    fn finish_step(&mut self) {}
+
     fn required_steps(&self) -> usize {
         0
     }
