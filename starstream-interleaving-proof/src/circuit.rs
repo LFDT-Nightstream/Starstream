@@ -1,5 +1,4 @@
 use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
-use crate::memory::twist_and_shout::Lanes;
 use crate::memory::{self, Address, IVCMemory, MemType};
 use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
@@ -1704,6 +1703,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             self.instance.entrypoint.0 as u64,
         );
 
+        let mut ref_building_id = F::ZERO;
+        let mut ref_building_offset = F::ZERO;
+
         for instr in &self.ops {
             let config = instr.get_config();
 
@@ -1719,6 +1721,134 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             self.rom_switches.push(rom_switches.clone());
             self.handler_switches.push(handler_switches.clone());
+
+            // Get interface index for handler operations
+            let interface_index = match instr {
+                LedgerOperation::InstallHandler { interface_id } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
+                LedgerOperation::UninstallHandler { interface_id } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
+                LedgerOperation::GetHandlerFor { interface_id, .. } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
+                _ => F::ZERO,
+            };
+
+            mb.conditional_read(
+                handler_switches.read_interface,
+                Address {
+                    tag: MemoryTag::Interfaces.into(),
+                    addr: interface_index.into_bigint().0[0],
+                },
+            );
+
+            let current_head = mb.conditional_read(
+                handler_switches.read_head,
+                Address {
+                    tag: MemoryTag::HandlerStackHeads.into(),
+                    addr: interface_index.into_bigint().0[0],
+                },
+            )[0];
+
+            let _node_process = mb.conditional_read(
+                handler_switches.read_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArenaProcess.into(),
+                    addr: current_head.into_bigint().0[0],
+                },
+            )[0];
+
+            let node_next = mb.conditional_read(
+                handler_switches.read_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
+                    addr: current_head.into_bigint().0[0],
+                },
+            )[0];
+
+            mb.conditional_write(
+                handler_switches.write_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArenaProcess.into(),
+                    addr: irw.handler_stack_counter.into_bigint().0[0],
+                },
+                if handler_switches.write_node {
+                    vec![irw.id_curr]
+                } else {
+                    vec![F::ZERO]
+                },
+            );
+
+            mb.conditional_write(
+                handler_switches.write_node,
+                Address {
+                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
+                    addr: irw.handler_stack_counter.into_bigint().0[0],
+                },
+                if handler_switches.write_node {
+                    vec![current_head]
+                } else {
+                    vec![F::ZERO]
+                },
+            );
+
+            mb.conditional_write(
+                handler_switches.write_head,
+                Address {
+                    tag: MemoryTag::HandlerStackHeads.into(),
+                    addr: interface_index.into_bigint().0[0],
+                },
+                vec![if handler_switches.write_node {
+                    irw.handler_stack_counter
+                } else if handler_switches.write_head {
+                    node_next
+                } else {
+                    F::ZERO
+                }],
+            );
+
+            if config.execution_switches.install_handler {
+                irw.handler_stack_counter += F::ONE;
+            }
+
+            match instr {
+                LedgerOperation::NewRef { size: _, ret } => {
+                    ref_building_id = *ret;
+                    ref_building_offset = F::ZERO;
+                }
+                LedgerOperation::RefPush { val } => {
+                    let addr =
+                        ref_building_id.into_bigint().0[0] + ref_building_offset.into_bigint().0[0];
+
+                    mb.conditional_write(
+                        true,
+                        Address {
+                            tag: MemoryTag::RefArena.into(),
+                            addr,
+                        },
+                        vec![*val],
+                    );
+
+                    ref_building_offset += F::ONE;
+                }
+                LedgerOperation::Get {
+                    reff,
+                    offset,
+                    ret: _,
+                } => {
+                    let addr = reff.into_bigint().0[0] + offset.into_bigint().0[0];
+                    mb.conditional_read(
+                        true,
+                        Address {
+                            tag: MemoryTag::RefArena.into(),
+                            addr,
+                        },
+                    );
+                }
+                _ => {}
+            }
 
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
@@ -1737,7 +1867,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             let target_read =
                 trace_program_state_reads(&mut mb, target_pid.unwrap_or(0), &target_switches);
 
-            // Trace ROM reads
             mb.conditional_read(
                 rom_switches.read_is_utxo_curr,
                 Address {
@@ -1798,58 +1927,20 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 }
                 _ => {}
             }
+
+            mb.finish_step();
         }
-
-        let mut ref_building_id = F::ZERO;
-        let mut ref_building_offset = F::ZERO;
-
-        for instr in &self.ops {
-            match instr {
-                LedgerOperation::NewRef { size: _, ret } => {
-                    ref_building_id = *ret;
-                    ref_building_offset = F::ZERO;
-                }
-                LedgerOperation::RefPush { val } => {
-                    let addr =
-                        ref_building_id.into_bigint().0[0] + ref_building_offset.into_bigint().0[0];
-
-                    mb.conditional_write(
-                        true,
-                        Address {
-                            tag: MemoryTag::RefArena.into(),
-                            addr,
-                        },
-                        vec![*val],
-                    );
-
-                    ref_building_offset += F::ONE;
-                }
-                LedgerOperation::Get {
-                    reff,
-                    offset,
-                    ret: _,
-                } => {
-                    let addr = reff.into_bigint().0[0] + offset.into_bigint().0[0];
-                    mb.conditional_read(
-                        true,
-                        Address {
-                            tag: MemoryTag::RefArena.into(),
-                            addr,
-                        },
-                    );
-                }
-                _ => {}
-            }
-        }
-
-        // Handler stack memory operations - always perform for uniform circuit
-        self.trace_handler_stack_mem_opcodes(&mut mb);
 
         let current_steps = self.ops.len();
         if let Some(missing) = mb.required_steps().checked_sub(current_steps) {
             tracing::debug!("padding with {missing} Nop operations for scan");
             self.ops
                 .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
+
+            // TODO: we probably want to do this before the main loop
+            for _ in 0..missing {
+                mb.finish_step();
+            }
         }
 
         mb
@@ -1899,110 +1990,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 },
                 vec![F::ZERO], // next_ptr
             );
-        }
-    }
-
-    fn trace_handler_stack_mem_opcodes(&mut self, mb: &mut M) {
-        let mut irw = InterRoundWires::new(
-            F::from(self.p_len() as u64),
-            self.instance.entrypoint.0 as u64,
-        );
-
-        for instr in self.ops.iter() {
-            let config = instr.get_config();
-
-            // Get interface index for handler operations
-            let interface_index = match instr {
-                LedgerOperation::InstallHandler { interface_id } => self
-                    .interface_resolver
-                    .get_interface_index_field(*interface_id),
-                LedgerOperation::UninstallHandler { interface_id } => self
-                    .interface_resolver
-                    .get_interface_index_field(*interface_id),
-                LedgerOperation::GetHandlerFor { interface_id, .. } => self
-                    .interface_resolver
-                    .get_interface_index_field(*interface_id),
-                _ => F::ZERO,
-            };
-
-            // Trace handler memory operations directly
-            mb.conditional_read(
-                config.handler_switches.read_interface,
-                Address {
-                    tag: MemoryTag::Interfaces.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-            );
-
-            let current_head = mb.conditional_read(
-                config.handler_switches.read_head,
-                Address {
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-            )[0];
-
-            let _node_process = mb.conditional_read(
-                config.handler_switches.read_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaProcess.into(),
-                    addr: current_head.into_bigint().0[0],
-                },
-            )[0];
-
-            let node_next = mb.conditional_read(
-                config.handler_switches.read_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
-                    addr: current_head.into_bigint().0[0],
-                },
-            )[0];
-
-            mb.conditional_write(
-                config.handler_switches.write_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaProcess.into(),
-                    addr: irw.handler_stack_counter.into_bigint().0[0],
-                },
-                if config.handler_switches.write_node {
-                    vec![irw.id_curr]
-                } else {
-                    vec![F::ZERO]
-                },
-            );
-
-            mb.conditional_write(
-                config.handler_switches.write_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
-                    addr: irw.handler_stack_counter.into_bigint().0[0],
-                },
-                if config.handler_switches.write_node {
-                    vec![current_head]
-                } else {
-                    vec![F::ZERO]
-                },
-            );
-
-            mb.conditional_write(
-                config.handler_switches.write_head,
-                Address {
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-                vec![if config.handler_switches.write_node {
-                    irw.handler_stack_counter
-                } else if config.handler_switches.write_head {
-                    node_next
-                } else {
-                    F::ZERO
-                }],
-            );
-
-            // Update IRW for next iteration if this is install_handler
-            if config.execution_switches.install_handler {
-                irw.handler_stack_counter += F::ONE;
-            }
         }
     }
 
@@ -2591,21 +2578,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 }
 
 fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
-    mb.register_mem_with_lanes(
+    mb.register_mem(
         MemoryTag::ProcessTable.into(),
         1,
         MemType::Rom,
-        Lanes(4),
         "ROM_PROCESS_TABLE",
     );
     mb.register_mem(MemoryTag::MustBurn.into(), 1, MemType::Rom, "ROM_MUST_BURN");
-    mb.register_mem_with_lanes(
-        MemoryTag::IsUtxo.into(),
-        1,
-        MemType::Rom,
-        Lanes(2),
-        "ROM_IS_UTXO",
-    );
+    mb.register_mem(MemoryTag::IsUtxo.into(), 1, MemType::Rom, "ROM_IS_UTXO");
     mb.register_mem(
         MemoryTag::Interfaces.into(),
         1,
@@ -2615,60 +2595,37 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
 
     mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Ram, "RAM_REF_ARENA");
 
-    mb.register_mem_with_lanes(
+    mb.register_mem(
         MemoryTag::ExpectedInput.into(),
         1,
         MemType::Ram,
-        Lanes(2),
         "RAM_EXPECTED_INPUT",
     );
-    mb.register_mem_with_lanes(
+    mb.register_mem(
         MemoryTag::Activation.into(),
         1,
         MemType::Ram,
-        Lanes(2),
         "RAM_ACTIVATION",
     );
-    mb.register_mem_with_lanes(
-        MemoryTag::Init.into(),
-        1,
-        MemType::Ram,
-        Lanes(2),
-        "RAM_INIT",
-    );
-    mb.register_mem_with_lanes(
-        MemoryTag::Counters.into(),
-        1,
-        MemType::Ram,
-        Lanes(2),
-        "RAM_COUNTERS",
-    );
-    mb.register_mem_with_lanes(
+    mb.register_mem(MemoryTag::Init.into(), 1, MemType::Ram, "RAM_INIT");
+    mb.register_mem(MemoryTag::Counters.into(), 1, MemType::Ram, "RAM_COUNTERS");
+    mb.register_mem(
         MemoryTag::Initialized.into(),
         1,
         MemType::Ram,
-        Lanes(2),
         "RAM_INITIALIZED",
     );
-    mb.register_mem_with_lanes(
+    mb.register_mem(
         MemoryTag::Finalized.into(),
         1,
         MemType::Ram,
-        Lanes(2),
         "RAM_FINALIZED",
     );
-    mb.register_mem_with_lanes(
-        MemoryTag::DidBurn.into(),
-        1,
-        MemType::Ram,
-        Lanes(2),
-        "RAM_DID_BURN",
-    );
-    mb.register_mem_with_lanes(
+    mb.register_mem(MemoryTag::DidBurn.into(), 1, MemType::Ram, "RAM_DID_BURN");
+    mb.register_mem(
         MemoryTag::Ownership.into(),
         1,
         MemType::Ram,
-        Lanes(2),
         "RAM_OWNERSHIP",
     );
     mb.register_mem(
@@ -2689,11 +2646,10 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Ram,
         "RAM_HANDLER_STACK_HEADS",
     );
-    mb.register_mem_with_lanes(
+    mb.register_mem(
         MemoryTag::TraceCommitments.into(),
         1,
         MemType::Ram,
-        Lanes(4),
         "RAM_TRACE_COMMITMENTS",
     );
 }

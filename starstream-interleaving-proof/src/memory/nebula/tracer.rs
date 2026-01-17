@@ -165,6 +165,8 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
         self.perform_memory_operation(cond, &address, Some(values));
     }
 
+    fn finish_step(&mut self) {}
+
     fn required_steps(&self) -> usize {
         self.is.len() / SCAN_BATCH_SIZE
     }
