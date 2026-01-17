@@ -16,7 +16,6 @@ use ark_relations::gr1cs::SynthesisError;
 use neo_vm_trace::{Shout, Twist, TwistId, TwistOpKind};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-use std::marker::PhantomData;
 
 pub const TWIST_DEBUG_FILTER: &[u32] = &[
     MemoryTag::ExpectedInput as u32,
@@ -95,7 +94,6 @@ pub struct TwistEvent {
 
 #[derive(Clone)]
 pub struct TSMemory<F> {
-    pub(crate) phantom: PhantomData<F>,
     pub(crate) reads: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
     pub(crate) writes: BTreeMap<Address<u64>, VecDeque<Vec<F>>>,
     pub(crate) init: BTreeMap<Address<u64>, Vec<F>>,
@@ -106,6 +104,9 @@ pub struct TSMemory<F> {
     pub(crate) shout_events: BTreeMap<Address<u64>, VecDeque<ShoutEvent>>,
     /// Captured twist events for witness generation, organized by address
     pub(crate) twist_events: BTreeMap<Address<u64>, VecDeque<TwistEvent>>,
+
+    pub(crate) current_step_read_lanes: BTreeMap<u64, usize>,
+    pub(crate) current_step_write_lanes: BTreeMap<u64, usize>,
 }
 
 /// Initial ROM tables computed by TSMemory
@@ -136,13 +137,14 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
 
     fn new(_params: Self::Params) -> Self {
         TSMemory {
-            phantom: PhantomData,
             reads: BTreeMap::default(),
             writes: BTreeMap::default(),
             init: BTreeMap::default(),
             mems: BTreeMap::default(),
             shout_events: BTreeMap::default(),
             twist_events: BTreeMap::default(),
+            current_step_read_lanes: BTreeMap::default(),
+            current_step_write_lanes: BTreeMap::default(),
         }
     }
 
@@ -162,6 +164,8 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
     }
 
     fn conditional_read(&mut self, cond: bool, address: Address<u64>) -> Vec<F> {
+        *self.current_step_read_lanes.entry(address.tag).or_default() += 1;
+
         if let Some(&(_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
             if cond {
                 let value = self.init.get(&address).unwrap().clone();
@@ -210,6 +214,11 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
     }
 
     fn conditional_write(&mut self, cond: bool, address: Address<u64>, values: Vec<F>) {
+        *self
+            .current_step_write_lanes
+            .entry(address.tag)
+            .or_default() += 1;
+
         assert_eq!(
             self.mems.get(&address.tag).unwrap().0 as usize,
             values.len(),
@@ -235,6 +244,37 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
                 .or_default()
                 .push_back(twist_event);
         }
+    }
+
+    fn finish_step(&mut self) {
+        let mut current_step_read_lanes = BTreeMap::new();
+        let mut current_step_write_lanes = BTreeMap::new();
+
+        std::mem::swap(
+            &mut current_step_read_lanes,
+            &mut self.current_step_read_lanes,
+        );
+
+        std::mem::swap(
+            &mut current_step_write_lanes,
+            &mut self.current_step_write_lanes,
+        );
+
+        for (tag, reads) in current_step_read_lanes {
+            if let Some(writes) = current_step_write_lanes.get(&tag) {
+                assert_eq!(
+                    reads, *writes,
+                    "each step must have the same number of (conditional) reads and writes per memory"
+                );
+            }
+
+            if let Some(entry) = self.mems.get_mut(&tag) {
+                entry.1 = Lanes(reads);
+            }
+        }
+
+        self.current_step_read_lanes.clear();
+        self.current_step_write_lanes.clear();
     }
 
     fn required_steps(&self) -> usize {
@@ -287,7 +327,9 @@ impl<F: PrimeField> TSMemory<F> {
     }
 
     pub fn split(self) -> (TSMemoryConstraints<F>, TracedShout<F>, TracedTwist) {
-        let (init, twist_events, mems, shout_events) =
+        let mems = self.mems.clone();
+
+        let (init, twist_events, _mems, shout_events) =
             (self.init, self.twist_events, self.mems, self.shout_events);
 
         let traced_shout = TracedShout { init };

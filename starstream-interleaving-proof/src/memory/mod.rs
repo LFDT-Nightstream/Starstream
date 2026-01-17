@@ -85,6 +85,8 @@ pub trait IVCMemory<F: PrimeField> {
 
     fn conditional_write(&mut self, cond: bool, address: Address<u64>, value: Vec<F>);
 
+    fn finish_step(&mut self);
+
     fn required_steps(&self) -> usize;
 
     fn constraints(self) -> Self::Allocator;
