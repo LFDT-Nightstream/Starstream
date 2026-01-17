@@ -1,5 +1,5 @@
 use sha2::{Digest, Sha256};
-use starstream_ivc_proto::commit;
+use starstream_interleaving_proof::commit;
 use starstream_mock_ledger::{
     CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
     InterleavingWitness, LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId,
@@ -465,8 +465,7 @@ impl UnprovenTransaction {
     pub fn prove(self) -> Result<ProvenTransaction, Error> {
         let (instance, state, witness) = self.execute()?;
 
-        // ZkTransactionProof {}.verify(&instance).map_err(|e| Error::InvalidProof(e.to_string()))?;
-        let proof = starstream_ivc_proto::prove(instance.clone(), witness.clone())
+        let proof = starstream_interleaving_proof::prove(instance.clone(), witness.clone())
             .map_err(|e| Error::RuntimeError(e.to_string()))?;
 
         let mut builder = TransactionBuilder::new();

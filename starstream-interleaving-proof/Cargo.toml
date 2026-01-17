@@ -1,5 +1,5 @@
 [package]
-name = "starstream_ivc_proto"
+name = "starstream-interleaving-proof"
 version = "0.1.0"
 edition = "2024"
 
