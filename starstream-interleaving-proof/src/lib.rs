@@ -58,15 +58,15 @@ pub enum LedgerOperation<F> {
     },
     ProgramHash {
         target: F,
-        program_hash: F,
+        program_hash: [F; 4],
     },
     NewUtxo {
-        program_hash: F,
-        val: F,
         target: F,
+        val: F,
+        program_hash: [F; 4],
     },
     NewCoord {
-        program_hash: F,
+        program_hash: [F; 4],
         val: F,
         target: F,
     },
@@ -115,41 +115,6 @@ pub enum LedgerOperation<F> {
     /// Nop is used as a dummy instruction to build the circuit layout on the
     /// verifier side.
     Nop {},
-}
-
-pub const OPCODE_ARG_COUNT: usize = 4;
-
-#[derive(Copy, Clone, Debug)]
-pub enum ArgName {
-    Target,
-    Val,
-    Ret,
-    IdPrev,
-    Offset,
-    Size,
-    ProgramHash,
-    Caller,
-    OwnerId,
-    TokenId,
-    InterfaceId,
-}
-
-impl ArgName {
-    // maps argument names to positional indices
-    //
-    // these need to match the order in the ABI used by the wasm/program vm.
-    pub const fn idx(self) -> usize {
-        match self {
-            ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
-            ArgName::Val | ArgName::InterfaceId => 1,
-            ArgName::Ret => 2,
-            ArgName::IdPrev
-            | ArgName::Offset
-            | ArgName::Size
-            | ArgName::ProgramHash
-            | ArgName::Caller => 3,
-        }
-    }
 }
 
 pub fn prove(

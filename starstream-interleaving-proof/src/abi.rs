@@ -1,6 +1,8 @@
-use crate::{ArgName, F, LedgerOperation, OPCODE_ARG_COUNT, OptionalF};
+use crate::{F, LedgerOperation, OptionalF};
 use ark_ff::Zero;
-use starstream_mock_ledger::{EffectDiscriminant, LedgerEffectsCommitment, WitLedgerEffect};
+use starstream_mock_ledger::{EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect};
+
+pub const OPCODE_ARG_COUNT: usize = 7;
 
 pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffectsCommitment {
     let ledger_op = ledger_operation_from_wit(&op);
@@ -10,11 +12,47 @@ pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffec
     let mut concat = [F::zero(); 12];
     concat[..4].copy_from_slice(&prev.0);
     concat[4] = opcode_discriminant;
-    concat[5..9].copy_from_slice(&opcode_args);
+    concat[5..].copy_from_slice(&opcode_args);
 
     let compressed =
         ark_poseidon2::compress_12_trace(&concat).expect("poseidon2 compress_12_trace");
     LedgerEffectsCommitment(compressed)
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum ArgName {
+    Target,
+    Val,
+    Ret,
+    IdPrev,
+    Offset,
+    Size,
+    ProgramHash0,
+    ProgramHash1,
+    ProgramHash2,
+    ProgramHash3,
+    Caller,
+    OwnerId,
+    TokenId,
+    InterfaceId,
+}
+
+impl ArgName {
+    // maps argument names to positional indices
+    //
+    // these need to match the order in the ABI used by the wasm/program vm.
+    pub const fn idx(self) -> usize {
+        match self {
+            ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
+            ArgName::Val | ArgName::InterfaceId => 1,
+            ArgName::Ret => 2,
+            ArgName::IdPrev | ArgName::Offset | ArgName::Size | ArgName::Caller => 3,
+            ArgName::ProgramHash0 => 3,
+            ArgName::ProgramHash1 => 4,
+            ArgName::ProgramHash2 => 5,
+            ArgName::ProgramHash3 => 6,
+        }
+    }
 }
 
 pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation<F> {
@@ -47,14 +85,14 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             program_hash,
         } => LedgerOperation::ProgramHash {
             target: F::from(target.0 as u64),
-            program_hash: F::from(program_hash.unwrap().0[0] as u64),
+            program_hash: encode_hash_as_fields(program_hash.unwrap()),
         },
         WitLedgerEffect::NewUtxo {
             program_hash,
             val,
             id,
         } => LedgerOperation::NewUtxo {
-            program_hash: F::from(program_hash.0[0] as u64),
+            program_hash: encode_hash_as_fields(*program_hash),
             val: F::from(val.0),
             target: F::from(id.unwrap().0 as u64),
         },
@@ -63,7 +101,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             val,
             id,
         } => LedgerOperation::NewCoord {
-            program_hash: F::from(program_hash.0[0] as u64),
+            program_hash: encode_hash_as_fields(*program_hash),
             val: F::from(val.0),
             target: F::from(id.unwrap().0 as u64),
         },
@@ -165,7 +203,10 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             program_hash,
         } => {
             args[ArgName::Target.idx()] = *target;
-            args[ArgName::ProgramHash.idx()] = *program_hash;
+            args[ArgName::ProgramHash0.idx()] = program_hash[0];
+            args[ArgName::ProgramHash1.idx()] = program_hash[1];
+            args[ArgName::ProgramHash2.idx()] = program_hash[2];
+            args[ArgName::ProgramHash3.idx()] = program_hash[3];
         }
         LedgerOperation::NewUtxo {
             program_hash,
@@ -179,7 +220,10 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         } => {
             args[ArgName::Target.idx()] = *target;
             args[ArgName::Val.idx()] = *val;
-            args[ArgName::ProgramHash.idx()] = *program_hash;
+            args[ArgName::ProgramHash0.idx()] = program_hash[0];
+            args[ArgName::ProgramHash1.idx()] = program_hash[1];
+            args[ArgName::ProgramHash2.idx()] = program_hash[2];
+            args[ArgName::ProgramHash3.idx()] = program_hash[3];
         }
         LedgerOperation::Activation { val, caller } => {
             args[ArgName::Val.idx()] = *val;
@@ -220,6 +264,15 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         }
     }
     args
+}
+
+pub(crate) fn encode_hash_as_fields<T>(hash: Hash<T>) -> [F; 4] {
+    let mut out = [F::zero(); 4];
+    for (i, chunk) in hash.0.chunks_exact(8).take(4).enumerate() {
+        let bytes: [u8; 8] = chunk.try_into().expect("hash chunk size");
+        out[i] = F::from(u64::from_le_bytes(bytes));
+    }
+    out
 }
 
 pub(crate) fn value_to_field(val: starstream_mock_ledger::Value) -> F {

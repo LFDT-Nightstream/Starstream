@@ -9,11 +9,6 @@ pub(crate) fn setup_logger() {
 
         let subscriber = Registry::default()
             .with(fmt::layer().with_test_writer())
-            // .with(
-            //     EnvFilter::from_default_env()
-            //         .add_directive("starstream_ivc_proto=debug".parse().unwrap())
-            //         .add_directive("warn".parse().unwrap()), // Default to warn for everything else
-            // )
             .with(constraint_layer);
 
         tracing::subscriber::set_global_default(subscriber)
