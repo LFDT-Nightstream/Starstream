@@ -8,7 +8,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-starstream_ivc_proto = { path = "../starstream_ivc_proto"}
+starstream-interleaving-proof = { path = "../starstream-interleaving-proof"}
 starstream_mock_ledger = { path = "../starstream_mock_ledger" }
 thiserror = "2.0.17"
 wasmi = "1.0.7"
