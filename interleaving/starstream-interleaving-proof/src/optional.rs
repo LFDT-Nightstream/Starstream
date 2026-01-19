@@ -1,5 +1,9 @@
 use ark_ff::PrimeField;
-use ark_r1cs_std::{GR1CSVar, boolean::Boolean, fields::{FieldVar, fp::FpVar}};
+use ark_r1cs_std::{
+    GR1CSVar,
+    boolean::Boolean,
+    fields::{FieldVar, fp::FpVar},
+};
 use ark_relations::gr1cs::SynthesisError;
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -10,12 +14,12 @@ impl<F: PrimeField> OptionalF<F> {
         Self(F::ZERO)
     }
 
-    pub fn from_pid(value: F) -> Self {
+    pub fn new(value: F) -> Self {
         Self(value + F::ONE)
     }
 
     pub fn from_option(value: Option<F>) -> Self {
-        value.map(Self::from_pid).unwrap_or_else(Self::none)
+        value.map(Self::new).unwrap_or_else(Self::none)
     }
 
     pub fn encoded(self) -> F {
@@ -47,6 +51,10 @@ impl<F: PrimeField> OptionalFpVar<F> {
         Self(value)
     }
 
+    pub fn from_pid(value: &FpVar<F>) -> Self {
+        Self(value + FpVar::one())
+    }
+
     pub fn encoded(&self) -> FpVar<F> {
         self.0.clone()
     }
@@ -55,18 +63,18 @@ impl<F: PrimeField> OptionalFpVar<F> {
         Ok(!self.0.is_zero()?)
     }
 
-    pub fn decode_or_zero(&self, one: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
+    pub fn decode_or_zero(&self) -> Result<FpVar<F>, SynthesisError> {
         let is_zero = self.0.is_zero()?;
-        let value = &self.0 - one;
+        let value = &self.0 - FpVar::one();
         is_zero.select(&FpVar::zero(), &value)
     }
 
     pub fn select_encoded(
         switch: &Boolean<F>,
-        when_true: &FpVar<F>,
+        when_true: &OptionalFpVar<F>,
         when_false: &OptionalFpVar<F>,
     ) -> Result<OptionalFpVar<F>, SynthesisError> {
-        let selected = switch.select(when_true, &when_false.encoded())?;
+        let selected = switch.select(&when_true.encoded(), &when_false.encoded())?;
         Ok(OptionalFpVar::new(selected))
     }
 
