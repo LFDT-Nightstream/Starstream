@@ -8,8 +8,8 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-starstream-interleaving-proof = { path = "../starstream-interleaving-proof"}
-starstream_mock_ledger = { path = "../starstream_mock_ledger" }
+starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 thiserror = "2.0.17"
 wasmi = "1.0.7"
 sha2 = "0.10"

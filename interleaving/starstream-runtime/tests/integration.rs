@@ -1,5 +1,5 @@
 use sha2::{Digest, Sha256};
-use starstream_mock_ledger::{EffectDiscriminant, Ledger};
+use starstream_interleaving_spec::{EffectDiscriminant, Ledger};
 use starstream_runtime::UnprovenTransaction;
 use wat::parse_str;
 

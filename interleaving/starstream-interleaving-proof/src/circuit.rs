@@ -10,7 +10,7 @@ use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
     ns,
 };
-use starstream_mock_ledger::{EffectDiscriminant, InterleavingInstance};
+use starstream_interleaving_spec::{EffectDiscriminant, InterleavingInstance};
 use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::ops::Not;
