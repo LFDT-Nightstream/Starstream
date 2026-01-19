@@ -7,6 +7,4 @@ Spanned {
         Unit,
     ),
     span: 0..2,
-    comments_before: [],
-    comments_after: [],
 }

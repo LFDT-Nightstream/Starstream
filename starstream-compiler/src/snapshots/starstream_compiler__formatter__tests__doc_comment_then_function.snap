@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n/// This is documentation\nfn foo() -> i64 {\n    1\n}\n\n/// More docs\nfn bar() -> i64 {\n    2\n}\n"
+---
+/// This is documentation
+fn foo() -> i64 {
+    1
+}
+
+/// More docs
+fn bar() -> i64 {
+    2
+}

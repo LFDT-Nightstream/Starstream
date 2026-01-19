@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nstruct A { x: i64 } // inline comment\n\nstruct B { y: i64 }\n"
+---
+struct A {
+    x: i64,
+} // inline comment
+
+struct B {
+    y: i64,
+}

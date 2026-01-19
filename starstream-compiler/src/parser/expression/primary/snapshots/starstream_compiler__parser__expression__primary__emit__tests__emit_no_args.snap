@@ -12,11 +12,5 @@ Spanned {
         },
         args: [],
     },
-    span: 0..25,
-    comments_before: [
-        Comment(
-            0..13,
-        ),
-    ],
-    comments_after: [],
+    span: 13..25,
 }

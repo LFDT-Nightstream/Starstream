@@ -54,8 +54,6 @@ Program {
                 },
             ),
             span: 0..41,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }

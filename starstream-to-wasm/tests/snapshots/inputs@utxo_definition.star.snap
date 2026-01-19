@@ -50,8 +50,6 @@ Program {
                 },
             ),
             span: 0..42,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }

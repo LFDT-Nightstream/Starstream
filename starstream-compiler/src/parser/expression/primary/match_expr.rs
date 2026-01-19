@@ -1,17 +1,30 @@
 use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, MatchArm, Spanned};
 
-use crate::parser::{ParserExt, context::Extra, pattern};
+use crate::parser::{ParserExt, comment, context::Extra, pattern};
 
 pub fn parser<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     let pattern_parser = pattern::parser();
-    let match_arm = pattern_parser
-        .then_ignore(just("=>").padded())
-        .then(block)
-        .map(|(pattern, body)| MatchArm { pattern, body });
+    // Collect comments before each match arm and capture span
+    // Use .then() instead of .ignore_then() to ensure side-effects happen
+    let match_arm = comment::comment_collecting()
+        .padded()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then(
+            pattern_parser
+                .then_ignore(just("=>").padded())
+                .then(block)
+                .map_with(|(pattern, body), extra| MatchArm {
+                    pattern,
+                    body,
+                    span: extra.span(),
+                }),
+        )
+        .map(|(_, arm)| arm);
 
     just("match")
         .padded()

@@ -17,8 +17,8 @@ use starstream_compiler::{
     typecheck::{TypeError, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    Span, Spanned, TypedUtxoDef, TypedUtxoPart,
-    ast::{self as untyped_ast, Comment, Program, TypeAnnotation},
+    CommentMap, Span, Spanned, TypedUtxoDef, TypedUtxoPart,
+    ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
         TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
@@ -75,6 +75,8 @@ pub struct DocumentState {
     namespace_functions: HashMap<String, HashMap<String, (Span, Type)>>,
     /// Maps function name -> (signature, doc comment) for call-site hover.
     function_docs: HashMap<String, (String, String)>,
+    /// Comment map for efficient span-based comment lookups.
+    comment_map: CommentMap,
 }
 
 impl DocumentState {
@@ -102,6 +104,7 @@ impl DocumentState {
             import_definitions: HashMap::new(),
             namespace_functions: HashMap::new(),
             function_docs: HashMap::new(),
+            comment_map: CommentMap::new(),
         };
 
         state.reanalyse(uri, text);
@@ -177,6 +180,9 @@ impl DocumentState {
 
         let parse_output = parse_program(text);
 
+        // Get the CommentMap before consuming parse_output
+        self.comment_map = parse_output.comment_map();
+
         for error in parse_output.errors() {
             self.push_parse_error(uri, error);
         }
@@ -222,7 +228,7 @@ impl DocumentState {
         };
 
         let str = self.rope.to_string();
-        formatter::program(program, &str).map(Some)
+        formatter::program(program, &str, &self.comment_map).map(Some)
     }
 
     /// Resolve hover information for the given cursor position.
@@ -372,8 +378,10 @@ impl DocumentState {
         untyped: Option<&Spanned<untyped_ast::Definition>>,
         source: &str,
     ) {
-        // Extract doc comment from the untyped definition's comments_before
-        let doc = untyped.and_then(|u| Comment::extract_doc(&u.comments_before, source));
+        // Extract doc comment using CommentMap
+        // The span now directly covers just the definition content (no comments)
+        let doc = untyped
+            .and_then(|u| self.comment_map.doc_comments(u.span, source));
 
         match definition {
             TypedDefinition::Import(import) => self.collect_import(import),

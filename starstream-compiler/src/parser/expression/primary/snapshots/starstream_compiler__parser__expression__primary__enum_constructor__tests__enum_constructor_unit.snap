@@ -19,6 +19,4 @@ Spanned {
         payload: Unit,
     },
     span: 0..12,
-    comments_before: [],
-    comments_after: [],
 }

@@ -15,5 +15,6 @@ FunctionDef {
     body: Block {
         statements: [],
         tail_expression: None,
+        span: 9..11,
     },
 }

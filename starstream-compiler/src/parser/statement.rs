@@ -104,9 +104,10 @@ fn build_parsers<'a>(
         .collect::<Vec<_>>()
         .then(expr.clone().padded().or_not())
         .delimited_by(just('{').padded(), just('}').padded())
-        .map(|(statements, tail_expression)| Block {
+        .map_with(|(statements, tail_expression), extra| Block {
             statements,
             tail_expression,
+            span: extra.span(),
         })
         .boxed();
 

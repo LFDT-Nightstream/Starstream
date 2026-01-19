@@ -14,8 +14,6 @@ Spanned {
                         ),
                     ),
                     span: 1..2,
-                    comments_before: [],
-                    comments_after: [],
                 },
                 right: Spanned {
                     node: Literal(
@@ -24,16 +22,10 @@ Spanned {
                         ),
                     ),
                     span: 5..6,
-                    comments_before: [],
-                    comments_after: [],
                 },
             },
             span: 1..6,
-            comments_before: [],
-            comments_after: [],
         },
     ),
     span: 0..7,
-    comments_before: [],
-    comments_after: [],
 }

@@ -3,17 +3,22 @@ use chumsky::{
     extra::{self, SimpleState},
     input,
 };
-use starstream_types::Span;
+use starstream_types::{Comment, CommentMap};
 
-/// Starsteam Parser State
+/// Starstream Parser State
 #[derive(Default)]
 pub struct State {
-    pub comments: Vec<Span>,
+    pub comments: Vec<Comment>,
 }
 
 impl State {
     pub fn new() -> SimpleState<Self> {
         SimpleState(State::default())
+    }
+
+    /// Convert collected comments into a CommentMap.
+    pub fn into_comment_map(self) -> CommentMap {
+        CommentMap::from_comments(self.comments)
     }
 }
 

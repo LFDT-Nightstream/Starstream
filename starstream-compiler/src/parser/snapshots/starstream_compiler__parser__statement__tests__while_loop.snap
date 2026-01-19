@@ -16,8 +16,6 @@ While {
                     },
                 ),
                 span: 7..13,
-                comments_before: [],
-                comments_after: [],
             },
             right: Spanned {
                 node: Literal(
@@ -26,13 +24,9 @@ While {
                     ),
                 ),
                 span: 15..17,
-                comments_before: [],
-                comments_after: [],
             },
         },
         span: 7..17,
-        comments_before: [],
-        comments_after: [],
     },
     body: Block {
         statements: [
@@ -57,8 +51,6 @@ While {
                                     },
                                 ),
                                 span: 29..35,
-                                comments_before: [],
-                                comments_after: [],
                             },
                             right: Spanned {
                                 node: Literal(
@@ -67,20 +59,15 @@ While {
                                     ),
                                 ),
                                 span: 37..38,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         },
                         span: 29..38,
-                        comments_before: [],
-                        comments_after: [],
                     },
                 },
                 span: 21..40,
-                comments_before: [],
-                comments_after: [],
             },
         ],
         tail_expression: None,
+        span: 19..42,
     },
 }

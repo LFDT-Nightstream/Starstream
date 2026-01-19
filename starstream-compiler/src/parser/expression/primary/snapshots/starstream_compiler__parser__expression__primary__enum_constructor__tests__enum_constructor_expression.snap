@@ -28,13 +28,9 @@ Spanned {
                         },
                     ),
                     span: 11..17,
-                    comments_before: [],
-                    comments_after: [],
                 },
             ],
         ),
     },
     span: 0..18,
-    comments_before: [],
-    comments_after: [],
 }

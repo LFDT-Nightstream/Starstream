@@ -12,6 +12,4 @@ Spanned {
         },
     ),
     span: 0..3,
-    comments_before: [],
-    comments_after: [],
 }

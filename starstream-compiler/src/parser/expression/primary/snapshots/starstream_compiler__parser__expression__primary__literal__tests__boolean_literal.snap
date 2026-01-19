@@ -9,6 +9,4 @@ Spanned {
         ),
     ),
     span: 0..4,
-    comments_before: [],
-    comments_after: [],
 }

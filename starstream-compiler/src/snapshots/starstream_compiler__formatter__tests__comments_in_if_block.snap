@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn foo(x: i64) -> i64 {\n    if (x > 0) {\n        // positive case\n        let result = x + 1;\n        result\n    } else {\n        // negative case\n        0\n    }\n}\n"
+---
+fn foo(x: i64) -> i64 {
+    if (x > 0) {
+        // positive case
+        let result = x + 1;
+        result
+    } else {
+        // negative case
+        0
+    }
+}

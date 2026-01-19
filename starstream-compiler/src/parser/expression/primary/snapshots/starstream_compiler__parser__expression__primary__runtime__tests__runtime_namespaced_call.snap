@@ -23,11 +23,7 @@ Spanned {
                 ),
             },
             span: 8..30,
-            comments_before: [],
-            comments_after: [],
         },
     },
     span: 0..30,
-    comments_before: [],
-    comments_after: [],
 }

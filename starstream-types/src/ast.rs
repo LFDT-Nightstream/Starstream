@@ -1,6 +1,7 @@
 //! Abstract syntax tree for the pared-down Starstream DSL.
 
 use chumsky::span::SimpleSpan;
+use chumsky::span::Span as SpanTrait;
 use serde::Serialize;
 
 // ----------------------------------------------------------------------------
@@ -8,26 +9,24 @@ use serde::Serialize;
 
 pub type Span = SimpleSpan;
 
+/// Create a span from start and end offsets.
+///
+/// This is a convenience function that avoids needing to import the chumsky Span trait.
+pub fn span(start: usize, end: usize) -> Span {
+    Span::new((), start..end)
+}
+
 /// AST node with a source span attached.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Spanned<T> {
     pub node: T,
     #[serde(skip)]
     pub span: Span,
-    #[serde(skip)]
-    pub comments_before: Vec<Comment>,
-    #[serde(skip)]
-    pub comments_after: Vec<Comment>,
 }
 
 impl<T> Spanned<T> {
     pub fn new(node: T, span: Span) -> Self {
-        Self {
-            node,
-            span,
-            comments_before: Vec::new(),
-            comments_after: Vec::new(),
-        }
+        Self { node, span }
     }
 
     /// Map the contained value while keeping the original span.
@@ -35,8 +34,6 @@ impl<T> Spanned<T> {
         Spanned {
             node: map(self.node),
             span: self.span,
-            comments_before: self.comments_before,
-            comments_after: self.comments_after,
         }
     }
 
@@ -48,8 +45,6 @@ impl<T> Spanned<T> {
                 end: 0,
                 context: (),
             },
-            comments_before: Vec::new(),
-            comments_after: Vec::new(),
         }
     }
 }
@@ -286,6 +281,9 @@ pub struct TypeAnnotation {
 pub struct Block {
     pub statements: Vec<Spanned<Statement>>,
     pub tail_expression: Option<Spanned<Expr>>,
+    /// The span covering the entire block from `{` to `}`.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 /// A statement that produces no value.
@@ -415,6 +413,9 @@ pub enum EnumConstructorPayload {
 pub struct MatchArm {
     pub pattern: Pattern,
     pub body: Block,
+    /// The span covering the entire match arm from pattern to end of body.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
