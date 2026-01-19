@@ -1,5 +1,14 @@
 use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
 use crate::memory::{self, Address, IVCMemory, MemType};
+pub use crate::memory_tags::MemoryTag;
+use crate::program_state::{
+    ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
+    trace_program_state_reads, trace_program_state_writes,
+};
+use crate::switchboard::{
+    HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
+    RomSwitchboard, RomSwitchboardWires,
+};
 use crate::{F, LedgerOperation, OptionalF, OptionalFpVar, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::fields::FieldVar;
@@ -69,100 +78,6 @@ impl InterfaceResolver {
 struct HandlerState {
     handler_stack_node_process: FpVar<F>,
     interface_rom_read: FpVar<F>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct HandlerSwitchboard {
-    pub read_interface: bool,
-    pub read_head: bool,
-    pub read_node: bool,
-    pub write_node: bool,
-    pub write_head: bool,
-}
-
-#[derive(Clone)]
-pub struct HandlerSwitchboardWires {
-    pub read_interface: Boolean<F>,
-    pub read_head: Boolean<F>,
-    pub read_node: Boolean<F>,
-    pub write_node: Boolean<F>,
-    pub write_head: Boolean<F>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MemoryTag {
-    // ROM tags
-    ProcessTable = 1,
-    MustBurn = 2,
-    IsUtxo = 3,
-    Interfaces = 4,
-
-    // RAM tags
-    ExpectedInput = 5,
-    Activation = 6,
-    Counters = 7,
-    Initialized = 8,
-    Finalized = 9,
-    DidBurn = 10,
-    Ownership = 11,
-    Init = 12,
-    RefArena = 13,
-    HandlerStackArenaProcess = 14,
-    HandlerStackArenaNextPtr = 15,
-    HandlerStackHeads = 16,
-    TraceCommitments = 17,
-}
-
-impl From<MemoryTag> for u64 {
-    fn from(tag: MemoryTag) -> u64 {
-        tag as u64
-    }
-}
-
-impl From<MemoryTag> for F {
-    fn from(tag: MemoryTag) -> F {
-        F::from(tag as u64)
-    }
-}
-
-impl MemoryTag {
-    pub fn allocate(&self, cs: ConstraintSystemRef<F>) -> Result<FpVar<F>, SynthesisError> {
-        FpVar::new_constant(cs, F::from(*self))
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProgramStateTag {
-    ExpectedInput,
-    Activation,
-    Init,
-    Counters,
-    Initialized,
-    Finalized,
-    DidBurn,
-    Ownership,
-}
-
-impl From<ProgramStateTag> for MemoryTag {
-    fn from(tag: ProgramStateTag) -> MemoryTag {
-        match tag {
-            ProgramStateTag::ExpectedInput => MemoryTag::ExpectedInput,
-            ProgramStateTag::Activation => MemoryTag::Activation,
-            ProgramStateTag::Init => MemoryTag::Init,
-            ProgramStateTag::Counters => MemoryTag::Counters,
-            ProgramStateTag::Initialized => MemoryTag::Initialized,
-            ProgramStateTag::Finalized => MemoryTag::Finalized,
-            ProgramStateTag::DidBurn => MemoryTag::DidBurn,
-            ProgramStateTag::Ownership => MemoryTag::Ownership,
-        }
-    }
-}
-
-impl From<ProgramStateTag> for u64 {
-    fn from(tag: ProgramStateTag) -> u64 {
-        let memory_tag: MemoryTag = tag.into();
-        memory_tag.into()
-    }
 }
 
 struct OpcodeConfig {
@@ -456,46 +371,6 @@ impl Default for ExecutionSwitches<bool> {
     }
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct RomSwitchboard {
-    pub read_is_utxo_curr: bool,
-    pub read_is_utxo_target: bool,
-    pub read_must_burn_curr: bool,
-    pub read_program_hash_target: bool,
-}
-
-#[derive(Clone)]
-pub struct RomSwitchboardWires {
-    pub read_is_utxo_curr: Boolean<F>,
-    pub read_is_utxo_target: Boolean<F>,
-    pub read_must_burn_curr: Boolean<F>,
-    pub read_program_hash_target: Boolean<F>,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct MemSwitchboard {
-    pub expected_input: bool,
-    pub activation: bool,
-    pub init: bool,
-    pub counters: bool,
-    pub initialized: bool,
-    pub finalized: bool,
-    pub did_burn: bool,
-    pub ownership: bool,
-}
-
-#[derive(Clone)]
-pub struct MemSwitchboardWires {
-    pub expected_input: Boolean<F>,
-    pub activation: Boolean<F>,
-    pub init: Boolean<F>,
-    pub counters: Boolean<F>,
-    pub initialized: Boolean<F>,
-    pub finalized: Boolean<F>,
-    pub did_burn: Boolean<F>,
-    pub ownership: Boolean<F>,
-}
-
 pub struct StepCircuitBuilder<M> {
     pub instance: InterleavingInstance,
     pub last_yield: Vec<F>,
@@ -550,19 +425,6 @@ pub struct Wires {
     constant_one: FpVar<F>,
 }
 
-/// these are the mcc witnesses
-#[derive(Clone)]
-pub struct ProgramStateWires {
-    expected_input: FpVar<F>,
-    activation: FpVar<F>,
-    init: FpVar<F>,
-    counters: FpVar<F>,
-    initialized: Boolean<F>,
-    finalized: Boolean<F>,
-    did_burn: Boolean<F>,
-    ownership: OptionalFpVar<F>, // an encoded optional process id
-}
-
 // helper so that we always allocate witnesses in the same order
 pub struct PreWires {
     interface_index: F,
@@ -581,18 +443,6 @@ pub struct PreWires {
     ret_is_some: bool,
 }
 
-#[derive(Clone, Debug)]
-pub struct ProgramState {
-    expected_input: F,
-    activation: F,
-    init: F,
-    counters: F,
-    initialized: bool,
-    finalized: bool,
-    did_burn: bool,
-    ownership: OptionalF<F>, // encoded optional process id
-}
-
 /// IVC wires (state between steps)
 ///
 /// these get input and output variables
@@ -608,125 +458,6 @@ pub struct InterRoundWires {
 
     p_len: F,
 }
-
-impl ProgramStateWires {
-    fn from_write_values(
-        cs: ConstraintSystemRef<F>,
-        write_values: &ProgramState,
-    ) -> Result<ProgramStateWires, SynthesisError> {
-        Ok(ProgramStateWires {
-            expected_input: FpVar::new_witness(cs.clone(), || Ok(write_values.expected_input))?,
-            activation: FpVar::new_witness(cs.clone(), || Ok(write_values.activation))?,
-            init: FpVar::new_witness(cs.clone(), || Ok(write_values.init))?,
-            counters: FpVar::new_witness(cs.clone(), || Ok(write_values.counters))?,
-            initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
-            finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
-            did_burn: Boolean::new_witness(cs.clone(), || Ok(write_values.did_burn))?,
-            ownership: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
-                Ok(write_values.ownership.encoded())
-            })?),
-        })
-    }
-}
-
-macro_rules! define_program_state_operations {
-    ($(($field:ident, $tag:ident, $field_type:ident)),* $(,)?) => {
-        // Out-of-circuit version
-        fn trace_program_state_writes<M: IVCMemory<F>>(
-            mem: &mut M,
-            pid: u64,
-            state: &ProgramState,
-            switches: &MemSwitchboard,
-        ) {
-            $(
-                mem.conditional_write(
-                    switches.$field,
-                    Address {
-                        addr: pid,
-                        tag: ProgramStateTag::$tag.into(),
-                    },
-                    [define_program_state_operations!(@convert_to_f state.$field, $field_type)].to_vec(),
-                );
-            )*
-        }
-
-        // In-circuit version
-        fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
-            rm: &mut M,
-            cs: &ConstraintSystemRef<F>,
-            address: FpVar<F>,
-            state: ProgramStateWires,
-            switches: &MemSwitchboardWires,
-        ) -> Result<(), SynthesisError> {
-            $(
-                rm.conditional_write(
-                    &switches.$field,
-                    &Address {
-                        addr: address.clone(),
-                        tag: MemoryTag::from(ProgramStateTag::$tag).allocate(cs.clone())?,
-                    },
-                    &[define_program_state_operations!(@convert_to_fpvar state.$field, $field_type)],
-                )?;
-            )*
-            Ok(())
-        }
-
-        // Out-of-circuit read version
-        fn trace_program_state_reads<M: IVCMemory<F>>(
-            mem: &mut M,
-            pid: u64,
-            switches: &MemSwitchboard,
-        ) -> ProgramState {
-            ProgramState {
-                $(
-                    $field: define_program_state_operations!(@convert_from_f
-                        mem.conditional_read(
-                            switches.$field,
-                            Address {
-                                addr: pid,
-                                tag: ProgramStateTag::$tag.into(),
-                            },
-                        )[0], $field_type),
-                )*
-            }
-        }
-
-        // Just a helper for totality checking
-        //
-        // this will generate a compiler error if the macro is not called with all variants
-        #[allow(dead_code)]
-        fn _check_program_state_totality(tag: ProgramStateTag) {
-            match tag {
-                $(
-                    ProgramStateTag::$tag => {},
-                )*
-            }
-        }
-    };
-
-    (@convert_to_f $value:expr, field) => { $value };
-    (@convert_to_f $value:expr, bool) => { F::from($value) };
-    (@convert_to_f $value:expr, optional) => { $value.encoded() };
-
-    (@convert_from_f $value:expr, field) => { $value };
-    (@convert_from_f $value:expr, bool) => { $value == F::ONE };
-    (@convert_from_f $value:expr, optional) => { OptionalF::from_encoded($value) };
-
-    (@convert_to_fpvar $value:expr, field) => { $value.clone().into() };
-    (@convert_to_fpvar $value:expr, bool) => { $value.clone().into() };
-    (@convert_to_fpvar $value:expr, optional) => { $value.encoded() };
-}
-
-define_program_state_operations!(
-    (expected_input, ExpectedInput, field),
-    (activation, Activation, field),
-    (init, Init, field),
-    (counters, Counters, field),
-    (initialized, Initialized, bool),
-    (finalized, Finalized, bool),
-    (did_burn, DidBurn, bool),
-    (ownership, Ownership, optional),
-);
 
 impl Wires {
     fn arg(&self, kind: ArgName) -> FpVar<F> {
@@ -1022,108 +753,6 @@ impl Wires {
             handler_state,
         })
     }
-}
-
-fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
-    rm: &mut M,
-    cs: &ConstraintSystemRef<F>,
-    address: FpVar<F>,
-    switches: &MemSwitchboardWires,
-) -> Result<ProgramStateWires, SynthesisError> {
-    Ok(ProgramStateWires {
-        expected_input: rm
-            .conditional_read(
-                &switches.expected_input,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::ExpectedInput.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        activation: rm
-            .conditional_read(
-                &switches.activation,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Activation.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        init: rm
-            .conditional_read(
-                &switches.init,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Init.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        counters: rm
-            .conditional_read(
-                &switches.counters,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Counters.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        initialized: rm
-            .conditional_read(
-                &switches.initialized,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Initialized.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap()
-            .is_one()?,
-        finalized: rm
-            .conditional_read(
-                &switches.finalized,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Finalized.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap()
-            .is_one()?,
-        did_burn: rm
-            .conditional_read(
-                &switches.did_burn,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::DidBurn.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap()
-            .is_one()?,
-        ownership: OptionalFpVar::new(
-            rm.conditional_read(
-                &switches.ownership,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Ownership.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        ),
-    })
 }
 
 impl InterRoundWires {
@@ -2672,84 +2301,6 @@ impl PreWires {
         tracing::debug!("val={}", self.arg(ArgName::Val));
         tracing::debug!("ret={}", self.arg(ArgName::Ret));
         tracing::debug!("id_prev={}", self.irw.id_prev.encoded());
-    }
-}
-
-impl MemSwitchboardWires {
-    pub fn allocate(
-        cs: ConstraintSystemRef<F>,
-        switches: &MemSwitchboard,
-    ) -> Result<Self, SynthesisError> {
-        Ok(Self {
-            expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
-            activation: Boolean::new_witness(cs.clone(), || Ok(switches.activation))?,
-            init: Boolean::new_witness(cs.clone(), || Ok(switches.init))?,
-            counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,
-            initialized: Boolean::new_witness(cs.clone(), || Ok(switches.initialized))?,
-            finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
-            did_burn: Boolean::new_witness(cs.clone(), || Ok(switches.did_burn))?,
-            ownership: Boolean::new_witness(cs.clone(), || Ok(switches.ownership))?,
-        })
-    }
-}
-
-impl RomSwitchboardWires {
-    pub fn allocate(
-        cs: ConstraintSystemRef<F>,
-        switches: &RomSwitchboard,
-    ) -> Result<Self, SynthesisError> {
-        Ok(Self {
-            read_is_utxo_curr: Boolean::new_witness(cs.clone(), || Ok(switches.read_is_utxo_curr))?,
-            read_is_utxo_target: Boolean::new_witness(cs.clone(), || {
-                Ok(switches.read_is_utxo_target)
-            })?,
-            read_must_burn_curr: Boolean::new_witness(cs.clone(), || {
-                Ok(switches.read_must_burn_curr)
-            })?,
-            read_program_hash_target: Boolean::new_witness(cs.clone(), || {
-                Ok(switches.read_program_hash_target)
-            })?,
-        })
-    }
-}
-
-impl HandlerSwitchboardWires {
-    pub fn allocate(
-        cs: ConstraintSystemRef<F>,
-        switches: &HandlerSwitchboard,
-    ) -> Result<Self, SynthesisError> {
-        Ok(Self {
-            read_interface: Boolean::new_witness(cs.clone(), || Ok(switches.read_interface))?,
-            read_head: Boolean::new_witness(cs.clone(), || Ok(switches.read_head))?,
-            read_node: Boolean::new_witness(cs.clone(), || Ok(switches.read_node))?,
-            write_node: Boolean::new_witness(cs.clone(), || Ok(switches.write_node))?,
-            write_head: Boolean::new_witness(cs.clone(), || Ok(switches.write_head))?,
-        })
-    }
-}
-
-impl ProgramState {
-    pub fn dummy() -> Self {
-        Self {
-            finalized: false,
-            expected_input: F::ZERO,
-            activation: F::ZERO,
-            init: F::ZERO,
-            counters: F::ZERO,
-            initialized: false,
-            did_burn: false,
-            ownership: OptionalF::none(),
-        }
-    }
-
-    pub fn debug_print(&self) {
-        tracing::debug!("expected_input={}", self.expected_input);
-        tracing::debug!("activation={}", self.activation);
-        tracing::debug!("init={}", self.init);
-        tracing::debug!("counters={}", self.counters);
-        tracing::debug!("finalized={}", self.finalized);
-        tracing::debug!("did_burn={}", self.did_burn);
-        tracing::debug!("ownership={}", self.ownership.encoded());
     }
 }
 
