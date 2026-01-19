@@ -2688,9 +2688,26 @@ dependencies = [
  "p3-symmetric",
  "rand 0.9.2",
  "rand_chacha 0.9.0",
- "starstream_mock_ledger",
+ "starstream-interleaving-spec",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "starstream-interleaving-spec"
+version = "0.1.0"
+dependencies = [
+ "ark-ff",
+ "ark-goldilocks",
+ "hex",
+ "imbl",
+ "neo-ajtai",
+ "neo-ccs",
+ "neo-fold",
+ "neo-math",
+ "neo-memory",
+ "p3-field",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -2735,7 +2752,7 @@ dependencies = [
  "imbl",
  "sha2",
  "starstream-interleaving-proof",
- "starstream_mock_ledger",
+ "starstream-interleaving-spec",
  "thiserror 2.0.17",
  "wasmi",
  "wat",
@@ -2777,23 +2794,6 @@ dependencies = [
  "chumsky",
  "pretty",
  "serde",
- "thiserror 2.0.17",
-]
-
-[[package]]
-name = "starstream_mock_ledger"
-version = "0.1.0"
-dependencies = [
- "ark-ff",
- "ark-goldilocks",
- "hex",
- "imbl",
- "neo-ajtai",
- "neo-ccs",
- "neo-fold",
- "neo-math",
- "neo-memory",
- "p3-field",
  "thiserror 2.0.17",
 ]
 
