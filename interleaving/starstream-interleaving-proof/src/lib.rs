@@ -3,15 +3,18 @@ mod circuit;
 #[cfg(test)]
 mod circuit_test;
 mod logging;
+mod optional;
+
+pub use optional::{OptionalF, OptionalFpVar};
 mod memory;
 mod neo;
 
 use crate::circuit::InterRoundWires;
-pub use crate::circuit::OptionalF;
 use crate::memory::IVCMemory;
 use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{StarstreamVm, StepCircuitNeo};
 use abi::ledger_operation_from_wit;
+use ark_ff::PrimeField;
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
 use circuit::StepCircuitBuilder;
 pub use memory::nebula;
@@ -35,7 +38,7 @@ pub type ProgramId = F;
 pub use abi::commit;
 
 #[derive(Debug, Clone)]
-pub enum LedgerOperation<F> {
+pub enum LedgerOperation<F: PrimeField> {
     /// A call to starstream_resume.
     ///
     /// This stores the input and outputs in memory, and sets the
@@ -47,14 +50,14 @@ pub enum LedgerOperation<F> {
         target: F,
         val: F,
         ret: F,
-        id_prev: OptionalF,
+        id_prev: OptionalF<F>,
     },
     /// Called by utxo to yield.
     ///
     Yield {
         val: F,
         ret: Option<F>,
-        id_prev: OptionalF,
+        id_prev: OptionalF<F>,
     },
     ProgramHash {
         target: F,

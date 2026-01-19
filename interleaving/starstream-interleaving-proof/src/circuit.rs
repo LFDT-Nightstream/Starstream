@@ -1,6 +1,6 @@
 use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
 use crate::memory::{self, Address, IVCMemory, MemType};
-use crate::{F, LedgerOperation, memory::IVCMemoryAllocated};
+use crate::{F, LedgerOperation, OptionalF, OptionalFpVar, memory::IVCMemoryAllocated};
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::fields::FieldVar;
 use ark_r1cs_std::{
@@ -509,85 +509,14 @@ pub struct StepCircuitBuilder<M> {
     mem: PhantomData<M>,
 }
 
-#[derive(Copy, Clone, Debug, Default)]
-pub struct OptionalF(F);
-
-impl OptionalF {
-    pub fn none() -> Self {
-        Self(F::ZERO)
-    }
-
-    pub fn from_pid(value: F) -> Self {
-        Self(value + F::ONE)
-    }
-
-    pub fn from_option(value: Option<F>) -> Self {
-        value.map(Self::from_pid).unwrap_or_else(Self::none)
-    }
-
-    pub fn encoded(self) -> F {
-        self.0
-    }
-
-    pub fn from_encoded(value: F) -> Self {
-        Self(value)
-    }
-
-    pub fn to_option(self) -> Option<F> {
-        if self.0 == F::ZERO {
-            None
-        } else {
-            Some(self.0 - F::ONE)
-        }
-    }
-
-    pub fn decode_or_zero(self) -> F {
-        self.to_option().unwrap_or(F::ZERO)
-    }
-}
-
-#[derive(Clone)]
-struct OptionalFpVar(FpVar<F>);
-
-impl OptionalFpVar {
-    fn new(value: FpVar<F>) -> Self {
-        Self(value)
-    }
-
-    fn encoded(&self) -> FpVar<F> {
-        self.0.clone()
-    }
-
-    fn is_some(&self) -> Result<Boolean<F>, SynthesisError> {
-        Ok(self.0.is_zero()?.not())
-    }
-
-    fn decode_or_zero(&self, one: &FpVar<F>) -> Result<FpVar<F>, SynthesisError> {
-        let is_zero = self.0.is_zero()?;
-        let value = &self.0 - one;
-        is_zero.select(&FpVar::zero(), &value)
-    }
-
-    fn select_encoded(
-        switch: &Boolean<F>,
-        when_true: &FpVar<F>,
-        when_false: &OptionalFpVar,
-    ) -> Result<OptionalFpVar, SynthesisError> {
-        let selected = switch.select(when_true, &when_false.encoded())?;
-        Ok(OptionalFpVar::new(selected))
-    }
-
-    fn value(&self) -> Result<F, SynthesisError> {
-        self.0.value()
-    }
-}
+// OptionalF/OptionalFpVar live in optional.rs
 
 /// common circuit variables to all the opcodes
 #[derive(Clone)]
 pub struct Wires {
     // irw
     id_curr: FpVar<F>,
-    id_prev: OptionalFpVar,
+    id_prev: OptionalFpVar<F>,
     ref_arena_stack_ptr: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
 
@@ -631,7 +560,7 @@ pub struct ProgramStateWires {
     initialized: Boolean<F>,
     finalized: Boolean<F>,
     did_burn: Boolean<F>,
-    ownership: OptionalFpVar, // an encoded optional process id
+    ownership: OptionalFpVar<F>, // an encoded optional process id
 }
 
 // helper so that we always allocate witnesses in the same order
@@ -661,7 +590,7 @@ pub struct ProgramState {
     initialized: bool,
     finalized: bool,
     did_burn: bool,
-    ownership: OptionalF, // encoded optional process id
+    ownership: OptionalF<F>, // encoded optional process id
 }
 
 /// IVC wires (state between steps)
@@ -670,7 +599,7 @@ pub struct ProgramState {
 #[derive(Clone)]
 pub struct InterRoundWires {
     id_curr: F,
-    id_prev: OptionalF,
+    id_prev: OptionalF<F>,
     ref_arena_counter: F,
     handler_stack_counter: F,
 
@@ -1228,7 +1157,7 @@ impl InterRoundWires {
             res_id_prev
         );
 
-        self.id_prev = OptionalF(res_id_prev);
+        self.id_prev = OptionalF::from_encoded(res_id_prev);
 
         tracing::debug!(
             "utxos_len from {} to {}",
