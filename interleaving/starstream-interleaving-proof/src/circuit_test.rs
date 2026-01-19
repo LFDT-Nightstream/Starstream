@@ -1,5 +1,5 @@
 use crate::{logging::setup_logger, prove};
-use starstream_mock_ledger::{
+use starstream_interleaving_spec::{
     Hash, InterleavingInstance, InterleavingWitness, LedgerEffectsCommitment, ProcessId, Ref,
     Value, WitEffectOutput, WitLedgerEffect,
 };

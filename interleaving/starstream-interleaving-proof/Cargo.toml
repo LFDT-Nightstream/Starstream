@@ -21,7 +21,7 @@ neo-params = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e6
 neo-vm-trace = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
 neo-memory = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
 
-starstream_mock_ledger = { path = "../starstream_mock_ledger" }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 
 p3-goldilocks = { version = "0.4.1", default-features = false }
 p3-field = "0.4.1"
@@ -30,5 +30,5 @@ p3-poseidon2 = "0.4.1"
 rand_chacha = "0.9.0"
 rand = "0.9"
 
-ark-goldilocks = { path = "../ark-goldilocks" }
-ark-poseidon2 = { path = "../ark-poseidon2" }
+ark-goldilocks = { path = "../../ark-goldilocks" }
+ark-poseidon2 = { path = "../../ark-poseidon2" }

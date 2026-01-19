@@ -1,6 +1,6 @@
 use crate::{F, LedgerOperation, OptionalF};
 use ark_ff::Zero;
-use starstream_mock_ledger::{EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect};
+use starstream_interleaving_spec::{EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect};
 
 pub const OPCODE_ARG_COUNT: usize = 7;
 
@@ -275,6 +275,6 @@ pub(crate) fn encode_hash_as_fields<T>(hash: Hash<T>) -> [F; 4] {
     out
 }
 
-pub(crate) fn value_to_field(val: starstream_mock_ledger::Value) -> F {
+pub(crate) fn value_to_field(val: starstream_interleaving_spec::Value) -> F {
     F::from(val.0)
 }
