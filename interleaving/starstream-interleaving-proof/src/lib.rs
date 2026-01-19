@@ -3,7 +3,10 @@ mod circuit;
 #[cfg(test)]
 mod circuit_test;
 mod logging;
+mod memory_tags;
 mod optional;
+mod program_state;
+mod switchboard;
 
 pub use optional::{OptionalF, OptionalFpVar};
 mod memory;
