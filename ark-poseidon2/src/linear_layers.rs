@@ -2,7 +2,7 @@
 
 use crate::{
     F,
-    goldilocks::{matrix_diag_12_goldilocks, matrix_diag_8_goldilocks},
+    goldilocks::{matrix_diag_8_goldilocks, matrix_diag_12_goldilocks},
     math::mds_light_permutation,
 };
 use ark_ff::PrimeField;
