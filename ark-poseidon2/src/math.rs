@@ -1,5 +1,8 @@
 use ark_ff::PrimeField;
-use ark_r1cs_std::fields::{FieldVar as _, fp::{AllocatedFp, FpVar}};
+use ark_r1cs_std::fields::{
+    FieldVar as _,
+    fp::{AllocatedFp, FpVar},
+};
 use ark_relations::gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError};
 
 #[inline(always)]
@@ -55,22 +58,10 @@ fn linear_combination_4<F: PrimeField>(
 fn apply_mat4<F: PrimeField>(x: &mut [FpVar<F>]) -> Result<(), SynthesisError> {
     let vars = [&x[0], &x[1], &x[2], &x[3]];
 
-    let y0 = linear_combination_4(
-        [F::from(2u64), F::from(3u64), F::ONE, F::ONE],
-        vars,
-    )?;
-    let y1 = linear_combination_4(
-        [F::ONE, F::from(2u64), F::from(3u64), F::ONE],
-        vars,
-    )?;
-    let y2 = linear_combination_4(
-        [F::ONE, F::ONE, F::from(2u64), F::from(3u64)],
-        vars,
-    )?;
-    let y3 = linear_combination_4(
-        [F::from(3u64), F::ONE, F::ONE, F::from(2u64)],
-        vars,
-    )?;
+    let y0 = linear_combination_4([F::from(2u64), F::from(3u64), F::ONE, F::ONE], vars)?;
+    let y1 = linear_combination_4([F::ONE, F::from(2u64), F::from(3u64), F::ONE], vars)?;
+    let y2 = linear_combination_4([F::ONE, F::ONE, F::from(2u64), F::from(3u64)], vars)?;
+    let y3 = linear_combination_4([F::from(3u64), F::ONE, F::ONE, F::from(2u64)], vars)?;
 
     x[0] = y0;
     x[1] = y1;

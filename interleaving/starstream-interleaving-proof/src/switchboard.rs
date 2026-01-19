@@ -1,7 +1,7 @@
 use crate::F;
-use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::prelude::Boolean;
+use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 
 #[derive(Clone, Debug, Default)]
 pub struct RomSwitchboard {

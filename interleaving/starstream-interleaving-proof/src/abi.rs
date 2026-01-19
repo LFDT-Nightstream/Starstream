@@ -1,6 +1,8 @@
 use crate::{F, LedgerOperation, OptionalF};
 use ark_ff::Zero;
-use starstream_interleaving_spec::{EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect};
+use starstream_interleaving_spec::{
+    EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect,
+};
 
 pub const OPCODE_ARG_COUNT: usize = 7;
 
