@@ -1,6 +1,6 @@
 use sha2::{Digest, Sha256};
 use starstream_interleaving_proof::commit;
-use starstream_mock_ledger::{
+use starstream_interleaving_spec::{
     CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
     InterleavingWitness, LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId,
     ProvenTransaction, Ref, UtxoId, Value, WasmModule, WitEffectOutput, WitLedgerEffect,
@@ -828,7 +828,7 @@ impl UnprovenTransaction {
             input_states: vec![],
         };
 
-        let witness = starstream_mock_ledger::InterleavingWitness { traces };
+        let witness = starstream_interleaving_spec::InterleavingWitness { traces };
 
         Ok((instance, runtime.store.into_data(), witness))
     }

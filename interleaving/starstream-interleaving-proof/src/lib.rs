@@ -21,7 +21,7 @@ use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
 use neo_fold::shard::StepLinkingConfig;
 use neo_params::NeoParams;
 use rand::SeedableRng as _;
-use starstream_mock_ledger::{
+use starstream_interleaving_spec::{
     InterleavingInstance, InterleavingWitness, ProcessId, ZkTransactionProof,
 };
 use std::collections::HashMap;
@@ -237,17 +237,17 @@ fn make_interleaved_trace(
         *c += 1;
 
         match instr {
-            starstream_mock_ledger::WitLedgerEffect::Resume { target, .. } => {
+            starstream_interleaving_spec::WitLedgerEffect::Resume { target, .. } => {
                 id_prev = Some(id_curr);
                 id_curr = target.0;
             }
-            starstream_mock_ledger::WitLedgerEffect::Yield { .. } => {
+            starstream_interleaving_spec::WitLedgerEffect::Yield { .. } => {
                 let parent = id_prev.expect("Yield called without a parent process");
                 let old_id_curr = id_curr;
                 id_curr = parent;
                 id_prev = Some(old_id_curr);
             }
-            starstream_mock_ledger::WitLedgerEffect::Burn { .. } => {
+            starstream_interleaving_spec::WitLedgerEffect::Burn { .. } => {
                 let parent = id_prev.expect("Burn called without a parent process");
                 let old_id_curr = id_curr;
                 id_curr = parent;
@@ -272,7 +272,7 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts), SynthesisE
     let cs = ConstraintSystem::new_ref();
     cs.set_optimization_goal(ark_relations::gr1cs::OptimizationGoal::Constraints);
 
-    let hash = starstream_mock_ledger::Hash([0u8; 32], std::marker::PhantomData);
+    let hash = starstream_interleaving_spec::Hash([0u8; 32], std::marker::PhantomData);
 
     let inst = InterleavingInstance {
         host_calls_roots: vec![],
