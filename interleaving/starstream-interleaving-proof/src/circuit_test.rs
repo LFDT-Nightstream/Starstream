@@ -22,10 +22,12 @@ fn host_calls_roots(traces: &[Vec<WitLedgerEffect>]) -> Vec<LedgerEffectsCommitm
     traces
         .iter()
         .map(|trace| {
-            trace.iter().cloned().fold(
-                LedgerEffectsCommitment::zero(),
-                |acc, op| crate::commit(acc, op),
-            )
+            trace
+                .iter()
+                .cloned()
+                .fold(LedgerEffectsCommitment::zero(), |acc, op| {
+                    crate::commit(acc, op)
+                })
         })
         .collect()
 }
