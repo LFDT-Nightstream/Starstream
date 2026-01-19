@@ -422,7 +422,6 @@ pub struct Wires {
 
     constant_false: Boolean<F>,
     constant_true: Boolean<F>,
-    constant_one: FpVar<F>,
 }
 
 // helper so that we always allocate witnesses in the same order
@@ -469,7 +468,7 @@ impl Wires {
     }
 
     fn id_prev_value(&self) -> Result<FpVar<F>, SynthesisError> {
-        self.id_prev.decode_or_zero(&self.constant_one)
+        self.id_prev.decode_or_zero()
     }
 
     // IMPORTANT: no rust branches in this function, since the purpose of this
@@ -733,7 +732,6 @@ impl Wires {
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
             constant_true: Boolean::new_constant(cs.clone(), true)?,
-            constant_one: FpVar::new_constant(cs.clone(), F::from(1))?,
 
             // wit_wires
             opcode_args,
@@ -1035,7 +1033,7 @@ impl LedgerOperation<crate::F> {
                 target_write.counters = F::ZERO;
             }
             LedgerOperation::Bind { owner_id } => {
-                curr_write.ownership = OptionalF::from_pid(*owner_id);
+                curr_write.ownership = OptionalF::new(*owner_id);
             }
             LedgerOperation::Unbind { .. } => {
                 target_write.ownership = OptionalF::none();
@@ -1244,7 +1242,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
                 let encoded_owner = owner
-                    .map(|p| OptionalF::from_pid(F::from(p.0 as u64)).encoded())
+                    .map(|p| OptionalF::new(F::from(p.0 as u64)).encoded())
                     .unwrap_or_else(|| OptionalF::none().encoded());
                 mb.init(
                     Address {
@@ -1489,13 +1487,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             // update pids for next iteration
             match instr {
                 LedgerOperation::Resume { target, .. } => {
-                    irw.id_prev = OptionalF::from_pid(irw.id_curr);
+                    irw.id_prev = OptionalF::new(irw.id_curr);
                     irw.id_curr = *target;
                 }
                 LedgerOperation::Yield { .. } | LedgerOperation::Burn { .. } => {
                     let old_curr = irw.id_curr;
                     irw.id_curr = irw.id_prev.decode_or_zero();
-                    irw.id_prev = OptionalF::from_pid(old_curr);
+                    irw.id_prev = OptionalF::new(old_curr);
                 }
                 _ => {}
             }
@@ -1720,7 +1718,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_id_curr = switch.select(&wires.arg(ArgName::Target), &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
             switch,
-            &(&wires.id_curr + &wires.constant_one),
+            &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.id_prev,
         )?;
 
@@ -1770,7 +1768,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
             switch,
-            &(&wires.id_curr + &wires.constant_one),
+            &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.id_prev,
         )?;
         wires.id_curr = next_id_curr;
@@ -1830,7 +1828,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
             switch,
-            &(&wires.id_curr + &wires.constant_one),
+            &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.id_prev,
         )?;
         wires.id_curr = next_id_curr;
@@ -1955,7 +1953,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .is_some()?
             .conditional_enforce_equal(&wires.constant_false, switch)?;
 
-        let owner_id_encoded = &wires.arg(ArgName::OwnerId) + &wires.constant_one;
+        let owner_id_encoded = &wires.arg(ArgName::OwnerId) + FpVar::one();
         wires
             .curr_write_wires
             .ownership
@@ -1975,7 +1973,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         (is_utxo_curr & is_utxo_target).conditional_enforce_equal(&wires.constant_true, switch)?;
 
         // only the owner can unbind
-        let id_curr_encoded = &wires.id_curr + &wires.constant_one;
+        let id_curr_encoded = &wires.id_curr + FpVar::one();
         wires
             .target_read_wires
             .ownership
@@ -2032,12 +2030,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Update state
         // remaining -= 1
-        let next_remaining = &wires.ref_building_remaining - &wires.constant_one;
+        let next_remaining = &wires.ref_building_remaining - FpVar::one();
         wires.ref_building_remaining =
             switch.select(&next_remaining, &wires.ref_building_remaining)?;
 
         // ptr += 1
-        let next_ptr = &wires.ref_building_ptr + &wires.constant_one;
+        let next_ptr = &wires.ref_building_ptr + FpVar::one();
         wires.ref_building_ptr = switch.select(&next_ptr, &wires.ref_building_ptr)?;
 
         Ok(wires)
@@ -2092,7 +2090,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Update handler stack counter (allocate new node)
         wires.handler_stack_ptr = switch.select(
-            &(&wires.handler_stack_ptr + &wires.constant_one),
+            &(&wires.handler_stack_ptr + FpVar::one()),
             &wires.handler_stack_ptr,
         )?;
 
