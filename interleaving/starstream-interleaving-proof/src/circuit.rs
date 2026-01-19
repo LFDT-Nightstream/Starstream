@@ -529,6 +529,10 @@ impl OptionalF {
         self.0
     }
 
+    pub fn from_encoded(value: F) -> Self {
+        Self(value)
+    }
+
     pub fn to_option(self) -> Option<F> {
         if self.0 == F::ZERO {
             None
@@ -627,7 +631,7 @@ pub struct ProgramStateWires {
     initialized: Boolean<F>,
     finalized: Boolean<F>,
     did_burn: Boolean<F>,
-    ownership: FpVar<F>, // an index into the process table
+    ownership: OptionalFpVar, // an encoded optional process id
 }
 
 // helper so that we always allocate witnesses in the same order
@@ -657,7 +661,7 @@ pub struct ProgramState {
     initialized: bool,
     finalized: bool,
     did_burn: bool,
-    ownership: F, // an index into the process table
+    ownership: OptionalF, // encoded optional process id
 }
 
 /// IVC wires (state between steps)
@@ -689,7 +693,9 @@ impl ProgramStateWires {
             initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
             finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
             did_burn: Boolean::new_witness(cs.clone(), || Ok(write_values.did_burn))?,
-            ownership: FpVar::new_witness(cs.clone(), || Ok(write_values.ownership))?,
+            ownership: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(write_values.ownership.encoded())
+            })?),
         })
     }
 }
@@ -730,7 +736,7 @@ macro_rules! define_program_state_operations {
                         addr: address.clone(),
                         tag: MemoryTag::from(ProgramStateTag::$tag).allocate(cs.clone())?,
                     },
-                    &[state.$field.clone().into()],
+                    &[define_program_state_operations!(@convert_to_fpvar state.$field, $field_type)],
                 )?;
             )*
             Ok(())
@@ -771,9 +777,15 @@ macro_rules! define_program_state_operations {
 
     (@convert_to_f $value:expr, field) => { $value };
     (@convert_to_f $value:expr, bool) => { F::from($value) };
+    (@convert_to_f $value:expr, optional) => { $value.encoded() };
 
     (@convert_from_f $value:expr, field) => { $value };
     (@convert_from_f $value:expr, bool) => { $value == F::ONE };
+    (@convert_from_f $value:expr, optional) => { OptionalF::from_encoded($value) };
+
+    (@convert_to_fpvar $value:expr, field) => { $value.clone().into() };
+    (@convert_to_fpvar $value:expr, bool) => { $value.clone().into() };
+    (@convert_to_fpvar $value:expr, optional) => { $value.encoded() };
 }
 
 define_program_state_operations!(
@@ -784,7 +796,7 @@ define_program_state_operations!(
     (initialized, Initialized, bool),
     (finalized, Finalized, bool),
     (did_burn, DidBurn, bool),
-    (ownership, Ownership, field),
+    (ownership, Ownership, optional),
 );
 
 impl Wires {
@@ -1170,8 +1182,8 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
             .next()
             .unwrap()
             .is_one()?,
-        ownership: rm
-            .conditional_read(
+        ownership: OptionalFpVar::new(
+            rm.conditional_read(
                 &switches.ownership,
                 &Address {
                     addr: address.clone(),
@@ -1181,6 +1193,7 @@ fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
             .into_iter()
             .next()
             .unwrap(),
+        ),
     })
 }
 
@@ -1463,6 +1476,12 @@ impl LedgerOperation<crate::F> {
                 target_write.init = *val;
                 target_write.counters = F::ZERO;
             }
+            LedgerOperation::Bind { owner_id } => {
+                curr_write.ownership = OptionalF::from_pid(*owner_id);
+            }
+            LedgerOperation::Unbind { .. } => {
+                target_write.ownership = OptionalF::none();
+            }
             _ => {
                 // For other opcodes, we just increment the counter.
             }
@@ -1666,20 +1685,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             }
 
             for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
+                let encoded_owner = owner
+                    .map(|p| OptionalF::from_pid(F::from(p.0 as u64)).encoded())
+                    .unwrap_or_else(|| OptionalF::none().encoded());
                 mb.init(
                     Address {
                         addr: pid as u64,
                         tag: MemoryTag::Ownership.into(),
                     },
-                    vec![F::from(
-                        owner
-                            .map(|p| p.0)
-                            // probably using 0 for null is better but it would
-                            // mean checking that pids are always greater than
-                            // 0, so review later
-                            .unwrap_or(self.instance.process_table.len())
-                            as u64,
-                    )],
+                    vec![encoded_owner],
                 );
             }
 
@@ -2309,10 +2323,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .initialized
             .conditional_enforce_equal(&wires.constant_false, &switch)?;
 
-        // Mark new process as initialized
-        // TODO: There is no need to have this asignment, actually
-        wires.target_write_wires.initialized =
-            switch.select(&wires.constant_true, &wires.target_read_wires.initialized)?;
+        wires
+            .target_write_wires
+            .initialized
+            .conditional_enforce_equal(&wires.constant_true, &switch)?;
 
         wires.target_write_wires.init =
             switch.select(&wires.arg(ArgName::Val), &wires.target_read_wires.init)?;
@@ -2363,7 +2377,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
-    fn visit_bind(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_bind(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.bind;
 
         // curr is the token (or the utxo bound to the target)
@@ -2380,19 +2394,21 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .curr_read_wires
             .ownership
-            .conditional_enforce_equal(&wires.p_len, switch)?;
+            .is_some()?
+            .conditional_enforce_equal(&wires.constant_false, switch)?;
 
-        // TODO: no need to have this assignment, probably
-        wires.curr_write_wires.ownership = switch.select(
-            &wires.arg(ArgName::OwnerId),
-            &wires.curr_read_wires.ownership,
-        )?;
+        let owner_id_encoded = &wires.arg(ArgName::OwnerId) + &wires.constant_one;
+        wires
+            .curr_write_wires
+            .ownership
+            .encoded()
+            .conditional_enforce_equal(&owner_id_encoded, switch)?;
 
         Ok(wires)
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
-    fn visit_unbind(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_unbind(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.unbind;
 
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
@@ -2401,15 +2417,18 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         (is_utxo_curr & is_utxo_target).conditional_enforce_equal(&wires.constant_true, switch)?;
 
         // only the owner can unbind
+        let id_curr_encoded = &wires.id_curr + &wires.constant_one;
         wires
             .target_read_wires
             .ownership
-            .conditional_enforce_equal(&wires.id_curr, switch)?;
+            .encoded()
+            .conditional_enforce_equal(&id_curr_encoded, switch)?;
 
-        // p_len is a sentinel for None
-        // TODO: no need to assign
-        wires.target_write_wires.ownership =
-            switch.select(&wires.p_len, &wires.curr_read_wires.ownership)?;
+        wires
+            .target_write_wires
+            .ownership
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
         Ok(wires)
     }
@@ -2790,7 +2809,7 @@ impl ProgramState {
             counters: F::ZERO,
             initialized: false,
             did_burn: false,
-            ownership: F::ZERO,
+            ownership: OptionalF::none(),
         }
     }
 
@@ -2801,7 +2820,7 @@ impl ProgramState {
         tracing::debug!("counters={}", self.counters);
         tracing::debug!("finalized={}", self.finalized);
         tracing::debug!("did_burn={}", self.did_burn);
-        tracing::debug!("ownership={}", self.ownership);
+        tracing::debug!("ownership={}", self.ownership.encoded());
     }
 }
 
