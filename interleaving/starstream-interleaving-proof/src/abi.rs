@@ -191,7 +191,6 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::IdPrev.idx()] = id_prev.encoded();
         }
         LedgerOperation::Yield { val, ret, id_prev } => {
-            args[ArgName::Target.idx()] = id_prev.decode_or_zero();
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = ret.unwrap_or_default();
             args[ArgName::IdPrev.idx()] = id_prev.encoded();
