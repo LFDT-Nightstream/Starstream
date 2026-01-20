@@ -526,8 +526,8 @@ impl Wires {
         let curr_read_wires =
             program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
 
-        // TODO: make conditional for opcodes without target
-        let target_address = target.clone();
+        let id_prev_value = id_prev.decode_or_zero()?;
+        let target_address = switches.yield_op.select(&id_prev_value, &target)?;
         let target_read_wires =
             program_state_read_wires(rm, &cs, target_address.clone(), &target_mem_switches)?;
 
