@@ -3,14 +3,12 @@ mod circuit;
 #[cfg(test)]
 mod circuit_test;
 mod logging;
+mod memory;
 mod memory_tags;
+mod neo;
 mod optional;
 mod program_state;
 mod switchboard;
-
-pub use optional::{OptionalF, OptionalFpVar};
-mod memory;
-mod neo;
 
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
@@ -26,6 +24,7 @@ use neo_fold::pi_ccs::FoldingMode;
 use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
 use neo_fold::shard::StepLinkingConfig;
 use neo_params::NeoParams;
+pub use optional::{OptionalF, OptionalFpVar};
 use rand::SeedableRng as _;
 use starstream_interleaving_spec::{
     InterleavingInstance, InterleavingWitness, ProcessId, ZkTransactionProof,
