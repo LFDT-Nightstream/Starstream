@@ -15,7 +15,7 @@ mod neo;
 use crate::circuit::InterRoundWires;
 use crate::memory::IVCMemory;
 use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
-use crate::neo::{StarstreamVm, StepCircuitNeo};
+use crate::neo::{CHUNK_SIZE, StarstreamVm, StepCircuitNeo};
 use abi::ledger_operation_from_wit;
 use ark_ff::PrimeField;
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
@@ -133,7 +133,13 @@ pub fn prove(
 
     // map all the disjoints vectors of traces (one per process) into a single
     // list, which is simpler to think about for ivc.
-    let ops = make_interleaved_trace(&inst, &wit);
+    let mut ops = make_interleaved_trace(&inst, &wit);
+
+    ops.resize(
+        ops.len().next_multiple_of(CHUNK_SIZE),
+        crate::LedgerOperation::Nop {},
+    );
+
     let max_steps = ops.len();
 
     tracing::info!("making proof, steps {}", ops.len());

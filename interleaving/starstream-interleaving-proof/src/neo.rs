@@ -14,6 +14,11 @@ use neo_vm_trace::{Shout, StepTrace, Twist, VmCpu};
 use p3_field::PrimeCharacteristicRing;
 use std::collections::HashMap;
 
+// TODO: benchmark properly
+pub(crate) const CHUNK_SIZE: usize = 10;
+const PER_STEP_COLS: usize = 885;
+const USED_COLS: usize = 1 + (PER_STEP_COLS - 1) * CHUNK_SIZE;
+
 pub(crate) struct StepCircuitNeo {
     pub(crate) matrices: Vec<Vec<Vec<(crate::F, usize)>>>,
     pub(crate) num_constraints: usize,
@@ -33,7 +38,7 @@ impl StepCircuitNeo {
         tracing::info!("num instance variables {}", num_instance_variables);
         tracing::info!("num variables {}", num_variables);
 
-        assert_eq!(num_variables, <Self as NeoCircuit>::Layout::USED_COLS);
+        assert_eq!(num_variables, PER_STEP_COLS);
 
         let matrices = ark_cs
             .into_inner()
@@ -72,7 +77,7 @@ impl WitnessLayout for CircuitLayout {
     const M_IN: usize = 1;
 
     // instance.len()+witness.len()
-    const USED_COLS: usize = 885;
+    const USED_COLS: usize = USED_COLS;
 
     fn new_layout() -> Self {
         CircuitLayout {}
@@ -83,7 +88,7 @@ impl NeoCircuit for StepCircuitNeo {
     type Layout = CircuitLayout;
 
     fn chunk_size(&self) -> usize {
-        1 // for now, this is simpler to debug
+        CHUNK_SIZE
     }
 
     fn const_one_col(&self, _layout: &Self::Layout) -> usize {
@@ -140,6 +145,7 @@ impl NeoCircuit for StepCircuitNeo {
         _layout: &Self::Layout,
     ) -> Result<(), String> {
         let matrices = &self.matrices;
+        let m_in = <Self::Layout as WitnessLayout>::M_IN;
 
         for ((matrix_a, matrix_b), matrix_c) in matrices[0]
             .iter()
@@ -151,7 +157,21 @@ impl NeoCircuit for StepCircuitNeo {
             let b_row = ark_matrix_to_neo(matrix_b);
             let c_row = ark_matrix_to_neo(matrix_c);
 
-            cs.r1cs_terms(a_row, b_row, c_row);
+            for j in 0..CHUNK_SIZE {
+                let map_idx = |idx: usize| {
+                    if idx < m_in {
+                        idx
+                    } else {
+                        m_in + (idx - m_in) * CHUNK_SIZE + j
+                    }
+                };
+
+                let a_row: Vec<_> = a_row.iter().map(|(i, v)| (map_idx(*i), *v)).collect();
+                let b_row: Vec<_> = b_row.iter().map(|(i, v)| (map_idx(*i), *v)).collect();
+                let c_row: Vec<_> = c_row.iter().map(|(i, v)| (map_idx(*i), *v)).collect();
+
+                cs.r1cs_terms(a_row, b_row, c_row);
+            }
         }
 
         tracing::info!("constraints defined");
@@ -164,12 +184,34 @@ impl NeoCircuit for StepCircuitNeo {
         _layout: &Self::Layout,
         chunk: &[StepTrace<u64, u64>],
     ) -> Result<Vec<neo_math::F>, String> {
-        let mut witness = vec![];
+        if chunk.len() != CHUNK_SIZE {
+            return Err(format!(
+                "chunk len {} != CHUNK_SIZE {}",
+                chunk.len(),
+                CHUNK_SIZE
+            ));
+        }
 
-        let c = &chunk[0];
+        let m_in = <Self::Layout as WitnessLayout>::M_IN;
+        let per_step_cols = chunk[0].regs_after.len();
+        if per_step_cols != PER_STEP_COLS {
+            return Err(format!(
+                "per-step witness len {} != PER_STEP_COLS {}",
+                per_step_cols, PER_STEP_COLS
+            ));
+        }
 
-        for v in &c.regs_after {
-            witness.push(neo_math::F::from_u64(*v));
+        let mut witness = vec![neo_math::F::ZERO; USED_COLS];
+
+        for i in 0..m_in {
+            witness[i] = neo_math::F::from_u64(chunk[0].regs_after[i]);
+        }
+
+        for (j, step) in chunk.iter().enumerate() {
+            for i in m_in..per_step_cols {
+                let idx = m_in + (i - m_in) * CHUNK_SIZE + j;
+                witness[idx] = neo_math::F::from_u64(step.regs_after[i]);
+            }
         }
 
         Ok(witness)
@@ -185,15 +227,18 @@ impl NeoCircuit for StepCircuitNeo {
         ),
         String,
     > {
+        let m_in = <Self::Layout as WitnessLayout>::M_IN;
+        let map_idx = |witness_idx: usize| m_in + witness_idx * CHUNK_SIZE;
+
         let mut shout_map: HashMap<u32, Vec<ShoutCpuBinding>> = HashMap::new();
 
         for (tag, layouts) in &self.ts_mem_spec.shout_bindings {
             for layout in layouts {
                 let entry = shout_map.entry(*tag as u32).or_default();
                 entry.push(ShoutCpuBinding {
-                    has_lookup: Self::Layout::M_IN + layout.has_lookup,
-                    addr: Self::Layout::M_IN + layout.addr,
-                    val: Self::Layout::M_IN + layout.val,
+                    has_lookup: map_idx(layout.has_lookup),
+                    addr: map_idx(layout.addr),
+                    val: map_idx(layout.val),
                 });
             }
         }
@@ -204,12 +249,12 @@ impl NeoCircuit for StepCircuitNeo {
             for layout in layouts {
                 let entry = twist_map.entry(*tag as u32).or_default();
                 entry.push(TwistCpuBinding {
-                    read_addr: Self::Layout::M_IN + layout.ra,
-                    has_read: Self::Layout::M_IN + layout.has_read,
-                    rv: Self::Layout::M_IN + layout.rv,
-                    write_addr: Self::Layout::M_IN + layout.wa,
-                    has_write: Self::Layout::M_IN + layout.has_write,
-                    wv: Self::Layout::M_IN + layout.wv,
+                    read_addr: map_idx(layout.ra),
+                    has_read: map_idx(layout.has_read),
+                    rv: map_idx(layout.rv),
+                    write_addr: map_idx(layout.wa),
+                    has_write: map_idx(layout.has_write),
+                    wv: map_idx(layout.wv),
                     inc: None,
                 });
             }
@@ -252,7 +297,7 @@ impl StarstreamVm {
             step_i: 0,
             mem,
             irw,
-            regs: vec![0; <StepCircuitNeo as NeoCircuit>::Layout::USED_COLS],
+            regs: vec![0; PER_STEP_COLS],
         }
     }
 }
