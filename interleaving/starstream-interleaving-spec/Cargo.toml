@@ -11,10 +11,10 @@ ark-ff = { version = "0.5.0", default-features = false }
 ark-goldilocks = { path = "../../ark-goldilocks" }
 
 # TODO: move to workspace deps
-neo-fold = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
-neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
-neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
-neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
-neo-memory = { git = "https://github.com/nicarq/Nightstream.git", rev = "100f3e638e59537ae3f2a109c9a91c2af97479c0" }
+neo-fold = { git = "https://github.com/nicarq/Nightstream.git", rev = "3be044cda72cfc9956861c7a529a747d7d21d6b8" }
+neo-ccs = { git = "https://github.com/nicarq/Nightstream.git", rev = "3be044cda72cfc9956861c7a529a747d7d21d6b8" }
+neo-math = { git = "https://github.com/nicarq/Nightstream.git", rev = "3be044cda72cfc9956861c7a529a747d7d21d6b8" }
+neo-ajtai = { git = "https://github.com/nicarq/Nightstream.git", rev = "3be044cda72cfc9956861c7a529a747d7d21d6b8" }
+neo-memory = { git = "https://github.com/nicarq/Nightstream.git", rev = "3be044cda72cfc9956861c7a529a747d7d21d6b8" }
 
 p3-field = "0.4.1"
