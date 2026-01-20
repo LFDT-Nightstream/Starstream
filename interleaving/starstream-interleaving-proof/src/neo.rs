@@ -237,7 +237,7 @@ impl NeoCircuit for StepCircuitNeo {
                 let entry = shout_map.entry(*tag as u32).or_default();
                 entry.push(ShoutCpuBinding {
                     has_lookup: map_idx(layout.has_lookup),
-                    addr: map_idx(layout.addr),
+                    addr: Some(map_idx(layout.addr)),
                     val: map_idx(layout.val),
                 });
             }
