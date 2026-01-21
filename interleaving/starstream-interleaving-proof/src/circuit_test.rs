@@ -54,7 +54,7 @@ fn test_circuit_many_steps() {
 
     let utxo_trace = vec![
         WitLedgerEffect::Init {
-            val: ref_4,
+            val: ref_4.into(),
             caller: p2.into(),
         },
         WitLedgerEffect::Get {
@@ -63,7 +63,7 @@ fn test_circuit_many_steps() {
             ret: val_4.clone().into(),
         },
         WitLedgerEffect::Activation {
-            val: ref_0,
+            val: ref_0.into(),
             caller: p2.into(),
         },
         WitLedgerEffect::GetHandlerFor {
@@ -79,7 +79,7 @@ fn test_circuit_many_steps() {
 
     let token_trace = vec![
         WitLedgerEffect::Init {
-            val: ref_1,
+            val: ref_1.into(),
             caller: p2.into(),
         },
         WitLedgerEffect::Get {
@@ -88,7 +88,7 @@ fn test_circuit_many_steps() {
             ret: val_1.clone().into(),
         },
         WitLedgerEffect::Activation {
-            val: ref_0,
+            val: ref_0.into(),
             caller: p2.into(),
         },
         WitLedgerEffect::Bind { owner_id: p0 },
@@ -236,4 +236,91 @@ fn test_circuit_small() {
 
     let result = prove(instance, wit);
     assert!(result.is_ok());
+}
+
+#[test]
+#[should_panic]
+fn test_circuit_resumer_mismatch() {
+    setup_logger();
+
+    let utxo_id = 0;
+    let coord_a_id = 1;
+    let coord_b_id = 2;
+
+    let p0 = ProcessId(utxo_id);
+    let p1 = ProcessId(coord_a_id);
+    let p2 = ProcessId(coord_b_id);
+
+    let val_0 = v(&[0]);
+
+    let ref_0 = Ref(0);
+
+    let utxo_trace = vec![WitLedgerEffect::Yield {
+        val: ref_0.clone(),
+        ret: WitEffectOutput::Thunk,
+        id_prev: Some(p1).into(),
+    }];
+
+    let coord_a_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        WitLedgerEffect::RefPush { val: val_0 },
+        WitLedgerEffect::NewUtxo {
+            program_hash: h(0),
+            val: ref_0,
+            id: p0.into(),
+        },
+        WitLedgerEffect::NewCoord {
+            program_hash: h(2),
+            val: ref_0,
+            id: p2.into(),
+        },
+        WitLedgerEffect::Resume {
+            target: p0,
+            val: ref_0.clone(),
+            ret: ref_0.clone().into(),
+            id_prev: WitEffectOutput::Resolved(None),
+        },
+        WitLedgerEffect::Resume {
+            target: p2,
+            val: ref_0.clone(),
+            ret: ref_0.clone().into(),
+            id_prev: WitEffectOutput::Resolved(None),
+        },
+    ];
+
+    let coord_b_trace = vec![WitLedgerEffect::Resume {
+        target: p0,
+        val: ref_0,
+        ret: ref_0.into(),
+        id_prev: WitEffectOutput::Resolved(None),
+    }];
+
+    let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
+
+    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
+
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 1,
+        n_coords: 2,
+        entrypoint: p1,
+        process_table: vec![h(0), h(1), h(2)],
+        is_utxo: vec![true, false, false],
+        must_burn: vec![false, false, false],
+        ownership_in: vec![None, None, None],
+        ownership_out: vec![None, None, None],
+        host_calls_roots,
+        host_calls_lens: trace_lens,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+
+    let result = prove(instance, wit);
+    assert!(result.is_err());
 }

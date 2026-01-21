@@ -25,6 +25,7 @@ pub enum MemoryTag {
     HandlerStackArenaNextPtr = 15,
     HandlerStackHeads = 16,
     TraceCommitments = 17,
+    ExpectedResumer = 18,
 }
 
 impl From<MemoryTag> for u64 {
@@ -48,6 +49,7 @@ impl MemoryTag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProgramStateTag {
     ExpectedInput,
+    ExpectedResumer,
     Activation,
     Init,
     Counters,
@@ -61,6 +63,7 @@ impl From<ProgramStateTag> for MemoryTag {
     fn from(tag: ProgramStateTag) -> MemoryTag {
         match tag {
             ProgramStateTag::ExpectedInput => MemoryTag::ExpectedInput,
+            ProgramStateTag::ExpectedResumer => MemoryTag::ExpectedResumer,
             ProgramStateTag::Activation => MemoryTag::Activation,
             ProgramStateTag::Init => MemoryTag::Init,
             ProgramStateTag::Counters => MemoryTag::Counters,

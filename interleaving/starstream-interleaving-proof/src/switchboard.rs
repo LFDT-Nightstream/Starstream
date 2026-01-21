@@ -22,6 +22,7 @@ pub struct RomSwitchboardWires {
 #[derive(Clone, Debug, Default)]
 pub struct MemSwitchboard {
     pub expected_input: bool,
+    pub expected_resumer: bool,
     pub activation: bool,
     pub init: bool,
     pub counters: bool,
@@ -34,6 +35,7 @@ pub struct MemSwitchboard {
 #[derive(Clone)]
 pub struct MemSwitchboardWires {
     pub expected_input: Boolean<F>,
+    pub expected_resumer: Boolean<F>,
     pub activation: Boolean<F>,
     pub init: Boolean<F>,
     pub counters: Boolean<F>,
@@ -68,6 +70,7 @@ impl MemSwitchboardWires {
     ) -> Result<Self, SynthesisError> {
         Ok(Self {
             expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
+            expected_resumer: Boolean::new_witness(cs.clone(), || Ok(switches.expected_resumer))?,
             activation: Boolean::new_witness(cs.clone(), || Ok(switches.activation))?,
             init: Boolean::new_witness(cs.clone(), || Ok(switches.init))?,
             counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,

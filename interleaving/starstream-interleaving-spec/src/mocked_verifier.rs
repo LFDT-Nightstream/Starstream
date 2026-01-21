@@ -9,7 +9,7 @@
 //! It's mainly a direct translation of the algorithm in the README
 
 use crate::{
-    Hash, InterleavingInstance, Ref, Value, WasmModule, WitEffectOutput,
+    Hash, InterleavingInstance, Ref, Value, WasmModule,
     transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
 };
 use ark_ff::Zero;
@@ -88,6 +88,13 @@ pub enum InterleavingError {
         id_prev: Option<ProcessId>,
         expected: Vec<Value>,
         got: Vec<Value>,
+    },
+
+    #[error("resumer mismatch: target={target} expected={expected} got={got}")]
+    ResumerMismatch {
+        target: ProcessId,
+        expected: ProcessId,
+        got: ProcessId,
     },
 
     #[error("program hash mismatch: target={target} expected={expected:?} got={got:?}")]
@@ -212,7 +219,8 @@ pub struct InterleavingState {
     id_prev: Option<ProcessId>,
 
     /// Claims memory: M[pid] = expected argument to next Resume into pid.
-    expected_input: Vec<Ref>,
+    expected_input: Vec<Option<Ref>>,
+    expected_resumer: Vec<Option<ProcessId>>,
 
     activation: Vec<Option<(Ref, ProcessId)>>,
     init: Vec<Option<(Ref, ProcessId)>>,
@@ -251,15 +259,9 @@ pub fn verify_interleaving_semantics(
         ));
     }
 
-    // a utxo that did yield at the end of a previous transaction, gets
-    // initialized with the same data.
-    //
-    // TODO: maybe we also need to assert/prove that it starts with a Yield
-    let claims_memory = vec![Ref(0); n];
-    for _ in 0..inst.n_inputs {
-        // TODO: This is not correct, last_yield is a Value, not a Ref
-        // claims_memory[i] = inst.input_states[i].last_yield.clone();
-    }
+    // Inputs do not start with an expected resume argument unless we track it
+    // explicitly in the instance.
+    let claims_memory = vec![None; n];
 
     let rom = ROM {
         process_table: inst.process_table.clone(),
@@ -272,6 +274,7 @@ pub fn verify_interleaving_semantics(
         id_curr: ProcessId(inst.entrypoint.into()),
         id_prev: None,
         expected_input: claims_memory,
+        expected_resumer: vec![None; n],
         activation: vec![None; n],
         init: vec![None; n],
         counters: vec![0; n],
@@ -455,18 +458,7 @@ pub fn state_transition(
 
             state.activation[id_curr.0] = None;
 
-            if state.counters[target.0] == 0 {
-                if let Some((init_val, _)) = &state.init[target.0] {
-                    if *init_val != val {
-                        return Err(InterleavingError::ResumeClaimMismatch {
-                            target,
-                            expected: init_val.clone(),
-                            got: val.clone(),
-                        });
-                    }
-                }
-            } else {
-                let expected = state.expected_input[target.0];
+            if let Some(expected) = state.expected_input[target.0] {
                 if expected != val {
                     return Err(InterleavingError::ResumeClaimMismatch {
                         target,
@@ -476,28 +468,20 @@ pub fn state_transition(
                 }
             }
 
+            if let Some(expected) = state.expected_resumer[target.0] {
+                if expected != id_curr {
+                    return Err(InterleavingError::ResumerMismatch {
+                        target,
+                        expected,
+                        got: id_curr,
+                    });
+                }
+            }
+
             state.activation[target.0] = Some((val, id_curr));
 
-            state.expected_input[id_curr.0] = ret.unwrap();
-
-            if id_prev.unwrap() != state.id_prev {
-                return Err(InterleavingError::HostCallMismatch {
-                    pid: id_curr,
-                    counter: c,
-                    expected: WitLedgerEffect::Resume {
-                        target,
-                        val,
-                        ret,
-                        id_prev: WitEffectOutput::Resolved(state.id_prev),
-                    },
-                    got: WitLedgerEffect::Resume {
-                        target,
-                        val,
-                        ret,
-                        id_prev,
-                    },
-                });
-            }
+            state.expected_input[id_curr.0] = ret.to_option();
+            state.expected_resumer[id_curr.0] = id_prev.to_option().flatten();
 
             state.id_prev = Some(id_curr);
 
@@ -507,19 +491,6 @@ pub fn state_transition(
         }
 
         WitLedgerEffect::Yield { val, ret, id_prev } => {
-            if id_prev.unwrap() != state.id_prev {
-                return Err(InterleavingError::HostCallMismatch {
-                    pid: id_curr,
-                    counter: c,
-                    expected: WitLedgerEffect::Yield {
-                        val,
-                        ret,
-                        id_prev: WitEffectOutput::Resolved(state.id_prev),
-                    },
-                    got: WitLedgerEffect::Yield { val, ret, id_prev },
-                });
-            }
-
             let parent = state
                 .id_prev
                 .ok_or(InterleavingError::YieldWithNoParent { pid: id_curr })?;
@@ -529,37 +500,43 @@ pub fn state_transition(
                 .get(&val)
                 .ok_or(InterleavingError::RefNotFound(val))?;
 
+            if let Some(expected) = state.expected_resumer[parent.0] {
+                if expected != id_curr {
+                    return Err(InterleavingError::ResumerMismatch {
+                        target: parent,
+                        expected,
+                        got: id_curr,
+                    });
+                }
+            }
+
             match ret.to_option() {
                 Some(retv) => {
-                    state.expected_input[id_curr.0] = retv;
-
-                    state.id_prev = Some(id_curr);
-
+                    state.expected_input[id_curr.0] = Some(retv);
                     state.finalized[id_curr.0] = false;
-
-                    if let Some(prev) = state.id_prev {
-                        let expected_ref = state.expected_input[prev.0];
-                        let expected = state
-                            .ref_store
-                            .get(&expected_ref)
-                            .ok_or(InterleavingError::RefNotFound(expected_ref))?;
-
-                        if expected != val {
-                            return Err(InterleavingError::YieldClaimMismatch {
-                                id_prev: state.id_prev,
-                                expected: expected.clone(),
-                                got: val.clone(),
-                            });
-                        }
-                    }
                 }
                 None => {
-                    state.id_prev = Some(id_curr);
-
+                    state.expected_input[id_curr.0] = None;
                     state.finalized[id_curr.0] = true;
                 }
             }
 
+            if let Some(expected_ref) = state.expected_input[parent.0] {
+                let expected = state
+                    .ref_store
+                    .get(&expected_ref)
+                    .ok_or(InterleavingError::RefNotFound(expected_ref))?;
+                if expected != val {
+                    return Err(InterleavingError::YieldClaimMismatch {
+                        id_prev: state.id_prev,
+                        expected: expected.clone(),
+                        got: val.clone(),
+                    });
+                }
+            }
+
+            state.expected_resumer[id_curr.0] = id_prev.to_option().flatten();
+            state.id_prev = Some(id_curr);
             state.activation[id_curr.0] = None;
             state.id_curr = parent;
         }
@@ -608,8 +585,8 @@ pub fn state_transition(
             }
             state.initialized[id.0] = true;
             state.init[id.0] = Some((val.clone(), id_curr));
-            // TODO: this is not correct, last_yield is a Value, not a Ref
-            // state.expected_input[id.0] = val;
+            state.expected_input[id.0] = None;
+            state.expected_resumer[id.0] = None;
         }
 
         WitLedgerEffect::NewCoord {
@@ -644,8 +621,8 @@ pub fn state_transition(
 
             state.initialized[id.0] = true;
             state.init[id.0] = Some((val.clone(), id_curr));
-            // TODO: this is not correct, last_yield is a Value, not a Ref
-            // state.expected_input[id.0] = val;
+            state.expected_input[id.0] = None;
+            state.expected_resumer[id.0] = None;
         }
 
         WitLedgerEffect::InstallHandler { interface_id } => {
@@ -696,7 +673,7 @@ pub fn state_transition(
                 ));
             };
 
-            if v != &val || c != &caller.unwrap() {
+            if v != &val.unwrap() || c != &caller.unwrap() {
                 return Err(InterleavingError::Shape("Activation result mismatch"));
             }
         }
@@ -708,7 +685,7 @@ pub fn state_transition(
                 return Err(InterleavingError::Shape("Init called with no arg set"));
             };
 
-            if v != val || c != caller.unwrap() {
+            if v != val.unwrap() || c != caller.unwrap() {
                 return Err(InterleavingError::Shape("Init result mismatch"));
             }
         }
@@ -767,7 +744,6 @@ pub fn state_transition(
         }
 
         WitLedgerEffect::Burn { ret } => {
-            let ret = ret.unwrap();
             if !rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::UtxoOnly(id_curr));
             }
@@ -785,25 +761,26 @@ pub fn state_transition(
                 .get(&ret)
                 .ok_or(InterleavingError::RefNotFound(ret))?;
 
-            let expected_ref = state.expected_input[parent.0];
-            let expected_val = state
-                .ref_store
-                .get(&expected_ref)
-                .ok_or(InterleavingError::RefNotFound(expected_ref))?;
+            if let Some(expected_ref) = state.expected_input[parent.0] {
+                let expected_val = state
+                    .ref_store
+                    .get(&expected_ref)
+                    .ok_or(InterleavingError::RefNotFound(expected_ref))?;
 
-            if expected_val != ret_val {
-                // Burn is the final return of the coroutine
-                return Err(InterleavingError::YieldClaimMismatch {
-                    id_prev: state.id_prev,
-                    expected: expected_val.clone(),
-                    got: ret_val.clone(),
-                });
+                if expected_val != ret_val {
+                    // Burn is the final return of the coroutine
+                    return Err(InterleavingError::YieldClaimMismatch {
+                        id_prev: state.id_prev,
+                        expected: expected_val.clone(),
+                        got: ret_val.clone(),
+                    });
+                }
             }
 
             state.activation[id_curr.0] = None;
             state.finalized[id_curr.0] = true;
             state.did_burn[id_curr.0] = true;
-            state.expected_input[id_curr.0] = ret;
+            state.expected_input[id_curr.0] = Some(ret);
             state.id_prev = Some(id_curr);
             state.id_curr = parent;
         }
