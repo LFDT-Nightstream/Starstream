@@ -1,10 +1,9 @@
 use sha2::{Digest, Sha256};
 use starstream_interleaving_proof::commit;
 use starstream_interleaving_spec::{
-    CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
-    InterleavingWitness, LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId,
-    ProvenTransaction, Ref, UtxoId, Value, WasmModule, WitEffectOutput, WitLedgerEffect,
-    builder::TransactionBuilder,
+    CoroutineState, Hash, InterfaceId, InterleavingInstance, InterleavingWitness,
+    LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId, ProvenTransaction, Ref, UtxoId,
+    Value, WasmModule, WitEffectOutput, WitLedgerEffect, builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
 use wasmi::{
@@ -34,6 +33,50 @@ impl std::fmt::Display for Interrupt {
 }
 
 impl HostError for Interrupt {}
+
+fn args_to_hash(a: u64, b: u64, c: u64, d: u64) -> [u8; 32] {
+    let mut buffer = [0u8; 32];
+    buffer[0..8].copy_from_slice(&a.to_le_bytes());
+    buffer[8..16].copy_from_slice(&b.to_le_bytes());
+    buffer[16..24].copy_from_slice(&c.to_le_bytes());
+    buffer[24..32].copy_from_slice(&d.to_le_bytes());
+    buffer
+}
+
+fn suspend_with_effect<T>(
+    caller: &mut Caller<'_, RuntimeState>,
+    effect: WitLedgerEffect,
+) -> Result<T, wasmi::Error> {
+    let current_pid = caller.data().current_process;
+    caller
+        .data_mut()
+        .traces
+        .entry(current_pid)
+        .or_default()
+        .push(effect);
+    Err(wasmi::Error::host(Interrupt {}))
+}
+
+fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
+    match effect {
+        WitLedgerEffect::Resume { .. }
+        | WitLedgerEffect::Yield { .. }
+        | WitLedgerEffect::Activation { .. }
+        | WitLedgerEffect::Init { .. } => 2,
+        WitLedgerEffect::ProgramHash { .. } => 4,
+        WitLedgerEffect::NewUtxo { .. }
+        | WitLedgerEffect::NewCoord { .. }
+        | WitLedgerEffect::GetHandlerFor { .. }
+        | WitLedgerEffect::NewRef { .. }
+        | WitLedgerEffect::Get { .. } => 1,
+        WitLedgerEffect::InstallHandler { .. }
+        | WitLedgerEffect::UninstallHandler { .. }
+        | WitLedgerEffect::Burn { .. }
+        | WitLedgerEffect::Bind { .. }
+        | WitLedgerEffect::Unbind { .. }
+        | WitLedgerEffect::RefPush { .. } => 0,
+    }
+}
 
 pub struct UnprovenTransaction {
     pub inputs: Vec<UtxoId>,
@@ -105,316 +148,28 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                // we don't really need more than one host call in practice,
-                // since we can just use the first argument as a discriminant.
-                //
-                // this also means we don't need to care about the order of
-                // imports necessarily.
-                //
-                // it's probably better to split everything though, but this can be
-                // done later
-                "starstream_host_call",
-                |mut caller: Caller<'_, RuntimeState>,
-                 discriminant: u64,
-                 arg1: u64,
-                 arg2: u64,
-                 arg3: u64,
-                 arg4: u64,
-                 arg5: u64|
-                 -> Result<(u64, u64), wasmi::Error> {
+                "starstream_resume",
+                |mut caller: Caller<'_, RuntimeState>, target: u64, val: u64| -> Result<(u64, u64), wasmi::Error> {
                     let current_pid = caller.data().current_process;
+                    let target = ProcessId(target as usize);
+                    let val = Ref(val);
+                    let ret = WitEffectOutput::Thunk;
+                    let id_prev = caller.data().prev_id;
 
-                    let args_to_hash = |a: u64, b: u64, c: u64, d: u64| -> [u8; 32] {
-                        let mut buffer = [0u8; 32];
-                        buffer[0..8].copy_from_slice(&a.to_le_bytes());
-                        buffer[8..16].copy_from_slice(&b.to_le_bytes());
-                        buffer[16..24].copy_from_slice(&c.to_le_bytes());
-                        buffer[24..32].copy_from_slice(&d.to_le_bytes());
-                        buffer
-                    };
+                    caller
+                        .data_mut()
+                        .pending_activation
+                        .insert(target, (val, current_pid));
 
-                    let effect = match EffectDiscriminant::from(discriminant) {
-                        EffectDiscriminant::Resume => {
-                            let target = ProcessId(arg1 as usize);
-                            let val = Ref(arg2);
-                            let ret = WitEffectOutput::Thunk;
-                            let id_prev = caller.data().prev_id;
-
-                            // Update state
-                            caller
-                                .data_mut()
-                                .pending_activation
-                                .insert(target, (val, current_pid));
-
-                            Some(WitLedgerEffect::Resume {
-                                target,
-                                val,
-                                ret,
-                                id_prev: WitEffectOutput::Resolved(id_prev),
-                            })
-                        }
-                        EffectDiscriminant::Yield => {
-                            let val = Ref(arg1);
-                            let ret = WitEffectOutput::Thunk;
-                            let id_prev = caller.data().prev_id;
-
-                            Some(WitLedgerEffect::Yield {
-                                val,
-                                ret,
-                                id_prev: WitEffectOutput::Resolved(id_prev),
-                            })
-                        }
-                        EffectDiscriminant::NewUtxo => {
-                            let h = Hash(
-                                args_to_hash(arg1, arg2, arg3, arg4),
-                                std::marker::PhantomData,
-                            );
-                            let val = Ref(arg5);
-
-                            let mut found_id = None;
-                            let limit = caller.data().process_hashes.len();
-                            for i in 0..limit {
-                                let pid = ProcessId(i);
-                                if !caller.data().allocated_processes.contains(&pid) {
-                                    if let Some(ph) = caller.data().process_hashes.get(&pid) {
-                                        if *ph == h {
-                                            if let Some(&is_u) = caller.data().is_utxo.get(&pid) {
-                                                if is_u {
-                                                    found_id = Some(pid);
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            let id = found_id
-                                .ok_or(wasmi::Error::new("no matching utxo process found"))?;
-                            caller.data_mut().allocated_processes.insert(id);
-
-                            caller
-                                .data_mut()
-                                .pending_init
-                                .insert(id, (val, current_pid));
-                            caller.data_mut().n_new += 1;
-
-                            Some(WitLedgerEffect::NewUtxo {
-                                program_hash: h,
-                                val,
-                                id: WitEffectOutput::Resolved(id),
-                            })
-                        }
-                        EffectDiscriminant::NewCoord => {
-                            let h = Hash(
-                                args_to_hash(arg1, arg2, arg3, arg4),
-                                std::marker::PhantomData,
-                            );
-                            let val = Ref(arg5);
-
-                            let mut found_id = None;
-                            let limit = caller.data().process_hashes.len();
-                            for i in 0..limit {
-                                let pid = ProcessId(i);
-                                if !caller.data().allocated_processes.contains(&pid) {
-                                    if let Some(ph) = caller.data().process_hashes.get(&pid) {
-                                        if *ph == h {
-                                            if let Some(&is_u) = caller.data().is_utxo.get(&pid) {
-                                                if !is_u {
-                                                    found_id = Some(pid);
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            let id = found_id
-                                .ok_or(wasmi::Error::new("no matching coord process found"))?;
-                            caller.data_mut().allocated_processes.insert(id);
-
-                            caller
-                                .data_mut()
-                                .pending_init
-                                .insert(id, (val, current_pid));
-                            caller.data_mut().n_coord += 1;
-
-                            Some(WitLedgerEffect::NewCoord {
-                                program_hash: h,
-                                val,
-                                id: WitEffectOutput::Resolved(id),
-                            })
-                        }
-                        EffectDiscriminant::InstallHandler => {
-                            let interface_id = Hash(
-                                args_to_hash(arg1, arg2, arg3, arg4),
-                                std::marker::PhantomData,
-                            );
-                            caller
-                                .data_mut()
-                                .handler_stack
-                                .entry(interface_id.clone())
-                                .or_default()
-                                .push(current_pid);
-                            Some(WitLedgerEffect::InstallHandler { interface_id })
-                        }
-                        EffectDiscriminant::UninstallHandler => {
-                            let interface_id = Hash(
-                                args_to_hash(arg1, arg2, arg3, arg4),
-                                std::marker::PhantomData,
-                            );
-                            let stack = caller
-                                .data_mut()
-                                .handler_stack
-                                .get_mut(&interface_id)
-                                .ok_or(wasmi::Error::new("handler stack not found"))?;
-                            if stack.pop() != Some(current_pid) {
-                                return Err(wasmi::Error::new("uninstall handler mismatch"));
-                            }
-                            Some(WitLedgerEffect::UninstallHandler { interface_id })
-                        }
-                        EffectDiscriminant::GetHandlerFor => {
-                            let interface_id = Hash(
-                                args_to_hash(arg1, arg2, arg3, arg4),
-                                std::marker::PhantomData,
-                            );
-
-                            let stack = caller
-                                .data_mut()
-                                .handler_stack
-                                .get(&interface_id)
-                                .ok_or(wasmi::Error::new("handler stack not found"))?;
-                            let handler_id = stack
-                                .last()
-                                .ok_or(wasmi::Error::new("handler stack empty"))?;
-
-                            Some(WitLedgerEffect::GetHandlerFor {
-                                interface_id,
-                                handler_id: WitEffectOutput::Resolved(*handler_id),
-                            })
-                        }
-                        EffectDiscriminant::Activation => {
-                            let (val, caller_id) = caller
-                                .data()
-                                .pending_activation
-                                .get(&current_pid)
-                                .ok_or(wasmi::Error::new("no pending activation"))?;
-                            Some(WitLedgerEffect::Activation {
-                                val: *val,
-                                caller: WitEffectOutput::Resolved(*caller_id),
-                            })
-                        }
-                        EffectDiscriminant::Init => {
-                            let (val, caller_id) = caller
-                                .data()
-                                .pending_init
-                                .get(&current_pid)
-                                .ok_or(wasmi::Error::new("no pending init"))?;
-                            Some(WitLedgerEffect::Init {
-                                val: *val,
-                                caller: WitEffectOutput::Resolved(*caller_id),
-                            })
-                        }
-                        EffectDiscriminant::NewRef => {
-                            let size = arg1 as usize;
-                            let ref_id = Ref(caller.data().next_ref);
-                            caller.data_mut().next_ref += size as u64;
-
-                            caller
-                                .data_mut()
-                                .ref_store
-                                .insert(ref_id, vec![Value(0); size]);
-                            caller
-                                .data_mut()
-                                .ref_state
-                                .insert(current_pid, (ref_id, 0, size));
-
-                            Some(WitLedgerEffect::NewRef {
-                                size,
-                                ret: WitEffectOutput::Resolved(ref_id),
-                            })
-                        }
-                        EffectDiscriminant::RefPush => {
-                            let val = Value(arg1);
-                            let (ref_id, offset, size) = *caller
-                                .data()
-                                .ref_state
-                                .get(&current_pid)
-                                .ok_or(wasmi::Error::new("no ref state"))?;
-
-                            if offset >= size {
-                                return Err(wasmi::Error::new("ref push overflow"));
-                            }
-
-                            let store = caller
-                                .data_mut()
-                                .ref_store
-                                .get_mut(&ref_id)
-                                .ok_or(wasmi::Error::new("ref not found"))?;
-                            store[offset] = val;
-
-                            caller
-                                .data_mut()
-                                .ref_state
-                                .insert(current_pid, (ref_id, offset + 1, size));
-
-                            Some(WitLedgerEffect::RefPush { val })
-                        }
-                        EffectDiscriminant::Get => {
-                            let ref_id = Ref(arg1);
-                            let offset = arg2 as usize;
-
-                            let store = caller
-                                .data()
-                                .ref_store
-                                .get(&ref_id)
-                                .ok_or(wasmi::Error::new("ref not found"))?;
-                            if offset >= store.len() {
-                                return Err(wasmi::Error::new("get out of bounds"));
-                            }
-                            let val = store[offset];
-
-                            Some(WitLedgerEffect::Get {
-                                reff: ref_id,
-                                offset,
-                                ret: WitEffectOutput::Resolved(val),
-                            })
-                        }
-                        EffectDiscriminant::Bind => {
-                            let owner_id = ProcessId(arg1 as usize);
-                            caller
-                                .data_mut()
-                                .ownership
-                                .insert(current_pid, Some(owner_id));
-                            Some(WitLedgerEffect::Bind { owner_id })
-                        }
-                        EffectDiscriminant::Unbind => {
-                            let token_id = ProcessId(arg1 as usize);
-                            if caller.data().ownership.get(&token_id) != Some(&Some(current_pid)) {}
-                            caller.data_mut().ownership.insert(token_id, None);
-                            Some(WitLedgerEffect::Unbind { token_id })
-                        }
-                        EffectDiscriminant::Burn => {
-                            caller.data_mut().must_burn.insert(current_pid);
-
-                            Some(WitLedgerEffect::Burn {
-                                ret: WitEffectOutput::Resolved(Ref(arg1)),
-                            })
-                        }
-                        EffectDiscriminant::ProgramHash => {
-                            unreachable!();
-                        }
-                    };
-
-                    if let Some(e) = effect {
-                        caller
-                            .data_mut()
-                            .traces
-                            .entry(current_pid)
-                            .or_default()
-                            .push(e);
-                    }
-
-                    Err(wasmi::Error::host(Interrupt {}))
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::Resume {
+                            target,
+                            val,
+                            ret,
+                            id_prev: WitEffectOutput::Resolved(id_prev),
+                        },
+                    )
                 },
             )
             .unwrap();
@@ -422,12 +177,367 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
+                "starstream_yield",
+                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(u64, u64), wasmi::Error> {
+                    let id_prev = caller.data().prev_id;
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::Yield {
+                            val: Ref(val),
+                            ret: WitEffectOutput::Thunk,
+                            id_prev: WitEffectOutput::Resolved(id_prev),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_new_utxo",
+                |mut caller: Caller<'_, RuntimeState>,
+                 h0: u64,
+                 h1: u64,
+                 h2: u64,
+                 h3: u64,
+                 val: u64|
+                 -> Result<u64, wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let h = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let val = Ref(val);
+
+                    let mut found_id = None;
+                    let limit = caller.data().process_hashes.len();
+                    for i in 0..limit {
+                        let pid = ProcessId(i);
+                        if !caller.data().allocated_processes.contains(&pid) {
+                            if let Some(ph) = caller.data().process_hashes.get(&pid) {
+                                if *ph == h {
+                                    if let Some(&is_u) = caller.data().is_utxo.get(&pid) {
+                                        if is_u {
+                                            found_id = Some(pid);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let id = found_id
+                        .ok_or(wasmi::Error::new("no matching utxo process found"))?;
+                    caller.data_mut().allocated_processes.insert(id);
+
+                    caller
+                        .data_mut()
+                        .pending_init
+                        .insert(id, (val, current_pid));
+                    caller.data_mut().n_new += 1;
+
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::NewUtxo {
+                            program_hash: h,
+                            val,
+                            id: WitEffectOutput::Resolved(id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_new_coord",
+                |mut caller: Caller<'_, RuntimeState>,
+                 h0: u64,
+                 h1: u64,
+                 h2: u64,
+                 h3: u64,
+                 val: u64|
+                 -> Result<u64, wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let h = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let val = Ref(val);
+
+                    let mut found_id = None;
+                    let limit = caller.data().process_hashes.len();
+                    for i in 0..limit {
+                        let pid = ProcessId(i);
+                        if !caller.data().allocated_processes.contains(&pid) {
+                            if let Some(ph) = caller.data().process_hashes.get(&pid) {
+                                if *ph == h {
+                                    if let Some(&is_u) = caller.data().is_utxo.get(&pid) {
+                                        if !is_u {
+                                            found_id = Some(pid);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let id = found_id
+                        .ok_or(wasmi::Error::new("no matching coord process found"))?;
+                    caller.data_mut().allocated_processes.insert(id);
+
+                    caller
+                        .data_mut()
+                        .pending_init
+                        .insert(id, (val, current_pid));
+                    caller.data_mut().n_coord += 1;
+
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::NewCoord {
+                            program_hash: h,
+                            val,
+                            id: WitEffectOutput::Resolved(id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_install_handler",
+                |mut caller: Caller<'_, RuntimeState>, h0: u64, h1: u64, h2: u64, h3: u64| -> Result<(), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    caller
+                        .data_mut()
+                        .handler_stack
+                        .entry(interface_id.clone())
+                        .or_default()
+                        .push(current_pid);
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::InstallHandler { interface_id },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_uninstall_handler",
+                |mut caller: Caller<'_, RuntimeState>, h0: u64, h1: u64, h2: u64, h3: u64| -> Result<(), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let stack = caller
+                        .data_mut()
+                        .handler_stack
+                        .get_mut(&interface_id)
+                        .ok_or(wasmi::Error::new("handler stack not found"))?;
+                    if stack.pop() != Some(current_pid) {
+                        return Err(wasmi::Error::new("uninstall handler mismatch"));
+                    }
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::UninstallHandler { interface_id },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_get_handler_for",
+                |mut caller: Caller<'_, RuntimeState>, h0: u64, h1: u64, h2: u64, h3: u64| -> Result<u64, wasmi::Error> {
+                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let handler_id = {
+                        let stack = caller
+                            .data()
+                            .handler_stack
+                            .get(&interface_id)
+                            .ok_or(wasmi::Error::new("handler stack not found"))?;
+                        *stack
+                            .last()
+                            .ok_or(wasmi::Error::new("handler stack empty"))?
+                    };
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::GetHandlerFor {
+                            interface_id,
+                            handler_id: WitEffectOutput::Resolved(handler_id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap("env", "starstream_activation", |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                let current_pid = caller.data().current_process;
+                let (val, caller_id) = {
+                    let (val, caller_id) = caller
+                        .data()
+                        .pending_activation
+                        .get(&current_pid)
+                        .ok_or(wasmi::Error::new("no pending activation"))?;
+                    (*val, *caller_id)
+                };
+                suspend_with_effect(
+                    &mut caller,
+                    WitLedgerEffect::Activation {
+                        val: WitEffectOutput::Resolved(val),
+                        caller: WitEffectOutput::Resolved(caller_id),
+                    },
+                )
+            })
+            .unwrap();
+
+        linker
+            .func_wrap("env", "starstream_init", |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                let current_pid = caller.data().current_process;
+                let (val, caller_id) = {
+                    let (val, caller_id) = caller
+                        .data()
+                        .pending_init
+                        .get(&current_pid)
+                        .ok_or(wasmi::Error::new("no pending init"))?;
+                    (*val, *caller_id)
+                };
+                suspend_with_effect(
+                    &mut caller,
+                    WitLedgerEffect::Init {
+                        val: WitEffectOutput::Resolved(val),
+                        caller: WitEffectOutput::Resolved(caller_id),
+                    },
+                )
+            })
+            .unwrap();
+
+        linker
+            .func_wrap("env", "starstream_new_ref", |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmi::Error> {
+                let current_pid = caller.data().current_process;
+                let size = size as usize;
+                let ref_id = Ref(caller.data().next_ref);
+                caller.data_mut().next_ref += size as u64;
+
+                caller
+                    .data_mut()
+                    .ref_store
+                    .insert(ref_id, vec![Value(0); size]);
+                caller
+                    .data_mut()
+                    .ref_state
+                    .insert(current_pid, (ref_id, 0, size));
+
+                suspend_with_effect(
+                    &mut caller,
+                    WitLedgerEffect::NewRef {
+                        size,
+                        ret: WitEffectOutput::Resolved(ref_id),
+                    },
+                )
+            })
+            .unwrap();
+
+        linker
+            .func_wrap("env", "starstream_ref_push", |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
+                let current_pid = caller.data().current_process;
+                let val = Value(val);
+                let (ref_id, offset, size) = *caller
+                    .data()
+                    .ref_state
+                    .get(&current_pid)
+                    .ok_or(wasmi::Error::new("no ref state"))?;
+
+                if offset >= size {
+                    return Err(wasmi::Error::new("ref push overflow"));
+                }
+
+                let store = caller
+                    .data_mut()
+                    .ref_store
+                    .get_mut(&ref_id)
+                    .ok_or(wasmi::Error::new("ref not found"))?;
+                store[offset] = val;
+
+                caller
+                    .data_mut()
+                    .ref_state
+                    .insert(current_pid, (ref_id, offset + 1, size));
+
+                suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { val })
+            })
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_get",
+                |mut caller: Caller<'_, RuntimeState>, reff: u64, offset: u64| -> Result<u64, wasmi::Error> {
+                    let ref_id = Ref(reff);
+                    let offset = offset as usize;
+                    let store = caller
+                        .data()
+                        .ref_store
+                        .get(&ref_id)
+                        .ok_or(wasmi::Error::new("ref not found"))?;
+                    if offset >= store.len() {
+                        return Err(wasmi::Error::new("get out of bounds"));
+                    }
+                    let val = store[offset];
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::Get {
+                            reff: ref_id,
+                            offset,
+                            ret: WitEffectOutput::Resolved(val),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap("env", "starstream_bind", |mut caller: Caller<'_, RuntimeState>, owner_id: u64| -> Result<(), wasmi::Error> {
+                let current_pid = caller.data().current_process;
+                let owner_id = ProcessId(owner_id as usize);
+                caller
+                    .data_mut()
+                    .ownership
+                    .insert(current_pid, Some(owner_id));
+                suspend_with_effect(&mut caller, WitLedgerEffect::Bind { owner_id })
+            })
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_unbind",
+                |mut caller: Caller<'_, RuntimeState>, token_id: u64| -> Result<(), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let token_id = ProcessId(token_id as usize);
+                    if caller.data().ownership.get(&token_id) != Some(&Some(current_pid)) {}
+                    caller.data_mut().ownership.insert(token_id, None);
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Unbind { token_id })
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap("env", "starstream_burn", |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmi::Error> {
+                let current_pid = caller.data().current_process;
+                caller.data_mut().must_burn.insert(current_pid);
+                suspend_with_effect(&mut caller, WitLedgerEffect::Burn { ret: Ref(ret) })
+            })
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
                 "starstream_get_program_hash",
                 |mut caller: Caller<'_, RuntimeState>,
-                 _discriminant: u64,
                  target_pid: u64|
                  -> Result<(u64, u64, u64, u64), wasmi::Error> {
-                    let current_pid = caller.data().current_process;
                     let target = ProcessId(target_pid as usize);
                     let program_hash = caller
                         .data()
@@ -436,19 +546,13 @@ impl Runtime {
                         .ok_or(wasmi::Error::new("process hash not found"))?
                         .clone();
 
-                    let effect = WitLedgerEffect::ProgramHash {
-                        target,
-                        program_hash: WitEffectOutput::Resolved(program_hash),
-                    };
-
-                    caller
-                        .data_mut()
-                        .traces
-                        .entry(current_pid)
-                        .or_default()
-                        .push(effect);
-
-                    Err(wasmi::Error::host(Interrupt {}))
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::ProgramHash {
+                            target,
+                            program_hash: WitEffectOutput::Resolved(program_hash),
+                        },
+                    )
                 },
             )
             .unwrap();
@@ -650,10 +754,7 @@ impl UnprovenTransaction {
                 let n_results = {
                     let traces = &runtime.store.data().traces;
                     let trace = traces.get(&current_pid).expect("trace exists");
-                    match trace.last().expect("trace not empty") {
-                        WitLedgerEffect::ProgramHash { .. } => 4,
-                        _ => 2,
-                    }
+                    effect_result_arity(trace.last().expect("trace not empty"))
                 };
 
                 // Update previous effect with return value
@@ -661,11 +762,17 @@ impl UnprovenTransaction {
                 if let Some(trace) = traces.get_mut(&current_pid) {
                     if let Some(last) = trace.last_mut() {
                         match last {
-                            WitLedgerEffect::Resume { ret, .. } => {
+                            WitLedgerEffect::Resume { ret, id_prev, .. } => {
                                 *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
+                                *id_prev = WitEffectOutput::Resolved(Some(ProcessId(
+                                    next_args[1] as usize,
+                                )));
                             }
-                            WitLedgerEffect::Yield { ret, .. } => {
+                            WitLedgerEffect::Yield { ret, id_prev, .. } => {
                                 *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
+                                *id_prev = WitEffectOutput::Resolved(Some(ProcessId(
+                                    next_args[1] as usize,
+                                )));
                             }
                             _ => {}
                         }
@@ -745,10 +852,10 @@ impl UnprovenTransaction {
                             next_args = [handler_id.unwrap().0 as u64, 0, 0, 0];
                         }
                         WitLedgerEffect::Activation { val, caller } => {
-                            next_args = [val.0, caller.unwrap().0 as u64, 0, 0];
+                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0];
                         }
                         WitLedgerEffect::Init { val, caller } => {
-                            next_args = [val.0, caller.unwrap().0 as u64, 0, 0];
+                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0];
                         }
                         WitLedgerEffect::NewRef { ret, .. } => {
                             next_args = [ret.unwrap().0, 0, 0, 0];

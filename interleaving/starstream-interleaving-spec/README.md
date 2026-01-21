@@ -86,38 +86,43 @@ our value matches its claim.
 ```text
 Rule: Resume
 ============
-    op = Resume(target, val_ref) -> ret_ref
+    op = Resume(target, val_ref) -> (ret_ref, id_prev)
 
     1. id_curr ≠ target
 
     (No self resume)
 
     2. let val = ref_store[val_ref] in
-       M[target] == val
+       expected_input[target] == val
 
     (Check val matches target's previous claim)
 
-    3. let
+    3. expected_resumer[target] == id_curr
+
+    (Check that the current process matches the expected resumer for the target)
+
+    4. let
         t = CC[id_curr] in
         c = counters[id_curr] in
             t[c] == <Resume, target, val_ref, ret_ref, id_prev>
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 
-    4. is_utxo(id_curr) => !is_utxo(target)
+    5. is_utxo(id_curr) => !is_utxo(target)
 
     (Utxo's can't call into utxos)
 
-    5. initialized[target]
+    6. initialized[target]
 
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
-    1. M[id_curr]               <- ret_ref       (Claim, needs to be checked later by future resumer)
-    2. counters'[id_curr]       += 1         (Keep track of host call index per process)
-    3. id_prev'                 <- id_curr   (Save "caller" for yield)
-    4. id_curr'                 <- target    (Switch)
-    5. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
-    6. activation'[target]      <- Some(val_ref, id_curr)
+    1. expected_input[id_curr]  <- ret_ref   (Claim, needs to be checked later by future resumer)
+    2. expected_resumer[id_curr] <- id_prev  (Claim, needs to be checked later by future resumer)
+    3. counters'[id_curr]       += 1         (Keep track of host call index per process)
+    4. id_prev'                 <- id_curr   (Save "caller" for yield)
+    5. id_curr'                 <- target    (Switch)
+    6. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
+    7. activation'[target]      <- Some(val_ref, id_curr)
 ```
 
 ## Activation
@@ -166,14 +171,18 @@ with an actual result). In that case, id_prev would be null (or some sentinel).
 ```text
 Rule: Yield (resumed)
 ============
-    op = Yield(val_ref) -> ret_ref
+    op = Yield(val_ref) -> (ret_ref, id_prev)
 
     1. let val = ref_store[val_ref] in
-       M[id_prev] == val
+       expected_input[id_prev] == val
 
     (Check val matches target's previous claim)
 
-    2. let
+    2. expected_resumer[id_prev] == id_curr
+
+    (Check that the current process matches the expected resumer for the parent)
+
+    3. let
         t = CC[id_curr] in
         c = counters[id_curr] in
             t[c] == <Yield, val_ref, ret_ref, id_prev>
@@ -181,12 +190,13 @@ Rule: Yield (resumed)
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
 
-    1. M[id_curr]               <- ret_ref       (Claim, needs to be checked later by future resumer)
-    2. counters'[id_curr]       += 1         (Keep track of host call index per process)
-    3. id_curr'                 <- id_prev   (Switch to parent)
-    4. id_prev'                 <- id_curr   (Save "caller")
-    5. safe_to_ledger'[id_curr] <- False     (This is not the final yield for this utxo in this transaction)
-    6. activation'[id_curr]     <- None
+    1. expected_input[id_curr]  <- ret_ref       (Claim, needs to be checked later by future resumer)
+    2. expected_resumer[id_curr] <- id_prev      (Claim, needs to be checked later by future resumer)
+    3. counters'[id_curr]       += 1         (Keep track of host call index per process)
+    4. id_curr'                 <- id_prev   (Switch to parent)
+    5. id_prev'                 <- id_curr   (Save "caller")
+    6. safe_to_ledger'[id_curr] <- False     (This is not the final yield for this utxo in this transaction)
+    7. activation'[id_curr]     <- None
 ```
 
 ```text
@@ -203,11 +213,12 @@ Rule: Yield (end transaction)
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
-    1. counters'[id_curr]       += 1        (Keep track of host call index per process)
-    2. id_curr'                 <- id_prev  (Switch to parent)
-    3. id_prev'                 <- id_curr  (Save "caller")
-    4. safe_to_ledger'[id_curr] <- True     (This utxo creates a transacition output)
-    5. activation'[id_curr]     <- None
+    1. expected_resumer[id_curr] <- id_prev (Claim, needs to be checked later by future resumer)
+    2. counters'[id_curr]       += 1        (Keep track of host call index per process)
+    3. id_curr'                 <- id_prev  (Switch to parent)
+    4. id_prev'                 <- id_curr  (Save "caller")
+    5. safe_to_ledger'[id_curr] <- True     (This utxo creates a transacition output)
+    6. activation'[id_curr]     <- None
 ```
 
 ## Program Hash
@@ -272,9 +283,10 @@ Assigns a new (transaction-local) ID for a UTXO program.
 
 -----------------------------------------------------------------------
     1. initialized[id] <- True
-    2. M[id]           <- val
-    3. init'[id]         <- Some(val, id_curr)
-    4. counters'[id_curr] += 1
+    2. expected_input[id] <- val
+    3. expected_resumer[id] <- id_curr
+    4. init'[id]         <- Some(val, id_curr)
+    5. counters'[id_curr] += 1
 ```
 
 ## New Coordination Script (Spawn)
@@ -315,9 +327,10 @@ handler) instance.
 
 -----------------------------------------------------------------------
     1. initialized[id] <- True
-    2. M[id]           <- val
-    3. init'[id]         <- Some(val, id_curr)
-    4. counters'[id_curr] += 1
+    2. expected_input[id] <- val
+    3. expected_resumer[id] <- id_curr
+    4. init'[id]         <- Some(val, id_curr)
+    5. counters'[id_curr] += 1
 ```
 
 ---

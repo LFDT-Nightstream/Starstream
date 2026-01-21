@@ -867,23 +867,27 @@ impl LedgerOperation<crate::F> {
 
                 config.mem_switches_curr.activation = true;
                 config.mem_switches_curr.expected_input = true;
+                config.mem_switches_curr.expected_resumer = true;
 
                 config.mem_switches_target.activation = true;
                 config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
                 config.mem_switches_target.finalized = true;
                 config.mem_switches_target.initialized = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
             }
-            LedgerOperation::Yield { ret, .. } => {
+            LedgerOperation::Yield { ret: _ret, .. } => {
                 config.execution_switches.yield_op = true;
 
                 config.mem_switches_curr.activation = true;
-                if ret.is_some() {
-                    config.mem_switches_curr.expected_input = true;
-                }
+                config.mem_switches_curr.expected_input = true;
+                config.mem_switches_curr.expected_resumer = true;
                 config.mem_switches_curr.finalized = true;
+
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
             }
             LedgerOperation::Burn { .. } => {
                 config.execution_switches.burn = true;
@@ -907,6 +911,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.initialized = true;
                 config.mem_switches_target.init = true;
                 config.mem_switches_target.counters = true;
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
@@ -918,6 +924,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.initialized = true;
                 config.mem_switches_target.init = true;
                 config.mem_switches_target.counters = true;
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
@@ -1013,11 +1021,12 @@ impl LedgerOperation<crate::F> {
                 // Nop does nothing to the state
                 curr_write.counters -= F::ONE; // revert counter increment
             }
-            LedgerOperation::Resume { val, ret, .. } => {
+            LedgerOperation::Resume { val, ret, id_prev, .. } => {
                 // Current process gives control to target.
                 // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
                 curr_write.activation = F::ZERO; // Represents None
-                curr_write.expected_input = *ret;
+                curr_write.expected_input = OptionalF::new(*ret);
+                curr_write.expected_resumer = *id_prev;
 
                 // Target process receives control.
                 // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
@@ -1029,6 +1038,7 @@ impl LedgerOperation<crate::F> {
                 // but this doesn't change the parent's state itself.
                 val: _,
                 ret,
+                id_prev,
                 ..
             } => {
                 // Current process yields control back to its parent (the target of this operation).
@@ -1036,19 +1046,21 @@ impl LedgerOperation<crate::F> {
                 curr_write.activation = F::ZERO; // Represents None
                 if let Some(r) = ret {
                     // If Yield returns a value, it expects a new input `r` for the next resume.
-                    curr_write.expected_input = *r;
+                    curr_write.expected_input = OptionalF::new(*r);
                     curr_write.finalized = false;
                 } else {
                     // If Yield does not return a value, it's a final yield for this UTXO.
+                    curr_write.expected_input = OptionalF::none();
                     curr_write.finalized = true;
                 }
+                curr_write.expected_resumer = *id_prev;
             }
             LedgerOperation::Burn { ret } => {
                 // The current UTXO is burned.
                 curr_write.activation = F::ZERO; // Represents None
                 curr_write.finalized = true;
                 curr_write.did_burn = true;
-                curr_write.expected_input = *ret; // Sets its final return value.
+                curr_write.expected_input = OptionalF::new(*ret); // Sets its final return value.
             }
             LedgerOperation::NewUtxo { val, target: _, .. }
             | LedgerOperation::NewCoord { val, target: _, .. } => {
@@ -1057,6 +1069,8 @@ impl LedgerOperation<crate::F> {
                 target_write.initialized = true;
                 target_write.init = *val;
                 target_write.counters = F::ZERO;
+                target_write.expected_input = OptionalF::none();
+                target_write.expected_resumer = OptionalF::none();
             }
             LedgerOperation::Bind { owner_id } => {
                 curr_write.ownership = OptionalF::new(*owner_id);
@@ -1217,11 +1231,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         addr: pid as u64,
                         tag: MemoryTag::ExpectedInput.into(),
                     },
-                    vec![if pid >= self.instance.n_inputs {
-                        F::from(0u64)
-                    } else {
-                        self.last_yield[pid]
-                    }],
+                    vec![OptionalF::none().encoded()],
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: MemoryTag::ExpectedResumer.into(),
+                    },
+                    vec![OptionalF::none().encoded()],
                 );
 
                 mb.init(
@@ -1712,9 +1730,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .id_curr
             .conditional_enforce_not_equal(&wires.arg(ArgName::Target), switch)?;
-        wires
-            .arg(ArgName::IdPrev)
-            .conditional_enforce_equal(&wires.id_prev.encoded(), switch)?;
 
         // 2. UTXO cannot resume UTXO.
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
@@ -1733,11 +1748,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .activation
             .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
-        // 5. Claim check: val passed in must match target's expected_input.
+        // 5. Claim check: val passed in must match target's expected_input (if set).
+        let expected_input_is_some = wires.target_read_wires.expected_input.is_some()?;
+        let expected_input_value = wires.target_read_wires.expected_input.decode_or_zero()?;
+        expected_input_value.conditional_enforce_equal(
+            &wires.arg(ArgName::Val),
+            &(switch & expected_input_is_some),
+        )?;
+
+        // 6. Resumer check: current process must match target's expected_resumer (if set).
+        let expected_resumer_is_some = wires.target_read_wires.expected_resumer.is_some()?;
+        let expected_resumer_value = wires.target_read_wires.expected_resumer.decode_or_zero()?;
+        expected_resumer_value.conditional_enforce_equal(
+            &wires.id_curr,
+            &(switch & expected_resumer_is_some),
+        )?;
+
+        // 7. Store expected resumer for the current process.
         wires
-            .target_read_wires
-            .expected_input
-            .conditional_enforce_equal(&wires.arg(ArgName::Val), switch)?;
+            .curr_write_wires
+            .expected_resumer
+            .encoded()
+            .conditional_enforce_equal(&wires.arg(ArgName::IdPrev), switch)?;
 
         // ---
         // IVC state updates
@@ -1782,12 +1814,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .id_prev_is_some()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 2. Claim check: burned value `ret` must match parent's `expected_input`.
+        // 2. Claim check: burned value `ret` must match parent's `expected_input` (if set).
         // Parent's state is in `target_read_wires`.
-        wires
-            .target_read_wires
-            .expected_input
-            .conditional_enforce_equal(&wires.arg(ArgName::Ret), switch)?;
+        let expected_input_is_some = wires.target_read_wires.expected_input.is_some()?;
+        let expected_input_value = wires.target_read_wires.expected_input.decode_or_zero()?;
+        expected_input_value.conditional_enforce_equal(
+            &wires.arg(ArgName::Ret),
+            &(switch & expected_input_is_some),
+        )?;
 
         // ---
         // IVC state updates
@@ -1814,19 +1848,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires
             .id_prev_is_some()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
-        wires
-            .arg(ArgName::IdPrev)
-            .conditional_enforce_equal(&wires.id_prev.encoded(), switch)?;
 
         // 2. Claim check: yielded value `val` must match parent's `expected_input`.
         // The parent's state is in `target_read_wires` because we set `target = irw.id_prev`.
-        wires
-            .target_read_wires
-            .expected_input
-            .conditional_enforce_equal(
-                &wires.arg(ArgName::Val),
-                &(switch & (&wires.ret_is_some)),
-            )?;
+        let expected_input_is_some = wires.target_read_wires.expected_input.is_some()?;
+        let expected_input_value = wires.target_read_wires.expected_input.decode_or_zero()?;
+        expected_input_value.conditional_enforce_equal(
+            &wires.arg(ArgName::Val),
+            &(switch & expected_input_is_some),
+        )?;
 
         // ---
         // State update enforcement
@@ -1839,14 +1869,25 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .finalized
             .conditional_enforce_equal(&wires.ret_is_some.clone().not(), switch)?;
 
-        // The next `expected_input` should be `ret_value` if `ret` is Some, and 0 otherwise.
-        let new_expected_input = wires
+        // The next `expected_input` is `ret_value` if `ret` is Some, and None otherwise.
+        let new_expected_input_encoded = wires
             .ret_is_some
-            .select(&wires.arg(ArgName::Ret), &FpVar::zero())?;
+            .select(
+                &(&wires.arg(ArgName::Ret) + FpVar::one()),
+                &FpVar::zero(),
+            )?;
         wires
             .curr_write_wires
             .expected_input
-            .conditional_enforce_equal(&new_expected_input, switch)?;
+            .encoded()
+            .conditional_enforce_equal(&new_expected_input_encoded, switch)?;
+
+        // The next expected resumer is the provided id_prev.
+        wires
+            .curr_write_wires
+            .expected_resumer
+            .encoded()
+            .conditional_enforce_equal(&wires.arg(ArgName::IdPrev), switch)?;
 
         // ---
         // IVC state updates
@@ -2200,6 +2241,12 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         1,
         MemType::Ram,
         "RAM_EXPECTED_INPUT",
+    );
+    mb.register_mem(
+        MemoryTag::ExpectedResumer.into(),
+        1,
+        MemType::Ram,
+        "RAM_EXPECTED_RESUMER",
     );
     mb.register_mem(
         MemoryTag::Activation.into(),

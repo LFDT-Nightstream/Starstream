@@ -97,21 +97,19 @@ pub enum WitLedgerEffect {
 
     // UTXO-only
     Burn {
-        // out
-        ret: WitEffectOutput<Ref>,
+        // in
+        ret: Ref,
     },
 
     Activation {
-        // in
-        val: Ref,
         // out
+        val: WitEffectOutput<Ref>,
         caller: WitEffectOutput<ProcessId>,
     },
 
     Init {
-        // in
-        val: Ref,
         // out
+        val: WitEffectOutput<Ref>,
         caller: WitEffectOutput<ProcessId>,
     },
 

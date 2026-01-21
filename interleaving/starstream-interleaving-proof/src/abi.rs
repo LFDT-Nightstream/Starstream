@@ -80,7 +80,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             ),
         },
         WitLedgerEffect::Burn { ret } => LedgerOperation::Burn {
-            ret: F::from(ret.unwrap().0),
+            ret: F::from(ret.0),
         },
         WitLedgerEffect::ProgramHash {
             target,
@@ -108,11 +108,11 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             target: F::from(id.unwrap().0 as u64),
         },
         WitLedgerEffect::Activation { val, caller } => LedgerOperation::Activation {
-            val: F::from(val.0),
+            val: F::from(val.unwrap().0),
             caller: F::from(caller.unwrap().0 as u64),
         },
         WitLedgerEffect::Init { val, caller } => LedgerOperation::Init {
-            val: F::from(val.0),
+            val: F::from(val.unwrap().0),
             caller: F::from(caller.unwrap().0 as u64),
         },
         WitLedgerEffect::Bind { owner_id } => LedgerOperation::Bind {
