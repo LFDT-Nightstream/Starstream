@@ -1,6 +1,6 @@
 use crate::{
     ccs_step_shape,
-    circuit::{InterRoundWires, StepCircuitBuilder},
+    circuit::{InterRoundWires, IvcWireLayout, StepCircuitBuilder},
     memory::twist_and_shout::{
         TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints, TWIST_DEBUG_FILTER,
     },
@@ -16,19 +16,23 @@ use std::collections::HashMap;
 
 // TODO: benchmark properly
 pub(crate) const CHUNK_SIZE: usize = 10;
-const PER_STEP_COLS: usize = 885;
-const USED_COLS: usize = 1 + (PER_STEP_COLS - 1) * CHUNK_SIZE;
+const PER_STEP_COLS: usize = 884;
+const BASE_INSTANCE_COLS: usize = 1;
+const EXTRA_INSTANCE_COLS: usize = IvcWireLayout::FIELD_COUNT * 2;
+const M_IN: usize = BASE_INSTANCE_COLS + EXTRA_INSTANCE_COLS;
+const USED_COLS: usize = M_IN + (PER_STEP_COLS - BASE_INSTANCE_COLS) * CHUNK_SIZE;
 
 pub(crate) struct StepCircuitNeo {
     pub(crate) matrices: Vec<Vec<Vec<(crate::F, usize)>>>,
     pub(crate) num_constraints: usize,
     pub(crate) ts_mem_spec: TSMemLayouts,
     pub(crate) ts_mem_init: TSMemInitTables<crate::F>,
+    pub(crate) ivc_layout: crate::circuit::IvcWireLayout,
 }
 
 impl StepCircuitNeo {
     pub fn new(ts_mem_init: TSMemInitTables<crate::F>) -> Self {
-        let (ark_cs, ts_mem_spec) = ccs_step_shape().unwrap();
+        let (ark_cs, ts_mem_spec, ivc_layout) = ccs_step_shape().unwrap();
 
         let num_constraints = ark_cs.num_constraints();
         let num_instance_variables = ark_cs.num_instance_variables();
@@ -53,6 +57,7 @@ impl StepCircuitNeo {
             num_constraints,
             ts_mem_spec,
             ts_mem_init,
+            ivc_layout,
         }
     }
 
@@ -74,7 +79,7 @@ pub struct CircuitLayout {}
 
 impl WitnessLayout for CircuitLayout {
     // instance.len()
-    const M_IN: usize = 1;
+    const M_IN: usize = M_IN;
 
     // instance.len()+witness.len()
     const USED_COLS: usize = USED_COLS;
@@ -146,6 +151,7 @@ impl NeoCircuit for StepCircuitNeo {
     ) -> Result<(), String> {
         let matrices = &self.matrices;
         let m_in = <Self::Layout as WitnessLayout>::M_IN;
+        let base_m_in = BASE_INSTANCE_COLS;
 
         for ((matrix_a, matrix_b), matrix_c) in matrices[0]
             .iter()
@@ -159,10 +165,12 @@ impl NeoCircuit for StepCircuitNeo {
 
             for j in 0..CHUNK_SIZE {
                 let map_idx = |idx: usize| {
-                    if idx < m_in {
+                    if idx < base_m_in {
                         idx
                     } else {
-                        m_in + (idx - m_in) * CHUNK_SIZE + j
+                        // NOTE: m_in includes the per folding step IVC
+                        // variables (inputs and outputs)
+                        m_in + (idx - base_m_in) * CHUNK_SIZE + j
                     }
                 };
 
@@ -174,7 +182,59 @@ impl NeoCircuit for StepCircuitNeo {
             }
         }
 
-        tracing::info!("constraints defined");
+        let one = neo_math::F::ONE;
+        let minus_one = -neo_math::F::ONE;
+        let input_base = BASE_INSTANCE_COLS;
+        let output_base = BASE_INSTANCE_COLS + IvcWireLayout::FIELD_COUNT;
+
+        for (field_offset, (&input_idx, &output_idx)) in self
+            .ivc_layout
+            .input_indices()
+            .iter()
+            .zip(self.ivc_layout.output_indices().iter())
+            .enumerate()
+        {
+            for j in 0..(CHUNK_SIZE - 1) {
+                // The chunked matrix is interleaved column-major:
+                // for variable x, step 0 is at `m_in + x * CHUNK_SIZE`, step 1 is at
+                // `m_in + x * CHUNK_SIZE + 1`, etc. So `x * CHUNK_SIZE` picks the
+                // contiguous block for that variable, and `j` selects the step.
+                //
+                // We enforce continuity inside a chunk:
+                //   wire[in][s+1] == wire[out][s]
+                let out_col = m_in + output_idx * CHUNK_SIZE + j;
+                let in_col = m_in + input_idx * CHUNK_SIZE + (j + 1);
+                cs.r1cs_terms(
+                    vec![(out_col, one), (in_col, minus_one)],
+                    vec![(0, one)],
+                    vec![],
+                );
+            }
+
+            let first_chunk_in_col = m_in + input_idx * CHUNK_SIZE;
+            let last_chunk_out_col = m_in + output_idx * CHUNK_SIZE + (CHUNK_SIZE - 1);
+
+            // The per-folding-step public instance is:
+            //   [1, inputs, outputs]
+            // We wire the first chunk input to the instance inputs...
+            let in_instance_col = input_base + field_offset;
+            // ...and the last chunk output to the instance outputs.
+            let out_instance_col = output_base + field_offset;
+
+            // This means step_linking in the IVC setup should link pairs:
+            //   (i, i + IvcWireLayout::FIELD_COUNT)
+
+            cs.r1cs_terms(
+                vec![(in_instance_col, one), (first_chunk_in_col, minus_one)],
+                vec![(0, one)],
+                vec![],
+            );
+            cs.r1cs_terms(
+                vec![(out_instance_col, one), (last_chunk_out_col, minus_one)],
+                vec![(0, one)],
+                vec![],
+            );
+        }
 
         Ok(())
     }
@@ -193,6 +253,7 @@ impl NeoCircuit for StepCircuitNeo {
         }
 
         let m_in = <Self::Layout as WitnessLayout>::M_IN;
+        let base_m_in = BASE_INSTANCE_COLS;
         let per_step_cols = chunk[0].regs_after.len();
         if per_step_cols != PER_STEP_COLS {
             return Err(format!(
@@ -203,13 +264,30 @@ impl NeoCircuit for StepCircuitNeo {
 
         let mut witness = vec![neo_math::F::ZERO; USED_COLS];
 
-        for i in 0..m_in {
-            witness[i] = neo_math::F::from_u64(chunk[0].regs_after[i]);
+        witness[0] = neo_math::F::from_u64(chunk[0].regs_after[0]);
+
+        let input_base = BASE_INSTANCE_COLS;
+        let output_base = BASE_INSTANCE_COLS + IvcWireLayout::FIELD_COUNT;
+        let last_step = chunk.len() - 1;
+
+        for (field_idx, (&input_idx, &output_idx)) in self
+            .ivc_layout
+            .input_indices()
+            .iter()
+            .zip(self.ivc_layout.output_indices().iter())
+            .enumerate()
+        {
+            let input_full_idx = base_m_in + input_idx;
+            let output_full_idx = base_m_in + output_idx;
+            witness[input_base + field_idx] =
+                neo_math::F::from_u64(chunk[0].regs_after[input_full_idx]);
+            witness[output_base + field_idx] =
+                neo_math::F::from_u64(chunk[last_step].regs_after[output_full_idx]);
         }
 
         for (j, step) in chunk.iter().enumerate() {
-            for i in m_in..per_step_cols {
-                let idx = m_in + (i - m_in) * CHUNK_SIZE + j;
+            for i in base_m_in..per_step_cols {
+                let idx = m_in + (i - base_m_in) * CHUNK_SIZE + j;
                 witness[idx] = neo_math::F::from_u64(step.regs_after[i]);
             }
         }
@@ -287,10 +365,7 @@ impl StarstreamVm {
         step_circuit_builder: StepCircuitBuilder<TSMemory<crate::F>>,
         mem: TSMemoryConstraints<crate::F>,
     ) -> Self {
-        let irw = InterRoundWires::new(
-            crate::F::from(step_circuit_builder.p_len() as u64),
-            step_circuit_builder.instance.entrypoint.0 as u64,
-        );
+        let irw = InterRoundWires::new(step_circuit_builder.instance.entrypoint.0 as u64);
 
         Self {
             step_circuit_builder,
@@ -329,14 +404,19 @@ impl VmCpu<u64, u64> for StarstreamVm {
         let cs = ConstraintSystem::<crate::F>::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
 
-        let (irw, (shout_events, twist_events)) = self.step_circuit_builder.make_step_circuit(
-            self.step_i,
-            &mut self.mem,
-            cs.clone(),
-            self.irw.clone(),
-        )?;
+        let (irw, (shout_events, twist_events), _ivc_layout) =
+            self.step_circuit_builder.make_step_circuit(
+                self.step_i,
+                &mut self.mem,
+                cs.clone(),
+                self.irw.clone(),
+                false,
+            )?;
 
-        dbg!(cs.which_is_unsatisfied().unwrap());
+        if let Some(unsat) = cs.which_is_unsatisfied().unwrap() {
+            tracing::error!(location = unsat, "step CCS is unsat");
+        }
+
         assert!(cs.is_satisfied().unwrap());
 
         self.irw = irw;

@@ -10,7 +10,7 @@ mod optional;
 mod program_state;
 mod switchboard;
 
-use crate::circuit::InterRoundWires;
+use crate::circuit::{InterRoundWires, IvcWireLayout};
 use crate::memory::IVCMemory;
 use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{CHUNK_SIZE, StarstreamVm, StepCircuitNeo};
@@ -275,7 +275,8 @@ fn make_interleaved_trace(
     ops
 }
 
-fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts), SynthesisError> {
+fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayout), SynthesisError>
+{
     let _span = tracing::debug_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
@@ -304,18 +305,17 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts), SynthesisE
 
     let mb = dummy_tx.trace_memory_ops(());
 
-    let irw = InterRoundWires::new(
-        F::from(dummy_tx.p_len() as u64),
-        dummy_tx.instance.entrypoint.0 as u64,
-    );
+    let irw = InterRoundWires::new(dummy_tx.instance.entrypoint.0 as u64);
 
     let mut running_mem = mb.constraints();
 
-    dummy_tx.make_step_circuit(0, &mut running_mem, cs.clone(), irw)?;
+    let (_irw, _mem, captured_layout) =
+        dummy_tx.make_step_circuit(0, &mut running_mem, cs.clone(), irw, true)?;
+    let ivc_layout = captured_layout.expect("ivc layout requested");
 
     cs.finalize();
 
     let mem_spec = running_mem.ts_mem_layouts();
 
-    Ok((cs, mem_spec))
+    Ok((cs, mem_spec, ivc_layout))
 }
