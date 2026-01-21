@@ -19,6 +19,7 @@ use std::collections::VecDeque;
 
 pub const TWIST_DEBUG_FILTER: &[u32] = &[
     MemoryTag::ExpectedInput as u32,
+    MemoryTag::ExpectedResumer as u32,
     MemoryTag::Activation as u32,
     MemoryTag::Counters as u32,
     MemoryTag::Initialized as u32,

@@ -11,7 +11,8 @@ use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 
 #[derive(Clone, Debug)]
 pub struct ProgramState {
-    pub expected_input: F,
+    pub expected_input: OptionalF<F>,
+    pub expected_resumer: OptionalF<F>,
     pub activation: F,
     pub init: F,
     pub counters: F,
@@ -24,7 +25,8 @@ pub struct ProgramState {
 /// IVC wires (state between steps)
 #[derive(Clone)]
 pub struct ProgramStateWires {
-    pub expected_input: FpVar<F>,
+    pub expected_input: OptionalFpVar<F>,
+    pub expected_resumer: OptionalFpVar<F>,
     pub activation: FpVar<F>,
     pub init: FpVar<F>,
     pub counters: FpVar<F>,
@@ -40,7 +42,12 @@ impl ProgramStateWires {
         write_values: &ProgramState,
     ) -> Result<ProgramStateWires, SynthesisError> {
         Ok(ProgramStateWires {
-            expected_input: FpVar::new_witness(cs.clone(), || Ok(write_values.expected_input))?,
+            expected_input: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(write_values.expected_input.encoded())
+            })?),
+            expected_resumer: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(write_values.expected_resumer.encoded())
+            })?),
             activation: FpVar::new_witness(cs.clone(), || Ok(write_values.activation))?,
             init: FpVar::new_witness(cs.clone(), || Ok(write_values.init))?,
             counters: FpVar::new_witness(cs.clone(), || Ok(write_values.counters))?,
@@ -143,7 +150,8 @@ macro_rules! define_program_state_operations {
 }
 
 define_program_state_operations!(
-    (expected_input, ExpectedInput, field),
+    (expected_input, ExpectedInput, optional),
+    (expected_resumer, ExpectedResumer, optional),
     (activation, Activation, field),
     (init, Init, field),
     (counters, Counters, field),
@@ -160,8 +168,8 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
     switches: &MemSwitchboardWires,
 ) -> Result<ProgramStateWires, SynthesisError> {
     Ok(ProgramStateWires {
-        expected_input: rm
-            .conditional_read(
+        expected_input: OptionalFpVar::new(
+            rm.conditional_read(
                 &switches.expected_input,
                 &Address {
                     addr: address.clone(),
@@ -171,6 +179,19 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
             .into_iter()
             .next()
             .unwrap(),
+        ),
+        expected_resumer: OptionalFpVar::new(
+            rm.conditional_read(
+                &switches.expected_resumer,
+                &Address {
+                    addr: address.clone(),
+                    tag: MemoryTag::ExpectedResumer.allocate(cs.clone())?,
+                },
+            )?
+            .into_iter()
+            .next()
+            .unwrap(),
+        ),
         activation: rm
             .conditional_read(
                 &switches.activation,
@@ -259,7 +280,8 @@ impl ProgramState {
     pub fn dummy() -> Self {
         Self {
             finalized: false,
-            expected_input: F::ZERO,
+            expected_input: OptionalF::none(),
+            expected_resumer: OptionalF::none(),
             activation: F::ZERO,
             init: F::ZERO,
             counters: F::ZERO,
@@ -270,7 +292,8 @@ impl ProgramState {
     }
 
     pub fn debug_print(&self) {
-        tracing::debug!("expected_input={}", self.expected_input);
+        tracing::debug!("expected_input={}", self.expected_input.encoded());
+        tracing::debug!("expected_resumer={}", self.expected_resumer.encoded());
         tracing::debug!("activation={}", self.activation);
         tracing::debug!("init={}", self.init);
         tracing::debug!("counters={}", self.counters);

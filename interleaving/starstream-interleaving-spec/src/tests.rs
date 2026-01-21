@@ -132,11 +132,11 @@ fn test_transaction_with_coord_and_utxos() {
     let done_a_ref = refs.get("done_a");
     let done_b_ref = refs.get("done_b");
 
-    // Host refs.get("init_b")r each process in canonical order: inputs ++ new_outputs ++ coord_scripts
+    // Host refs each process in canonical order: inputs ++ new_outputs ++ coord_scripts
     // Process 0: Input 1, Process 1: Input 2, Process 2: UTXO A (spawn), Process 3: UTXO B (spawn), Process 4: Coordination script
     let input_1_trace = vec![
         WitLedgerEffect::Activation {
-            val: spend_input_1_ref,
+            val: spend_input_1_ref.into(),
             caller: ProcessId(4).into(),
         },
         WitLedgerEffect::Yield {
@@ -148,21 +148,19 @@ fn test_transaction_with_coord_and_utxos() {
 
     let input_2_trace = vec![
         WitLedgerEffect::Activation {
-            val: spend_input_2_ref,
+            val: spend_input_2_ref.into(),
             caller: ProcessId(4).into(),
         },
-        WitLedgerEffect::Burn {
-            ret: burned_2_ref.into(),
-        },
+        WitLedgerEffect::Burn { ret: burned_2_ref },
     ];
 
     let utxo_a_trace = vec![
         WitLedgerEffect::Init {
-            val: init_a_ref,
+            val: init_a_ref.into(),
             caller: ProcessId(4).into(),
         },
         WitLedgerEffect::Activation {
-            val: init_a_ref,
+            val: init_a_ref.into(),
             caller: ProcessId(4).into(),
         },
         WitLedgerEffect::Bind {
@@ -177,11 +175,11 @@ fn test_transaction_with_coord_and_utxos() {
 
     let utxo_b_trace = vec![
         WitLedgerEffect::Init {
-            val: init_b_ref,
+            val: init_b_ref.into(),
             caller: ProcessId(4).into(),
         },
         WitLedgerEffect::Activation {
-            val: init_b_ref,
+            val: init_b_ref.into(),
             caller: ProcessId(4).into(),
         },
         WitLedgerEffect::Yield {
@@ -230,7 +228,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(0),
             val: spend_input_1_ref,
             ret: continued_1_ref.into(),
-            id_prev: WitEffectOutput::Resolved(None),
+            id_prev: Some(ProcessId(0)).into(),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -250,7 +248,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(1),
             val: spend_input_2_ref,
             ret: burned_2_ref.into(),
-            id_prev: Some(ProcessId(0)).into(),
+            id_prev: Some(ProcessId(1)).into(),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -261,7 +259,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(2),
             val: init_a_ref,
             ret: done_a_ref.into(),
-            id_prev: Some(ProcessId(1)).into(),
+            id_prev: Some(ProcessId(2)).into(),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -272,7 +270,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(3),
             val: init_b_ref,
             ret: done_b_ref.into(),
-            id_prev: Some(ProcessId(2)).into(),
+            id_prev: Some(ProcessId(3)).into(),
         },
     ];
 
@@ -327,7 +325,7 @@ fn test_effect_handlers() {
 
     let utxo_trace = vec![
         WitLedgerEffect::Activation {
-            val: ref_gen.get("init_utxo"),
+            val: ref_gen.get("init_utxo").into(),
             caller: ProcessId(1).into(),
         },
         WitLedgerEffect::ProgramHash {
@@ -447,7 +445,7 @@ fn test_burn_with_continuation_fails() {
                     ret: Ref(0).into(),
                 },
                 WitLedgerEffect::RefPush { val: v(b"burned") },
-                WitLedgerEffect::Burn { ret: Ref(0).into() },
+                WitLedgerEffect::Burn { ret: Ref(0) },
             ],
         )
         .with_entrypoint(0)
@@ -592,7 +590,7 @@ fn test_duplicate_input_utxo_fails() {
                     ret: Ref(1).into(),
                 },
                 WitLedgerEffect::RefPush { val: Value::nil() },
-                WitLedgerEffect::Burn { ret: Ref(0).into() },
+                WitLedgerEffect::Burn { ret: Ref(0) },
             ],
         )
         .with_coord_script(
