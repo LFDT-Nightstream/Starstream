@@ -398,8 +398,6 @@ pub struct Wires {
     ref_building_remaining: FpVar<F>,
     ref_building_ptr: FpVar<F>,
 
-    p_len: FpVar<F>,
-
     switches: ExecutionSwitches<Boolean<F>>,
 
     opcode_args: [FpVar<F>; OPCODE_ARG_COUNT],
@@ -454,8 +452,48 @@ pub struct InterRoundWires {
 
     ref_building_remaining: F,
     ref_building_ptr: F,
+}
 
-    p_len: F,
+#[derive(Clone, Copy, Debug)]
+pub struct IvcWireIndices {
+    pub id_curr: usize,
+    pub id_prev: usize,
+    pub ref_arena_stack_ptr: usize,
+    pub handler_stack_ptr: usize,
+    pub ref_building_remaining: usize,
+    pub ref_building_ptr: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct IvcWireLayout {
+    pub input: IvcWireIndices,
+    pub output: IvcWireIndices,
+}
+
+impl IvcWireLayout {
+    pub const FIELD_COUNT: usize = 6;
+
+    pub fn input_indices(&self) -> [usize; Self::FIELD_COUNT] {
+        [
+            self.input.id_curr,
+            self.input.id_prev,
+            self.input.ref_arena_stack_ptr,
+            self.input.handler_stack_ptr,
+            self.input.ref_building_remaining,
+            self.input.ref_building_ptr,
+        ]
+    }
+
+    pub fn output_indices(&self) -> [usize; Self::FIELD_COUNT] {
+        [
+            self.output.id_curr,
+            self.output.id_prev,
+            self.output.ref_arena_stack_ptr,
+            self.output.handler_stack_ptr,
+            self.output.ref_building_remaining,
+            self.output.ref_building_ptr,
+        ]
+    }
 }
 
 impl Wires {
@@ -485,7 +523,6 @@ impl Wires {
 
         // io vars
         let id_curr = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.id_curr))?;
-        let p_len = FpVar::<F>::new_witness(cs.clone(), || Ok(vals.irw.p_len))?;
         let id_prev = OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
             Ok(vals.irw.id_prev.encoded())
         })?);
@@ -726,8 +763,6 @@ impl Wires {
             ref_building_remaining,
             ref_building_ptr,
 
-            p_len,
-
             switches,
 
             constant_false: Boolean::new_constant(cs.clone(), false)?,
@@ -754,11 +789,10 @@ impl Wires {
 }
 
 impl InterRoundWires {
-    pub fn new(p_len: F, entrypoint: u64) -> Self {
+    pub fn new(entrypoint: u64) -> Self {
         InterRoundWires {
             id_curr: F::from(entrypoint),
             id_prev: OptionalF::none(),
-            p_len,
             ref_arena_counter: F::ZERO,
             handler_stack_counter: F::ZERO,
             ref_building_remaining: F::ZERO,
@@ -785,14 +819,6 @@ impl InterRoundWires {
         );
 
         self.id_prev = OptionalF::from_encoded(res_id_prev);
-
-        tracing::debug!(
-            "utxos_len from {} to {}",
-            self.p_len,
-            res.p_len.value().unwrap()
-        );
-
-        self.p_len = res.p_len.value().unwrap();
 
         tracing::debug!(
             "ref_arena_counter from {} to {}",
@@ -1075,10 +1101,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         rm: &mut M::Allocator,
         cs: ConstraintSystemRef<F>,
         mut irw: InterRoundWires,
+        compute_ivc_layout: bool,
     ) -> Result<
         (
             InterRoundWires,
             <M::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
+            Option<IvcWireLayout>,
         ),
         SynthesisError,
     > {
@@ -1109,7 +1137,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let mem_step_data = rm.finish_step(i == self.ops.len() - 1)?;
 
         // input <-> output mappings are done by modifying next_wires
-        ivcify_wires(&cs, &wires_in, &next_wires)?;
+        let ivc_layout = if compute_ivc_layout {
+            Some(ivc_wires(&cs, &wires_in, &next_wires)?)
+        } else {
+            None
+        };
 
         // Enforce global invariant: If building ref, must be RefPush
         let is_building = wires_in.ref_building_remaining.is_zero()?.not();
@@ -1119,7 +1151,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         tracing::debug!("constraints: {}", cs.num_constraints());
 
-        Ok((irw, mem_step_data))
+        Ok((irw, mem_step_data, ivc_layout))
     }
 
     pub fn trace_memory_ops(&mut self, params: <M as memory::IVCMemory<F>>::Params) -> M {
@@ -1268,10 +1300,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // circuit constraints
 
         // Initialize IRW for the trace phase and update it as we process each operation
-        let mut irw = InterRoundWires::new(
-            F::from(self.p_len() as u64),
-            self.instance.entrypoint.0 as u64,
-        );
+        let mut irw = InterRoundWires::new(self.instance.entrypoint.0 as u64);
 
         let mut ref_building_id = F::ZERO;
         let mut ref_building_offset = F::ZERO;
@@ -2146,10 +2175,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         Ok(wires)
     }
-
-    pub(crate) fn p_len(&self) -> usize {
-        self.instance.process_table.len()
-    }
 }
 
 fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
@@ -2230,38 +2255,50 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
 }
 
 #[tracing::instrument(target = "gr1cs", skip_all)]
-fn ivcify_wires(
-    _cs: &ConstraintSystemRef<F>,
-    _wires_in: &Wires,
-    _wires_out: &Wires,
-) -> Result<(), SynthesisError> {
-    // let (current_program_in, current_program_out) = {
-    //     let f_in = || wires_in.id_curr.value();
-    //     let f_out = || wires_out.id_curr.value();
-    //     let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-    //     let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
+fn ivc_wires(
+    cs: &ConstraintSystemRef<F>,
+    wires_in: &Wires,
+    wires_out: &Wires,
+) -> Result<IvcWireLayout, SynthesisError> {
+    let input = IvcWireIndices {
+        id_curr: fpvar_witness_index(cs, &wires_in.id_curr)?,
+        id_prev: fpvar_witness_index(cs, &wires_in.id_prev.encoded())?,
+        ref_arena_stack_ptr: fpvar_witness_index(cs, &wires_in.ref_arena_stack_ptr)?,
+        handler_stack_ptr: fpvar_witness_index(cs, &wires_in.handler_stack_ptr)?,
+        ref_building_remaining: fpvar_witness_index(cs, &wires_in.ref_building_remaining)?,
+        ref_building_ptr: fpvar_witness_index(cs, &wires_in.ref_building_ptr)?,
+    };
 
-    //     Ok((alloc_in, alloc_out))
-    // }?;
+    let output = IvcWireIndices {
+        id_curr: fpvar_witness_index(cs, &wires_out.id_curr)?,
+        id_prev: fpvar_witness_index(cs, &wires_out.id_prev.encoded())?,
+        ref_arena_stack_ptr: fpvar_witness_index(cs, &wires_out.ref_arena_stack_ptr)?,
+        handler_stack_ptr: fpvar_witness_index(cs, &wires_out.handler_stack_ptr)?,
+        ref_building_remaining: fpvar_witness_index(cs, &wires_out.ref_building_remaining)?,
+        ref_building_ptr: fpvar_witness_index(cs, &wires_out.ref_building_ptr)?,
+    };
 
-    // wires_in.id_curr.enforce_equal(&current_program_in)?;
-    // wires_out.id_curr.enforce_equal(&current_program_out)?;
+    Ok(IvcWireLayout { input, output })
+}
 
-    // let (utxos_len_in, utxos_len_out) = {
-    //     let f_in = || wires_in.utxos_len.value();
-    //     let f_out = || wires_out.utxos_len.value();
-    //     let alloc_in = FpVar::new_variable(cs.clone(), f_in, AllocationMode::Input)?;
-    //     let alloc_out = FpVar::new_variable(cs.clone(), f_out, AllocationMode::Input)?;
-
-    //     Ok((alloc_in, alloc_out))
-    // }?;
-
-    // wires_in.utxos_len.enforce_equal(&utxos_len_in)?;
-    // wires_out.utxos_len.enforce_equal(&utxos_len_out)?;
-
-    // utxos_len_in.enforce_equal(&utxos_len_out)?;
-
-    Ok(())
+fn fpvar_witness_index(
+    cs: &ConstraintSystemRef<F>,
+    var: &FpVar<F>,
+) -> Result<usize, SynthesisError> {
+    let witness_offset = cs.num_instance_variables();
+    match var {
+        FpVar::Var(alloc) => {
+            let full_index = alloc
+                .variable
+                .get_variable_index(witness_offset)
+                .ok_or(SynthesisError::AssignmentMissing)?;
+            if alloc.variable.is_instance() {
+                return Err(SynthesisError::AssignmentMissing);
+            }
+            Ok(full_index - witness_offset)
+        }
+        FpVar::Constant(_) => Err(SynthesisError::AssignmentMissing),
+    }
 }
 
 impl PreWires {
