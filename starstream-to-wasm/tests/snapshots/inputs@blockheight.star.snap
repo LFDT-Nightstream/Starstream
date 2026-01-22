@@ -80,7 +80,43 @@ Program {
                         },
                     ),
                     body: Block {
-                        statements: [],
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Runtime {
+                                            expr: Spanned {
+                                                node: Call {
+                                                    callee: Spanned {
+                                                        node: Identifier(
+                                                            Identifier {
+                                                                name: "blockHeight",
+                                                                span: Some(
+                                                                    95..106,
+                                                                ),
+                                                            },
+                                                        ),
+                                                        span: 95..106,
+                                                        comments_before: [],
+                                                        comments_after: [],
+                                                    },
+                                                    args: [],
+                                                },
+                                                span: 95..108,
+                                                comments_before: [],
+                                                comments_after: [],
+                                            },
+                                        },
+                                        span: 87..108,
+                                        comments_before: [],
+                                        comments_after: [],
+                                    },
+                                ),
+                                span: 87..114,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ],
                         tail_expression: Some(
                             Spanned {
                                 node: Runtime {
@@ -91,22 +127,22 @@ Program {
                                                     Identifier {
                                                         name: "blockHeight",
                                                         span: Some(
-                                                            95..106,
+                                                            122..133,
                                                         ),
                                                     },
                                                 ),
-                                                span: 95..106,
+                                                span: 122..133,
                                                 comments_before: [],
                                                 comments_after: [],
                                             },
                                             args: [],
                                         },
-                                        span: 95..109,
+                                        span: 122..136,
                                         comments_before: [],
                                         comments_after: [],
                                     },
                                 },
-                                span: 87..109,
+                                span: 114..136,
                                 comments_before: [],
                                 comments_after: [],
                             },
@@ -114,7 +150,7 @@ Program {
                     },
                 },
             ),
-            span: 53..111,
+            span: 53..138,
             comments_before: [],
             comments_after: [],
         },
@@ -124,6 +160,10 @@ Program {
 ==== Inference trace ====
 
 T-Fn: reexport => i64
+  T-Expr: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
+    T-Runtime: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
+      T-Call: {blockHeight: runtime fn() -> i64} ⊢ blockHeight() ⇒ i64
+        T-Var: {blockHeight: runtime fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
   T-ReturnTail: runtime blockHeight() => i64
     T-Runtime: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
       T-Call: {blockHeight: runtime fn() -> i64} ⊢ blockHeight() ⇒ i64
@@ -196,7 +236,51 @@ TypedProgram {
                 params: [],
                 return_type: Int,
                 body: TypedBlock {
-                    statements: [],
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Runtime {
+                                        expr: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function {
+                                                                params: [],
+                                                                result: Int,
+                                                                effect: Runtime,
+                                                            },
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "blockHeight",
+                                                                    span: Some(
+                                                                        95..106,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 95..106,
+                                                        comments_before: [],
+                                                        comments_after: [],
+                                                    },
+                                                    args: [],
+                                                },
+                                            },
+                                            span: 95..108,
+                                            comments_before: [],
+                                            comments_after: [],
+                                        },
+                                    },
+                                },
+                                span: 87..108,
+                                comments_before: [],
+                                comments_after: [],
+                            },
+                        ),
+                    ],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
@@ -217,25 +301,25 @@ TypedProgram {
                                                             Identifier {
                                                                 name: "blockHeight",
                                                                 span: Some(
-                                                                    95..106,
+                                                                    122..133,
                                                                 ),
                                                             },
                                                         ),
                                                     },
-                                                    span: 95..106,
+                                                    span: 122..133,
                                                     comments_before: [],
                                                     comments_after: [],
                                                 },
                                                 args: [],
                                             },
                                         },
-                                        span: 95..109,
+                                        span: 122..136,
                                         comments_before: [],
                                         comments_after: [],
                                     },
                                 },
                             },
-                            span: 87..109,
+                            span: 114..136,
                             comments_before: [],
                             comments_after: [],
                         },
@@ -252,6 +336,8 @@ TypedProgram {
   (import "starstream:std/cardano" "block-height" (func (;0;) (type 0)))
   (export "reexport" (func 0))
   (func (;1;) (type 0) (result i64)
+    (drop
+      (call 0))
     (call 0)
   )
   (@custom "component-type"

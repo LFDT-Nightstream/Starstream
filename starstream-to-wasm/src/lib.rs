@@ -901,7 +901,7 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         locals: &dyn Locals,
-        _span: Span,
+        span: Span,
         expr: &TypedExpr,
     ) -> Result<()> {
         // TODO: Warn on expressions that have no effect.
@@ -996,21 +996,21 @@ impl Compiler {
                 // End.
                 func.instructions().end();
             }
+            // Function calls
+            TypedExprKind::Call { .. }
+            | TypedExprKind::Emit { .. }
+            | TypedExprKind::Raise { .. }
+            | TypedExprKind::Runtime { .. } => {
+                // Function calls could have any side effect, so always really
+                // call them then drop whatever they might have returned.
+                self.visit_expr_stack(func, locals, span, expr)?;
+                for _ in 0..self.star_count_core_types(&expr.ty) {
+                    func.instructions().drop();
+                }
+            }
             // Todo
-            TypedExprKind::Match { .. } | TypedExprKind::Call { .. } => {
+            TypedExprKind::Match { .. } => {
                 return Err(self.todo(format!("{:?}", expr.kind)));
-            }
-            // TODO: Implement event emission in Wasm codegen.
-            // Events will likely become calls to imported host functions.
-            TypedExprKind::Emit { .. } => {
-                return Err(self.todo("event emission is not supported in Wasm yet".into()));
-            }
-            // TODO: Implement raise (effectful calls) in Wasm codegen.
-            TypedExprKind::Raise { .. } => {
-                return Err(self.todo("raise is not supported in Wasm yet".into()));
-            }
-            TypedExprKind::Runtime { .. } => {
-                todo!()
             }
         }
         Ok(())
@@ -1477,17 +1477,36 @@ impl Compiler {
                 }
                 Ok(())
             }
-            TypedExprKind::EnumConstructor { .. }
-            | TypedExprKind::Match { .. }
-            | TypedExprKind::Call { .. } => Err(self.todo(format!("{:?}", expr.kind))),
-            // TODO: Implement event emission in Wasm codegen.
-            // Events will likely become calls to imported host functions.
-            TypedExprKind::Emit { .. } => {
-                Err(self.todo("event emission is not supported in Wasm yet".into()))
+            // Function calls
+            TypedExprKind::Call { callee, args } => {
+                let TypedExprKind::Identifier(i) = &callee.node.kind else {
+                    return Err(self.todo("cannot call non-identifier".into()));
+                };
+                let target = *self
+                    .callables
+                    .get(i.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
             }
-            // TODO: Implement raise (effectful calls) in Wasm codegen.
-            TypedExprKind::Raise { .. } => {
-                Err(self.todo("raise is not supported in Wasm yet".into()))
+            TypedExprKind::Emit { event, args } => {
+                let target = *self
+                    .callables
+                    .get(event.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
+            }
+            TypedExprKind::Raise { expr: inner } => {
+                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
+                    panic!("raise expr must be a call");
+                };
+                let TypedExprKind::Identifier(i) = &callee.node.kind else {
+                    return Err(self.todo("raise expr cannot call non-identifier".into()));
+                };
+                let target = *self
+                    .callables
+                    .get(i.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
             }
             TypedExprKind::Runtime { expr: inner } => {
                 let TypedExprKind::Call { callee, args } = &inner.node.kind else {
@@ -1501,6 +1520,10 @@ impl Compiler {
                     .get(i.as_str())
                     .expect("no callable found for identifier");
                 self.visit_call(func, locals, span, target, args)
+            }
+            // Todo
+            TypedExprKind::EnumConstructor { .. } | TypedExprKind::Match { .. } => {
+                Err(self.todo(format!("{:?}", expr.kind)))
             }
         }
     }
