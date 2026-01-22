@@ -149,7 +149,10 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_resume",
-                |mut caller: Caller<'_, RuntimeState>, target: u64, val: u64| -> Result<(u64, u64), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 target: u64,
+                 val: u64|
+                 -> Result<(u64, u64), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     let target = ProcessId(target as usize);
                     let val = Ref(val);
@@ -178,7 +181,9 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_yield",
-                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(u64, u64), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 val: u64|
+                 -> Result<(u64, u64), wasmi::Error> {
                     let id_prev = caller.data().prev_id;
                     suspend_with_effect(
                         &mut caller,
@@ -224,8 +229,7 @@ impl Runtime {
                             }
                         }
                     }
-                    let id = found_id
-                        .ok_or(wasmi::Error::new("no matching utxo process found"))?;
+                    let id = found_id.ok_or(wasmi::Error::new("no matching utxo process found"))?;
                     caller.data_mut().allocated_processes.insert(id);
 
                     caller
@@ -278,8 +282,8 @@ impl Runtime {
                             }
                         }
                     }
-                    let id = found_id
-                        .ok_or(wasmi::Error::new("no matching coord process found"))?;
+                    let id =
+                        found_id.ok_or(wasmi::Error::new("no matching coord process found"))?;
                     caller.data_mut().allocated_processes.insert(id);
 
                     caller
@@ -304,7 +308,12 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_install_handler",
-                |mut caller: Caller<'_, RuntimeState>, h0: u64, h1: u64, h2: u64, h3: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 h0: u64,
+                 h1: u64,
+                 h2: u64,
+                 h3: u64|
+                 -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
                     caller
@@ -325,7 +334,12 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_uninstall_handler",
-                |mut caller: Caller<'_, RuntimeState>, h0: u64, h1: u64, h2: u64, h3: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 h0: u64,
+                 h1: u64,
+                 h2: u64,
+                 h3: u64|
+                 -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
                     let stack = caller
@@ -348,7 +362,12 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_get_handler_for",
-                |mut caller: Caller<'_, RuntimeState>, h0: u64, h1: u64, h2: u64, h3: u64| -> Result<u64, wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 h0: u64,
+                 h1: u64,
+                 h2: u64,
+                 h3: u64|
+                 -> Result<u64, wasmi::Error> {
                     let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
                     let handler_id = {
                         let stack = caller
@@ -372,108 +391,127 @@ impl Runtime {
             .unwrap();
 
         linker
-            .func_wrap("env", "starstream_activation", |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
-                let current_pid = caller.data().current_process;
-                let (val, caller_id) = {
-                    let (val, caller_id) = caller
+            .func_wrap(
+                "env",
+                "starstream_activation",
+                |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let (val, caller_id) = {
+                        let (val, caller_id) = caller
+                            .data()
+                            .pending_activation
+                            .get(&current_pid)
+                            .ok_or(wasmi::Error::new("no pending activation"))?;
+                        (*val, *caller_id)
+                    };
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::Activation {
+                            val: WitEffectOutput::Resolved(val),
+                            caller: WitEffectOutput::Resolved(caller_id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_init",
+                |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let (val, caller_id) = {
+                        let (val, caller_id) = caller
+                            .data()
+                            .pending_init
+                            .get(&current_pid)
+                            .ok_or(wasmi::Error::new("no pending init"))?;
+                        (*val, *caller_id)
+                    };
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::Init {
+                            val: WitEffectOutput::Resolved(val),
+                            caller: WitEffectOutput::Resolved(caller_id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_new_ref",
+                |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let size = size as usize;
+                    let ref_id = Ref(caller.data().next_ref);
+                    caller.data_mut().next_ref += size as u64;
+
+                    caller
+                        .data_mut()
+                        .ref_store
+                        .insert(ref_id, vec![Value(0); size]);
+                    caller
+                        .data_mut()
+                        .ref_state
+                        .insert(current_pid, (ref_id, 0, size));
+
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::NewRef {
+                            size,
+                            ret: WitEffectOutput::Resolved(ref_id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_ref_push",
+                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let val = Value(val);
+                    let (ref_id, offset, size) = *caller
                         .data()
-                        .pending_activation
+                        .ref_state
                         .get(&current_pid)
-                        .ok_or(wasmi::Error::new("no pending activation"))?;
-                    (*val, *caller_id)
-                };
-                suspend_with_effect(
-                    &mut caller,
-                    WitLedgerEffect::Activation {
-                        val: WitEffectOutput::Resolved(val),
-                        caller: WitEffectOutput::Resolved(caller_id),
-                    },
-                )
-            })
-            .unwrap();
+                        .ok_or(wasmi::Error::new("no ref state"))?;
 
-        linker
-            .func_wrap("env", "starstream_init", |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
-                let current_pid = caller.data().current_process;
-                let (val, caller_id) = {
-                    let (val, caller_id) = caller
-                        .data()
-                        .pending_init
-                        .get(&current_pid)
-                        .ok_or(wasmi::Error::new("no pending init"))?;
-                    (*val, *caller_id)
-                };
-                suspend_with_effect(
-                    &mut caller,
-                    WitLedgerEffect::Init {
-                        val: WitEffectOutput::Resolved(val),
-                        caller: WitEffectOutput::Resolved(caller_id),
-                    },
-                )
-            })
-            .unwrap();
+                    if offset >= size {
+                        return Err(wasmi::Error::new("ref push overflow"));
+                    }
 
-        linker
-            .func_wrap("env", "starstream_new_ref", |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmi::Error> {
-                let current_pid = caller.data().current_process;
-                let size = size as usize;
-                let ref_id = Ref(caller.data().next_ref);
-                caller.data_mut().next_ref += size as u64;
+                    let store = caller
+                        .data_mut()
+                        .ref_store
+                        .get_mut(&ref_id)
+                        .ok_or(wasmi::Error::new("ref not found"))?;
+                    store[offset] = val;
 
-                caller
-                    .data_mut()
-                    .ref_store
-                    .insert(ref_id, vec![Value(0); size]);
-                caller
-                    .data_mut()
-                    .ref_state
-                    .insert(current_pid, (ref_id, 0, size));
+                    caller
+                        .data_mut()
+                        .ref_state
+                        .insert(current_pid, (ref_id, offset + 1, size));
 
-                suspend_with_effect(
-                    &mut caller,
-                    WitLedgerEffect::NewRef {
-                        size,
-                        ret: WitEffectOutput::Resolved(ref_id),
-                    },
-                )
-            })
-            .unwrap();
-
-        linker
-            .func_wrap("env", "starstream_ref_push", |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
-                let current_pid = caller.data().current_process;
-                let val = Value(val);
-                let (ref_id, offset, size) = *caller
-                    .data()
-                    .ref_state
-                    .get(&current_pid)
-                    .ok_or(wasmi::Error::new("no ref state"))?;
-
-                if offset >= size {
-                    return Err(wasmi::Error::new("ref push overflow"));
-                }
-
-                let store = caller
-                    .data_mut()
-                    .ref_store
-                    .get_mut(&ref_id)
-                    .ok_or(wasmi::Error::new("ref not found"))?;
-                store[offset] = val;
-
-                caller
-                    .data_mut()
-                    .ref_state
-                    .insert(current_pid, (ref_id, offset + 1, size));
-
-                suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { val })
-            })
+                    suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { val })
+                },
+            )
             .unwrap();
 
         linker
             .func_wrap(
                 "env",
                 "starstream_get",
-                |mut caller: Caller<'_, RuntimeState>, reff: u64, offset: u64| -> Result<u64, wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 reff: u64,
+                 offset: u64|
+                 -> Result<u64, wasmi::Error> {
                     let ref_id = Ref(reff);
                     let offset = offset as usize;
                     let store = caller
@@ -498,15 +536,19 @@ impl Runtime {
             .unwrap();
 
         linker
-            .func_wrap("env", "starstream_bind", |mut caller: Caller<'_, RuntimeState>, owner_id: u64| -> Result<(), wasmi::Error> {
-                let current_pid = caller.data().current_process;
-                let owner_id = ProcessId(owner_id as usize);
-                caller
-                    .data_mut()
-                    .ownership
-                    .insert(current_pid, Some(owner_id));
-                suspend_with_effect(&mut caller, WitLedgerEffect::Bind { owner_id })
-            })
+            .func_wrap(
+                "env",
+                "starstream_bind",
+                |mut caller: Caller<'_, RuntimeState>, owner_id: u64| -> Result<(), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    let owner_id = ProcessId(owner_id as usize);
+                    caller
+                        .data_mut()
+                        .ownership
+                        .insert(current_pid, Some(owner_id));
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Bind { owner_id })
+                },
+            )
             .unwrap();
 
         linker
@@ -524,11 +566,15 @@ impl Runtime {
             .unwrap();
 
         linker
-            .func_wrap("env", "starstream_burn", |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmi::Error> {
-                let current_pid = caller.data().current_process;
-                caller.data_mut().must_burn.insert(current_pid);
-                suspend_with_effect(&mut caller, WitLedgerEffect::Burn { ret: Ref(ret) })
-            })
+            .func_wrap(
+                "env",
+                "starstream_burn",
+                |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmi::Error> {
+                    let current_pid = caller.data().current_process;
+                    caller.data_mut().must_burn.insert(current_pid);
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Burn { ret: Ref(ret) })
+                },
+            )
             .unwrap();
 
         linker

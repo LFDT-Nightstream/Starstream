@@ -124,7 +124,7 @@ impl NeoCircuit for StepCircuitNeo {
                     }
 
                     let twist_id = *tag as u32;
-                    let k = 64usize; // TODO: hardcoded number
+                    let k = 256usize; // TODO: hardcoded number
                     assert!(k > 0, "set_binary_mem_layout: k must be > 0");
                     assert!(
                         k.is_power_of_two(),

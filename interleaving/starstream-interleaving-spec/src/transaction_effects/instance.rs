@@ -95,8 +95,8 @@ impl InterleavingInstance {
             }
         }
 
-        let num_bits = 6;
-        // currently the twist tables have a size of 64, so 2**6 == 6
+        let num_bits = 8;
+        // currently the twist tables have a size of 256, so 2**8 == 256
         //
         // need to figure out if that can be generalized, or if we need a bound or not
 
