@@ -716,6 +716,8 @@ impl Compiler {
             FuncType::new(params.iter().copied(), results.iter().copied()),
             func,
         );
+        self.callables
+            .insert(function.name.as_str().to_owned(), idx);
 
         match function.export {
             Some(FunctionExport::Script) => {
