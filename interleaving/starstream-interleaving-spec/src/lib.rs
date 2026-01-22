@@ -516,22 +516,6 @@ impl Ledger {
             }
         }
 
-        // for (token_pid, owner_pid_opt) in tx.body.ownership_out.iter().enumerate() {
-        //     let Some(token_cid) = process_to_coroutine[token_pid].clone() else {
-        //         panic!("coordination scripts can't own or be owned")
-        //     };
-
-        //     if let Some(owner_pid) = owner_pid_opt {
-        //         let Some(owner_cid) = process_to_coroutine[owner_pid.0].clone() else {
-        //             // the proof should reject this in theory
-        //             return Err(VerificationError::OwnerHasNoStableIdentity);
-        //         };
-
-        //         self.ownership_registry.insert(token_cid, owner_cid);
-        //     } else {
-        //     }
-        // }
-
         // 4) Remove spent inputs
         for (i, input_id) in tx.body.inputs.iter().enumerate() {
             if is_reference_input.contains(&i) {
