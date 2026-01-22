@@ -1021,7 +1021,9 @@ impl LedgerOperation<crate::F> {
                 // Nop does nothing to the state
                 curr_write.counters -= F::ONE; // revert counter increment
             }
-            LedgerOperation::Resume { val, ret, id_prev, .. } => {
+            LedgerOperation::Resume {
+                val, ret, id_prev, ..
+            } => {
                 // Current process gives control to target.
                 // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
                 curr_write.activation = F::ZERO; // Represents None
@@ -1162,8 +1164,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         is_building.enforce_equal(&wires_in.switches.ref_push)?;
 
         irw.update(next_wires);
-
-        tracing::debug!("constraints: {}", cs.num_constraints());
 
         Ok((irw, mem_step_data, ivc_layout))
     }
@@ -1759,10 +1759,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 6. Resumer check: current process must match target's expected_resumer (if set).
         let expected_resumer_is_some = wires.target_read_wires.expected_resumer.is_some()?;
         let expected_resumer_value = wires.target_read_wires.expected_resumer.decode_or_zero()?;
-        expected_resumer_value.conditional_enforce_equal(
-            &wires.id_curr,
-            &(switch & expected_resumer_is_some),
-        )?;
+        expected_resumer_value
+            .conditional_enforce_equal(&wires.id_curr, &(switch & expected_resumer_is_some))?;
 
         // 7. Store expected resumer for the current process.
         wires
@@ -1872,10 +1870,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // The next `expected_input` is `ret_value` if `ret` is Some, and None otherwise.
         let new_expected_input_encoded = wires
             .ret_is_some
-            .select(
-                &(&wires.arg(ArgName::Ret) + FpVar::one()),
-                &FpVar::zero(),
-            )?;
+            .select(&(&wires.arg(ArgName::Ret) + FpVar::one()), &FpVar::zero())?;
         wires
             .curr_write_wires
             .expected_input
