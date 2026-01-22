@@ -21,7 +21,7 @@ use circuit::StepCircuitBuilder;
 pub use memory::nebula;
 use neo_ajtai::AjtaiSModule;
 use neo_fold::pi_ccs::FoldingMode;
-use neo_fold::session::{FoldingSession, preprocess_shared_bus_r1cs};
+use neo_fold::session::FoldingSession;
 use neo_fold::shard::StepLinkingConfig;
 use neo_params::NeoParams;
 pub use optional::{OptionalF, OptionalFpVar};
@@ -148,7 +148,8 @@ pub fn prove(
     let mb = circuit_builder.trace_memory_ops(());
 
     let circuit = Arc::new(StepCircuitNeo::new(mb.init_tables()));
-    let pre = preprocess_shared_bus_r1cs(Arc::clone(&circuit)).expect("preprocess_shared_bus_r1cs");
+    let pre = crate::neo::preprocess_shared_bus_r1cs_sparse(Arc::clone(&circuit))
+        .expect("preprocess_shared_bus_r1cs_sparse");
     let m = pre.m();
 
     // params copy-pasted from nightstream tests, this needs review
