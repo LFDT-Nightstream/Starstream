@@ -3,7 +3,7 @@ source: starstream-compiler/src/formatter.rs
 description: "Code:\n\nstruct Thing { x: i64 } // some comment\n\n/// Adds two integers together.\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n"
 ---
 struct Thing {
-    x: i64,
+    x: i64, // some comment
 } // some comment
 
 /// Adds two integers together.

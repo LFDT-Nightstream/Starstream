@@ -4,10 +4,14 @@ description: "Code:\n\n// Header comment\nstruct A { x: i64 } // inline on A\n\n
 ---
 // Header comment
 struct A {
-    x: i64,
+    // Header comment
+    x: i64, // inline on A
 } // inline on A
 
 // Comment before B
 struct B {
+    // Header comment
+    // inline on A
+    // Comment before B
     y: i64,
 }

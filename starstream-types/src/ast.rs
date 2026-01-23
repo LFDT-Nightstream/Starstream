@@ -205,6 +205,9 @@ pub struct StructDef {
 pub struct StructField {
     pub name: Identifier,
     pub ty: TypeAnnotation,
+    /// The span covering the entire field.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 /// `enum` definition.
@@ -218,6 +221,9 @@ pub struct EnumDef {
 pub struct EnumVariant {
     pub name: Identifier,
     pub payload: EnumVariantPayload,
+    /// The span covering the entire variant.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

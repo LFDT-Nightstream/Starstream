@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nenum Status {\n    /// Currently running\n    Active,\n    /// Not running\n    Inactive,\n}\n"
+---
+enum Status {
+    /// Currently running
+    Active,
+    /// Not running
+    Inactive,
+}

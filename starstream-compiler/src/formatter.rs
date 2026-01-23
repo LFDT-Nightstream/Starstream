@@ -109,10 +109,17 @@ fn program_to_doc<'a>(
 }
 
 fn comment_to_doc<'a>(comment: &Comment, source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::text(comment_text(comment, source)).append(RcDoc::hardline())
+}
+
+fn comment_text<'a>(comment: &Comment, source: &'a str) -> &'a str {
     let text = source.get(comment.0.start..comment.0.end).unwrap_or("");
     // Strip trailing newline - document layout handles newlines
-    let text = text.strip_suffix('\n').unwrap_or(text);
-    RcDoc::text(text).append(RcDoc::hardline())
+    text.strip_suffix('\n').unwrap_or(text)
+}
+
+fn inline_comment_to_doc<'a>(comment: &Comment, source: &'a str) -> RcDoc<'a, ()> {
+    RcDoc::space().append(RcDoc::text(comment_text(comment, source)))
 }
 
 fn spanned<'a, T, F: FnOnce(&T) -> RcDoc<'a, ()>>(
@@ -132,8 +139,8 @@ fn definition_to_doc<'a>(
     match definition {
         Definition::Import(import) => import_to_doc(import, source),
         Definition::Function(function) => function_to_doc(function, source, comments),
-        Definition::Struct(definition) => struct_definition_to_doc(definition, source),
-        Definition::Enum(definition) => enum_definition_to_doc(definition, source),
+        Definition::Struct(definition) => struct_definition_to_doc(definition, source, comments),
+        Definition::Enum(definition) => enum_definition_to_doc(definition, source, comments),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source, comments),
         Definition::Abi(definition) => abi_definition_to_doc(definition, source),
     }
@@ -232,62 +239,119 @@ fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDo
     }
 }
 
-fn struct_definition_to_doc<'a>(definition: &StructDef, source: &'a str) -> RcDoc<'a, ()> {
+fn struct_definition_to_doc<'a>(
+    definition: &StructDef,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     RcDoc::text("struct")
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(struct_fields_to_doc(&definition.fields, source))
+        .append(struct_fields_to_doc(&definition.fields, source, comments))
 }
 
-fn struct_fields_to_doc<'a>(fields: &[StructField], source: &'a str) -> RcDoc<'a, ()> {
+fn struct_fields_to_doc<'a>(
+    fields: &[StructField],
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     if fields.is_empty() {
-        RcDoc::text("{ }")
-    } else {
-        let entries = RcDoc::intersperse(
-            fields.iter().map(|field| {
-                identifier_to_doc(&field.name, source)
-                    .append(RcDoc::text(": "))
-                    .append(type_annotation_to_doc(&field.ty, source))
-                    .append(RcDoc::text(","))
-            }),
-            RcDoc::line(),
-        );
-
-        RcDoc::text("{")
-            .append(RcDoc::line().append(entries).nest(INDENT))
-            .append(RcDoc::line())
-            .append(RcDoc::text("}"))
+        return RcDoc::text("{ }");
     }
+
+    let mut body = RcDoc::nil();
+    let mut prev_end: usize = 0;
+
+    for (i, field) in fields.iter().enumerate() {
+        let comments_before = comments.comments_between(prev_end, field.span, source);
+
+        if i > 0 {
+            body = body.append(RcDoc::line());
+        }
+
+        for c in comments_before {
+            body = body.append(comment_to_doc(c, source));
+        }
+
+        body = body
+            .append(identifier_to_doc(&field.name, source))
+            .append(RcDoc::text(": "))
+            .append(type_annotation_to_doc(&field.ty, source))
+            .append(RcDoc::text(","));
+
+        let inline = comments.inline_comment_after(field.span, source);
+        if let Some(c) = inline {
+            body = body.append(inline_comment_to_doc(c, source));
+        }
+
+        prev_end = inline.map(|c| c.0.end).unwrap_or(field.span.end);
+    }
+
+    RcDoc::text("{")
+        .append(RcDoc::line().append(body).nest(INDENT))
+        .append(RcDoc::line())
+        .append(RcDoc::text("}"))
 }
 
-fn enum_definition_to_doc<'a>(definition: &EnumDef, source: &'a str) -> RcDoc<'a, ()> {
+fn enum_definition_to_doc<'a>(
+    definition: &EnumDef,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     RcDoc::text("enum")
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(enum_variants_to_doc(&definition.variants, source))
+        .append(enum_variants_to_doc(&definition.variants, source, comments))
 }
 
-fn enum_variants_to_doc<'a>(variants: &[EnumVariant], source: &'a str) -> RcDoc<'a, ()> {
+fn enum_variants_to_doc<'a>(
+    variants: &[EnumVariant],
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     if variants.is_empty() {
-        RcDoc::text("{ }")
-    } else {
-        let entries = RcDoc::intersperse(
-            variants
-                .iter()
-                .map(|variant| enum_variant_to_doc(variant, source).append(RcDoc::text(","))),
-            RcDoc::line(),
-        );
-
-        RcDoc::text("{")
-            .append(RcDoc::line().append(entries).nest(INDENT))
-            .append(RcDoc::line())
-            .append(RcDoc::text("}"))
+        return RcDoc::text("{ }");
     }
+
+    let mut body = RcDoc::nil();
+    let mut prev_end: usize = 0;
+
+    for (i, variant) in variants.iter().enumerate() {
+        let comments_before = comments.comments_between(prev_end, variant.span, source);
+
+        if i > 0 {
+            body = body.append(RcDoc::line());
+        }
+
+        for c in comments_before {
+            body = body.append(comment_to_doc(c, source));
+        }
+
+        body = body
+            .append(enum_variant_to_doc(variant, source, comments))
+            .append(RcDoc::text(","));
+
+        let inline = comments.inline_comment_after(variant.span, source);
+        if let Some(c) = inline {
+            body = body.append(inline_comment_to_doc(c, source));
+        }
+
+        prev_end = inline.map(|c| c.0.end).unwrap_or(variant.span.end);
+    }
+
+    RcDoc::text("{")
+        .append(RcDoc::line().append(body).nest(INDENT))
+        .append(RcDoc::line())
+        .append(RcDoc::text("}"))
 }
 
-fn enum_variant_to_doc<'a>(variant: &EnumVariant, source: &'a str) -> RcDoc<'a, ()> {
+fn enum_variant_to_doc<'a>(
+    variant: &EnumVariant,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     match &variant.payload {
         EnumVariantPayload::Unit => identifier_to_doc(&variant.name, source),
         EnumVariantPayload::Tuple(types) => {
@@ -308,7 +372,7 @@ fn enum_variant_to_doc<'a>(variant: &EnumVariant, source: &'a str) -> RcDoc<'a, 
             let body = if fields.len() < 3 {
                 inline_struct_fields_to_doc(fields, source)
             } else {
-                struct_fields_to_doc(fields, source)
+                struct_fields_to_doc(fields, source, comments)
             };
             identifier_to_doc(&variant.name, source)
                 .append(RcDoc::space())
@@ -514,42 +578,31 @@ fn block_to_doc<'a>(block: &Block, source: &'a str, comments: &CommentMap) -> Rc
             ));
         }
 
-        // Build body with comments between items
-        let mut body = RcDoc::nil();
-        // Use the block's span to find comments at the very start of the block.
+        // Build body with comments between items.
         // block.span.start is the position of `{`, so comments after it and before
         // the first statement will be found.
+        let mut body = RcDoc::nil();
         let mut prev_end: usize = block.span.start;
-        let mut first = true;
 
-        for (span, item_doc) in span_items {
-            // Find comments between previous item and this one
+        for (i, (span, item_doc)) in span_items.into_iter().enumerate() {
             let comments_before = comments.comments_between(prev_end, span, source);
 
-            if !first {
+            if i > 0 {
                 body = body.append(RcDoc::line());
             }
 
-            // Add comments before this item
             for c in comments_before {
                 body = body.append(comment_to_doc(c, source));
             }
 
             body = body.append(item_doc);
 
-            // Check for inline comment after this item (on same line)
             let inline = comments.inline_comment_after(span, source);
-            if let Some(inline_comment) = inline {
-                let text = source
-                    .get(inline_comment.0.start..inline_comment.0.end)
-                    .unwrap_or("");
-                let text = text.strip_suffix('\n').unwrap_or(text);
-                body = body.append(RcDoc::space()).append(RcDoc::text(text));
+            if let Some(c) = inline {
+                body = body.append(inline_comment_to_doc(c, source));
             }
 
-            // Update prev_end to be after any inline comment
             prev_end = inline.map(|c| c.0.end).unwrap_or(span.end);
-            first = false;
         }
 
         RcDoc::text("{")
@@ -1774,5 +1827,57 @@ mod tests {
         }, {
             insta::assert_snapshot!(formatted);
         });
+    }
+
+    #[test]
+    fn comments_on_struct_fields() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                /// The x coordinate
+                x: i64,
+                /// The y coordinate
+                y: i64,
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn inline_comments_on_struct_fields() {
+        assert_format_snapshot!(
+            r#"
+            struct Point {
+                x: i64, // horizontal position
+                y: i64, // vertical position
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn comments_on_enum_variants() {
+        assert_format_snapshot!(
+            r#"
+            enum Status {
+                /// Currently running
+                Active,
+                /// Not running
+                Inactive,
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn inline_comments_on_enum_variants() {
+        assert_format_snapshot!(
+            r#"
+            enum Status {
+                Active, // currently running
+                Inactive, // not running
+            }
+            "#,
+        );
     }
 }
