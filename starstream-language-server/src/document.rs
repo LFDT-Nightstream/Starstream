@@ -260,7 +260,7 @@ impl DocumentState {
         let range = self.span_to_range(entry.span);
 
         let value = match &entry.doc {
-            Some(doc) => format!("{}\n\n`{}`", doc, entry.label),
+            Some(doc) => format!("```star\n{}\n```\n---\n{}", entry.label, doc),
             None => format!("`{}`", entry.label),
         };
 
