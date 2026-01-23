@@ -17,7 +17,7 @@ impl RefGenerator {
     pub fn get(&mut self, name: &'static str) -> Ref {
         let entry = self.map.entry(name).or_insert_with(|| {
             let r = Ref(self.counter);
-            self.counter += 1;
+            self.counter += REF_PUSH_WIDTH as u64;
             r
         });
         *entry

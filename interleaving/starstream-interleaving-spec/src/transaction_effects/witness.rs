@@ -24,6 +24,9 @@ pub enum EffectDiscriminant {
     ProgramHash = 15,
 }
 
+pub const REF_PUSH_WIDTH: usize = 7;
+pub const REF_GET_WIDTH: usize = 5;
+
 // Both used to indicate which fields are outputs, and to have a placeholder
 // value for the runtime executor (trace generator)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -121,7 +124,7 @@ pub enum WitLedgerEffect {
     },
     RefPush {
         // in
-        val: Value,
+        vals: [Value; REF_PUSH_WIDTH],
         // out
         // does not return anything
     },
@@ -131,7 +134,7 @@ pub enum WitLedgerEffect {
         offset: usize,
 
         // out
-        ret: WitEffectOutput<Value>,
+        ret: WitEffectOutput<[Value; REF_GET_WIDTH]>,
     },
 
     // Tokens

@@ -9,7 +9,7 @@
 //! It's mainly a direct translation of the algorithm in the README
 
 use crate::{
-    Hash, InterleavingInstance, Ref, Value, WasmModule,
+    Hash, InterleavingInstance, REF_GET_WIDTH, Ref, Value, WasmModule,
     transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
 };
 use ark_ff::Zero;
@@ -228,6 +228,7 @@ pub struct InterleavingState {
     counters: Vec<usize>,
     ref_counter: u64,
     ref_store: HashMap<Ref, Vec<Value>>,
+    ref_sizes: HashMap<Ref, usize>,
     ref_building: HashMap<ProcessId, (Ref, usize, usize)>,
 
     /// If a new output or coordination script is created, it must be through a
@@ -280,6 +281,7 @@ pub fn verify_interleaving_semantics(
         counters: vec![0; n],
         ref_counter: 0,
         ref_store: HashMap::new(),
+        ref_sizes: HashMap::new(),
         ref_building: HashMap::new(),
         handler_stack: HashMap::new(),
         ownership: inst.ownership_in.clone(),
@@ -702,17 +704,19 @@ pub fn state_transition(
                     new_ref,
                 ));
             }
-            state.ref_store.insert(new_ref, Vec::new());
+            state.ref_store.insert(new_ref, vec![Value(0); size]);
+            state.ref_sizes.insert(new_ref, size);
             state.ref_building.insert(id_curr, (new_ref, 0, size));
         }
 
-        WitLedgerEffect::RefPush { val } => {
+        WitLedgerEffect::RefPush { vals } => {
             let (reff, offset, size) = state
                 .ref_building
                 .remove(&id_curr)
                 .ok_or(InterleavingError::RefPushNotBuilding(id_curr))?;
 
-            if offset >= size {
+            let new_offset = offset + vals.len();
+            if new_offset > size {
                 return Err(InterleavingError::RefPushFull { pid: id_curr, size });
             }
 
@@ -720,9 +724,10 @@ pub fn state_transition(
                 .ref_store
                 .get_mut(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
-            vec.push(val);
+            for (i, val) in vals.iter().enumerate() {
+                vec[offset + i] = *val;
+            }
 
-            let new_offset = offset + 1;
             if new_offset < size {
                 state.ref_building.insert(id_curr, (reff, new_offset, size));
             }
@@ -733,12 +738,19 @@ pub fn state_transition(
                 .ref_store
                 .get(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
-            let val = vec.get(offset).ok_or(InterleavingError::GetOutOfBounds(
-                reff,
-                offset,
-                vec.len(),
-            ))?;
-            if val != &ret.unwrap() {
+            let size = state
+                .ref_sizes
+                .get(&reff)
+                .copied()
+                .ok_or(InterleavingError::RefNotFound(reff))?;
+            let mut val = [Value::nil(); REF_GET_WIDTH];
+            for (i, slot) in val.iter_mut().enumerate() {
+                let idx = offset + i;
+                if idx < size {
+                    *slot = vec[idx];
+                }
+            }
+            if val != ret.unwrap() {
                 return Err(InterleavingError::Shape("Get result mismatch"));
             }
         }

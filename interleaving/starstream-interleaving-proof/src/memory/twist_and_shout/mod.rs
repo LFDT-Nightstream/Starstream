@@ -28,6 +28,7 @@ pub const TWIST_DEBUG_FILTER: &[u32] = &[
     MemoryTag::Ownership as u32,
     MemoryTag::Init as u32,
     MemoryTag::RefArena as u32,
+    MemoryTag::RefSizes as u32,
     MemoryTag::HandlerStackArenaProcess as u32,
     MemoryTag::HandlerStackArenaNextPtr as u32,
     MemoryTag::HandlerStackHeads as u32,
@@ -149,6 +150,7 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
         }
     }
 
+    // TODO: remove it like for shout?
     fn register_mem_with_lanes(
         &mut self,
         tag: u64,
@@ -185,11 +187,14 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
         } else {
             let reads = self.reads.entry(address.clone()).or_default();
             if cond {
+                let mem_value_size = self.mems.get(&address.tag).unwrap().0 as usize;
                 let last = self
                     .writes
                     .get(&address)
                     .and_then(|writes| writes.back().cloned())
-                    .unwrap_or_else(|| self.init.get(&address).unwrap().clone());
+                    .or_else(|| self.init.get(&address).cloned())
+                    .unwrap_or_else(|| vec![F::ZERO; mem_value_size]);
+
                 reads.push_back(last.clone());
 
                 let twist_event = TwistEvent {
