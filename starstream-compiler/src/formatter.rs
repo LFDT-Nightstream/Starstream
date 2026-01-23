@@ -1,8 +1,8 @@
 use pretty::RcDoc;
 use starstream_types::{
-    AbiDef, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef, Expr,
-    FunctionDef, FunctionExport, FunctionParam, Literal, Spanned, Statement, TypeAnnotation,
-    UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef, Expr, FunctionDef,
+    FunctionExport, FunctionParam, Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
@@ -41,11 +41,7 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
     Ok(out)
 }
 
-fn program_to_doc<'a>(
-    program: &Program,
-    source: &'a str,
-    comments: &CommentMap,
-) -> RcDoc<'a, ()> {
+fn program_to_doc<'a>(program: &Program, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
     // Sort definitions: imports first, then everything else
     let mut definitions: Vec<_> = program.definitions.iter().collect();
     definitions.sort_by_key(|def| !matches!(def.node, Definition::Import(_)));
@@ -73,9 +69,7 @@ fn program_to_doc<'a>(
             if prev_had_inline_or_trailing_comment {
                 result = result.append(RcDoc::hardline());
             } else {
-                result = result
-                    .append(RcDoc::hardline())
-                    .append(RcDoc::hardline());
+                result = result.append(RcDoc::hardline()).append(RcDoc::hardline());
             }
         }
 
@@ -100,9 +94,7 @@ fn program_to_doc<'a>(
 
         // Update prev_end to be after any inline comment, so it's not picked up
         // by comments_between for the next definition
-        prev_end = inline
-            .map(|c| c.0.end)
-            .unwrap_or(def.span.end);
+        prev_end = inline.map(|c| c.0.end).unwrap_or(def.span.end);
     }
 
     result.append(RcDoc::hardline())
@@ -252,7 +244,12 @@ fn struct_definition_to_doc<'a>(
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(struct_fields_to_doc(&definition.fields, source, comments, body_start))
+        .append(struct_fields_to_doc(
+            &definition.fields,
+            source,
+            comments,
+            body_start,
+        ))
 }
 
 fn struct_fields_to_doc<'a>(
@@ -312,7 +309,12 @@ fn enum_definition_to_doc<'a>(
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(enum_variants_to_doc(&definition.variants, source, comments, body_start))
+        .append(enum_variants_to_doc(
+            &definition.variants,
+            source,
+            comments,
+            body_start,
+        ))
 }
 
 fn enum_variants_to_doc<'a>(
@@ -542,13 +544,17 @@ fn statement_to_doc<'a>(
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(spanned(value, source, |node| expr_to_doc(node, source, comments)))
+            .append(spanned(value, source, |node| {
+                expr_to_doc(node, source, comments)
+            }))
             .append(RcDoc::text(";")),
         Statement::Assignment { target, value } => identifier_to_doc(target, source)
             .append(RcDoc::space())
             .append(RcDoc::text("="))
             .append(RcDoc::space())
-            .append(spanned(value, source, |node| expr_to_doc(node, source, comments)))
+            .append(spanned(value, source, |node| {
+                expr_to_doc(node, source, comments)
+            }))
             .append(RcDoc::text(";")),
         Statement::While { condition, body } => RcDoc::text("while")
             .append(RcDoc::space())
@@ -561,7 +567,9 @@ fn statement_to_doc<'a>(
         }
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
-            .append(spanned(expr, source, |node| expr_to_doc(node, source, comments)))
+            .append(spanned(expr, source, |node| {
+                expr_to_doc(node, source, comments)
+            }))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
     }
@@ -976,13 +984,7 @@ fn expr_with_prec<'a>(
                 }
                 Expr::Emit { event, args } => {
                     let args_doc = args.iter().map(|arg| {
-                        expr_with_prec(
-                            &arg.node,
-                            PREC_LOWEST,
-                            ChildPosition::Top,
-                            source,
-                            comments,
-                        )
+                        expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source, comments)
                     });
 
                     let args_doc =

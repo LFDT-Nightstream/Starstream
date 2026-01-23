@@ -17,6 +17,7 @@ clap = { version = "4.5.32", features = ["derive"] }
 console = "0.16.0"
 ignore = "0.4.24"
 miette = { workspace = true, features = ["fancy"] }
+serde_json = "1.0"
 similar = "2.7.0"
 starstream-compiler = { workspace = true }
 starstream-language-server = { workspace = true }

@@ -87,13 +87,18 @@ trait ParserExt<'a, T>: Sized {
 /// between comments to handle whitespace between consecutive comments.
 macro_rules! spanned_with_comments {
     ($parser:expr) => {{
-        let comments = comment::comment_collecting().padded().repeated().collect::<Vec<_>>();
+        let comments = comment::comment_collecting()
+            .padded()
+            .repeated()
+            .collect::<Vec<_>>();
         comments
             .clone()
-            .then($parser.map_with(|node, extra: &mut context::MapExtra| Spanned {
-                node,
-                span: extra.span(),
-            }))
+            .then(
+                $parser.map_with(|node, extra: &mut context::MapExtra| Spanned {
+                    node,
+                    span: extra.span(),
+                }),
+            )
             .then(comments)
             .map(|((_, spanned), _)| spanned)
     }};

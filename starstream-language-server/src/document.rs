@@ -396,8 +396,7 @@ impl DocumentState {
     ) {
         // Extract doc comment using CommentMap
         // The span now directly covers just the definition content (no comments)
-        let doc = untyped
-            .and_then(|u| self.comment_map.doc_comments(u.span, source));
+        let doc = untyped.and_then(|u| self.comment_map.doc_comments(u.span, source));
 
         match definition {
             TypedDefinition::Import(import) => self.collect_import(import),
