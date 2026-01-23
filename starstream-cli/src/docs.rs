@@ -40,7 +40,7 @@ impl Docs {
             std::process::exit(1);
         };
 
-        let typed = match typecheck_program(&program, TypecheckOptions::default()) {
+        let typed = match typecheck_program(program, TypecheckOptions::default()) {
             Ok(success) => success.program,
             Err(errors) => {
                 for error in errors {
@@ -51,7 +51,7 @@ impl Docs {
         };
 
         let comment_map = parse_output.comment_map();
-        let docs = generate_docs(&program, &typed, &comment_map, &source);
+        let docs = generate_docs(program, &typed, &comment_map, &source);
 
         let json = if self.pretty {
             serde_json::to_string_pretty(&docs).into_diagnostic()?
