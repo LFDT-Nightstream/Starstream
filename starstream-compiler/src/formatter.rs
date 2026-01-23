@@ -244,24 +244,29 @@ fn struct_definition_to_doc<'a>(
     source: &'a str,
     comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
+    // Use struct name's end position as body_start to avoid picking up
+    // comments that belong to the struct definition itself
+    let body_start = definition.name.span.map(|s| s.end).unwrap_or(0);
+
     RcDoc::text("struct")
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(struct_fields_to_doc(&definition.fields, source, comments))
+        .append(struct_fields_to_doc(&definition.fields, source, comments, body_start))
 }
 
 fn struct_fields_to_doc<'a>(
     fields: &[StructField],
     source: &'a str,
     comments: &CommentMap,
+    body_start: usize,
 ) -> RcDoc<'a, ()> {
     if fields.is_empty() {
         return RcDoc::text("{ }");
     }
 
     let mut body = RcDoc::nil();
-    let mut prev_end: usize = 0;
+    let mut prev_end: usize = body_start;
 
     for (i, field) in fields.iter().enumerate() {
         let comments_before = comments.comments_between(prev_end, field.span, source);
@@ -299,24 +304,29 @@ fn enum_definition_to_doc<'a>(
     source: &'a str,
     comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
+    // Use enum name's end position as body_start to avoid picking up
+    // comments that belong to the enum definition itself
+    let body_start = definition.name.span.map(|s| s.end).unwrap_or(0);
+
     RcDoc::text("enum")
         .append(RcDoc::space())
         .append(identifier_to_doc(&definition.name, source))
         .append(RcDoc::space())
-        .append(enum_variants_to_doc(&definition.variants, source, comments))
+        .append(enum_variants_to_doc(&definition.variants, source, comments, body_start))
 }
 
 fn enum_variants_to_doc<'a>(
     variants: &[EnumVariant],
     source: &'a str,
     comments: &CommentMap,
+    body_start: usize,
 ) -> RcDoc<'a, ()> {
     if variants.is_empty() {
         return RcDoc::text("{ }");
     }
 
     let mut body = RcDoc::nil();
-    let mut prev_end: usize = 0;
+    let mut prev_end: usize = body_start;
 
     for (i, variant) in variants.iter().enumerate() {
         let comments_before = comments.comments_between(prev_end, variant.span, source);
@@ -369,10 +379,12 @@ fn enum_variant_to_doc<'a>(
             }
         }
         EnumVariantPayload::Struct(fields) => {
+            // Use variant name's end as body_start for struct fields
+            let body_start = variant.name.span.map(|s| s.end).unwrap_or(0);
             let body = if fields.len() < 3 {
                 inline_struct_fields_to_doc(fields, source)
             } else {
-                struct_fields_to_doc(fields, source, comments)
+                struct_fields_to_doc(fields, source, comments, body_start)
             };
             identifier_to_doc(&variant.name, source)
                 .append(RcDoc::space())
@@ -1876,6 +1888,20 @@ mod tests {
             enum Status {
                 Active, // currently running
                 Inactive, // not running
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn doc_comment_on_struct_with_field_comment() {
+        assert_format_snapshot!(
+            r#"
+            /// Yes more
+            struct Point {
+                // wow
+                x: i64,
+                y: i64,
             }
             "#,
         );

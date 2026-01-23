@@ -4,7 +4,6 @@ description: "Code:\n\n/// Represents a message type.\nenum Message {\n    Ping,
 ---
 /// Represents a message type.
 enum Message {
-    /// Represents a message type.
     Ping,
     Pong,
 }

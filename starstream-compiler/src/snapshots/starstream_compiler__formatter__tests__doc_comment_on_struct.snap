@@ -4,7 +4,6 @@ description: "Code:\n\n/// A point in 2D space.\nstruct Point {\n    x: i64,\n  
 ---
 /// A point in 2D space.
 struct Point {
-    /// A point in 2D space.
     x: i64,
     y: i64,
 }
