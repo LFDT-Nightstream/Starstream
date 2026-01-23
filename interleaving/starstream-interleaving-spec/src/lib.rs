@@ -16,7 +16,9 @@ use std::{hash::Hasher, marker::PhantomData};
 pub use transaction_effects::{
     InterfaceId,
     instance::InterleavingInstance,
-    witness::{EffectDiscriminant, WitEffectOutput, WitLedgerEffect},
+    witness::{
+        EffectDiscriminant, REF_GET_WIDTH, REF_PUSH_WIDTH, WitEffectOutput, WitLedgerEffect,
+    },
 };
 
 #[derive(PartialEq, Eq)]
@@ -161,7 +163,7 @@ impl ZkTransactionProof {
                 // TODO: check interfaces? but I think this can be private
                 // dbg!(&self.steps_public[0].lut_insts[3].table);
 
-                dbg!(&steps_public[0].mcs_inst.x);
+                // dbg!(&steps_public[0].mcs_inst.x);
             }
             ZkTransactionProof::Dummy => {}
         }

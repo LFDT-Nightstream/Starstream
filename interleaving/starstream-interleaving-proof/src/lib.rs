@@ -2,12 +2,14 @@ mod abi;
 mod circuit;
 #[cfg(test)]
 mod circuit_test;
+mod ledger_operation;
 mod logging;
 mod memory;
 mod memory_tags;
 mod neo;
 mod optional;
 mod program_state;
+mod rem_wires_gadget;
 mod switchboard;
 
 use crate::circuit::{InterRoundWires, IvcWireLayout};
@@ -15,7 +17,6 @@ use crate::memory::IVCMemory;
 use crate::memory::twist_and_shout::{TSMemLayouts, TSMemory};
 use crate::neo::{CHUNK_SIZE, StarstreamVm, StepCircuitNeo};
 use abi::ledger_operation_from_wit;
-use ark_ff::PrimeField;
 use ark_relations::gr1cs::{ConstraintSystem, ConstraintSystemRef, SynthesisError};
 use circuit::StepCircuitBuilder;
 pub use memory::nebula;
@@ -38,89 +39,7 @@ pub type F = ark_goldilocks::FpGoldilocks;
 pub type ProgramId = F;
 
 pub use abi::commit;
-
-#[derive(Debug, Clone)]
-pub enum LedgerOperation<F: PrimeField> {
-    /// A call to starstream_resume.
-    ///
-    /// This stores the input and outputs in memory, and sets the
-    /// current_program for the next iteration to `utxo_id`.
-    ///
-    /// Then, when evaluating Yield and YieldResume, we match the input/output
-    /// with the corresponding value.
-    Resume {
-        target: F,
-        val: F,
-        ret: F,
-        id_prev: OptionalF<F>,
-    },
-    /// Called by utxo to yield.
-    ///
-    Yield {
-        val: F,
-        ret: Option<F>,
-        id_prev: OptionalF<F>,
-    },
-    ProgramHash {
-        target: F,
-        program_hash: [F; 4],
-    },
-    NewUtxo {
-        target: F,
-        val: F,
-        program_hash: [F; 4],
-    },
-    NewCoord {
-        program_hash: [F; 4],
-        val: F,
-        target: F,
-    },
-    Burn {
-        ret: F,
-    },
-    Activation {
-        val: F,
-        caller: F,
-    },
-    Init {
-        val: F,
-        caller: F,
-    },
-    Bind {
-        owner_id: F,
-    },
-    Unbind {
-        token_id: F,
-    },
-
-    NewRef {
-        size: F,
-        ret: F,
-    },
-    RefPush {
-        val: F,
-    },
-    Get {
-        reff: F,
-        offset: F,
-        ret: F,
-    },
-    InstallHandler {
-        interface_id: F,
-    },
-    UninstallHandler {
-        interface_id: F,
-    },
-    GetHandlerFor {
-        interface_id: F,
-        handler_id: F,
-    },
-    /// Auxiliary instructions.
-    ///
-    /// Nop is used as a dummy instruction to build the circuit layout on the
-    /// verifier side.
-    Nop {},
-}
+pub use ledger_operation::LedgerOperation;
 
 pub fn prove(
     inst: InterleavingInstance,
@@ -148,7 +67,19 @@ pub fn prove(
     let mb = circuit_builder.trace_memory_ops(());
 
     let circuit = Arc::new(StepCircuitNeo::new(mb.init_tables()));
-    let pre = preprocess_shared_bus_r1cs(Arc::clone(&circuit)).expect("preprocess_shared_bus_r1cs");
+
+    let pre = {
+        let now = std::time::Instant::now();
+        let pre =
+            preprocess_shared_bus_r1cs(Arc::clone(&circuit)).expect("preprocess_shared_bus_r1cs");
+        tracing::info!(
+            "preprocess_shared_bus_r1cs took {}ms",
+            now.elapsed().as_millis()
+        );
+
+        pre
+    };
+
     let m = pre.m();
 
     // params copy-pasted from nightstream tests, this needs review

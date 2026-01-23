@@ -18,6 +18,27 @@ pub fn v(data: &[u8]) -> Value {
     Value(u64::from_le_bytes(bytes))
 }
 
+fn v5_from_value(val: Value) -> [Value; 5] {
+    let mut out = [Value::nil(); 5];
+    out[0] = val;
+    out[4] = val;
+    out
+}
+
+fn ref_push1(val: Value) -> WitLedgerEffect {
+    WitLedgerEffect::RefPush {
+        vals: [
+            val,
+            Value::nil(),
+            Value::nil(),
+            Value::nil(),
+            val,
+            Value::nil(),
+            Value::nil(),
+        ],
+    }
+}
+
 fn host_calls_roots(traces: &[Vec<WitLedgerEffect>]) -> Vec<LedgerEffectsCommitment> {
     traces
         .iter()
@@ -49,8 +70,8 @@ fn test_circuit_many_steps() {
     let val_4 = v(&[4]);
 
     let ref_0 = Ref(0);
-    let ref_1 = Ref(1);
-    let ref_4 = Ref(2);
+    let ref_1 = Ref(7);
+    let ref_4 = Ref(14);
 
     let utxo_trace = vec![
         WitLedgerEffect::Init {
@@ -60,7 +81,7 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::Get {
             reff: ref_4,
             offset: 0,
-            ret: val_4.clone().into(),
+            ret: v5_from_value(val_4).into(),
         },
         WitLedgerEffect::Activation {
             val: ref_0.into(),
@@ -85,7 +106,7 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::Get {
             reff: ref_1,
             offset: 0,
-            ret: val_1.clone().into(),
+            ret: v5_from_value(val_1).into(),
         },
         WitLedgerEffect::Activation {
             val: ref_0.into(),
@@ -101,20 +122,20 @@ fn test_circuit_many_steps() {
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 1,
+            size: 7,
             ret: ref_0.into(),
         },
-        WitLedgerEffect::RefPush { val: val_0 },
+        ref_push1(val_0),
         WitLedgerEffect::NewRef {
-            size: 1,
+            size: 7,
             ret: ref_1.into(),
         },
-        WitLedgerEffect::RefPush { val: val_1.clone() },
+        ref_push1(val_1.clone()),
         WitLedgerEffect::NewRef {
-            size: 1,
+            size: 7,
             ret: ref_4.into(),
         },
-        WitLedgerEffect::RefPush { val: val_4.clone() },
+        ref_push1(val_4.clone()),
         WitLedgerEffect::NewUtxo {
             program_hash: h(0),
             val: ref_4,
@@ -194,10 +215,10 @@ fn test_circuit_small() {
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 1,
+            size: 7,
             ret: ref_0.into(),
         },
-        WitLedgerEffect::RefPush { val: val_0 },
+        ref_push1(val_0),
         WitLedgerEffect::NewUtxo {
             program_hash: h(0),
             val: ref_0,
@@ -263,10 +284,10 @@ fn test_circuit_resumer_mismatch() {
 
     let coord_a_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 1,
+            size: 7,
             ret: ref_0.into(),
         },
-        WitLedgerEffect::RefPush { val: val_0 },
+        ref_push1(val_0),
         WitLedgerEffect::NewUtxo {
             program_hash: h(0),
             val: ref_0,

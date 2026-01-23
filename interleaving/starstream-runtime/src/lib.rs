@@ -67,8 +67,8 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         WitLedgerEffect::NewUtxo { .. }
         | WitLedgerEffect::NewCoord { .. }
         | WitLedgerEffect::GetHandlerFor { .. }
-        | WitLedgerEffect::NewRef { .. }
-        | WitLedgerEffect::Get { .. } => 1,
+        | WitLedgerEffect::NewRef { .. } => 1,
+        WitLedgerEffect::Get { .. } => 5,
         WitLedgerEffect::InstallHandler { .. }
         | WitLedgerEffect::UninstallHandler { .. }
         | WitLedgerEffect::Burn { .. }
@@ -93,6 +93,7 @@ pub struct RuntimeState {
 
     pub handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
     pub ref_store: HashMap<Ref, Vec<Value>>,
+    pub ref_sizes: HashMap<Ref, usize>,
     pub ref_state: HashMap<ProcessId, (Ref, usize, usize)>, // (ref, offset, size)
     pub next_ref: u64,
 
@@ -129,6 +130,7 @@ impl Runtime {
             memories: HashMap::new(),
             handler_stack: HashMap::new(),
             ref_store: HashMap::new(),
+            ref_sizes: HashMap::new(),
             ref_state: HashMap::new(),
             next_ref: 0,
             pending_activation: HashMap::new(),
@@ -454,6 +456,7 @@ impl Runtime {
                         .data_mut()
                         .ref_store
                         .insert(ref_id, vec![Value(0); size]);
+                    caller.data_mut().ref_sizes.insert(ref_id, size);
                     caller
                         .data_mut()
                         .ref_state
@@ -474,16 +477,32 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_ref_push",
-                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 val_0: u64,
+                 val_1: u64,
+                 val_2: u64,
+                 val_3: u64,
+                 val_4: u64,
+                 val_5: u64,
+                 val_6: u64|
+                 -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let val = Value(val);
+                    let vals = [
+                        Value(val_0),
+                        Value(val_1),
+                        Value(val_2),
+                        Value(val_3),
+                        Value(val_4),
+                        Value(val_5),
+                        Value(val_6),
+                    ];
                     let (ref_id, offset, size) = *caller
                         .data()
                         .ref_state
                         .get(&current_pid)
                         .ok_or(wasmi::Error::new("no ref state"))?;
 
-                    if offset >= size {
+                    if offset + vals.len() > size {
                         return Err(wasmi::Error::new("ref push overflow"));
                     }
 
@@ -492,14 +511,16 @@ impl Runtime {
                         .ref_store
                         .get_mut(&ref_id)
                         .ok_or(wasmi::Error::new("ref not found"))?;
-                    store[offset] = val;
+                    for (i, val) in vals.iter().enumerate() {
+                        store[offset + i] = *val;
+                    }
 
                     caller
                         .data_mut()
                         .ref_state
-                        .insert(current_pid, (ref_id, offset + 1, size));
+                        .insert(current_pid, (ref_id, offset + vals.len(), size));
 
-                    suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { val })
+                    suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { vals })
                 },
             )
             .unwrap();
@@ -511,7 +532,7 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64|
-                 -> Result<u64, wasmi::Error> {
+                 -> Result<(i64, i64, i64, i64, i64), wasmi::Error> {
                     let ref_id = Ref(reff);
                     let offset = offset as usize;
                     let store = caller
@@ -519,18 +540,33 @@ impl Runtime {
                         .ref_store
                         .get(&ref_id)
                         .ok_or(wasmi::Error::new("ref not found"))?;
-                    if offset >= store.len() {
-                        return Err(wasmi::Error::new("get out of bounds"));
+                    let size = *caller
+                        .data()
+                        .ref_sizes
+                        .get(&ref_id)
+                        .ok_or(wasmi::Error::new("ref size not found"))?;
+                    let mut ret = [Value::nil(); starstream_interleaving_spec::REF_GET_WIDTH];
+                    for (i, slot) in ret.iter_mut().enumerate() {
+                        let idx = offset + i;
+                        if idx < size {
+                            *slot = store[idx];
+                        }
                     }
-                    let val = store[offset];
                     suspend_with_effect(
                         &mut caller,
                         WitLedgerEffect::Get {
                             reff: ref_id,
                             offset,
-                            ret: WitEffectOutput::Resolved(val),
+                            ret: WitEffectOutput::Resolved(ret),
                         },
-                    )
+                    )?;
+                    Ok((
+                        ret[0].0 as i64,
+                        ret[1].0 as i64,
+                        ret[2].0 as i64,
+                        ret[3].0 as i64,
+                        ret[4].0 as i64,
+                    ))
                 },
             )
             .unwrap();
@@ -790,7 +826,7 @@ impl UnprovenTransaction {
         runtime.store.data_mut().current_process = current_pid;
 
         // Initial argument? 0?
-        let mut next_args = [0u64; 4];
+        let mut next_args = [0u64; 5];
 
         loop {
             runtime.store.data_mut().current_process = current_pid;
@@ -830,6 +866,7 @@ impl UnprovenTransaction {
                     Val::I64(next_args[1] as i64),
                     Val::I64(next_args[2] as i64),
                     Val::I64(next_args[3] as i64),
+                    Val::I64(next_args[4] as i64),
                 ];
 
                 continuation.resume(&mut runtime.store, &vals[..n_results])?
@@ -863,7 +900,7 @@ impl UnprovenTransaction {
                         WitLedgerEffect::Resume { target, val, .. } => {
                             runtime.store.data_mut().call_stack.push(current_pid);
                             prev_id = Some(current_pid);
-                            next_args = [val.0, current_pid.0 as u64, 0, 0];
+                            next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = target;
                         }
                         WitLedgerEffect::Yield { val, .. } => {
@@ -874,7 +911,7 @@ impl UnprovenTransaction {
                                 .pop()
                                 .expect("yield on empty stack");
                             prev_id = Some(current_pid);
-                            next_args = [val.0, current_pid.0 as u64, 0, 0];
+                            next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = caller;
                         }
                         WitLedgerEffect::Burn { .. } => {
@@ -885,29 +922,30 @@ impl UnprovenTransaction {
                                 .pop()
                                 .expect("burn on empty stack");
                             prev_id = Some(current_pid);
-                            next_args = [0; 4];
+                            next_args = [0; 5];
                             current_pid = caller;
                         }
                         WitLedgerEffect::NewUtxo { id, .. } => {
-                            next_args = [id.unwrap().0 as u64, 0, 0, 0];
+                            next_args = [id.unwrap().0 as u64, 0, 0, 0, 0];
                         }
                         WitLedgerEffect::NewCoord { id, .. } => {
-                            next_args = [id.unwrap().0 as u64, 0, 0, 0];
+                            next_args = [id.unwrap().0 as u64, 0, 0, 0, 0];
                         }
                         WitLedgerEffect::GetHandlerFor { handler_id, .. } => {
-                            next_args = [handler_id.unwrap().0 as u64, 0, 0, 0];
+                            next_args = [handler_id.unwrap().0 as u64, 0, 0, 0, 0];
                         }
                         WitLedgerEffect::Activation { val, caller } => {
-                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0];
+                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0, 0];
                         }
                         WitLedgerEffect::Init { val, caller } => {
-                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0];
+                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0, 0];
                         }
                         WitLedgerEffect::NewRef { ret, .. } => {
-                            next_args = [ret.unwrap().0, 0, 0, 0];
+                            next_args = [ret.unwrap().0, 0, 0, 0, 0];
                         }
                         WitLedgerEffect::Get { ret, .. } => {
-                            next_args = [ret.unwrap().0, 0, 0, 0];
+                            let ret = ret.unwrap();
+                            next_args = [ret[0].0, ret[1].0, ret[2].0, ret[3].0, ret[4].0];
                         }
                         WitLedgerEffect::ProgramHash { program_hash, .. } => {
                             let limbs = program_hash.unwrap().0;
@@ -916,10 +954,11 @@ impl UnprovenTransaction {
                                 u64::from_le_bytes(limbs[8..16].try_into().unwrap()),
                                 u64::from_le_bytes(limbs[16..24].try_into().unwrap()),
                                 u64::from_le_bytes(limbs[24..32].try_into().unwrap()),
+                                0,
                             ];
                         }
                         _ => {
-                            next_args = [0; 4];
+                            next_args = [0; 5];
                         }
                     }
                 }

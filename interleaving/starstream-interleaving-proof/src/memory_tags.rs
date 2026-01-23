@@ -21,11 +21,12 @@ pub enum MemoryTag {
     Ownership = 11,
     Init = 12,
     RefArena = 13,
-    HandlerStackArenaProcess = 14,
-    HandlerStackArenaNextPtr = 15,
-    HandlerStackHeads = 16,
-    TraceCommitments = 17,
-    ExpectedResumer = 18,
+    RefSizes = 14,
+    HandlerStackArenaProcess = 15,
+    HandlerStackArenaNextPtr = 16,
+    HandlerStackHeads = 17,
+    TraceCommitments = 18,
+    ExpectedResumer = 19,
 }
 
 impl From<MemoryTag> for u64 {

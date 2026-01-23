@@ -8,7 +8,7 @@ pub(crate) fn setup_logger() {
     INIT.call_once(|| {
         let constraint_layer = ConstraintLayer::new(TracingMode::All);
         let env_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("starstream_interleaving_proof=debug,g1rcs=off"));
+            .unwrap_or_else(|_| EnvFilter::new("starstream_interleaving_proof=info,g1rcs=off"));
 
         let fmt_layer = if cfg!(test) {
             fmt::layer().with_test_writer().boxed()
