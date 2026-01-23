@@ -1,3 +1,5 @@
+# Verification
+
 This document describes operational semantics for the
 interleaving/transaction/communication circuit in a somewhat formal way (but
 abstract).
@@ -30,21 +32,22 @@ Configuration (σ)
 σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
 
 Where:
-  id_curr        : ID of the currently executing VM. In the range [0..#coord + #utxo]
-  id_prev        : ID of the VM that called the current one (return address).
-  M              : A map {ProcessID -> Ref}
-  activation     : A map {ProcessID -> Option<(Ref, ProcessID)>}
-  init           : A map {ProcessID -> Option<(Value, ProcessID)>}
-  ref_store      : A map {Ref -> Value}
-  process_table  : Read-only map {ID -> ProgramHash} for attestation.
-  host_calls     : A map {ProcessID -> Host-calls lookup table}
-  counters       : A map {ProcessID -> Counter}
-  safe_to_ledger : A map {ProcessID -> Bool}
-  is_utxo        : Read-only map {ProcessID -> Bool}
-  initialized    : A map {ProcessID -> Bool}
-  handler_stack  : A map {InterfaceID -> Stack<ProcessID>}
-  ownership      : A map {ProcessID -> Option<ProcessID>} (token -> owner)
-  is_burned      : A map {ProcessID -> Bool}
+  id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
+  id_prev          : ID of the VM that called the current one (return address).
+  expected_input   : A map {ProcessID -> Ref}
+  expected_resumer : A map {ProcessID -> ProcessID}
+  activation       : A map {ProcessID -> Option<(Ref, ProcessID)>}
+  init             : A map {ProcessID -> Option<(Value, ProcessID)>}
+  ref_store        : A map {Ref -> Value}
+  process_table    : Read-only map {ID -> ProgramHash} for attestation.
+  host_calls       : A map {ProcessID -> Host-calls lookup table}
+  counters         : A map {ProcessID -> Counter}
+  safe_to_ledger   : A map {ProcessID -> Bool}
+  is_utxo          : Read-only map {ProcessID -> Bool}
+  initialized      : A map {ProcessID -> Bool}
+  handler_stack    : A map {InterfaceID -> Stack<ProcessID>}
+  ownership        : A map {ProcessID -> Option<ProcessID>} (token -> owner)
+  is_burned        : A map {ProcessID -> Bool}
 ```
 
 Note that the maps are used here for convenience of notation. In practice they
@@ -190,13 +193,13 @@ Rule: Yield (resumed)
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
 
-    1. expected_input[id_curr]  <- ret_ref       (Claim, needs to be checked later by future resumer)
+    1. expected_input[id_curr]   <- ret_ref       (Claim, needs to be checked later by future resumer)
     2. expected_resumer[id_curr] <- id_prev      (Claim, needs to be checked later by future resumer)
-    3. counters'[id_curr]       += 1         (Keep track of host call index per process)
-    4. id_curr'                 <- id_prev   (Switch to parent)
-    5. id_prev'                 <- id_curr   (Save "caller")
-    6. safe_to_ledger'[id_curr] <- False     (This is not the final yield for this utxo in this transaction)
-    7. activation'[id_curr]     <- None
+    3. counters'[id_curr]        += 1         (Keep track of host call index per process)
+    4. id_curr'                  <- id_prev   (Switch to parent)
+    5. id_prev'                  <- id_curr   (Save "caller")
+    6. safe_to_ledger'[id_curr]  <- False     (This is not the final yield for this utxo in this transaction)
+    7. activation'[id_curr]      <- None
 ```
 
 ```text
@@ -214,11 +217,11 @@ Rule: Yield (end transaction)
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
     1. expected_resumer[id_curr] <- id_prev (Claim, needs to be checked later by future resumer)
-    2. counters'[id_curr]       += 1        (Keep track of host call index per process)
-    3. id_curr'                 <- id_prev  (Switch to parent)
-    4. id_prev'                 <- id_curr  (Save "caller")
-    5. safe_to_ledger'[id_curr] <- True     (This utxo creates a transacition output)
-    6. activation'[id_curr]     <- None
+    2. counters'[id_curr]        += 1        (Keep track of host call index per process)
+    3. id_curr'                  <- id_prev  (Switch to parent)
+    4. id_prev'                  <- id_curr  (Save "caller")
+    5. safe_to_ledger'[id_curr]  <- True     (This utxo creates a transacition output)
+    6. activation'[id_curr]      <- None
 ```
 
 ## Program Hash
@@ -453,7 +456,7 @@ Destroys the UTXO state.
 
     4. counters'[id_curr]       += 1
 
-    5. activation'[id_curr]            <- None
+    5. activation'[id_curr]     <- None
 ```
 
 # 6. Tokens
@@ -532,9 +535,11 @@ Rule: NewRef
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. ref_store'[ref] <- [uninitialized; size] (conceptually)
-    2. counters'[id_curr] += 1
-    3. ref_state[id_curr] <- (ref, 0, size) // storing the ref being built, current offset, and total size
+    1. size fits in 32 bits
+    2. ref_store'[ref] <- [uninitialized; size] (conceptually)
+    3. ref_sizes'[ref] <- size
+    4. counters'[id_curr] += 1
+    5. ref_state[id_curr] <- (ref, 0, size) // storing the ref being built, current offset, and total size
 ```
 
 ## RefPush
@@ -544,7 +549,7 @@ Appends data to the currently building reference.
 ```text
 Rule: RefPush
 ==============
-    op = RefPush(val)
+    op = RefPush(vals[7])
 
     1. let (ref, offset, size) = ref_state[id_curr]
     2. offset < size
@@ -552,12 +557,14 @@ Rule: RefPush
     3. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <RefPush, val>
+            t[c] == <RefPush, vals[7]>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. ref_store'[ref][offset] <- val
-    2. ref_state[id_curr] <- (ref, offset + 1, size)
+    1. for i in 0..6:
+        if offset + i < size:
+            ref_store'[ref][offset + i] <- vals[i]
+    2. ref_state[id_curr] <- (ref, offset + min(7, size - offset), size)
     3. counters'[id_curr] += 1
 ```
 
@@ -566,14 +573,19 @@ Rule: RefPush
 ```text
 Rule: Get
 ==============
-    op = Get(ref, offset) -> val
+    op = Get(ref, offset) -> vals[5]
 
-    1. ref_store[ref][offset] == val
+    1. let size = ref_sizes[ref]
+    2. for i in 0..4:
+        if offset + i < size:
+            vals[i] == ref_store[ref][offset + i]
+        else:
+            vals[i] == 0
 
     2. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Get, ref, offset, val>
+            t[c] == <Get, ref, offset, vals[5]>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------

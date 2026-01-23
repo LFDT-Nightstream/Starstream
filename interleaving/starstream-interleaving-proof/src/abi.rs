@@ -1,4 +1,4 @@
-use crate::{F, LedgerOperation, OptionalF};
+use crate::{F, OptionalF, ledger_operation::LedgerOperation};
 use ark_ff::Zero;
 use starstream_interleaving_spec::{
     EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect,
@@ -37,6 +37,14 @@ pub enum ArgName {
     OwnerId,
     TokenId,
     InterfaceId,
+
+    PackedRef0,
+    PackedRef1,
+    PackedRef2,
+    PackedRef3,
+    PackedRef4,
+    PackedRef5,
+    PackedRef6,
 }
 
 impl ArgName {
@@ -53,6 +61,15 @@ impl ArgName {
             ArgName::ProgramHash1 => 4,
             ArgName::ProgramHash2 => 5,
             ArgName::ProgramHash3 => 6,
+
+            // Packed ref args for RefPush (full width).
+            ArgName::PackedRef0 => 0,
+            ArgName::PackedRef1 => 1,
+            ArgName::PackedRef2 => 2,
+            ArgName::PackedRef3 => 3,
+            ArgName::PackedRef4 => 4,
+            ArgName::PackedRef5 => 5,
+            ArgName::PackedRef6 => 6,
         }
     }
 }
@@ -125,13 +142,13 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             size: F::from(*size as u64),
             ret: F::from(ret.unwrap().0),
         },
-        WitLedgerEffect::RefPush { val } => LedgerOperation::RefPush {
-            val: value_to_field(*val),
+        WitLedgerEffect::RefPush { vals } => LedgerOperation::RefPush {
+            vals: vals.map(value_to_field),
         },
         WitLedgerEffect::Get { reff, offset, ret } => LedgerOperation::Get {
             reff: F::from(reff.0),
             offset: F::from(*offset as u64),
-            ret: value_to_field(ret.unwrap()),
+            ret: ret.unwrap().map(value_to_field),
         },
         WitLedgerEffect::InstallHandler { interface_id } => LedgerOperation::InstallHandler {
             interface_id: F::from(interface_id.0[0] as u64),
@@ -244,13 +261,25 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Size.idx()] = *size;
             args[ArgName::Ret.idx()] = *ret;
         }
-        LedgerOperation::RefPush { val } => {
-            args[ArgName::Val.idx()] = *val;
+        LedgerOperation::RefPush { vals } => {
+            args[ArgName::PackedRef0.idx()] = vals[0];
+            args[ArgName::PackedRef1.idx()] = vals[1];
+            args[ArgName::PackedRef2.idx()] = vals[2];
+            args[ArgName::PackedRef3.idx()] = vals[3];
+            args[ArgName::PackedRef4.idx()] = vals[4];
+            args[ArgName::PackedRef5.idx()] = vals[5];
+            args[ArgName::PackedRef6.idx()] = vals[6];
         }
         LedgerOperation::Get { reff, offset, ret } => {
             args[ArgName::Val.idx()] = *reff;
             args[ArgName::Offset.idx()] = *offset;
-            args[ArgName::Ret.idx()] = *ret;
+
+            // Pack 5 return values, leaving slots 1 and 3 for reff/offset.
+            args[ArgName::PackedRef0.idx()] = ret[0];
+            args[ArgName::PackedRef2.idx()] = ret[1];
+            args[ArgName::PackedRef4.idx()] = ret[2];
+            args[ArgName::PackedRef5.idx()] = ret[3];
+            args[ArgName::PackedRef6.idx()] = ret[4];
         }
         LedgerOperation::InstallHandler { interface_id }
         | LedgerOperation::UninstallHandler { interface_id } => {

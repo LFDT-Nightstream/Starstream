@@ -100,7 +100,11 @@ impl InterleavingInstance {
         //
         // need to figure out if that can be generalized, or if we need a bound or not
 
-        let output_binding_config = OutputBindingConfig::new(num_bits, program_io).with_mem_idx(12);
+        // TraceCommitments RAM index in the sorted twist_id list (see proof MemoryTag ordering).
+        //
+        // TODO: de-harcode the 13
+        // it's supposed to be the twist index of the TraceCommitments memory
+        let output_binding_config = OutputBindingConfig::new(num_bits, program_io).with_mem_idx(13);
 
         output_binding_config
     }
