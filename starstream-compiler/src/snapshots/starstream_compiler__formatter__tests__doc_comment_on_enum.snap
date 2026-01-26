@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n/// Represents a message type.\nenum Message {\n    Ping,\n    Pong,\n}\n\nfn main() {}\n"
+---
+/// Represents a message type.
+enum Message {
+    Ping,
+    Pong,
+}
+
+fn main() { }

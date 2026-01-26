@@ -24,6 +24,7 @@ Program {
                                 ),
                             },
                             payload: Unit,
+                            span: 19..23,
                         },
                         EnumVariant {
                             name: Identifier {
@@ -45,13 +46,12 @@ Program {
                                     },
                                 ],
                             ),
+                            span: 29..38,
                         },
                     ],
                 },
             ),
             span: 0..42,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }

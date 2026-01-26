@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n/// Yes more\nstruct Point {\n    // wow\n    x: i64,\n    y: i64,\n}\n"
+---
+/// Yes more
+struct Point {
+    // wow
+    x: i64,
+    y: i64,
+}

@@ -121,4 +121,5 @@
 (runtime_expression "runtime" @keyword)
 
 (comment) @comment
+(doc_comment) @comment.documentation
 (shebang) @comment

@@ -1336,6 +1336,7 @@ impl Inferencer {
                 name: function.name.clone(),
                 params: typed_params,
                 return_type: ctx.expected_return,
+                effect: EffectKind::Pure, // User-defined functions are currently always pure
                 body: typed_body,
             },
             trace,

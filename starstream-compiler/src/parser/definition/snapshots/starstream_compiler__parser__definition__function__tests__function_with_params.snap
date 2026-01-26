@@ -70,9 +70,8 @@ FunctionDef {
                     },
                 ),
                 span: 32..34,
-                comments_before: [],
-                comments_after: [],
             },
         ),
+        span: 30..35,
     },
 }

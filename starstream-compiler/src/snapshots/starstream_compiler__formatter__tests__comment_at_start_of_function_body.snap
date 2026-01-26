@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn foo() -> i64 {\n    // Comment at the very start\n    let x = 1;\n    x + 1\n}\n"
+---
+fn foo() -> i64 {
+    // Comment at the very start
+    let x = 1;
+    x + 1
+}

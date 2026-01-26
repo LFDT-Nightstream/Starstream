@@ -18,6 +18,7 @@ EnumDef {
                 ),
             },
             payload: Unit,
+            span: 13..16,
         },
         EnumVariant {
             name: Identifier {
@@ -27,6 +28,7 @@ EnumDef {
                 ),
             },
             payload: Unit,
+            span: 18..23,
         },
         EnumVariant {
             name: Identifier {
@@ -36,6 +38,7 @@ EnumDef {
                 ),
             },
             payload: Unit,
+            span: 25..30,
         },
     ],
 }

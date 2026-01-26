@@ -16,7 +16,7 @@ pub use program::parser as program;
 pub use statement::parser as statement;
 
 use chumsky::prelude::*;
-use starstream_types::{Spanned, ast::Program};
+use starstream_types::{CommentMap, Spanned, ast::Program};
 
 use crate::parser::context::{Extra, State};
 
@@ -45,6 +45,11 @@ impl ParseOutput {
 
     pub fn into_output_errors(self) -> (Option<Program>, Vec<ParseError>) {
         (self.program, self.errors)
+    }
+
+    /// Get the CommentMap containing all comments from the source.
+    pub fn comment_map(&self) -> CommentMap {
+        CommentMap::from_comments(self.extra.comments.clone())
     }
 }
 
@@ -75,43 +80,39 @@ trait ParserExt<'a, T>: Sized {
         Self: Clone;
 }
 
+/// Creates the parser chain for collecting comments and wrapping in Spanned.
+///
+/// Comments are collected into State for the CommentMap. We use `.collect()` to force
+/// side-effects to happen (chumsky optimization can skip them otherwise), and `.padded()`
+/// between comments to handle whitespace between consecutive comments.
+macro_rules! spanned_with_comments {
+    ($parser:expr) => {{
+        let comments = comment::comment_collecting()
+            .padded()
+            .repeated()
+            .collect::<Vec<_>>();
+        comments
+            .clone()
+            .then(
+                $parser.map_with(|node, extra: &mut context::MapExtra| Spanned {
+                    node,
+                    span: extra.span(),
+                }),
+            )
+            .then(comments)
+            .map(|((_, spanned), _)| spanned)
+    }};
+}
+
 impl<'a, T, U: Parser<'a, &'a str, T, Extra<'a>>> ParserExt<'a, T> for U {
     fn spanned(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> {
-        comment::comment()
-            .repeated()
-            .collect::<Vec<_>>()
-            .then(self)
-            .then(comment::comment().repeated().collect::<Vec<_>>())
-            .map_with(
-                |((comments_before, node), comments_after), extra: &mut context::MapExtra| {
-                    Spanned {
-                        node,
-                        span: extra.span(),
-                        comments_before,
-                        comments_after,
-                    }
-                },
-            )
+        spanned_with_comments!(self)
     }
 
     fn spanned_clone(self) -> impl Parser<'a, &'a str, Spanned<T>, Extra<'a>> + Clone
     where
         Self: Clone,
     {
-        comment::comment()
-            .repeated()
-            .collect::<Vec<_>>()
-            .then(self)
-            .then(comment::comment().repeated().collect::<Vec<_>>())
-            .map_with(
-                |((comments_before, node), comments_after), extra: &mut context::MapExtra| {
-                    Spanned {
-                        node,
-                        span: extra.span(),
-                        comments_before,
-                        comments_after,
-                    }
-                },
-            )
+        spanned_with_comments!(self)
     }
 }

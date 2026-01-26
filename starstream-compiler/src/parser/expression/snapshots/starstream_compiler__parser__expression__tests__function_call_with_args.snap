@@ -14,8 +14,6 @@ Spanned {
                 },
             ),
             span: 0..3,
-            comments_before: [],
-            comments_after: [],
         },
         args: [
             Spanned {
@@ -25,8 +23,6 @@ Spanned {
                     ),
                 ),
                 span: 4..5,
-                comments_before: [],
-                comments_after: [],
             },
             Spanned {
                 node: Literal(
@@ -35,12 +31,8 @@ Spanned {
                     ),
                 ),
                 span: 7..8,
-                comments_before: [],
-                comments_after: [],
             },
         ],
     },
     span: 0..9,
-    comments_before: [],
-    comments_after: [],
 }

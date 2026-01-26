@@ -27,12 +27,11 @@ Program {
                     body: Block {
                         statements: [],
                         tail_expression: None,
+                        span: 29..33,
                     },
                 },
             ),
             span: 12..33,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }
@@ -56,6 +55,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: None,

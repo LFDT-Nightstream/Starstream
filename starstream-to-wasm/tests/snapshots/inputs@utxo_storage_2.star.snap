@@ -58,8 +58,6 @@ Program {
                 },
             ),
             span: 0..100,
-            comments_before: [],
-            comments_after: [],
         },
         Spanned {
             node: Function(
@@ -108,8 +106,6 @@ Program {
                                                     },
                                                 ),
                                                 span: 145..153,
-                                                comments_before: [],
-                                                comments_after: [],
                                             },
                                             right: Spanned {
                                                 node: Literal(
@@ -118,18 +114,12 @@ Program {
                                                     ),
                                                 ),
                                                 span: 155..156,
-                                                comments_before: [],
-                                                comments_after: [],
                                             },
                                         },
                                         span: 145..156,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                                 span: 135..162,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ],
                         tail_expression: Some(
@@ -146,8 +136,6 @@ Program {
                                             },
                                         ),
                                         span: 162..170,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: Identifier(
@@ -159,21 +147,16 @@ Program {
                                             },
                                         ),
                                         span: 172..183,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                                 span: 162..183,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ),
+                        span: 129..186,
                     },
                 },
             ),
             span: 100..186,
-            comments_before: [],
-            comments_after: [],
         },
         Spanned {
             node: Function(
@@ -222,8 +205,6 @@ Program {
                                                     },
                                                 ),
                                                 span: 239..250,
-                                                comments_before: [],
-                                                comments_after: [],
                                             },
                                             right: Spanned {
                                                 node: Literal(
@@ -232,18 +213,12 @@ Program {
                                                     ),
                                                 ),
                                                 span: 252..253,
-                                                comments_before: [],
-                                                comments_after: [],
                                             },
                                         },
                                         span: 239..253,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                                 span: 226..259,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ],
                         tail_expression: Some(
@@ -260,8 +235,6 @@ Program {
                                             },
                                         ),
                                         span: 259..267,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: Identifier(
@@ -273,21 +246,16 @@ Program {
                                             },
                                         ),
                                         span: 269..280,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                                 span: 259..280,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ),
+                        span: 220..282,
                     },
                 },
             ),
             span: 186..282,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }
@@ -376,6 +344,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Assignment {
@@ -403,8 +372,6 @@ TypedProgram {
                                                 ),
                                             },
                                             span: 145..153,
-                                            comments_before: [],
-                                            comments_after: [],
                                         },
                                         right: Spanned {
                                             node: TypedExpr {
@@ -416,14 +383,10 @@ TypedProgram {
                                                 ),
                                             },
                                             span: 155..156,
-                                            comments_before: [],
-                                            comments_after: [],
                                         },
                                     },
                                 },
                                 span: 145..156,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         },
                     ],
@@ -446,8 +409,6 @@ TypedProgram {
                                             ),
                                         },
                                         span: 162..170,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -462,14 +423,10 @@ TypedProgram {
                                             ),
                                         },
                                         span: 172..183,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                             },
                             span: 162..183,
-                            comments_before: [],
-                            comments_after: [],
                         },
                     ),
                 },
@@ -488,6 +445,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Assignment {
@@ -515,8 +473,6 @@ TypedProgram {
                                                 ),
                                             },
                                             span: 239..250,
-                                            comments_before: [],
-                                            comments_after: [],
                                         },
                                         right: Spanned {
                                             node: TypedExpr {
@@ -528,14 +484,10 @@ TypedProgram {
                                                 ),
                                             },
                                             span: 252..253,
-                                            comments_before: [],
-                                            comments_after: [],
                                         },
                                     },
                                 },
                                 span: 239..253,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         },
                     ],
@@ -558,8 +510,6 @@ TypedProgram {
                                             ),
                                         },
                                         span: 259..267,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -574,14 +524,10 @@ TypedProgram {
                                             ),
                                         },
                                         span: 269..280,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                             },
                             span: 259..280,
-                            comments_before: [],
-                            comments_after: [],
                         },
                     ),
                 },

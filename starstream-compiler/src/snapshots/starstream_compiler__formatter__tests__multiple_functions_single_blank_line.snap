@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn foo() -> i64 {\n    1\n}\n\nfn bar() -> i64 {\n    2\n}\n\nfn baz() -> i64 {\n    3\n}\n"
+---
+fn foo() -> i64 {
+    1
+}
+
+fn bar() -> i64 {
+    2
+}
+
+fn baz() -> i64 {
+    3
+}
