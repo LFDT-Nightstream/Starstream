@@ -6,7 +6,9 @@ use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
 };
-use crate::rem_wires_gadget::alloc_rem_one_hot_selectors;
+use crate::ref_arena_gadget::{
+    ref_arena_get_read_wires, ref_arena_new_ref_wires, ref_arena_push_wires, trace_ref_arena_ops,
+};
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
     RomSwitchboard, RomSwitchboardWires,
@@ -17,8 +19,7 @@ use crate::{
 use ark_ff::{AdditiveGroup, Field as _, PrimeField};
 use ark_r1cs_std::fields::FieldVar;
 use ark_r1cs_std::{
-    GR1CSVar as _, alloc::AllocVar as _, cmp::CmpGadget, eq::EqGadget, fields::fp::FpVar,
-    prelude::Boolean, uint::UInt,
+    GR1CSVar as _, alloc::AllocVar as _, eq::EqGadget, fields::fp::FpVar, prelude::Boolean,
 };
 use ark_relations::{
     gr1cs::{ConstraintSystemRef, LinearCombination, SynthesisError, Variable},
@@ -96,24 +97,24 @@ struct OpcodeConfig {
 }
 
 #[derive(Clone)]
-struct ExecutionSwitches<T> {
-    resume: T,
-    yield_op: T,
-    burn: T,
-    program_hash: T,
-    new_utxo: T,
-    new_coord: T,
-    activation: T,
-    init: T,
-    bind: T,
-    unbind: T,
-    new_ref: T,
-    ref_push: T,
-    get: T,
-    install_handler: T,
-    uninstall_handler: T,
-    get_handler_for: T,
-    nop: T,
+pub(crate) struct ExecutionSwitches<T> {
+    pub(crate) resume: T,
+    pub(crate) yield_op: T,
+    pub(crate) burn: T,
+    pub(crate) program_hash: T,
+    pub(crate) new_utxo: T,
+    pub(crate) new_coord: T,
+    pub(crate) activation: T,
+    pub(crate) init: T,
+    pub(crate) bind: T,
+    pub(crate) unbind: T,
+    pub(crate) new_ref: T,
+    pub(crate) ref_push: T,
+    pub(crate) get: T,
+    pub(crate) install_handler: T,
+    pub(crate) uninstall_handler: T,
+    pub(crate) get_handler_for: T,
+    pub(crate) nop: T,
 }
 impl ExecutionSwitches<bool> {
     fn nop() -> Self {
@@ -559,31 +560,9 @@ impl Wires {
 
         let constant_false = Boolean::new_constant(cs.clone(), false)?;
 
-        let ref_push_lane_switches =
-            alloc_rem_one_hot_selectors(&cs, &ref_building_remaining, &switches.ref_push)?;
-
         let target = opcode_args[ArgName::Target.idx()].clone();
         let val = opcode_args[ArgName::Val.idx()].clone();
         let offset = opcode_args[ArgName::Offset.idx()].clone();
-
-        let ref_size_read = rm.conditional_read(
-            &switches.get,
-            &Address {
-                tag: MemoryTag::RefSizes.allocate(cs.clone())?,
-                addr: val.clone(),
-            },
-        )?[0]
-            .clone();
-
-        let ref_size_sel = switches.get.select(&ref_size_read, &FpVar::zero())?;
-        let offset_sel = switches.get.select(&offset, &FpVar::zero())?;
-
-        let (ref_size_u32, _) = UInt::<32, u32, F>::from_fp(&ref_size_sel)?;
-        let (offset_u32, _) = UInt::<32, u32, F>::from_fp(&offset_sel)?;
-        let size_ge_offset = ref_size_u32.is_ge(&offset_u32)?;
-        let remaining = size_ge_offset.select(&(&ref_size_sel - &offset_sel), &FpVar::zero())?;
-        let get_lane_switches =
-            alloc_rem_one_hot_selectors::<REF_GET_BATCH_SIZE>(&cs, &remaining, &switches.get)?;
 
         let ret_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.ret_is_some))?;
 
@@ -670,59 +649,6 @@ impl Wires {
             .try_into()
             .expect("rom program hash length");
 
-        // addr = ref + offset, read a packed batch (5) to match trace_ref_arena_ops
-        let get_base_addr = &val + &offset;
-        let mut ref_arena_read_vec = Vec::with_capacity(REF_GET_BATCH_SIZE);
-        for i in 0..REF_GET_BATCH_SIZE {
-            let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
-            let get_addr = &get_base_addr + offset;
-            let read = rm.conditional_read(
-                &get_lane_switches[i],
-                &Address {
-                    tag: MemoryTag::RefArena.allocate(cs.clone())?,
-                    addr: get_addr,
-                },
-            )?[0]
-                .clone();
-            ref_arena_read_vec.push(read);
-        }
-        for _ in 0..REF_PUSH_BATCH_SIZE - REF_GET_BATCH_SIZE {
-            let _ = rm.conditional_read(
-                &Boolean::FALSE,
-                &Address {
-                    tag: MemoryTag::RefArena.allocate(cs.clone())?,
-                    addr: FpVar::zero(),
-                },
-            )?;
-        }
-        let ref_arena_read: [FpVar<F>; REF_GET_BATCH_SIZE] = ref_arena_read_vec
-            .try_into()
-            .expect("ref arena read batch length");
-
-        rm.conditional_write(
-            &switches.new_ref,
-            &Address {
-                tag: MemoryTag::RefSizes.allocate(cs.clone())?,
-                addr: opcode_args[ArgName::Ret.idx()].clone(),
-            },
-            &[opcode_args[ArgName::Size.idx()].clone()],
-        )?;
-
-        // We also need to write for RefPush.
-        for (i, ref_val) in opcode_args.iter().enumerate() {
-            let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
-            let push_addr = &ref_building_ptr + offset;
-
-            rm.conditional_write(
-                &ref_push_lane_switches[i],
-                &Address {
-                    tag: MemoryTag::RefArena.allocate(cs.clone())?,
-                    addr: push_addr,
-                },
-                &[ref_val.clone()],
-            )?;
-        }
-
         let handler_switches =
             HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
 
@@ -802,6 +728,25 @@ impl Wires {
         let handler_state = HandlerState {
             handler_stack_node_process,
             interface_rom_read: interface_rom_read.clone(),
+        };
+
+        // ref arena wires
+        let (ref_push_lane_switches, ref_arena_read, get_lane_switches) = {
+            let (ref_arena_read, get_lane_switches) =
+                ref_arena_get_read_wires(cs.clone(), rm, &switches, val.clone(), offset.clone())?;
+
+            let ref_push_lane_switches = ref_arena_push_wires(
+                cs.clone(),
+                rm,
+                &switches,
+                &opcode_args,
+                &ref_building_ptr,
+                &ref_building_remaining,
+            )?;
+
+            ref_arena_new_ref_wires(cs.clone(), rm, &switches, &opcode_args)?;
+
+            (ref_push_lane_switches, ref_arena_read, get_lane_switches)
         };
 
         let should_trace = switches.nop.clone().not();
@@ -1390,6 +1335,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let mut ref_sizes: BTreeMap<u64, u64> = BTreeMap::new();
 
         for instr in &self.ops {
+            tracing::info!("mem tracing instr {:?}", &instr);
             let config = instr.get_config();
 
             trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
@@ -2269,146 +2215,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(node_process, switch)?;
 
         Ok(wires)
-    }
-}
-
-fn trace_ref_arena_ops<M: IVCMemory<F>>(
-    mb: &mut M,
-    ref_building_id: &mut F,
-    ref_building_offset: &mut F,
-    ref_building_remaining: &mut F,
-    ref_sizes: &mut BTreeMap<u64, u64>,
-    instr: &LedgerOperation<F>,
-) {
-    let mut ref_push_vals = std::array::from_fn(|_| F::ZERO);
-    let mut ref_push = false;
-    let mut ref_get = false;
-
-    let mut ref_get_ref = F::ZERO;
-    let mut ref_get_offset = F::ZERO;
-
-    match instr {
-        LedgerOperation::NewRef { size, ret } => {
-            *ref_building_id = *ret;
-            *ref_building_offset = F::ZERO;
-            *ref_building_remaining = *size;
-            ref_sizes.insert(ret.into_bigint().0[0], size.into_bigint().0[0]);
-        }
-        LedgerOperation::RefPush { vals } => {
-            ref_push_vals = *vals;
-            ref_push = true;
-        }
-        LedgerOperation::Get {
-            reff,
-            offset,
-            ret: _,
-        } => {
-            ref_get = true;
-
-            ref_get_ref = *reff;
-            ref_get_offset = *offset;
-        }
-        _ => {}
-    };
-
-    if matches!(instr, LedgerOperation::NewRef { .. }) {
-        mb.conditional_write(
-            true,
-            Address {
-                tag: MemoryTag::RefSizes.into(),
-                addr: ref_building_id.into_bigint().0[0],
-            },
-            vec![*ref_building_remaining],
-        );
-    }
-
-    if ref_get {
-        mb.conditional_read(
-            true,
-            Address {
-                tag: MemoryTag::RefSizes.into(),
-                addr: ref_get_ref.into_bigint().0[0],
-            },
-        );
-    }
-
-    if ref_push {
-        let remaining = ref_building_remaining.into_bigint().0[0] as usize;
-        let to_write = remaining.min(REF_PUSH_BATCH_SIZE);
-        for (i, val) in ref_push_vals.iter().enumerate() {
-            let should_write = i < to_write;
-            let addr = ref_building_id.into_bigint().0[0] + ref_building_offset.into_bigint().0[0];
-
-            mb.conditional_write(
-                should_write,
-                Address {
-                    tag: MemoryTag::RefArena.into(),
-                    addr,
-                },
-                vec![*val],
-            );
-
-            if should_write {
-                *ref_building_offset += F::ONE;
-            }
-        }
-
-        *ref_building_remaining = F::from(remaining.saturating_sub(to_write) as u64);
-    } else {
-        for (_i, val) in ref_push_vals.iter().enumerate() {
-            let addr = ref_building_id.into_bigint().0[0] + ref_building_offset.into_bigint().0[0];
-            mb.conditional_write(
-                ref_push,
-                Address {
-                    tag: MemoryTag::RefArena.into(),
-                    addr,
-                },
-                vec![*val],
-            );
-        }
-    }
-
-    if ref_get {
-        let size = ref_sizes
-            .get(&ref_get_ref.into_bigint().0[0])
-            .copied()
-            .unwrap_or(0);
-        let offset = ref_get_offset.into_bigint().0[0];
-        let remaining = size.saturating_sub(offset);
-        let to_read = remaining.min(REF_GET_BATCH_SIZE as u64);
-        for i in 0..REF_GET_BATCH_SIZE {
-            let addr = ref_get_ref.into_bigint().0[0] + offset + i as u64;
-            let should_read = (i as u64) < to_read;
-            mb.conditional_read(
-                should_read,
-                Address {
-                    tag: MemoryTag::RefArena.into(),
-                    addr,
-                },
-            );
-        }
-    } else {
-        for i in 0..REF_GET_BATCH_SIZE {
-            let addr =
-                ref_get_ref.into_bigint().0[0] + ref_get_offset.into_bigint().0[0] + i as u64;
-            mb.conditional_read(
-                ref_get,
-                Address {
-                    tag: MemoryTag::RefArena.into(),
-                    addr,
-                },
-            );
-        }
-    }
-
-    for _ in 0..REF_PUSH_BATCH_SIZE - REF_GET_BATCH_SIZE {
-        mb.conditional_read(
-            false,
-            Address {
-                tag: MemoryTag::RefArena.into(),
-                addr: 0,
-            },
-        );
     }
 }
 
