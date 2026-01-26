@@ -9,6 +9,7 @@ mod memory_tags;
 mod neo;
 mod optional;
 mod program_state;
+mod ref_arena_gadget;
 mod rem_wires_gadget;
 mod switchboard;
 
@@ -161,6 +162,8 @@ fn make_interleaved_trace(
     let mut id_prev: Option<usize> = None;
     let mut counters: HashMap<usize, usize> = HashMap::new();
 
+    let expected_len: usize = wit.traces.iter().map(|t| t.len()).sum();
+
     loop {
         let c = counters.entry(id_curr).or_insert(0);
 
@@ -203,12 +206,18 @@ fn make_interleaved_trace(
         ops.push(op);
     }
 
+    assert_eq!(
+        ops.len(),
+        expected_len,
+        "interleaved trace doesn't match original length"
+    );
+
     ops
 }
 
 fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayout), SynthesisError>
 {
-    let _span = tracing::debug_span!("dummy circuit").entered();
+    let _span = tracing::info_span!("dummy circuit").entered();
 
     tracing::debug!("constructing nop circuit to get initial (stable) ccs shape");
 

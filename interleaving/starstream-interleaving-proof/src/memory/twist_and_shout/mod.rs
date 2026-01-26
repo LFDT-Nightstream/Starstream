@@ -124,7 +124,7 @@ pub struct TSMemLayouts {
     pub twist_bindings: BTreeMap<u64, Vec<TwistCpuBinding>>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Lanes(pub usize);
 
 impl Default for Lanes {
