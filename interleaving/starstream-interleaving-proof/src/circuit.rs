@@ -316,7 +316,7 @@ impl ExecutionSwitches<bool> {
             (unbind, EffectDiscriminant::Unbind as u64),
             (new_ref, EffectDiscriminant::NewRef as u64),
             (ref_push, EffectDiscriminant::RefPush as u64),
-            (get, EffectDiscriminant::Get as u64),
+            (get, EffectDiscriminant::RefGet as u64),
             (install_handler, EffectDiscriminant::InstallHandler as u64),
             (
                 uninstall_handler,
@@ -971,7 +971,7 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::RefPush { .. } => {
                 config.execution_switches.ref_push = true;
             }
-            LedgerOperation::Get { .. } => {
+            LedgerOperation::RefGet { .. } => {
                 config.execution_switches.get = true;
             }
             LedgerOperation::InstallHandler { .. } => {
@@ -1156,7 +1156,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_unbind(next_wires)?;
         let next_wires = self.visit_new_ref(next_wires)?;
         let next_wires = self.visit_ref_push(next_wires)?;
-        let next_wires = self.visit_get_ref(next_wires)?;
+        let next_wires = self.visit_ref_get(next_wires)?;
         let next_wires = self.visit_install_handler(next_wires)?;
         let next_wires = self.visit_uninstall_handler(next_wires)?;
         let next_wires = self.visit_get_handler_for(next_wires)?;
@@ -1688,7 +1688,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switches: ExecutionSwitches::ref_push(),
                 ..default
             },
-            LedgerOperation::Get { .. } => PreWires {
+            LedgerOperation::RefGet { .. } => PreWires {
                 switches: ExecutionSwitches::get(),
                 ..default
             },
@@ -2101,7 +2101,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip_all)]
-    fn visit_get_ref(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+    fn visit_ref_get(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.get;
 
         let expected = [

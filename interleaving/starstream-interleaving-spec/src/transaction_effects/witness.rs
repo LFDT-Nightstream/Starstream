@@ -18,7 +18,7 @@ pub enum EffectDiscriminant {
     Init = 9,
     NewRef = 10,
     RefPush = 11,
-    Get = 12,
+    RefGet = 12,
     Bind = 13,
     Unbind = 14,
     ProgramHash = 15,
@@ -128,7 +128,7 @@ pub enum WitLedgerEffect {
         // out
         // does not return anything
     },
-    Get {
+    RefGet {
         // in
         reff: Ref,
         offset: usize,
@@ -198,7 +198,7 @@ impl From<u64> for EffectDiscriminant {
             9 => EffectDiscriminant::Init,
             10 => EffectDiscriminant::NewRef,
             11 => EffectDiscriminant::RefPush,
-            12 => EffectDiscriminant::Get,
+            12 => EffectDiscriminant::RefGet,
             13 => EffectDiscriminant::Bind,
             14 => EffectDiscriminant::Unbind,
             15 => EffectDiscriminant::ProgramHash,

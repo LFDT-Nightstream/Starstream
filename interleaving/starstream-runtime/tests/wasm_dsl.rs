@@ -165,7 +165,7 @@ pub struct Imports {
     pub uninstall_handler: FuncRef,
     pub new_ref: FuncRef,
     pub ref_push: FuncRef,
-    pub get: FuncRef,
+    pub ref_get: FuncRef,
     pub resume: FuncRef,
     pub yield_: FuncRef,
     pub new_utxo: FuncRef,
@@ -248,9 +248,9 @@ impl ModuleBuilder {
             ],
             &[],
         );
-        let get = self.import_func(
+        let ref_get = self.import_func(
             "env",
-            "starstream_get",
+            "starstream_ref_get",
             &[ValType::I64, ValType::I64],
             &[
                 ValType::I64,
@@ -309,7 +309,7 @@ impl ModuleBuilder {
             uninstall_handler,
             new_ref,
             ref_push,
-            get,
+            ref_get,
             resume,
             yield_,
             new_utxo,

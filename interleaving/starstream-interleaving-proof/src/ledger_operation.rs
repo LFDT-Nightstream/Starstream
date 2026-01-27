@@ -65,7 +65,7 @@ pub enum LedgerOperation<F: PrimeField> {
     RefPush {
         vals: [F; REF_PUSH_BATCH_SIZE],
     },
-    Get {
+    RefGet {
         reff: F,
         offset: F,
         ret: [F; REF_GET_BATCH_SIZE],

@@ -568,12 +568,12 @@ Rule: RefPush
     3. counters'[id_curr] += 1
 ```
 
-## Get
+## RefGet
 
 ```text
-Rule: Get
+Rule: RefGet
 ==============
-    op = Get(ref, offset) -> vals[5]
+    op = RefGet(ref, offset) -> vals[5]
 
     1. let size = ref_sizes[ref]
     2. for i in 0..4:
@@ -585,7 +585,7 @@ Rule: Get
     2. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Get, ref, offset, vals[5]>
+            t[c] == <RefGet, ref, offset, vals[5]>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
