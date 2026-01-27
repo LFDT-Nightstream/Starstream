@@ -3,6 +3,7 @@ use ark_ff::PrimeField;
 
 pub const REF_PUSH_BATCH_SIZE: usize = 7;
 pub const REF_GET_BATCH_SIZE: usize = 5;
+pub const REF_WRITE_BATCH_SIZE: usize = 4;
 
 #[derive(Debug, Clone)]
 pub enum LedgerOperation<F: PrimeField> {
@@ -69,6 +70,12 @@ pub enum LedgerOperation<F: PrimeField> {
         reff: F,
         offset: F,
         ret: [F; REF_GET_BATCH_SIZE],
+    },
+    RefWrite {
+        reff: F,
+        offset: F,
+        len: F,
+        vals: [F; REF_WRITE_BATCH_SIZE],
     },
     InstallHandler {
         interface_id: F,

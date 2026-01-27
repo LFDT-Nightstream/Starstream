@@ -10,7 +10,10 @@
 
 use crate::{
     Hash, InterleavingInstance, REF_GET_WIDTH, Ref, Value, WasmModule,
-    transaction_effects::{InterfaceId, ProcessId, witness::WitLedgerEffect},
+    transaction_effects::{
+        InterfaceId, ProcessId,
+        witness::{REF_WRITE_WIDTH, WitLedgerEffect},
+    },
 };
 use ark_ff::Zero;
 use ark_goldilocks::FpGoldilocks;
@@ -756,6 +759,35 @@ pub fn state_transition(
             }
             if val != ret.unwrap() {
                 return Err(InterleavingError::Shape("RefGet result mismatch"));
+            }
+        }
+
+        WitLedgerEffect::RefWrite {
+            reff,
+            offset,
+            len,
+            vals,
+        } => {
+            if len > REF_WRITE_WIDTH {
+                return Err(InterleavingError::Shape("RefWrite len too large"));
+            }
+
+            let vec = state
+                .ref_store
+                .get_mut(&reff)
+                .ok_or(InterleavingError::RefNotFound(reff))?;
+            let size = state
+                .ref_sizes
+                .get(&reff)
+                .copied()
+                .ok_or(InterleavingError::RefNotFound(reff))?;
+
+            if offset + len > size {
+                return Err(InterleavingError::Shape("RefWrite out of bounds"));
+            }
+
+            for (i, val) in vals.iter().enumerate().take(len) {
+                vec[offset + i] = *val;
             }
         }
 

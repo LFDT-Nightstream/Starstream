@@ -74,7 +74,8 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         | WitLedgerEffect::Burn { .. }
         | WitLedgerEffect::Bind { .. }
         | WitLedgerEffect::Unbind { .. }
-        | WitLedgerEffect::RefPush { .. } => 0,
+        | WitLedgerEffect::RefPush { .. }
+        | WitLedgerEffect::RefWrite { .. } => 0,
     }
 }
 
@@ -527,6 +528,61 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
+                "starstream_ref_write",
+                |mut caller: Caller<'_, RuntimeState>,
+                 reff: u64,
+                 offset: u64,
+                 len: u64,
+                 val_0: u64,
+                 val_1: u64,
+                 val_2: u64,
+                 val_3: u64|
+                 -> Result<(), wasmi::Error> {
+                    let ref_id = Ref(reff);
+                    let offset = offset as usize;
+                    let len = len as usize;
+
+                    if len > starstream_interleaving_spec::REF_WRITE_WIDTH {
+                        return Err(wasmi::Error::new("ref write len too large"));
+                    }
+
+                    let size = *caller
+                        .data()
+                        .ref_sizes
+                        .get(&ref_id)
+                        .ok_or(wasmi::Error::new("ref size not found"))?;
+
+                    if offset + len > size {
+                        return Err(wasmi::Error::new("ref write overflow"));
+                    }
+
+                    let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
+                    let store = caller
+                        .data_mut()
+                        .ref_store
+                        .get_mut(&ref_id)
+                        .ok_or(wasmi::Error::new("ref not found"))?;
+
+                    for (i, val) in vals.iter().enumerate().take(len) {
+                        store[offset + i] = *val;
+                    }
+
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::RefWrite {
+                            reff: ref_id,
+                            offset,
+                            len,
+                            vals,
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
                 "starstream_ref_get",
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
@@ -945,6 +1001,9 @@ impl UnprovenTransaction {
                         WitLedgerEffect::RefGet { ret, .. } => {
                             let ret = ret.unwrap();
                             next_args = [ret[0].0, ret[1].0, ret[2].0, ret[3].0, ret[4].0];
+                        }
+                        WitLedgerEffect::RefWrite { .. } => {
+                            next_args = [0; 5];
                         }
                         WitLedgerEffect::ProgramHash { program_hash, .. } => {
                             let limbs = program_hash.unwrap().0;

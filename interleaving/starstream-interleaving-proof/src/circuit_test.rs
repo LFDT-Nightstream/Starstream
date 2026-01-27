@@ -415,6 +415,90 @@ fn prove_ref_non_multiple(
 }
 
 #[test]
+fn test_ref_write_basic_sat() {
+    setup_logger();
+
+    let coord_id = 0;
+    let p0 = ProcessId(coord_id);
+    let ref_0 = Ref(0);
+
+    let initial = Value(41);
+    let updated = Value(99);
+
+    let initial_get = [
+        initial,
+        Value::nil(),
+        Value::nil(),
+        Value::nil(),
+        Value::nil(),
+    ];
+    let updated_get = [
+        updated,
+        Value::nil(),
+        Value::nil(),
+        Value::nil(),
+        Value::nil(),
+    ];
+
+    let coord_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 7,
+            ret: ref_0.into(),
+        },
+        WitLedgerEffect::RefPush {
+            vals: [
+                initial,
+                Value::nil(),
+                Value::nil(),
+                Value::nil(),
+                Value::nil(),
+                Value::nil(),
+                Value::nil(),
+            ],
+        },
+        WitLedgerEffect::RefGet {
+            ret: initial_get.into(),
+            reff: ref_0.into(),
+            offset: 0,
+        },
+        WitLedgerEffect::RefWrite {
+            reff: ref_0,
+            offset: 0,
+            len: 1,
+            vals: [updated, Value::nil(), Value::nil(), Value::nil()],
+        },
+        WitLedgerEffect::RefGet {
+            ret: updated_get.into(),
+            reff: ref_0.into(),
+            offset: 0,
+        },
+    ];
+
+    let traces = vec![coord_trace];
+    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        must_burn: vec![false],
+        ownership_in: vec![None],
+        ownership_out: vec![None],
+        host_calls_roots,
+        host_calls_lens: trace_lens,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+    let result = prove(instance, wit);
+    assert!(result.is_ok());
+}
+
+#[test]
 fn test_ref_non_multiple_sat() {
     setup_logger();
 
