@@ -60,6 +60,9 @@ fn test_runtime_simple_effect_handlers() {
         call uninstall_handler(1, 0, 0, 0);
     });
 
+    print_wat("simple/utxo", &utxo_bin);
+    print_wat("simple/coord", &coord_bin);
+
     let programs = vec![utxo_bin, coord_bin.clone()];
 
     let tx = UnprovenTransaction {
@@ -80,6 +83,21 @@ fn test_runtime_simple_effect_handlers() {
 
 #[test]
 fn test_runtime_effect_handlers_cross_calls() {
+    // this test emulates a coordination script acting as a middle-man for a channel-like flow
+    //
+    // utxo1 sends numbers, by encoding the request as (1, arg)
+    //
+    // the coord script recognizes 1 as a request to forward the message (like
+    // an enum), and sends the arg utxo2.
+    //
+    // utxo2 gets the new message, and answers with x+1
+    //
+    // coord manages the hand-out of that value to utxo1 again
+    //
+    // TODO:
+    //   - each coroutine allocates a new ref each time, this is not as efficient
+    //   - coord should check that the answer it receives actually comes from
+    //     the right process (or maybe this should be an optional arg to resume and be enforced by the circuit?)
     let utxo1_bin = wasm_module!({
         let (_init_ref, _caller) = call activation();
 
@@ -190,6 +208,10 @@ fn test_runtime_effect_handlers_cross_calls() {
         call uninstall_handler(1, 2, 3, 4);
     });
 
+    print_wat("cross/utxo1", &utxo1_bin);
+    print_wat("cross/utxo2", &utxo2_bin);
+    print_wat("cross/coord", &coord_bin);
+
     let programs = vec![utxo1_bin.clone(), utxo2_bin.clone(), coord_bin.clone()];
 
     let tx = UnprovenTransaction {
@@ -209,6 +231,7 @@ fn test_runtime_effect_handlers_cross_calls() {
 }
 
 fn hash_program(utxo_bin: &Vec<u8>) -> (i64, i64, i64, i64) {
+    // TODO: this would be poseidon2 later
     let mut hasher = Sha256::new();
     hasher.update(utxo_bin);
     let utxo_hash_bytes = hasher.finalize();
@@ -224,4 +247,15 @@ fn hash_program(utxo_bin: &Vec<u8>) -> (i64, i64, i64, i64) {
         utxo_hash_limb_c,
         utxo_hash_limb_d,
     )
+}
+
+fn print_wat(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_WAT").is_none() {
+        return;
+    }
+
+    match wasmprinter::print_bytes(wasm) {
+        Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
+        Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
 }
