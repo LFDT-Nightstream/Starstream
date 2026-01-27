@@ -174,7 +174,9 @@ impl<const SCAN_BATCH_SIZE: usize> IVCMemory<F> for NebulaMemory<SCAN_BATCH_SIZE
     fn constraints(mut self) -> Self::Allocator {
         let mut ic_is_fs = ICPlain::zero();
 
-        let padding_required = SCAN_BATCH_SIZE - (self.is.len() % SCAN_BATCH_SIZE);
+        // Only pad when there is a remainder; avoid adding a full extra batch.
+        let rem = self.is.len() % SCAN_BATCH_SIZE;
+        let padding_required = (SCAN_BATCH_SIZE - rem) % SCAN_BATCH_SIZE;
 
         let mut max_address = self.is.keys().next_back().unwrap().clone();
 
