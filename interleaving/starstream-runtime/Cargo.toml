@@ -18,3 +18,4 @@ sha2 = "0.10"
 imbl = "6.1.0"
 wat = "1.0"
 wasm-encoder = { workspace = true }
+wasmprinter = "0.2"
