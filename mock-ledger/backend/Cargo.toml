@@ -33,12 +33,12 @@ p3-field = { version = "0.3", default-features = false }
 rand = { version = "0.9", default-features = false }
 starstream-ledger = { path = "ledger" }
 wrpc-multiplexer = { path = "wrpc-multiplexer" }
-wit-bindgen-wrpc = { path = "../../../wrpc/crates/wit-bindgen", default-features = false }
-wrpc-transport = { path = "../../../wrpc/crates/transport", default-features = false }
-wrpc-runtime-wasmtime = { path = "../../../wrpc/crates/runtime-wasmtime", default-features = false }
+wit-bindgen-wrpc = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", default-features = false }
+wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", default-features = false }
+wrpc-runtime-wasmtime = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", default-features = false }
 wasmtime-wasi = { version = "39", default-features = false }
 wasm-wave = { version = "0.243", default-features = false }
-wrpc-wave = { path = "../../../wrpc/crates/wave", features = ["sync"] }
-wrpc-pack = { path = "../../../wrpc/crates/pack", default-features = false }
+wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", features = ["sync"] }
+wrpc-pack = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", default-features = false }
 wit-parser = { version = "0.243", default-features = false }
 wit-encoder = { version = "0.243", default-features = false }
