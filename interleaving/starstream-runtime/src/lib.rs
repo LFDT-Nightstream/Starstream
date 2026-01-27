@@ -68,7 +68,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         | WitLedgerEffect::NewCoord { .. }
         | WitLedgerEffect::GetHandlerFor { .. }
         | WitLedgerEffect::NewRef { .. } => 1,
-        WitLedgerEffect::Get { .. } => 5,
+        WitLedgerEffect::RefGet { .. } => 5,
         WitLedgerEffect::InstallHandler { .. }
         | WitLedgerEffect::UninstallHandler { .. }
         | WitLedgerEffect::Burn { .. }
@@ -527,7 +527,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_get",
+                "starstream_ref_get",
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64|
@@ -553,7 +553,7 @@ impl Runtime {
                     }
                     suspend_with_effect(
                         &mut caller,
-                        WitLedgerEffect::Get {
+                        WitLedgerEffect::RefGet {
                             reff: ref_id,
                             offset,
                             ret: WitEffectOutput::Resolved(ret),
@@ -942,7 +942,7 @@ impl UnprovenTransaction {
                         WitLedgerEffect::NewRef { ret, .. } => {
                             next_args = [ret.unwrap().0, 0, 0, 0, 0];
                         }
-                        WitLedgerEffect::Get { ret, .. } => {
+                        WitLedgerEffect::RefGet { ret, .. } => {
                             let ret = ret.unwrap();
                             next_args = [ret[0].0, ret[1].0, ret[2].0, ret[3].0, ret[4].0];
                         }

@@ -23,7 +23,7 @@ fn test_runtime_simple_effect_handlers() {
         call ref_push(42, 0, 0, 0, 0, 0, 0);
 
         let (resp, _caller) = call resume(handler_id, req);
-        let (resp_val, _b, _c, _d, _e) = call get(resp, 0);
+        let (resp_val, _b, _c, _d, _e) = call ref_get(resp, 0);
 
         assert_eq resp_val, 1;
         let (_req2, _caller2) = call yield_(resp);
@@ -48,7 +48,7 @@ fn test_runtime_simple_effect_handlers() {
         );
 
         let (req, _caller) = call resume(0, init_val);
-        let (req_val, _b, _c, _d, _e) = call get(req, 0);
+        let (req_val, _b, _c, _d, _e) = call ref_get(req, 0);
 
         assert_eq req_val, 42;
 
@@ -117,7 +117,7 @@ fn test_runtime_effect_handlers_cross_calls() {
             call ref_push(1, x, 0, 0, 0, 0, 0);
 
             let (resp, _caller2) = call resume(handler_id, req);
-            let (y, _b, _c, _d, _e) = call get(resp, 0);
+            let (y, _b, _c, _d, _e) = call ref_get(resp, 0);
             let expected = add x, 1;
             assert_eq y, expected;
 
@@ -139,7 +139,7 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // Serve x -> x+1 for each incoming request.
         loop {
-            let (x, _b, _c, _d, _e) = call get(req, 0);
+            let (x, _b, _c, _d, _e) = call ref_get(req, 0);
             let y = add x, 1;
             let resp = call new_ref(1);
             call ref_push(y, 0, 0, 0, 0, 0, 0);
@@ -183,7 +183,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         let caller1 = caller0;
 
         loop {
-            let (disc, x, _c, _d, _e) = call get(req, 0);
+            let (disc, x, _c, _d, _e) = call ref_get(req, 0);
             if disc == 2 {
                 let back = call new_ref(1);
                 call ref_push(x, 0, 0, 0, 0, 0, 0);
@@ -195,7 +195,7 @@ fn test_runtime_effect_handlers_cross_calls() {
             let msg = call new_ref(1);
             call ref_push(x, 0, 0, 0, 0, 0, 0);
             let (resp2, _caller2) = call resume(utxo_id2, msg);
-            let (y, _b2, _c2, _d2, _e2) = call get(resp2, 0);
+            let (y, _b2, _c2, _d2, _e2) = call ref_get(resp2, 0);
 
             // coord -> utxo1, which will resume the handler again
             let back = call new_ref(1);

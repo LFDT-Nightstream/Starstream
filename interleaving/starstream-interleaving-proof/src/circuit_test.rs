@@ -80,7 +80,7 @@ fn test_circuit_many_steps() {
             val: ref_4.into(),
             caller: p2.into(),
         },
-        WitLedgerEffect::Get {
+        WitLedgerEffect::RefGet {
             reff: ref_4,
             offset: 0,
             ret: v5_from_value(val_4).into(),
@@ -105,7 +105,7 @@ fn test_circuit_many_steps() {
             val: ref_1.into(),
             caller: p2.into(),
         },
-        WitLedgerEffect::Get {
+        WitLedgerEffect::RefGet {
             reff: ref_1,
             offset: 0,
             ret: v5_from_value(val_1).into(),
@@ -375,12 +375,12 @@ fn prove_ref_non_multiple(
             },
             WitLedgerEffect::RefPush { vals: push1_vals },
             WitLedgerEffect::RefPush { vals: push2_vals },
-            WitLedgerEffect::Get {
+            WitLedgerEffect::RefGet {
                 ret: first_get_ret.into(),
                 reff: ref_0.into(),
                 offset: 0,
             },
-            WitLedgerEffect::Get {
+            WitLedgerEffect::RefGet {
                 ret: last_get_ret.into(),
                 reff: ref_0.into(),
                 offset: last_get_offset,

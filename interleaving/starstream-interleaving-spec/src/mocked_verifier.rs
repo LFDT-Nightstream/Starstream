@@ -195,8 +195,8 @@ pub enum InterleavingError {
     #[error("RefPush called but full (pid={pid} size={size})")]
     RefPushOutOfBounds { pid: ProcessId, size: usize },
 
-    #[error("Get offset out of bounds: ref={0:?} offset={1} len={2}")]
-    GetOutOfBounds(Ref, usize, usize),
+    #[error("RefGet offset out of bounds: ref={0:?} offset={1} len={2}")]
+    RefGetOutOfBounds(Ref, usize, usize),
 
     #[error("NewRef result mismatch. Got: {0:?}. Expected: {0:?}")]
     RefInitializationMismatch(Ref, Ref),
@@ -737,7 +737,7 @@ pub fn state_transition(
             }
         }
 
-        WitLedgerEffect::Get { reff, offset, ret } => {
+        WitLedgerEffect::RefGet { reff, offset, ret } => {
             let vec = state
                 .ref_store
                 .get(&reff)
@@ -755,7 +755,7 @@ pub fn state_transition(
                 }
             }
             if val != ret.unwrap() {
-                return Err(InterleavingError::Shape("Get result mismatch"));
+                return Err(InterleavingError::Shape("RefGet result mismatch"));
             }
         }
 

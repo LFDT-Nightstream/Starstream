@@ -47,7 +47,7 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
             ref_push_vals = *vals;
             ref_push = true;
         }
-        LedgerOperation::Get {
+        LedgerOperation::RefGet {
             reff,
             offset,
             ret: _,
