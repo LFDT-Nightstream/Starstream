@@ -1,7 +1,7 @@
+use crate::rpc;
 use anyhow::Context as _;
 use bytes::BytesMut;
 use wrpc_pack::{pack, unpack};
-use crate::rpc;
 
 pub async fn explicit_call(
     addr: String,

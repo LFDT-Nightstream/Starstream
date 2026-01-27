@@ -1,11 +1,14 @@
 use std::path::PathBuf;
 
+use crate::rpc;
 use anyhow::Context as _;
 use starstream_ledger::encode::gen_ctx;
-use wasmtime::{Engine, Store, component::{Component, Linker, Val}};
-use wrpc_multiplexer::{MultiplexClient, InvocationContext};
-use wrpc_pack::{unpack};
-use crate::rpc;
+use wasmtime::{
+    Engine, Store,
+    component::{Component, Linker, Val},
+};
+use wrpc_multiplexer::{InvocationContext, MultiplexClient};
+use wrpc_pack::unpack;
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -15,7 +18,7 @@ mod bindings {
 
 /**
  * Call the wRPC implicitly through Wasm component function calls
- * 
+ *
  * Benefits:
  * - automatic type handling
  * - better composability with libraries that expect a Wasm component as input
@@ -42,10 +45,13 @@ pub async fn implicit_dynamic_call(
         .join("no-args.wasm");
     let component_bytes = std::fs::read(&component_path)
         .with_context(|| format!("failed to read component from {:?}", component_path))?;
-    let component = Component::new(&engine, component_bytes)
-              .context("failed to parse component")?;
+    let component =
+        Component::new(&engine, component_bytes).context("failed to parse component")?;
 
-    let mut store = Store::new(&engine, gen_ctx(wrpc, InvocationContext::new((), contract_hash.clone())));
+    let mut store = Store::new(
+        &engine,
+        gen_ctx(wrpc, InvocationContext::new((), contract_hash.clone())),
+    );
     let linker = Linker::new(&engine);
     let instance = linker.instantiate_async(&mut store, &component).await?;
 
@@ -66,10 +72,7 @@ pub async fn implicit_dynamic_call(
 /**
  * Same as `implicit_dynamic_call`, but with compile-time generated type bindings
  */
-pub async fn implicit_static_call(
-    addr: String,
-    contract_hash: String,
-) -> anyhow::Result<i64> {
+pub async fn implicit_static_call(addr: String, contract_hash: String) -> anyhow::Result<i64> {
     let wrpc = MultiplexClient::new(wrpc_transport::tcp::Client::from(addr.clone()));
 
     // Note: each component gets its own Engine, since you can't compose these components anyways (as state is owned by the remote ledger)
@@ -82,10 +85,13 @@ pub async fn implicit_static_call(
         .join("no-args.wasm");
     let component_bytes = std::fs::read(&component_path)
         .with_context(|| format!("failed to read component from {:?}", component_path))?;
-    let component = Component::new(&engine, component_bytes)
-              .context("failed to parse component")?;
+    let component =
+        Component::new(&engine, component_bytes).context("failed to parse component")?;
 
-    let mut store = Store::new(&engine, gen_ctx(wrpc, InvocationContext::new((), contract_hash.clone())));
+    let mut store = Store::new(
+        &engine,
+        gen_ctx(wrpc, InvocationContext::new((), contract_hash.clone())),
+    );
     let linker = Linker::new(&engine);
 
     let bindings = bindings::Root::instantiate_async(&mut store, &component, &linker).await?;
@@ -95,7 +101,7 @@ pub async fn implicit_static_call(
 
 /**
  * Call the wRPC explicitly through the wRPC Multiplexer WIT interface
- * 
+ *
  * Benefits:
  * - Less Wasm component setup boilerplate
  * - Truer to what is actually happening (less chance of accidentally being confused by the abstraction of implicit calls)
