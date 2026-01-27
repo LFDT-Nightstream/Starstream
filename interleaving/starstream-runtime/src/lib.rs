@@ -502,17 +502,16 @@ impl Runtime {
                         .get(&current_pid)
                         .ok_or(wasmi::Error::new("no ref state"))?;
 
-                    if offset + vals.len() > size {
-                        return Err(wasmi::Error::new("ref push overflow"));
-                    }
-
                     let store = caller
                         .data_mut()
                         .ref_store
                         .get_mut(&ref_id)
                         .ok_or(wasmi::Error::new("ref not found"))?;
+
                     for (i, val) in vals.iter().enumerate() {
-                        store[offset + i] = *val;
+                        if let Some(pos) = store.get_mut(offset + i) {
+                            *pos = *val;
+                        }
                     }
 
                     caller

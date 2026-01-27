@@ -106,6 +106,7 @@ impl NeoCircuit for StepCircuitNeo {
         for (tag, (_dims, lanes, ty, _)) in &self.ts_mem_init.mems {
             match ty {
                 crate::memory::MemType::Rom => {
+                    // TODO: could this be avoided?
                     let size = *max_rom_size.unwrap();
                     let mut dense_content = vec![neo_math::F::ZERO; size];
 

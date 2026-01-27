@@ -9,6 +9,7 @@ pub fn h<T>(n: u8) -> Hash<T> {
     // TODO: actual hashing
     let mut bytes = [0u8; 32];
     bytes[0] = n;
+    bytes[4] = n;
     Hash(bytes, std::marker::PhantomData)
 }
 

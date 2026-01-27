@@ -193,7 +193,7 @@ pub enum InterleavingError {
     BuildingRefButCalledOther(ProcessId),
 
     #[error("RefPush called but full (pid={pid} size={size})")]
-    RefPushFull { pid: ProcessId, size: usize },
+    RefPushOutOfBounds { pid: ProcessId, size: usize },
 
     #[error("Get offset out of bounds: ref={0:?} offset={1} len={2}")]
     GetOutOfBounds(Ref, usize, usize),
@@ -716,16 +716,20 @@ pub fn state_transition(
                 .ok_or(InterleavingError::RefPushNotBuilding(id_curr))?;
 
             let new_offset = offset + vals.len();
-            if new_offset > size {
-                return Err(InterleavingError::RefPushFull { pid: id_curr, size });
-            }
 
             let vec = state
                 .ref_store
                 .get_mut(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
+
             for (i, val) in vals.iter().enumerate() {
-                vec[offset + i] = *val;
+                if offset + i > size && *val != Value::nil() {
+                    return Err(InterleavingError::RefPushOutOfBounds { pid: id_curr, size });
+                }
+
+                if let Some(pos) = vec.get_mut(offset + i) {
+                    *pos = *val;
+                }
             }
 
             if new_offset < size {
