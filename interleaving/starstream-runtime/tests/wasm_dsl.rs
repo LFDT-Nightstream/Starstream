@@ -208,12 +208,7 @@ impl ModuleBuilder {
             "env",
             "starstream_get_program_hash",
             &[ValType::I64],
-            &[
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
+            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
         );
         let get_handler_for = self.import_func(
             "env",
@@ -233,8 +228,12 @@ impl ModuleBuilder {
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
-        let new_ref =
-            self.import_func("env", "starstream_new_ref", &[ValType::I64], &[ValType::I64]);
+        let new_ref = self.import_func(
+            "env",
+            "starstream_new_ref",
+            &[ValType::I64],
+            &[ValType::I64],
+        );
         let ref_push = self.import_func(
             "env",
             "starstream_ref_push",
@@ -300,12 +299,7 @@ impl ModuleBuilder {
         let burn = self.import_func("env", "starstream_burn", &[ValType::I64], &[]);
         let bind = self.import_func("env", "starstream_bind", &[ValType::I64], &[]);
         let unbind = self.import_func("env", "starstream_unbind", &[ValType::I64], &[]);
-        let init = self.import_func(
-            "env",
-            "starstream_init",
-            &[],
-            &[ValType::I64, ValType::I64],
-        );
+        let init = self.import_func("env", "starstream_init", &[], &[ValType::I64, ValType::I64]);
 
         Imports {
             activation,
@@ -360,8 +354,7 @@ impl ModuleBuilder {
         self.functions.function(type_idx);
         self.codes.function(&func.finish());
         let start_idx = self.import_count;
-        self.exports
-            .export("_start", ExportKind::Func, start_idx);
+        self.exports.export("_start", ExportKind::Func, start_idx);
 
         let mut module = Module::new();
         module.section(&self.types);
