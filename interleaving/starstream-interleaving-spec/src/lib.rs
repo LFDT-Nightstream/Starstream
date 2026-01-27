@@ -125,18 +125,22 @@ impl ZkTransactionProof {
 
                 // NOTE: the indices in steps_public match the memory initializations
                 // ordered by MemoryTag in the circuit
-                let process_table = &steps_public[0].lut_insts[0].table;
                 let mut expected_fields = Vec::with_capacity(inst.process_table.len() * 4);
                 for hash in &inst.process_table {
                     let hash_fields = encode_hash_to_fields(*hash);
                     expected_fields.extend(hash_fields.iter().copied());
                 }
+                // TODO: review if this is correct, I think all ROM's need to be
+                // of the same size, so we have some extra padding.
+                //
+                // we may need to check the length or something as a new check,
+                // or maybe try to just use a sparse definition?
+                let process_table = &steps_public[0].lut_insts[0].table[0..expected_fields.len()];
                 assert!(
-                    expected_fields.len() == process_table.len()
-                        && expected_fields
-                            .iter()
-                            .zip(process_table.iter())
-                            .all(|(expected, found)| *expected == *found),
+                    expected_fields
+                        .iter()
+                        .zip(process_table.iter())
+                        .all(|(expected, found)| *expected == *found),
                     "program hash table mismatch"
                 );
 

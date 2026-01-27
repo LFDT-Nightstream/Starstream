@@ -1135,9 +1135,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     > {
         rm.start_step(cs.clone()).unwrap();
 
-        let _guard = tracing::info_span!("make_step_circuit", i = i, op = ?self.ops[i]).entered();
+        let _guard =
+            tracing::info_span!("make_step_circuit", i = i, pid = ?irw.id_curr, op = ?self.ops[i])
+                .entered();
 
-        tracing::info!("synthesis for step {}", i + 1);
+        tracing::info!("synthesizing step");
 
         let wires_in = self.allocate_vars(i, rm, &irw)?;
         let next_wires = wires_in.clone();
