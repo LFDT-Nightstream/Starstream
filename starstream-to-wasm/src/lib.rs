@@ -587,25 +587,24 @@ impl Compiler {
         // In the Wasm output, imported functions must precede defined
         // functions, so take care of them now.
         for definition in &program.definitions {
-            if let TypedDefinition::Import(def) = definition {
-                self.visit_import(def)
+            match definition {
+                TypedDefinition::Import(def) => self.visit_import(def),
+                TypedDefinition::Abi(def) => self.visit_abi(def),
+                // All others handled below.
+                _ => {}
             }
         }
 
         for definition in &program.definitions {
             match definition {
-                TypedDefinition::Import(_) => { /* handled above */ }
+                TypedDefinition::Import(_) => { /* Handled above. */ }
+                TypedDefinition::Abi(_) => { /* Handled above. */ }
+
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
                 TypedDefinition::Enum(_) => {
                     self.todo("enums are not supported in Wasm yet".into());
-                }
-                // TODO: Implement ABI/events in Wasm codegen.
-                // Events will likely become imported functions or host calls.
-                TypedDefinition::Abi(_) => {
-                    // ABI definitions don't produce Wasm code directly;
-                    // events are handled at emit sites.
                 }
             }
         }
@@ -682,6 +681,51 @@ impl Compiler {
         }
     }
 
+    fn visit_abi(&mut self, def: &TypedAbiDef) {
+        for part in &def.parts {
+            match part {
+                TypedAbiPart::Event(event) => {
+                    let mut core_params = Vec::with_capacity(16);
+                    for p in &event.params {
+                        if !self.star_to_core_types(&mut core_params, &p.ty) {
+                            self.push_error(
+                                event.name.span.unwrap_or(Span::from(0..0)),
+                                format!("unknown lowering for parameter type {:?}", p),
+                            );
+                        }
+                    }
+
+                    let interface = to_kebab_case(def.name.as_str());
+                    let kebab = to_kebab_case(event.name.as_str());
+
+                    // Core import
+                    let core_fn_ty = self.add_core_func_type(FuncType::new(
+                        core_params.iter().copied(),
+                        std::iter::empty(),
+                    ));
+                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
+                    self.imports
+                        .import(&interface, &kebab, EntityType::Function(core_fn_ty));
+                    self.callables.insert(event.name.as_str().to_owned(), func);
+
+                    // Component import
+                    let comp_params = event
+                        .params
+                        .iter()
+                        .flat_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .collect::<Vec<_>>();
+                    let comp_result = None;
+                    let iface = self.imported_interfaces.entry(interface).or_default();
+                    let comp_fn_ty =
+                        iface.encode_func(comp_params.into_iter(), comp_result.as_ref());
+                    iface
+                        .inner
+                        .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
+                }
+            }
+        }
+    }
+
     fn visit_function(&mut self, function: &TypedFunctionDef) {
         let mut locals = HashMap::<String, u32>::new();
         let mut params = Vec::with_capacity(16);
@@ -718,6 +762,8 @@ impl Compiler {
             FuncType::new(params.iter().copied(), results.iter().copied()),
             func,
         );
+        self.callables
+            .insert(function.name.as_str().to_owned(), idx);
 
         match function.export {
             Some(FunctionExport::Script) => {
@@ -903,7 +949,7 @@ impl Compiler {
         &mut self,
         func: &mut Function,
         locals: &dyn Locals,
-        _span: Span,
+        span: Span,
         expr: &TypedExpr,
     ) -> Result<()> {
         // TODO: Warn on expressions that have no effect.
@@ -998,21 +1044,21 @@ impl Compiler {
                 // End.
                 func.instructions().end();
             }
+            // Function calls
+            TypedExprKind::Call { .. }
+            | TypedExprKind::Emit { .. }
+            | TypedExprKind::Raise { .. }
+            | TypedExprKind::Runtime { .. } => {
+                // Function calls could have any side effect, so always really
+                // call them then drop whatever they might have returned.
+                self.visit_expr_stack(func, locals, span, expr)?;
+                for _ in 0..self.star_count_core_types(&expr.ty) {
+                    func.instructions().drop();
+                }
+            }
             // Todo
-            TypedExprKind::Match { .. } | TypedExprKind::Call { .. } => {
+            TypedExprKind::Match { .. } => {
                 return Err(self.todo(format!("{:?}", expr.kind)));
-            }
-            // TODO: Implement event emission in Wasm codegen.
-            // Events will likely become calls to imported host functions.
-            TypedExprKind::Emit { .. } => {
-                return Err(self.todo("event emission is not supported in Wasm yet".into()));
-            }
-            // TODO: Implement raise (effectful calls) in Wasm codegen.
-            TypedExprKind::Raise { .. } => {
-                return Err(self.todo("raise is not supported in Wasm yet".into()));
-            }
-            TypedExprKind::Runtime { .. } => {
-                todo!()
             }
         }
         Ok(())
@@ -1479,17 +1525,36 @@ impl Compiler {
                 }
                 Ok(())
             }
-            TypedExprKind::EnumConstructor { .. }
-            | TypedExprKind::Match { .. }
-            | TypedExprKind::Call { .. } => Err(self.todo(format!("{:?}", expr.kind))),
-            // TODO: Implement event emission in Wasm codegen.
-            // Events will likely become calls to imported host functions.
-            TypedExprKind::Emit { .. } => {
-                Err(self.todo("event emission is not supported in Wasm yet".into()))
+            // Function calls
+            TypedExprKind::Call { callee, args } => {
+                let TypedExprKind::Identifier(i) = &callee.node.kind else {
+                    return Err(self.todo("cannot call non-identifier".into()));
+                };
+                let target = *self
+                    .callables
+                    .get(i.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
             }
-            // TODO: Implement raise (effectful calls) in Wasm codegen.
-            TypedExprKind::Raise { .. } => {
-                Err(self.todo("raise is not supported in Wasm yet".into()))
+            TypedExprKind::Emit { event, args } => {
+                let target = *self
+                    .callables
+                    .get(event.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
+            }
+            TypedExprKind::Raise { expr: inner } => {
+                let TypedExprKind::Call { callee, args } = &inner.node.kind else {
+                    panic!("raise expr must be a call");
+                };
+                let TypedExprKind::Identifier(i) = &callee.node.kind else {
+                    return Err(self.todo("raise expr cannot call non-identifier".into()));
+                };
+                let target = *self
+                    .callables
+                    .get(i.as_str())
+                    .expect("no callable found for identifier");
+                self.visit_call(func, locals, span, target, args)
             }
             TypedExprKind::Runtime { expr: inner } => {
                 let TypedExprKind::Call { callee, args } = &inner.node.kind else {
@@ -1503,6 +1568,10 @@ impl Compiler {
                     .get(i.as_str())
                     .expect("no callable found for identifier");
                 self.visit_call(func, locals, span, target, args)
+            }
+            // Todo
+            TypedExprKind::EnumConstructor { .. } | TypedExprKind::Match { .. } => {
+                Err(self.todo(format!("{:?}", expr.kind)))
             }
         }
     }

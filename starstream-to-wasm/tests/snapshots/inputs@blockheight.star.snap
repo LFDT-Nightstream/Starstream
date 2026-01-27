@@ -78,7 +78,35 @@ Program {
                         },
                     ),
                     body: Block {
-                        statements: [],
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Runtime {
+                                            expr: Spanned {
+                                                node: Call {
+                                                    callee: Spanned {
+                                                        node: Identifier(
+                                                            Identifier {
+                                                                name: "blockHeight",
+                                                                span: Some(
+                                                                    95..106,
+                                                                ),
+                                                            },
+                                                        ),
+                                                        span: 95..106,
+                                                    },
+                                                    args: [],
+                                                },
+                                                span: 95..108,
+                                            },
+                                        },
+                                        span: 87..108,
+                                    },
+                                ),
+                                span: 87..114,
+                            },
+                        ],
                         tail_expression: Some(
                             Spanned {
                                 node: Runtime {
@@ -89,25 +117,76 @@ Program {
                                                     Identifier {
                                                         name: "blockHeight",
                                                         span: Some(
-                                                            95..106,
+                                                            122..133,
                                                         ),
                                                     },
                                                 ),
-                                                span: 95..106,
+                                                span: 122..133,
                                             },
                                             args: [],
                                         },
-                                        span: 95..109,
+                                        span: 122..136,
                                     },
                                 },
-                                span: 87..109,
+                                span: 114..136,
                             },
                         ),
-                        span: 81..111,
+                        span: 81..139,
                     },
                 },
             ),
-            span: 53..111,
+            span: 53..139,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "second",
+                        span: Some(
+                            149..155,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    161..164,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Call {
+                                    callee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "reexport",
+                                                span: Some(
+                                                    171..179,
+                                                ),
+                                            },
+                                        ),
+                                        span: 171..179,
+                                    },
+                                    args: [],
+                                },
+                                span: 171..182,
+                            },
+                        ),
+                        span: 165..184,
+                    },
+                },
+            ),
+            span: 139..184,
         },
     ],
 }
@@ -115,10 +194,20 @@ Program {
 ==== Inference trace ====
 
 T-Fn: reexport => i64
+  T-Expr: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
+    T-Runtime: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
+      T-Call: {blockHeight: runtime fn() -> i64} ⊢ blockHeight() ⇒ i64
+        T-Var: {blockHeight: runtime fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
   T-ReturnTail: runtime blockHeight() => i64
     T-Runtime: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
       T-Call: {blockHeight: runtime fn() -> i64} ⊢ blockHeight() ⇒ i64
         T-Var: {blockHeight: runtime fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: second => i64
+  T-ReturnTail: reexport() => i64
+    T-Call: {blockHeight: runtime fn() -> i64} ⊢ reexport() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64} ⊢ reexport ⇒ fn() -> i64
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====
@@ -188,7 +277,45 @@ TypedProgram {
                 return_type: Int,
                 effect: Pure,
                 body: TypedBlock {
-                    statements: [],
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Runtime {
+                                        expr: Spanned {
+                                            node: TypedExpr {
+                                                ty: Int,
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function {
+                                                                params: [],
+                                                                result: Int,
+                                                                effect: Runtime,
+                                                            },
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "blockHeight",
+                                                                    span: Some(
+                                                                        95..106,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 95..106,
+                                                    },
+                                                    args: [],
+                                                },
+                                            },
+                                            span: 95..108,
+                                        },
+                                    },
+                                },
+                                span: 87..108,
+                            },
+                        ),
+                    ],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
@@ -209,21 +336,69 @@ TypedProgram {
                                                             Identifier {
                                                                 name: "blockHeight",
                                                                 span: Some(
-                                                                    95..106,
+                                                                    122..133,
                                                                 ),
                                                             },
                                                         ),
                                                     },
-                                                    span: 95..106,
+                                                    span: 122..133,
                                                 },
                                                 args: [],
                                             },
                                         },
-                                        span: 95..109,
+                                        span: 122..136,
                                     },
                                 },
                             },
-                            span: 87..109,
+                            span: 114..136,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "second",
+                    span: Some(
+                        149..155,
+                    ),
+                },
+                params: [],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Call {
+                                    callee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Function {
+                                                params: [],
+                                                result: Int,
+                                                effect: Pure,
+                                            },
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "reexport",
+                                                    span: Some(
+                                                        171..179,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 171..179,
+                                    },
+                                    args: [],
+                                },
+                            },
+                            span: 171..182,
                         },
                     ),
                 },
@@ -237,7 +412,13 @@ TypedProgram {
   (type (;0;) (func (result i64)))
   (import "starstream:std/cardano" "block-height" (func (;0;) (type 0)))
   (export "reexport" (func 0))
+  (export "second" (func 1))
   (func (;1;) (type 0) (result i64)
+    (drop
+      (call 0))
+    (call 0)
+  )
+  (func (;2;) (type 0) (result i64)
     (call 0)
   )
   (@custom "component-type"
@@ -249,13 +430,15 @@ TypedProgram {
             (component
               (type (;0;) (func (result s64)))
               (export (;0;) "reexport" (func (type 0)))
-              (type (;1;)
+              (type (;1;) (func (result s64)))
+              (export (;1;) "second" (func (type 1)))
+              (type (;2;)
                 (instance
                   (type (;0;) (func (result s64)))
                   (export (;0;) "block-height" (func (type 0)))
                 )
               )
-              (import "starstream:std/cardano" (instance (;0;) (type 1)))
+              (import "starstream:std/cardano" (instance (;0;) (type 2)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -273,6 +456,7 @@ world root {
   import starstream:std/cardano;
 
   export reexport: func() -> s64;
+  export second: func() -> s64;
 }
 package starstream:std {
   interface cardano {

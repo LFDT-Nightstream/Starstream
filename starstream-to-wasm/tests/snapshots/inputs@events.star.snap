@@ -1,0 +1,195 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/events.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: Some(
+                            4..7,
+                        ),
+                    },
+                    parts: [
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "Hello",
+                                    span: Some(
+                                        20..25,
+                                    ),
+                                },
+                                params: [],
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..32,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "main",
+                        span: Some(
+                            42..46,
+                        ),
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Emit {
+                                            event: Identifier {
+                                                name: "Hello",
+                                                span: Some(
+                                                    60..65,
+                                                ),
+                                            },
+                                            args: [],
+                                        },
+                                        span: 55..67,
+                                    },
+                                ),
+                                span: 55..69,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 49..71,
+                    },
+                },
+            ),
+            span: 32..71,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Fn: main => ()
+  T-Expr: {} ⊢ emit Hello(); ⇒ ()
+    T-Emit: {} ⊢ emit Hello() ⇒ ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: Some(
+                        4..7,
+                    ),
+                },
+                parts: [
+                    Event(
+                        TypedEventDef {
+                            name: Identifier {
+                                name: "Hello",
+                                span: Some(
+                                    20..25,
+                                ),
+                            },
+                            params: [],
+                        },
+                    ),
+                ],
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "main",
+                    span: Some(
+                        42..46,
+                    ),
+                },
+                params: [],
+                return_type: Unit,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Unit,
+                                    kind: Emit {
+                                        event: Identifier {
+                                            name: "Hello",
+                                            span: Some(
+                                                60..65,
+                                            ),
+                                        },
+                                        args: [],
+                                    },
+                                },
+                                span: 55..67,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func))
+  (import "foo" "hello" (func (;0;) (type 0)))
+  (export "main" (func 0))
+  (func (;1;) (type 0)
+    (call 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func))
+              (export (;0;) "main" (func (type 0)))
+              (type (;1;)
+                (instance
+                  (type (;0;) (func))
+                  (export (;0;) "hello" (func (type 0)))
+                )
+              )
+              (import "foo" (instance (;0;) (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import foo: interface {
+    hello: func();
+  }
+
+  export main: func();
+}
