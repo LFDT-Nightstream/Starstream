@@ -20,7 +20,8 @@ jobs:
       - run: cargo clippy
       - run: cargo fmt --check
       # Mock ledger
-      - run: cargo fmt --check
+      - name: Mock Ledger - Check formatting
+        run: cargo fmt --check
         working-directory: mock-ledger/backend
 
   website:
