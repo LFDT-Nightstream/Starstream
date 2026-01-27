@@ -150,6 +150,17 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             offset: F::from(*offset as u64),
             ret: ret.unwrap().map(value_to_field),
         },
+        WitLedgerEffect::RefWrite {
+            reff,
+            offset,
+            len,
+            vals,
+        } => LedgerOperation::RefWrite {
+            reff: F::from(reff.0),
+            offset: F::from(*offset as u64),
+            len: F::from(*len as u64),
+            vals: vals.map(value_to_field),
+        },
         WitLedgerEffect::InstallHandler { interface_id } => LedgerOperation::InstallHandler {
             interface_id: F::from(interface_id.0[0] as u64),
         },
@@ -182,6 +193,7 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
         LedgerOperation::NewRef { .. } => F::from(EffectDiscriminant::NewRef as u64),
         LedgerOperation::RefPush { .. } => F::from(EffectDiscriminant::RefPush as u64),
         LedgerOperation::RefGet { .. } => F::from(EffectDiscriminant::RefGet as u64),
+        LedgerOperation::RefWrite { .. } => F::from(EffectDiscriminant::RefWrite as u64),
         LedgerOperation::InstallHandler { .. } => {
             F::from(EffectDiscriminant::InstallHandler as u64)
         }
@@ -280,6 +292,21 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::PackedRef4.idx()] = ret[2];
             args[ArgName::PackedRef5.idx()] = ret[3];
             args[ArgName::PackedRef6.idx()] = ret[4];
+        }
+        LedgerOperation::RefWrite {
+            reff,
+            offset,
+            len,
+            vals,
+        } => {
+            args[ArgName::Val.idx()] = *reff;
+            args[ArgName::Offset.idx()] = *offset;
+            args[ArgName::PackedRef0.idx()] = *len;
+            // Avoid collisions with Val(idx=1) and Offset(idx=3).
+            args[ArgName::PackedRef2.idx()] = vals[0];
+            args[ArgName::PackedRef4.idx()] = vals[1];
+            args[ArgName::PackedRef5.idx()] = vals[2];
+            args[ArgName::PackedRef6.idx()] = vals[3];
         }
         LedgerOperation::InstallHandler { interface_id }
         | LedgerOperation::UninstallHandler { interface_id } => {

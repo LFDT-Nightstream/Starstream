@@ -487,12 +487,18 @@ impl<F: PrimeField> TSMemoryConstraints<F> {
         kind: TwistOpKind,
     ) -> Result<(F, F, F), SynthesisError> {
         let (ra, rv) = {
-            let mut event = self
-                .twist_events
-                .get_mut(address)
-                .unwrap()
-                .pop_front()
-                .unwrap();
+            let queue = self.twist_events.get_mut(address).unwrap_or_else(|| {
+                panic!(
+                    "missing twist events for address {:?} kind {:?} lane {}",
+                    address, kind, lane
+                )
+            });
+            let mut event = queue.pop_front().unwrap_or_else(|| {
+                panic!(
+                    "empty twist event queue for address {:?} kind {:?} lane {}",
+                    address, kind, lane
+                )
+            });
 
             event.lane.replace(lane);
 

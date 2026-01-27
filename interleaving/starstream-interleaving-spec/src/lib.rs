@@ -17,7 +17,8 @@ pub use transaction_effects::{
     InterfaceId,
     instance::InterleavingInstance,
     witness::{
-        EffectDiscriminant, REF_GET_WIDTH, REF_PUSH_WIDTH, WitEffectOutput, WitLedgerEffect,
+        EffectDiscriminant, REF_GET_WIDTH, REF_PUSH_WIDTH, REF_WRITE_WIDTH, WitEffectOutput,
+        WitLedgerEffect,
     },
 };
 
