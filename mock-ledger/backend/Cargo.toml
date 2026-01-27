@@ -38,7 +38,9 @@ wrpc-transport = { git = "https://github.com/bytecodealliance/wrpc", branch = "m
 wrpc-runtime-wasmtime = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", default-features = false }
 wasmtime-wasi = { version = "39", default-features = false }
 wasm-wave = { version = "0.243", default-features = false }
-wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", features = ["sync"] }
+wrpc-wave = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", features = [
+    "sync",
+] }
 wrpc-pack = { git = "https://github.com/bytecodealliance/wrpc", branch = "main", default-features = false }
 wit-parser = { version = "0.243", default-features = false }
 wit-encoder = { version = "0.243", default-features = false }
