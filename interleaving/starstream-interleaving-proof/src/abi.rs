@@ -145,7 +145,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
         WitLedgerEffect::RefPush { vals } => LedgerOperation::RefPush {
             vals: vals.map(value_to_field),
         },
-        WitLedgerEffect::Get { reff, offset, ret } => LedgerOperation::Get {
+        WitLedgerEffect::RefGet { reff, offset, ret } => LedgerOperation::RefGet {
             reff: F::from(reff.0),
             offset: F::from(*offset as u64),
             ret: ret.unwrap().map(value_to_field),
@@ -181,7 +181,7 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
         LedgerOperation::Unbind { .. } => F::from(EffectDiscriminant::Unbind as u64),
         LedgerOperation::NewRef { .. } => F::from(EffectDiscriminant::NewRef as u64),
         LedgerOperation::RefPush { .. } => F::from(EffectDiscriminant::RefPush as u64),
-        LedgerOperation::Get { .. } => F::from(EffectDiscriminant::Get as u64),
+        LedgerOperation::RefGet { .. } => F::from(EffectDiscriminant::RefGet as u64),
         LedgerOperation::InstallHandler { .. } => {
             F::from(EffectDiscriminant::InstallHandler as u64)
         }
@@ -270,7 +270,7 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::PackedRef5.idx()] = vals[5];
             args[ArgName::PackedRef6.idx()] = vals[6];
         }
-        LedgerOperation::Get { reff, offset, ret } => {
+        LedgerOperation::RefGet { reff, offset, ret } => {
             args[ArgName::Val.idx()] = *reff;
             args[ArgName::Offset.idx()] = *offset;
 
