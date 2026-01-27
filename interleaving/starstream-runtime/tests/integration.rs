@@ -113,8 +113,12 @@ fn test_runtime_effect_handlers_cross_calls() {
         loop {
             break_if i == n;
 
-            let req = call new_ref(2);
-            call ref_push(1, x, 0, 0, 0, 0, 0);
+            // Allocate a ref for the number, then send a nested ref message (disc, num_ref).
+            let num_ref = call new_ref(7);
+            call ref_push(x, 0, 0, 0, 0, 0, 0);
+
+            let req = call new_ref(7);
+            call ref_push(1, num_ref, 0, 0, 0, 0, 0);
 
             let (resp, _caller2) = call resume(handler_id, req);
             let (y, _b, _c, _d, _e) = call ref_get(resp, 0);
@@ -126,8 +130,10 @@ fn test_runtime_effect_handlers_cross_calls() {
             continue;
         }
 
-        let stop = call new_ref(2);
-        call ref_push(2, x, 0, 0, 0, 0, 0);
+        let stop_num_ref = call new_ref(7);
+        call ref_push(x, 0, 0, 0, 0, 0, 0);
+        let stop = call new_ref(7);
+        call ref_push(2, stop_num_ref, 0, 0, 0, 0, 0);
         let (_resp_stop, _caller_stop) = call resume(handler_id, stop);
 
         let (_req3, _caller3) = call yield_(stop);
@@ -137,13 +143,12 @@ fn test_runtime_effect_handlers_cross_calls() {
         let (init_ref, _caller) = call activation();
         let req = init_ref;
 
-        // Serve x -> x+1 for each incoming request.
+        // Serve x -> x+1 for each incoming request, writing back into the same ref.
         loop {
             let (x, _b, _c, _d, _e) = call ref_get(req, 0);
             let y = add x, 1;
-            let resp = call new_ref(1);
-            call ref_push(y, 0, 0, 0, 0, 0, 0);
-            let (next_req, _caller2) = call yield_(resp);
+            call ref_write(req, 0, 1, y, 0, 0, 0);
+            let (next_req, _caller2) = call yield_(req);
             set req = next_req;
             continue;
         }
@@ -183,24 +188,17 @@ fn test_runtime_effect_handlers_cross_calls() {
         let caller1 = caller0;
 
         loop {
-            let (disc, x, _c, _d, _e) = call ref_get(req, 0);
+            let (disc, num_ref, _c, _d, _e) = call ref_get(req, 0);
             if disc == 2 {
-                let back = call new_ref(1);
-                call ref_push(x, 0, 0, 0, 0, 0, 0);
-                let (_ret_stop, _caller_stop) = call resume(caller1, back);
+                let (_ret_stop, _caller_stop) = call resume(caller1, num_ref);
             }
             break_if disc == 2;
 
-            // coord -> utxo2
-            let msg = call new_ref(1);
-            call ref_push(x, 0, 0, 0, 0, 0, 0);
-            let (resp2, _caller2) = call resume(utxo_id2, msg);
-            let (y, _b2, _c2, _d2, _e2) = call ref_get(resp2, 0);
+            // coord -> utxo2 (mutates num_ref in place)
+            let (resp2, _caller2) = call resume(utxo_id2, num_ref);
 
             // coord -> utxo1, which will resume the handler again
-            let back = call new_ref(1);
-            call ref_push(y, 0, 0, 0, 0, 0, 0);
-            let (req_next, caller_next) = call resume(caller1, back);
+            let (req_next, caller_next) = call resume(caller1, resp2);
             set req = req_next;
             set caller1 = caller_next;
             continue;

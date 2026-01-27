@@ -4,7 +4,7 @@ use crate::{
     F, LedgerOperation,
     abi::{ArgName, OPCODE_ARG_COUNT},
     circuit::MemoryTag,
-    ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE},
+    ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE, REF_WRITE_BATCH_SIZE},
     memory::{Address, IVCMemory, IVCMemoryAllocated},
 };
 use crate::{circuit::ExecutionSwitches, rem_wires_gadget::alloc_rem_one_hot_selectors};
@@ -29,10 +29,15 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     let mut ref_push_vals = std::array::from_fn(|_| F::ZERO);
     let mut ref_push = false;
     let mut ref_get = false;
+    let mut ref_write = false;
     let mut new_ref = false;
 
     let mut ref_get_ref = F::ZERO;
     let mut ref_get_offset = F::ZERO;
+    let mut ref_write_ref = F::ZERO;
+    let mut ref_write_offset = F::ZERO;
+    let mut ref_write_len = 0usize;
+    let mut ref_write_vals = std::array::from_fn(|_| F::ZERO);
 
     match instr {
         LedgerOperation::NewRef { size, ret } => {
@@ -57,6 +62,18 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
             ref_get_ref = *reff;
             ref_get_offset = *offset;
         }
+        LedgerOperation::RefWrite {
+            reff,
+            offset,
+            len,
+            vals,
+        } => {
+            ref_write = true;
+            ref_write_ref = *reff;
+            ref_write_offset = *offset;
+            ref_write_len = len.into_bigint().0[0] as usize;
+            ref_write_vals = *vals;
+        }
         _ => {}
     };
 
@@ -75,6 +92,21 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
             tag: MemoryTag::RefSizes.into(),
             addr: ref_get_ref.into_bigint().0[0],
         },
+    );
+    mb.conditional_read(
+        ref_write,
+        Address {
+            tag: MemoryTag::RefSizes.into(),
+            addr: ref_write_ref.into_bigint().0[0],
+        },
+    );
+    mb.conditional_write(
+        false,
+        Address {
+            tag: MemoryTag::RefSizes.into(),
+            addr: 0,
+        },
+        vec![F::ZERO],
     );
 
     let remaining = ref_building_remaining.into_bigint().0[0] as usize;
@@ -122,6 +154,36 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     }
 
     for _ in 0..REF_PUSH_BATCH_SIZE - REF_GET_BATCH_SIZE {
+        mb.conditional_read(
+            false,
+            Address {
+                tag: MemoryTag::RefArena.into(),
+                addr: 0,
+            },
+        );
+    }
+
+    let write_size = ref_sizes
+        .get(&ref_write_ref.into_bigint().0[0])
+        .copied()
+        .unwrap_or(0);
+    let write_offset = ref_write_offset.into_bigint().0[0];
+    let write_remaining = write_size.saturating_sub(write_offset) as usize;
+    let to_write = write_remaining.min(ref_write_len).min(REF_WRITE_BATCH_SIZE);
+    for (i, val) in ref_write_vals.iter().enumerate().take(REF_WRITE_BATCH_SIZE) {
+        let should_write = ref_write && i < to_write;
+        let addr = ref_write_ref.into_bigint().0[0] + write_offset + i as u64;
+        mb.conditional_write(
+            should_write,
+            Address {
+                tag: MemoryTag::RefArena.into(),
+                addr,
+            },
+            vec![*val],
+        );
+    }
+
+    for _ in 0..REF_WRITE_BATCH_SIZE {
         mb.conditional_read(
             false,
             Address {
@@ -247,4 +309,85 @@ pub(crate) fn ref_arena_push_wires<M: IVCMemoryAllocated<F>>(
     }
 
     Ok(ref_push_lane_switches)
+}
+
+pub(crate) fn ref_arena_write_wires<M: IVCMemoryAllocated<F>>(
+    cs: ConstraintSystemRef<F>,
+    rm: &mut M,
+    switches: &ExecutionSwitches<Boolean<F>>,
+    opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
+    val: &FpVar<F>,
+    offset: &FpVar<F>,
+) -> Result<[Boolean<F>; REF_WRITE_BATCH_SIZE], SynthesisError> {
+    let ref_size_read = rm.conditional_read(
+        &switches.ref_write,
+        &Address {
+            tag: MemoryTag::RefSizes.allocate(cs.clone())?,
+            addr: val.clone(),
+        },
+    )?[0]
+        .clone();
+
+    let ref_size_sel = switches.ref_write.select(&ref_size_read, &FpVar::zero())?;
+    let offset_sel = switches.ref_write.select(offset, &FpVar::zero())?;
+    let len_sel = switches
+        .ref_write
+        .select(&opcode_args[ArgName::PackedRef0.idx()], &FpVar::zero())?;
+
+    let (ref_size_u32, _) = UInt::<32, u32, F>::from_fp(&ref_size_sel)?;
+    let (offset_u32, _) = UInt::<32, u32, F>::from_fp(&offset_sel)?;
+    let (len_u32, _) = UInt::<32, u32, F>::from_fp(&len_sel)?;
+
+    let size_ge_offset = ref_size_u32.is_ge(&offset_u32)?;
+    let remaining = size_ge_offset.select(&(&ref_size_sel - &offset_sel), &FpVar::zero())?;
+
+    let remaining_lane_switches =
+        alloc_rem_one_hot_selectors::<REF_WRITE_BATCH_SIZE>(&cs, &remaining, &switches.ref_write)?;
+
+    let write_base_addr = val + offset;
+    for i in 0..REF_WRITE_BATCH_SIZE {
+        let i_const = UInt::<32, u32, F>::constant(i as u32);
+        let len_gt_i = len_u32.is_gt(&i_const)?;
+        let should_write = remaining_lane_switches[i].clone() & len_gt_i;
+
+        let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
+        let write_addr = &write_base_addr + offset;
+        let write_val = match i {
+            0 => opcode_args[ArgName::PackedRef2.idx()].clone(),
+            1 => opcode_args[ArgName::PackedRef4.idx()].clone(),
+            2 => opcode_args[ArgName::PackedRef5.idx()].clone(),
+            3 => opcode_args[ArgName::PackedRef6.idx()].clone(),
+            _ => unreachable!(),
+        };
+
+        rm.conditional_write(
+            &should_write,
+            &Address {
+                tag: MemoryTag::RefArena.allocate(cs.clone())?,
+                addr: write_addr,
+            },
+            &[write_val],
+        )?;
+    }
+
+    for _ in 0..REF_WRITE_BATCH_SIZE {
+        let _ = rm.conditional_read(
+            &Boolean::FALSE,
+            &Address {
+                tag: MemoryTag::RefArena.allocate(cs.clone())?,
+                addr: FpVar::zero(),
+            },
+        )?;
+    }
+
+    rm.conditional_write(
+        &Boolean::FALSE,
+        &Address {
+            tag: MemoryTag::RefSizes.allocate(cs.clone())?,
+            addr: FpVar::zero(),
+        },
+        &[FpVar::zero()],
+    )?;
+
+    Ok(remaining_lane_switches)
 }

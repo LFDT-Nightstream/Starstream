@@ -7,7 +7,8 @@ use crate::program_state::{
     trace_program_state_reads, trace_program_state_writes,
 };
 use crate::ref_arena_gadget::{
-    ref_arena_get_read_wires, ref_arena_new_ref_wires, ref_arena_push_wires, trace_ref_arena_ops,
+    ref_arena_get_read_wires, ref_arena_new_ref_wires, ref_arena_push_wires, ref_arena_write_wires,
+    trace_ref_arena_ops,
 };
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
@@ -111,6 +112,7 @@ pub(crate) struct ExecutionSwitches<T> {
     pub(crate) new_ref: T,
     pub(crate) ref_push: T,
     pub(crate) get: T,
+    pub(crate) ref_write: T,
     pub(crate) install_handler: T,
     pub(crate) uninstall_handler: T,
     pub(crate) get_handler_for: T,
@@ -215,6 +217,13 @@ impl ExecutionSwitches<bool> {
         }
     }
 
+    fn ref_write() -> Self {
+        Self {
+            ref_write: true,
+            ..Self::default()
+        }
+    }
+
     fn install_handler() -> Self {
         Self {
             install_handler: true,
@@ -257,6 +266,7 @@ impl ExecutionSwitches<bool> {
             self.new_ref,
             self.ref_push,
             self.get,
+            self.ref_write,
             self.install_handler,
             self.uninstall_handler,
             self.get_handler_for,
@@ -295,6 +305,7 @@ impl ExecutionSwitches<bool> {
             new_ref,
             ref_push,
             get,
+            ref_write,
             install_handler,
             uninstall_handler,
             get_handler_for,
@@ -317,6 +328,7 @@ impl ExecutionSwitches<bool> {
             (new_ref, EffectDiscriminant::NewRef as u64),
             (ref_push, EffectDiscriminant::RefPush as u64),
             (get, EffectDiscriminant::RefGet as u64),
+            (ref_write, EffectDiscriminant::RefWrite as u64),
             (install_handler, EffectDiscriminant::InstallHandler as u64),
             (
                 uninstall_handler,
@@ -346,6 +358,7 @@ impl ExecutionSwitches<bool> {
             new_ref: new_ref.clone(),
             ref_push: ref_push.clone(),
             get: get.clone(),
+            ref_write: ref_write.clone(),
             install_handler: install_handler.clone(),
             uninstall_handler: uninstall_handler.clone(),
             get_handler_for: get_handler_for.clone(),
@@ -369,6 +382,7 @@ impl Default for ExecutionSwitches<bool> {
             new_ref: false,
             ref_push: false,
             get: false,
+            ref_write: false,
             install_handler: false,
             uninstall_handler: false,
             get_handler_for: false,
@@ -745,6 +759,8 @@ impl Wires {
             )?;
 
             ref_arena_new_ref_wires(cs.clone(), rm, &switches, &opcode_args)?;
+            let _ref_write_lane_switches =
+                ref_arena_write_wires(cs.clone(), rm, &switches, &opcode_args, &val, &offset)?;
 
             (ref_push_lane_switches, ref_arena_read, get_lane_switches)
         };
@@ -974,6 +990,9 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::RefGet { .. } => {
                 config.execution_switches.get = true;
             }
+            LedgerOperation::RefWrite { .. } => {
+                config.execution_switches.ref_write = true;
+            }
             LedgerOperation::InstallHandler { .. } => {
                 config.execution_switches.install_handler = true;
                 config.rom_switches.read_is_utxo_curr = true;
@@ -1157,6 +1176,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_wires = self.visit_new_ref(next_wires)?;
         let next_wires = self.visit_ref_push(next_wires)?;
         let next_wires = self.visit_ref_get(next_wires)?;
+        let next_wires = self.visit_ref_write(next_wires)?;
         let next_wires = self.visit_install_handler(next_wires)?;
         let next_wires = self.visit_uninstall_handler(next_wires)?;
         let next_wires = self.visit_get_handler_for(next_wires)?;
@@ -1692,6 +1712,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switches: ExecutionSwitches::get(),
                 ..default
             },
+            LedgerOperation::RefWrite { .. } => PreWires {
+                switches: ExecutionSwitches::ref_write(),
+                ..default
+            },
             LedgerOperation::InstallHandler { .. } => PreWires {
                 switches: ExecutionSwitches::install_handler(),
                 ..default
@@ -2121,6 +2145,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             expected[i].conditional_enforce_equal(&FpVar::zero(), &lane_off_when_get)?;
         }
 
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip_all)]
+    fn visit_ref_write(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        // Plumbing only: circuit semantics for in-place ref writes are not enforced yet.
+        let _switch = &wires.switches.ref_write;
         Ok(wires)
     }
 

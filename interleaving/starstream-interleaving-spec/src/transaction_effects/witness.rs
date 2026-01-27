@@ -22,10 +22,12 @@ pub enum EffectDiscriminant {
     Bind = 13,
     Unbind = 14,
     ProgramHash = 15,
+    RefWrite = 16,
 }
 
 pub const REF_PUSH_WIDTH: usize = 7;
 pub const REF_GET_WIDTH: usize = 5;
+pub const REF_WRITE_WIDTH: usize = 4;
 
 // Both used to indicate which fields are outputs, and to have a placeholder
 // value for the runtime executor (trace generator)
@@ -136,6 +138,15 @@ pub enum WitLedgerEffect {
         // out
         ret: WitEffectOutput<[Value; REF_GET_WIDTH]>,
     },
+    RefWrite {
+        // in
+        reff: Ref,
+        offset: usize,
+        len: usize,
+        vals: [Value; REF_WRITE_WIDTH],
+        // out
+        // does not return anything
+    },
 
     // Tokens
     Bind {
@@ -202,6 +213,7 @@ impl From<u64> for EffectDiscriminant {
             13 => EffectDiscriminant::Bind,
             14 => EffectDiscriminant::Unbind,
             15 => EffectDiscriminant::ProgramHash,
+            16 => EffectDiscriminant::RefWrite,
             _ => todo!(),
         }
     }

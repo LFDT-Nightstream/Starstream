@@ -15,8 +15,8 @@ use p3_field::PrimeCharacteristicRing;
 use std::collections::HashMap;
 
 // TODO: benchmark properly
-pub(crate) const CHUNK_SIZE: usize = 5;
-const PER_STEP_COLS: usize = 1566;
+pub(crate) const CHUNK_SIZE: usize = 1;
+const PER_STEP_COLS: usize = 2097;
 const BASE_INSTANCE_COLS: usize = 1;
 const EXTRA_INSTANCE_COLS: usize = IvcWireLayout::FIELD_COUNT * 2;
 const M_IN: usize = BASE_INSTANCE_COLS + EXTRA_INSTANCE_COLS;

@@ -166,6 +166,7 @@ pub struct Imports {
     pub new_ref: FuncRef,
     pub ref_push: FuncRef,
     pub ref_get: FuncRef,
+    pub ref_write: FuncRef,
     pub resume: FuncRef,
     pub yield_: FuncRef,
     pub new_utxo: FuncRef,
@@ -260,6 +261,20 @@ impl ModuleBuilder {
                 ValType::I64,
             ],
         );
+        let ref_write = self.import_func(
+            "env",
+            "starstream_ref_write",
+            &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
+            &[],
+        );
         let resume = self.import_func(
             "env",
             "starstream_resume",
@@ -310,6 +325,7 @@ impl ModuleBuilder {
             new_ref,
             ref_push,
             ref_get,
+            ref_write,
             resume,
             yield_,
             new_utxo,
