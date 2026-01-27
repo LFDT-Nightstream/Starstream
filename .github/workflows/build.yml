@@ -19,6 +19,9 @@ jobs:
       # Cosmetic checks.
       - run: cargo clippy
       - run: cargo fmt --check
+      # Mock ledger
+      - run: cargo fmt --check
+        working-directory: mock-ledger/backend
 
   website:
     name: Website
