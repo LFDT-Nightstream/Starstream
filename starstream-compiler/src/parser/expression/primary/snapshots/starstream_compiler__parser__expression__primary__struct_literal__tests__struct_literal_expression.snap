@@ -25,8 +25,6 @@ Spanned {
                         ),
                     ),
                     span: 15..17,
-                    comments_before: [],
-                    comments_after: [],
                 },
             },
             StructLiteralField {
@@ -49,8 +47,6 @@ Spanned {
                                 },
                             ),
                             span: 26..32,
-                            comments_before: [],
-                            comments_after: [],
                         },
                         right: Spanned {
                             node: Literal(
@@ -59,18 +55,12 @@ Spanned {
                                 ),
                             ),
                             span: 34..35,
-                            comments_before: [],
-                            comments_after: [],
                         },
                     },
                     span: 26..35,
-                    comments_before: [],
-                    comments_after: [],
                 },
             },
         ],
     },
     span: 0..39,
-    comments_before: [],
-    comments_after: [],
 }

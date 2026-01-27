@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n/// A point in 2D space.\nstruct Point {\n    x: i64,\n    y: i64,\n}\n\nfn main() {}\n"
+---
+/// A point in 2D space.
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() { }

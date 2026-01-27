@@ -26,6 +26,7 @@ StructDef {
                 },
                 generics: [],
             },
+            span: 15..22,
         },
     ],
 }

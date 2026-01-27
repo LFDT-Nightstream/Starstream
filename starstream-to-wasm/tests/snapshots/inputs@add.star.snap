@@ -81,8 +81,6 @@ Program {
                                             },
                                         ),
                                         span: 43..45,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: Identifier(
@@ -94,21 +92,16 @@ Program {
                                             },
                                         ),
                                         span: 47..49,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                                 span: 43..49,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ),
+                        span: 37..51,
                     },
                 },
             ),
             span: 0..51,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }
@@ -158,6 +151,7 @@ TypedProgram {
                     },
                 ],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -179,8 +173,6 @@ TypedProgram {
                                             ),
                                         },
                                         span: 43..45,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -195,14 +187,10 @@ TypedProgram {
                                             ),
                                         },
                                         span: 47..49,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                             },
                             span: 43..49,
-                            comments_before: [],
-                            comments_after: [],
                         },
                     ),
                 },

@@ -17,7 +17,7 @@ use starstream_compiler::{
     typecheck::{TypeError, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    Span, Spanned, TypedUtxoDef, TypedUtxoPart,
+    CommentMap, Span, Spanned, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
@@ -73,6 +73,18 @@ pub struct DocumentState {
     import_definitions: HashMap<String, Span>,
     /// Maps namespace alias -> function name -> (alias span, function type).
     namespace_functions: HashMap<String, HashMap<String, (Span, Type)>>,
+    /// Maps function name -> (signature, doc comment) for call-site hover.
+    function_docs: HashMap<String, (String, String)>,
+    /// Maps struct name -> doc comment for type annotation hover.
+    struct_docs: HashMap<String, String>,
+    /// Maps enum name -> doc comment for type annotation hover.
+    enum_docs: HashMap<String, String>,
+    /// Maps struct name -> field name -> doc comment for field access hover.
+    struct_field_docs: HashMap<String, HashMap<String, String>>,
+    /// Maps (enum, variant) -> doc comment for variant usage hover.
+    enum_variant_docs: HashMap<EnumVariantKey, String>,
+    /// Comment map for efficient span-based comment lookups.
+    comment_map: CommentMap,
 }
 
 impl DocumentState {
@@ -99,6 +111,12 @@ impl DocumentState {
             enum_types: HashMap::new(),
             import_definitions: HashMap::new(),
             namespace_functions: HashMap::new(),
+            function_docs: HashMap::new(),
+            struct_docs: HashMap::new(),
+            enum_docs: HashMap::new(),
+            struct_field_docs: HashMap::new(),
+            enum_variant_docs: HashMap::new(),
+            comment_map: CommentMap::new(),
         };
 
         state.reanalyse(uri, text);
@@ -170,8 +188,16 @@ impl DocumentState {
         self.enum_types.clear();
         self.import_definitions.clear();
         self.namespace_functions.clear();
+        self.function_docs.clear();
+        self.struct_docs.clear();
+        self.enum_docs.clear();
+        self.struct_field_docs.clear();
+        self.enum_variant_docs.clear();
 
         let parse_output = parse_program(text);
+
+        // Get the CommentMap before consuming parse_output
+        self.comment_map = parse_output.comment_map();
 
         for error in parse_output.errors() {
             self.push_parse_error(uri, error);
@@ -185,7 +211,7 @@ impl DocumentState {
             match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                 Ok(typed) => {
                     let program_ast = self.program.clone();
-                    self.build_indexes(&typed.program, program_ast.as_deref());
+                    self.build_indexes(&typed.program, program_ast.as_deref(), text);
 
                     self.typed = Some(typed);
                 }
@@ -218,7 +244,7 @@ impl DocumentState {
         };
 
         let str = self.rope.to_string();
-        formatter::program(program, &str).map(Some)
+        formatter::program(program, &str, &self.comment_map).map(Some)
     }
 
     /// Resolve hover information for the given cursor position.
@@ -233,9 +259,14 @@ impl DocumentState {
 
         let range = self.span_to_range(entry.span);
 
+        let value = match &entry.doc {
+            Some(doc) => format!("```star\n{}\n```\n---\n{}", entry.label, doc),
+            None => format!("`{}`", entry.label),
+        };
+
         let contents = HoverContents::Markup(MarkupContent {
             kind: MarkupKind::Markdown,
-            value: format!("`{}`", entry.label),
+            value,
         });
 
         Some(Hover {
@@ -332,15 +363,21 @@ impl DocumentState {
         }
     }
 
-    fn build_indexes(&mut self, program: &TypedProgram, ast: Option<&Program>) {
+    fn build_indexes(&mut self, program: &TypedProgram, ast: Option<&Program>, source: &str) {
         self.hover_entries.clear();
         self.definition_entries.clear();
         self.type_definitions.clear();
 
         let mut scopes: Vec<HashMap<String, Span>> = vec![HashMap::new()];
 
-        for definition in &program.definitions {
-            self.collect_definition(definition, &mut scopes);
+        // Collect definitions, pairing typed and untyped for doc comment extraction
+        let untyped_defs: Vec<_> = ast
+            .map(|p| p.definitions.iter().collect())
+            .unwrap_or_default();
+
+        for (i, definition) in program.definitions.iter().enumerate() {
+            let untyped_def = untyped_defs.get(i).copied();
+            self.collect_definition(definition, &mut scopes, untyped_def, source);
         }
 
         self.document_symbols = self.collect_document_symbols(program);
@@ -354,14 +391,40 @@ impl DocumentState {
         &mut self,
         definition: &TypedDefinition,
         scopes: &mut Vec<HashMap<String, Span>>,
+        untyped: Option<&Spanned<untyped_ast::Definition>>,
+        source: &str,
     ) {
+        // Extract doc comment using CommentMap
+        // The span now directly covers just the definition content (no comments)
+        let doc = untyped.and_then(|u| self.comment_map.doc_comments(u.span, source));
+
         match definition {
             TypedDefinition::Import(import) => self.collect_import(import),
-            TypedDefinition::Function(function) => self.collect_function(function, scopes),
-            TypedDefinition::Struct(definition) => self.collect_struct(definition),
-            TypedDefinition::Enum(definition) => self.collect_enum(definition),
+            TypedDefinition::Function(function) => {
+                self.collect_function(function, scopes, doc.clone())
+            }
+            TypedDefinition::Struct(definition) => {
+                let untyped_struct = untyped.and_then(|u| match &u.node {
+                    untyped_ast::Definition::Struct(s) => Some(s),
+                    _ => None,
+                });
+                self.collect_struct(definition, untyped_struct, source, doc.clone())
+            }
+            TypedDefinition::Enum(definition) => {
+                let untyped_enum = untyped.and_then(|u| match &u.node {
+                    untyped_ast::Definition::Enum(e) => Some(e),
+                    _ => None,
+                });
+                self.collect_enum(definition, untyped_enum, source, doc.clone())
+            }
             TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
-            TypedDefinition::Abi(definition) => self.collect_abi(definition),
+            TypedDefinition::Abi(definition) => {
+                let untyped_abi = untyped.and_then(|u| match &u.node {
+                    untyped_ast::Definition::Abi(a) => Some(a),
+                    _ => None,
+                });
+                self.collect_abi(definition, untyped_abi, source, doc.clone())
+            }
         }
     }
 
@@ -405,7 +468,13 @@ impl DocumentState {
         }
     }
 
-    fn collect_struct(&mut self, definition: &TypedStructDef) {
+    fn collect_struct(
+        &mut self,
+        definition: &TypedStructDef,
+        untyped: Option<&untyped_ast::StructDef>,
+        source: &str,
+        doc: Option<String>,
+    ) {
         if let Some(span) = definition.name.span {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
@@ -415,12 +484,17 @@ impl DocumentState {
             self.type_definitions
                 .insert(definition.name.name.clone(), span);
 
-            self.add_hover_span(span, &definition.ty);
+            self.add_hover_span_with_doc(span, &definition.ty, doc.clone());
 
             self.struct_type_index.push(StructTypeEntry {
                 name: definition.name.name.clone(),
                 ty: definition.ty.clone(),
             });
+        }
+
+        // Store doc comment for type annotation hover
+        if let Some(d) = doc {
+            self.struct_docs.insert(definition.name.name.clone(), d);
         }
 
         self.struct_types
@@ -443,14 +517,31 @@ impl DocumentState {
             }
         }
 
-        for field in &definition.fields {
+        // Extract field-level doc comments using untyped AST spans
+        let untyped_fields = untyped.map(|u| &u.fields[..]).unwrap_or(&[]);
+        for (field, untyped_field) in definition.fields.iter().zip(untyped_fields.iter()) {
+            let field_doc = self.comment_map.doc_comments(untyped_field.span, source);
             if let Some(span) = field.name.span {
-                self.add_hover_span(span, &field.ty);
+                self.add_hover_span_with_doc(span, &field.ty, field_doc.clone());
+
+                // Store field doc for use at field access sites
+                if let Some(doc) = field_doc {
+                    self.struct_field_docs
+                        .entry(definition.name.name.clone())
+                        .or_default()
+                        .insert(field.name.name.clone(), doc);
+                }
             }
         }
     }
 
-    fn collect_enum(&mut self, definition: &TypedEnumDef) {
+    fn collect_enum(
+        &mut self,
+        definition: &TypedEnumDef,
+        untyped: Option<&untyped_ast::EnumDef>,
+        source: &str,
+        doc: Option<String>,
+    ) {
         if let Some(span) = definition.name.span {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
@@ -460,7 +551,12 @@ impl DocumentState {
             self.type_definitions
                 .insert(definition.name.name.clone(), span);
 
-            self.add_hover_span(span, &definition.ty);
+            self.add_hover_span_with_doc(span, &definition.ty, doc.clone());
+        }
+
+        // Store doc comment for type annotation hover
+        if let Some(d) = doc {
+            self.enum_docs.insert(definition.name.name.clone(), d);
         }
 
         self.enum_types
@@ -486,8 +582,12 @@ impl DocumentState {
             }
         }
 
-        for variant in &definition.variants {
+        // Extract variant-level doc comments using untyped AST spans
+        let untyped_variants = untyped.map(|u| &u.variants[..]).unwrap_or(&[]);
+        for (variant, untyped_variant) in definition.variants.iter().zip(untyped_variants.iter()) {
+            let variant_doc = self.comment_map.doc_comments(untyped_variant.span, source);
             let key = EnumVariantKey::new(&definition.name.name, &variant.name.name);
+
             let info = match &variant.payload {
                 TypedEnumVariantPayload::Unit => {
                     self.enum_variant_field_definitions.remove(&key);
@@ -527,14 +627,20 @@ impl DocumentState {
 
             self.enum_variant_infos.insert(key.clone(), info.clone());
 
+            // Store variant doc for use at variant usage sites
+            if let Some(ref doc) = variant_doc {
+                self.enum_variant_docs.insert(key, doc.clone());
+            }
+
             if let Some(span) = variant.name.span {
-                self.add_hover_label(
+                self.add_hover_label_with_doc(
                     span,
                     format_enum_variant_hover_from_info(
                         &definition.name.name,
                         &variant.name.name,
                         &info,
                     ),
+                    variant_doc,
                 );
             }
         }
@@ -560,14 +666,24 @@ impl DocumentState {
         }
     }
 
-    fn collect_abi(&mut self, definition: &TypedAbiDef) {
+    fn collect_abi(
+        &mut self,
+        definition: &TypedAbiDef,
+        _untyped: Option<&untyped_ast::AbiDef>,
+        _source: &str,
+        doc: Option<String>,
+    ) {
         if let Some(span) = definition.name.span {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
             });
+
+            // Add hover for ABI name with doc comment
+            self.add_hover_label_with_doc(span, format!("abi {}", definition.name.name), doc);
         }
 
+        // Note: Event-level doc comments would require AbiPart/EventDef to be wrapped in Spanned<T>
         for part in &definition.parts {
             match part {
                 TypedAbiPart::Event(event) => {
@@ -588,6 +704,7 @@ impl DocumentState {
         &mut self,
         function: &TypedFunctionDef,
         scopes: &mut Vec<HashMap<String, Span>>,
+        doc: Option<String>,
     ) {
         if let Some(span) = function.name.span {
             self.function_definitions
@@ -598,7 +715,34 @@ impl DocumentState {
                 target: span,
             });
 
-            self.add_hover_span(span, &function.return_type);
+            // Format full function signature: fn(param1: Type1, param2: Type2) -> ReturnType
+            // Use to_compact_string() to avoid expanding struct/enum definitions
+            // Include effect prefix to match Type::Function display format
+            let params = function
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let effect_prefix = match function.effect {
+                starstream_types::types::EffectKind::Pure => "fn",
+                starstream_types::types::EffectKind::Effectful => "effect fn",
+                starstream_types::types::EffectKind::Runtime => "runtime fn",
+            };
+            let signature = format!(
+                "{}({}) -> {}",
+                effect_prefix,
+                params,
+                function.return_type.to_compact_string()
+            );
+
+            self.add_hover_label_with_doc(span, signature.clone(), doc.clone());
+
+            // Store the doc for call-site lookups
+            if let Some(d) = doc {
+                self.function_docs
+                    .insert(function.name.name.clone(), (signature, d));
+            }
         }
 
         scopes.push(HashMap::new());
@@ -686,7 +830,8 @@ impl DocumentState {
     }
 
     fn collect_expr(&mut self, expr: &Spanned<TypedExpr>, scopes: &mut Vec<HashMap<String, Span>>) {
-        self.add_hover_span(expr.span, &expr.node.ty);
+        let doc = self.doc_for_type(&expr.node.ty);
+        self.add_hover_span_with_doc(expr.span, &expr.node.ty, doc);
 
         match &expr.node.kind {
             TypedExprKind::Identifier(identifier) => {
@@ -705,6 +850,14 @@ impl DocumentState {
             TypedExprKind::StructLiteral { name, fields } => {
                 self.add_type_usage(name.span, &name.name);
 
+                // Add hover for struct name with doc comment
+                if let Some(span) = name.span
+                    && let Some(ty) = self.struct_types.get(&name.name).cloned()
+                {
+                    let struct_doc = self.struct_docs.get(&name.name).cloned();
+                    self.add_hover_span_with_doc(span, &ty, struct_doc);
+                }
+
                 for field in fields {
                     self.collect_struct_literal_field(&name.name, field, scopes);
                 }
@@ -712,6 +865,24 @@ impl DocumentState {
             TypedExprKind::FieldAccess { target, field } => {
                 self.collect_expr(target, scopes);
                 self.add_field_access_usage(field.span, &target.node.ty, &field.name);
+
+                // Add hover with doc comment for field access
+                if let Some(field_span) = field.span {
+                    // Find the struct name from the target type
+                    if let Some(struct_name) = self.find_struct_name_for_type(&target.node.ty) {
+                        // Get field type and doc
+                        let field_type = self.lookup_struct_field_type(&struct_name, &field.name);
+                        let field_doc = self
+                            .struct_field_docs
+                            .get(&struct_name)
+                            .and_then(|fields| fields.get(&field.name))
+                            .cloned();
+
+                        if let Some(ty) = field_type {
+                            self.add_hover_span_with_doc(field_span, &ty, field_doc);
+                        }
+                    }
+                }
             }
             TypedExprKind::EnumConstructor {
                 enum_name,
@@ -720,13 +891,23 @@ impl DocumentState {
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
 
+                // Add hover for enum name with doc comment
+                if let Some(span) = enum_name.span
+                    && let Some(ty) = self.enum_types.get(&enum_name.name).cloned()
+                {
+                    let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
+                    self.add_hover_span_with_doc(span, &ty, enum_doc);
+                }
+
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
 
                 if let Some(span) = variant.span
                     && let Some(label) =
                         self.enum_variant_label_from_maps(&enum_name.name, &variant.name)
                 {
-                    self.add_hover_label(span, label);
+                    let key = EnumVariantKey::new(&enum_name.name, &variant.name);
+                    let variant_doc = self.enum_variant_docs.get(&key).cloned();
+                    self.add_hover_label_with_doc(span, label, variant_doc);
                 }
 
                 match payload {
@@ -771,7 +952,20 @@ impl DocumentState {
                 }
             }
             TypedExprKind::Call { callee, args } => {
-                self.collect_expr(callee, scopes);
+                // Check if callee is an identifier to look up function doc
+                if let TypedExprKind::Identifier(identifier) = &callee.node.kind {
+                    if let Some((signature, doc)) =
+                        self.function_docs.get(&identifier.name).cloned()
+                    {
+                        let usage_span = identifier.span.unwrap_or(callee.span);
+                        self.add_hover_label_with_doc(usage_span, signature, Some(doc));
+                        self.add_usage(Some(usage_span), &identifier.name, scopes);
+                    } else {
+                        self.collect_expr(callee, scopes);
+                    }
+                } else {
+                    self.collect_expr(callee, scopes);
+                }
 
                 for arg in args {
                     self.collect_expr(arg, scopes);
@@ -842,6 +1036,14 @@ impl DocumentState {
             TypedPattern::Struct { name, fields } => {
                 self.add_type_usage(name.span, &name.name);
 
+                // Add hover for struct name with doc comment
+                if let Some(span) = name.span
+                    && let Some(ty) = self.struct_types.get(&name.name).cloned()
+                {
+                    let struct_doc = self.struct_docs.get(&name.name).cloned();
+                    self.add_hover_span_with_doc(span, &ty, struct_doc);
+                }
+
                 for field in fields {
                     self.add_struct_field_usage(field.name.span, &name.name, &field.name.name);
 
@@ -869,7 +1071,9 @@ impl DocumentState {
                         .cloned()
                         .or_else(|| self.enum_types.get(&enum_name.name).cloned())
                 {
-                    self.add_hover_span(span, &ty);
+                    // Include enum doc comment for the enum name in pattern
+                    let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
+                    self.add_hover_span_with_doc(span, &ty, enum_doc);
                 }
 
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
@@ -878,7 +1082,9 @@ impl DocumentState {
                     && let Some(label) =
                         self.enum_variant_label_from_maps(&enum_name.name, &variant.name)
                 {
-                    self.add_hover_label(span, label);
+                    let key = EnumVariantKey::new(&enum_name.name, &variant.name);
+                    let variant_doc = self.enum_variant_docs.get(&key).cloned();
+                    self.add_hover_label_with_doc(span, label, variant_doc);
                 }
 
                 match payload {
@@ -937,6 +1143,10 @@ impl DocumentState {
     }
 
     fn add_hover_span(&mut self, span: Span, ty: &Type) {
+        self.add_hover_span_with_doc(span, ty, None);
+    }
+
+    fn add_hover_span_with_doc(&mut self, span: Span, ty: &Type, doc: Option<String>) {
         if span.end <= span.start {
             return;
         }
@@ -944,10 +1154,20 @@ impl DocumentState {
         self.hover_entries.push(HoverEntry {
             span,
             label: ty.to_string(),
+            doc,
         });
     }
 
     fn add_hover_label(&mut self, span: Span, label: impl Into<String>) {
+        self.add_hover_label_with_doc(span, label, None);
+    }
+
+    fn add_hover_label_with_doc(
+        &mut self,
+        span: Span,
+        label: impl Into<String>,
+        doc: Option<String>,
+    ) {
         if span.end <= span.start {
             return;
         }
@@ -955,6 +1175,7 @@ impl DocumentState {
         self.hover_entries.push(HoverEntry {
             span,
             label: label.into(),
+            doc,
         });
     }
 
@@ -1061,6 +1282,38 @@ impl DocumentState {
             .get(struct_name)
             .and_then(|fields| fields.get(field_name))
             .cloned()
+    }
+
+    /// Find the struct name for a given type by checking the struct_type_index.
+    fn find_struct_name_for_type(&self, ty: &Type) -> Option<String> {
+        if !matches!(ty, Type::Record(_)) {
+            return None;
+        }
+
+        self.struct_type_index
+            .iter()
+            .find(|entry| &entry.ty == ty)
+            .map(|entry| entry.name.clone())
+    }
+
+    /// Look up the doc comment for a type (struct or enum).
+    fn doc_for_type(&self, ty: &Type) -> Option<String> {
+        // Check if it's a struct type
+        if let Some(struct_name) = self.find_struct_name_for_type(ty) {
+            return self.struct_docs.get(&struct_name).cloned();
+        }
+
+        // Check if it's an enum type
+        if matches!(ty, Type::Enum(_)) {
+            // Find enum by matching the type
+            for (name, enum_ty) in &self.enum_types {
+                if enum_ty == ty {
+                    return self.enum_docs.get(name).cloned();
+                }
+            }
+        }
+
+        None
     }
 
     fn lookup_enum_struct_field_type(
@@ -1214,7 +1467,13 @@ impl DocumentState {
         if let Some(span) = annotation.name.span
             && let Some(label) = self.type_label_for_name(&annotation.name.name)
         {
-            self.add_hover_label(span, label);
+            // Look up doc comment for struct or enum types
+            let doc = self
+                .struct_docs
+                .get(&annotation.name.name)
+                .or_else(|| self.enum_docs.get(&annotation.name.name))
+                .cloned();
+            self.add_hover_label_with_doc(span, label, doc);
         }
 
         for generic in &annotation.generics {
@@ -1550,6 +1809,7 @@ impl DocumentState {
 struct HoverEntry {
     span: Span,
     label: String,
+    doc: Option<String>,
 }
 
 impl HoverEntry {

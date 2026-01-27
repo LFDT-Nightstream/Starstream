@@ -5,12 +5,14 @@ use clap::Parser;
 
 mod check;
 mod diagnostics;
+mod docs;
 mod format;
 mod lsp;
 mod style;
 mod wasm;
 
 pub use check::Check;
+pub use docs::Docs;
 pub use format::Format;
 pub use lsp::Lsp;
 pub use wasm::Wasm;
@@ -18,6 +20,7 @@ pub use wasm::Wasm;
 /// The Starstream language and toolchain CLI.
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    Docs(Docs),
     Wasm(Wasm),
     #[clap(visible_alias("fmt"))]
     Format(Format),
@@ -38,6 +41,7 @@ pub struct Cli {
 impl Cli {
     pub fn exec(self) -> miette::Result<()> {
         match self.cmd {
+            Command::Docs(d) => d.exec(),
             Command::Wasm(w) => w.exec(),
             Command::Format(f) => f.exec(),
             Command::Check(c) => c.exec(),

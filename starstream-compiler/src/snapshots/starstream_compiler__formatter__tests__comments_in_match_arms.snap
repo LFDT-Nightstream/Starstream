@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nenum Status {\n    Active,\n    Inactive,\n}\n\nfn check(s: Status) -> i64 {\n    match s {\n        // when active\n        Status::Active => {\n            1\n        },\n        // when inactive\n        Status::Inactive => {\n            0\n        },\n    }\n}\n"
+---
+enum Status {
+    Active,
+    Inactive,
+}
+
+fn check(s: Status) -> i64 {
+    match s {
+        // when active
+        Status::Active => {
+            1
+        },
+        // when inactive
+        Status::Inactive => {
+            0
+        },
+    }
+}

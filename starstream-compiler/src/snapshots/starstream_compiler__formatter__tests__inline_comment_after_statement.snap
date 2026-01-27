@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn foo() -> i64 {\n    let x = 1; // initialize x\n    let y = 2; // initialize y\n    x + y\n}\n"
+---
+fn foo() -> i64 {
+    let x = 1; // initialize x
+    let y = 2; // initialize y
+    x + y
+}

@@ -1,0 +1,8 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nstruct Point {\n    x: i64, // horizontal position\n    y: i64, // vertical position\n}\n"
+---
+struct Point {
+    x: i64, // horizontal position
+    y: i64, // vertical position
+}

@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn foo() -> i64 {\n    // This is a comment inside the body\n    let x = 1;\n    // Another comment\n    x + 1\n}\n"
+---
+fn foo() -> i64 {
+    // This is a comment inside the body
+    let x = 1;
+    // Another comment
+    x + 1
+}

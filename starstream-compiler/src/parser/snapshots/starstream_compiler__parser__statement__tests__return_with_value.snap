@@ -14,8 +14,6 @@ Return(
                 },
             ),
             span: 7..11,
-            comments_before: [],
-            comments_after: [],
         },
     ),
 )

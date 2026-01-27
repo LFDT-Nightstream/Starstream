@@ -32,6 +32,7 @@ Program {
                                 },
                                 generics: [],
                             },
+                            span: 19..30,
                         },
                         StructField {
                             name: Identifier {
@@ -49,13 +50,12 @@ Program {
                                 },
                                 generics: [],
                             },
+                            span: 36..46,
                         },
                     ],
                 },
             ),
             span: 0..51,
-            comments_before: [],
-            comments_after: [],
         },
         Spanned {
             node: Function(
@@ -117,8 +117,6 @@ Program {
                                                     },
                                                 ),
                                                 span: 100..105,
-                                                comments_before: [],
-                                                comments_after: [],
                                             },
                                             field: Identifier {
                                                 name: "amount",
@@ -128,8 +126,6 @@ Program {
                                             },
                                         },
                                         span: 100..113,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: FieldAccess {
@@ -143,8 +139,6 @@ Program {
                                                     },
                                                 ),
                                                 span: 115..120,
-                                                comments_before: [],
-                                                comments_after: [],
                                             },
                                             field: Identifier {
                                                 name: "price",
@@ -154,21 +148,16 @@ Program {
                                             },
                                         },
                                         span: 115..127,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                                 span: 100..127,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ),
+                        span: 94..129,
                     },
                 },
             ),
             span: 51..129,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }
@@ -286,6 +275,7 @@ TypedProgram {
                     },
                 ],
                 return_type: Int,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
@@ -325,8 +315,6 @@ TypedProgram {
                                                         ),
                                                     },
                                                     span: 100..105,
-                                                    comments_before: [],
-                                                    comments_after: [],
                                                 },
                                                 field: Identifier {
                                                     name: "amount",
@@ -337,8 +325,6 @@ TypedProgram {
                                             },
                                         },
                                         span: 100..113,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
@@ -371,8 +357,6 @@ TypedProgram {
                                                         ),
                                                     },
                                                     span: 115..120,
-                                                    comments_before: [],
-                                                    comments_after: [],
                                                 },
                                                 field: Identifier {
                                                     name: "price",
@@ -383,14 +367,10 @@ TypedProgram {
                                             },
                                         },
                                         span: 115..127,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 },
                             },
                             span: 100..127,
-                            comments_before: [],
-                            comments_after: [],
                         },
                     ),
                 },

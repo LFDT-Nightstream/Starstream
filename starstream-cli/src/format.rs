@@ -96,6 +96,9 @@ fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::R
     let input = fs::read_to_string(&path).into_diagnostic()?;
     let parse_output = starstream_compiler::parse_program(&input);
 
+    // Get comment_map before consuming parse_output
+    let comments = parse_output.comment_map();
+
     if !parse_output.errors().is_empty() {
         let named = NamedSource::new(path.display().to_string(), input.clone());
 
@@ -108,7 +111,7 @@ fn format_file(problem_files: &mut Vec<Unformatted>, path: PathBuf) -> miette::R
         std::process::exit(1)
     };
 
-    let output = formatter::program(&program, &input).into_diagnostic()?;
+    let output = formatter::program(&program, &input, &comments).into_diagnostic()?;
 
     if input != output {
         problem_files.push(Unformatted {

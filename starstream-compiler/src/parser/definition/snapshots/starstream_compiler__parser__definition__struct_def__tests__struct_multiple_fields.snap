@@ -26,6 +26,7 @@ StructDef {
                 },
                 generics: [],
             },
+            span: 15..21,
         },
         StructField {
             name: Identifier {
@@ -43,6 +44,7 @@ StructDef {
                 },
                 generics: [],
             },
+            span: 23..30,
         },
     ],
 }

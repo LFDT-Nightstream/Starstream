@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nstruct Point {\n    /// The x coordinate\n    x: i64,\n    /// The y coordinate\n    y: i64,\n}\n"
+---
+struct Point {
+    /// The x coordinate
+    x: i64,
+    /// The y coordinate
+    y: i64,
+}

@@ -16,8 +16,6 @@ Spanned {
                         },
                     ),
                     span: 0..3,
-                    comments_before: [],
-                    comments_after: [],
                 },
                 field: Identifier {
                     name: "method",
@@ -27,8 +25,6 @@ Spanned {
                 },
             },
             span: 0..10,
-            comments_before: [],
-            comments_after: [],
         },
         args: [
             Spanned {
@@ -41,12 +37,8 @@ Spanned {
                     },
                 ),
                 span: 11..12,
-                comments_before: [],
-                comments_after: [],
             },
         ],
     },
     span: 0..13,
-    comments_before: [],
-    comments_after: [],
 }

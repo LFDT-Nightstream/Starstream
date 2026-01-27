@@ -31,8 +31,6 @@ Program {
                 },
             ),
             span: 0..32,
-            comments_before: [],
-            comments_after: [],
         },
         Spanned {
             node: Function(
@@ -63,22 +61,17 @@ Program {
                                             args: [],
                                         },
                                         span: 55..67,
-                                        comments_before: [],
-                                        comments_after: [],
                                     },
                                 ),
                                 span: 55..69,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ],
                         tail_expression: None,
+                        span: 49..71,
                     },
                 },
             ),
             span: 32..71,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }
@@ -128,6 +121,7 @@ TypedProgram {
                 },
                 params: [],
                 return_type: Unit,
+                effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
@@ -145,8 +139,6 @@ TypedProgram {
                                     },
                                 },
                                 span: 55..67,
-                                comments_before: [],
-                                comments_after: [],
                             },
                         ),
                     ],

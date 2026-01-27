@@ -32,6 +32,7 @@ Program {
                                 },
                                 generics: [],
                             },
+                            span: 19..25,
                         },
                         StructField {
                             name: Identifier {
@@ -49,13 +50,12 @@ Program {
                                 },
                                 generics: [],
                             },
+                            span: 31..37,
                         },
                     ],
                 },
             ),
             span: 0..41,
-            comments_before: [],
-            comments_after: [],
         },
     ],
 }

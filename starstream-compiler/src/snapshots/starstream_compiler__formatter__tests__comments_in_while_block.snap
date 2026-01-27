@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn foo() -> i64 {\n    let mut x = 0;\n    while (x < 10) {\n        // increment x\n        x = x + 1;\n    }\n    x\n}\n"
+---
+fn foo() -> i64 {
+    let mut x = 0;
+    while (x < 10) {
+        // increment x
+        x = x + 1;
+    }
+    x
+}

@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\n/* This is a block comment\n   describing the function */\nfn foo() -> i64 {\n    1\n}\n"
+---
+/* This is a block comment
+   describing the function */
+fn foo() -> i64 {
+    1
+}

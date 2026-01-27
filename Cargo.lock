@@ -1276,6 +1276,7 @@ dependencies = [
  "console 0.16.1",
  "ignore",
  "miette",
+ "serde_json",
  "similar",
  "starstream-compiler",
  "starstream-language-server",
@@ -1296,6 +1297,7 @@ dependencies = [
  "insta",
  "miette",
  "pretty",
+ "serde",
  "starstream-types",
  "thiserror 2.0.17",
 ]

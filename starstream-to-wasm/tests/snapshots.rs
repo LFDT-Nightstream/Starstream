@@ -45,7 +45,9 @@ fn inputs() {
         let mut output = String::new();
 
         let source = fs::read_to_string(path).unwrap();
-        let (program, errors) = starstream_compiler::parse_program(&source).into_output_errors();
+        let parse_output = starstream_compiler::parse_program(&source);
+        let comments = parse_output.comment_map();
+        let (program, errors) = parse_output.into_output_errors();
         writeln!(output, "==== AST ====").unwrap();
         for error in errors {
             let report = Report::new(error).with_source_code(source.clone());
@@ -56,8 +58,9 @@ fn inputs() {
         if let Some(program) = program {
             writeln!(output, "{:#?}\n", program).unwrap();
 
-            let formatted_source = starstream_compiler::formatter::program(&program, &source)
-                .expect("formatter error");
+            let formatted_source =
+                starstream_compiler::formatter::program(&program, &source, &comments)
+                    .expect("formatter error");
             assert_eq!(
                 source, formatted_source,
                 "formatted source differs from original"
