@@ -6,10 +6,7 @@ use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
 };
-use crate::ref_arena_gadget::{
-    ref_arena_get_read_wires, ref_arena_new_ref_wires, ref_arena_push_wires, ref_arena_write_wires,
-    trace_ref_arena_ops,
-};
+use crate::ref_arena_gadget::{ref_arena_access_wires, ref_arena_read_size, trace_ref_arena_ops};
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
     RomSwitchboard, RomSwitchboardWires,
@@ -417,7 +414,6 @@ pub struct Wires {
 
     ref_building_remaining: FpVar<F>,
     ref_building_ptr: FpVar<F>,
-    ref_push_lanes: [Boolean<F>; REF_PUSH_BATCH_SIZE],
 
     switches: ExecutionSwitches<Boolean<F>>,
 
@@ -431,7 +427,6 @@ pub struct Wires {
     target_write_wires: ProgramStateWires,
 
     ref_arena_read: [FpVar<F>; REF_GET_BATCH_SIZE],
-    get_lane_switches: [Boolean<F>; REF_GET_BATCH_SIZE],
     handler_state: HandlerState,
 
     // ROM lookup results
@@ -745,24 +740,20 @@ impl Wires {
         };
 
         // ref arena wires
-        let (ref_push_lane_switches, ref_arena_read, get_lane_switches) = {
-            let (ref_arena_read, get_lane_switches) =
-                ref_arena_get_read_wires(cs.clone(), rm, &switches, val.clone(), offset.clone())?;
+        let ref_arena_read = {
+            let ref_size_read = ref_arena_read_size(cs.clone(), rm, &switches, &opcode_args, &val)?;
 
-            let ref_push_lane_switches = ref_arena_push_wires(
+            ref_arena_access_wires(
                 cs.clone(),
                 rm,
                 &switches,
                 &opcode_args,
                 &ref_building_ptr,
                 &ref_building_remaining,
-            )?;
-
-            ref_arena_new_ref_wires(cs.clone(), rm, &switches, &opcode_args)?;
-            let _ref_write_lane_switches =
-                ref_arena_write_wires(cs.clone(), rm, &switches, &opcode_args, &val, &offset)?;
-
-            (ref_push_lane_switches, ref_arena_read, get_lane_switches)
+                &val,
+                &offset,
+                &ref_size_read,
+            )?
         };
 
         let should_trace = switches.nop.clone().not();
@@ -783,8 +774,6 @@ impl Wires {
 
             ref_building_remaining,
             ref_building_ptr,
-            ref_push_lanes: ref_push_lane_switches,
-
             switches,
 
             constant_false,
@@ -805,7 +794,6 @@ impl Wires {
             must_burn_curr,
             rom_program_hash,
             ref_arena_read,
-            get_lane_switches,
             handler_state,
         })
     }
@@ -1158,7 +1146,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             tracing::info_span!("make_step_circuit", i = i, pid = ?irw.id_curr, op = ?self.ops[i])
                 .entered();
 
-        tracing::info!("synthesizing step");
+        if !matches!(&self.ops[i], &LedgerOperation::Nop {}) {
+            tracing::info!("synthesizing step");
+        }
 
         let wires_in = self.allocate_vars(i, rm, &irw)?;
         let next_wires = wires_in.clone();
@@ -1354,10 +1344,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let mut ref_building_id = F::ZERO;
         let mut ref_building_offset = F::ZERO;
         let mut ref_building_remaining = F::ZERO;
-        let mut ref_sizes: BTreeMap<u64, u64> = BTreeMap::new();
 
         for instr in &self.ops {
-            tracing::info!("mem tracing instr {:?}", &instr);
+            if !matches!(instr, LedgerOperation::Nop {}) {
+                tracing::info!("mem tracing instr {:?}", &instr);
+            }
+
             let config = instr.get_config();
 
             trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
@@ -1469,7 +1461,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &mut ref_building_id,
                 &mut ref_building_offset,
                 &mut ref_building_remaining,
-                &mut ref_sizes,
                 instr,
             );
 
@@ -2088,8 +2079,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             switch.select(&wires.arg(ArgName::Ret), &wires.ref_building_ptr)?;
 
         // 4. Increment stack ptr by size
+        let size = wires.arg(ArgName::Size);
         wires.ref_arena_stack_ptr = switch.select(
-            &(&wires.ref_arena_stack_ptr + &wires.arg(ArgName::Size)),
+            &(&wires.ref_arena_stack_ptr
+                + size * FpVar::Constant(F::from(REF_PUSH_BATCH_SIZE as u64))),
             &wires.ref_arena_stack_ptr,
         )?;
 
@@ -2104,21 +2097,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         is_building.conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // Update state
-        // remaining -= lane_count
-        let mut next_remaining = wires.ref_building_remaining.clone();
-        for lane in wires.ref_push_lanes.iter() {
-            let dec = lane.select(&FpVar::one(), &FpVar::zero())?;
-            next_remaining = &next_remaining - dec;
-        }
+        // remaining -= 1 word
+        let next_remaining = &wires.ref_building_remaining - FpVar::one();
         wires.ref_building_remaining =
             switch.select(&next_remaining, &wires.ref_building_remaining)?;
 
-        // ptr += lane_count
-        let mut next_ptr = wires.ref_building_ptr.clone();
-        for lane in wires.ref_push_lanes.iter() {
-            let inc = lane.select(&FpVar::one(), &FpVar::zero())?;
-            next_ptr = &next_ptr + inc;
-        }
+        // ptr += 4 elems
+        let inc = FpVar::one() + FpVar::one() + FpVar::one() + FpVar::one();
+        let next_ptr = &wires.ref_building_ptr + inc;
         wires.ref_building_ptr = switch.select(&next_ptr, &wires.ref_building_ptr)?;
 
         Ok(wires)
@@ -2133,16 +2119,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             wires.opcode_args[ArgName::PackedRef2.idx()].clone(),
             wires.opcode_args[ArgName::PackedRef4.idx()].clone(),
             wires.opcode_args[ArgName::PackedRef5.idx()].clone(),
-            wires.opcode_args[ArgName::PackedRef6.idx()].clone(),
         ];
 
         for i in 0..REF_GET_BATCH_SIZE {
-            expected[i]
-                .conditional_enforce_equal(&wires.ref_arena_read[i], &wires.get_lane_switches[i])?;
-
-            let lane_off = wires.get_lane_switches[i].clone().not();
-            let lane_off_when_get = switch & &lane_off;
-            expected[i].conditional_enforce_equal(&FpVar::zero(), &lane_off_when_get)?;
+            expected[i].conditional_enforce_equal(&wires.ref_arena_read[i], switch)?;
         }
 
         Ok(wires)

@@ -1,5 +1,4 @@
 use crate::{logging::setup_logger, prove};
-use ark_relations::gr1cs::SynthesisError;
 use starstream_interleaving_spec::{
     Hash, InterleavingInstance, InterleavingWitness, LedgerEffectsCommitment, ProcessId, Ref,
     Value, WitEffectOutput, WitLedgerEffect,
@@ -20,24 +19,15 @@ pub fn v(data: &[u8]) -> Value {
     Value(u64::from_le_bytes(bytes))
 }
 
-fn v5_from_value(val: Value) -> [Value; 5] {
-    let mut out = [Value::nil(); 5];
+fn v4_from_value(val: Value) -> [Value; 4] {
+    let mut out = [Value::nil(); 4];
     out[0] = val;
-    out[4] = val;
     out
 }
 
 fn ref_push1(val: Value) -> WitLedgerEffect {
     WitLedgerEffect::RefPush {
-        vals: [
-            val,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            val,
-            Value::nil(),
-            Value::nil(),
-        ],
+        vals: [val, Value::nil(), Value::nil(), Value::nil()],
     }
 }
 
@@ -72,8 +62,8 @@ fn test_circuit_many_steps() {
     let val_4 = v(&[4]);
 
     let ref_0 = Ref(0);
-    let ref_1 = Ref(7);
-    let ref_4 = Ref(14);
+    let ref_1 = Ref(4);
+    let ref_4 = Ref(8);
 
     let utxo_trace = vec![
         WitLedgerEffect::Init {
@@ -83,7 +73,7 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::RefGet {
             reff: ref_4,
             offset: 0,
-            ret: v5_from_value(val_4).into(),
+            ret: v4_from_value(val_4).into(),
         },
         WitLedgerEffect::Activation {
             val: ref_0.into(),
@@ -108,7 +98,7 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::RefGet {
             reff: ref_1,
             offset: 0,
-            ret: v5_from_value(val_1).into(),
+            ret: v4_from_value(val_1).into(),
         },
         WitLedgerEffect::Activation {
             val: ref_0.into(),
@@ -124,17 +114,17 @@ fn test_circuit_many_steps() {
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 7,
+            size: 1,
             ret: ref_0.into(),
         },
         ref_push1(val_0),
         WitLedgerEffect::NewRef {
-            size: 7,
+            size: 1,
             ret: ref_1.into(),
         },
         ref_push1(val_1.clone()),
         WitLedgerEffect::NewRef {
-            size: 7,
+            size: 1,
             ret: ref_4.into(),
         },
         ref_push1(val_4.clone()),
@@ -217,7 +207,7 @@ fn test_circuit_small() {
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 7,
+            size: 1,
             ret: ref_0.into(),
         },
         ref_push1(val_0),
@@ -286,7 +276,7 @@ fn test_circuit_resumer_mismatch() {
 
     let coord_a_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 7,
+            size: 1,
             ret: ref_0.into(),
         },
         ref_push1(val_0),
@@ -348,72 +338,6 @@ fn test_circuit_resumer_mismatch() {
     assert!(result.is_err());
 }
 
-fn prove_ref_non_multiple(
-    size: usize,
-    push1_vals: [Value; 7],
-    push2_vals: [Value; 7],
-    first_get_ret: [Value; 5],
-    last_get_offset: usize,
-    last_get_ret: [Value; 5],
-) -> Result<(), SynthesisError> {
-    let coord_id = 0;
-
-    let p0 = ProcessId(coord_id);
-
-    let coord_trace = {
-        let size = size;
-        let push2_vals = push2_vals;
-        let first_get_ret = first_get_ret;
-        let last_get_offset = last_get_offset;
-        let last_get_ret = last_get_ret;
-        let ref_0 = Ref(0);
-
-        vec![
-            WitLedgerEffect::NewRef {
-                size,
-                ret: ref_0.into(),
-            },
-            WitLedgerEffect::RefPush { vals: push1_vals },
-            WitLedgerEffect::RefPush { vals: push2_vals },
-            WitLedgerEffect::RefGet {
-                ret: first_get_ret.into(),
-                reff: ref_0.into(),
-                offset: 0,
-            },
-            WitLedgerEffect::RefGet {
-                ret: last_get_ret.into(),
-                reff: ref_0.into(),
-                offset: last_get_offset,
-            },
-        ]
-    };
-
-    let traces = vec![coord_trace];
-
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
-
-    let host_calls_roots = host_calls_roots(&traces);
-
-    let instance = InterleavingInstance {
-        n_inputs: 0,
-        n_new: 0,
-        n_coords: 1,
-        entrypoint: p0,
-        process_table: vec![h(0)],
-        is_utxo: vec![false],
-        must_burn: vec![false],
-        ownership_in: vec![None],
-        ownership_out: vec![None],
-        host_calls_roots,
-        host_calls_lens: trace_lens,
-        input_states: vec![],
-    };
-
-    let wit = InterleavingWitness { traces };
-
-    prove(instance, wit).map(|_| ())
-}
-
 #[test]
 fn test_ref_write_basic_sat() {
     setup_logger();
@@ -425,36 +349,16 @@ fn test_ref_write_basic_sat() {
     let initial = Value(41);
     let updated = Value(99);
 
-    let initial_get = [
-        initial,
-        Value::nil(),
-        Value::nil(),
-        Value::nil(),
-        Value::nil(),
-    ];
-    let updated_get = [
-        updated,
-        Value::nil(),
-        Value::nil(),
-        Value::nil(),
-        Value::nil(),
-    ];
+    let initial_get = [initial, Value::nil(), Value::nil(), Value::nil()];
+    let updated_get = [updated, Value::nil(), Value::nil(), Value::nil()];
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
-            size: 7,
+            size: 1,
             ret: ref_0.into(),
         },
         WitLedgerEffect::RefPush {
-            vals: [
-                initial,
-                Value::nil(),
-                Value::nil(),
-                Value::nil(),
-                Value::nil(),
-                Value::nil(),
-                Value::nil(),
-            ],
+            vals: [initial, Value::nil(), Value::nil(), Value::nil()],
         },
         WitLedgerEffect::RefGet {
             ret: initial_get.into(),
@@ -464,7 +368,6 @@ fn test_ref_write_basic_sat() {
         WitLedgerEffect::RefWrite {
             reff: ref_0,
             offset: 0,
-            len: 1,
             vals: [updated, Value::nil(), Value::nil(), Value::nil()],
         },
         WitLedgerEffect::RefGet {
@@ -495,190 +398,5 @@ fn test_ref_write_basic_sat() {
 
     let wit = InterleavingWitness { traces };
     let result = prove(instance, wit);
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_ref_non_multiple_sat() {
-    setup_logger();
-
-    let val_0 = v(&[100]);
-    let val_1 = v(&[42]);
-
-    let result = prove_ref_non_multiple(
-        9,
-        [
-            val_0,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            val_0,
-            Value::nil(),
-            Value::nil(),
-        ],
-        [
-            val_0,
-            val_1,
-            Value::nil(), // from here it's just padding
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-        ],
-        {
-            let mut out = [Value::nil(); 5];
-            out[0] = val_0;
-            out[4] = val_0;
-            out
-        },
-        5,
-        [Value::nil(), Value::nil(), val_0, val_1, Value::nil()],
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-#[should_panic]
-fn test_ref_non_multiple_unsat() {
-    setup_logger();
-
-    let val_0 = v(&[100]);
-    let val_1 = v(&[42]);
-
-    let result = prove_ref_non_multiple(
-        9,
-        [
-            val_0,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            val_0,
-            Value::nil(),
-            Value::nil(),
-        ],
-        [
-            val_0,
-            val_1,
-            Value::nil(), // from here it's just padding
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-        ],
-        v5_from_value(val_0),
-        5,
-        [Value::nil(), Value::nil(), val_0, val_0, Value::nil()],
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-#[should_panic]
-fn test_ref_non_multiple_value_mismatch_unsat() {
-    setup_logger();
-
-    let val_0 = v(&[100]);
-    let val_1 = v(&[42]);
-
-    let result = prove_ref_non_multiple(
-        9,
-        [
-            val_0,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            val_0,
-            Value::nil(),
-            Value::nil(),
-        ],
-        [
-            val_0,
-            val_1,
-            Value::nil(), // from here it's just padding
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-        ],
-        [val_1, Value::nil(), Value::nil(), Value::nil(), val_0],
-        5,
-        [Value::nil(), Value::nil(), val_0, val_1, Value::nil()],
-    );
-
-    assert!(result.is_ok());
-}
-
-#[test]
-#[should_panic]
-fn test_ref_non_multiple_refpush_oob_unsat() {
-    setup_logger();
-
-    let val_0 = v(&[100]);
-    let val_1 = v(&[42]);
-
-    let result = prove_ref_non_multiple(
-        9,
-        [
-            val_0,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            val_0,
-            Value::nil(),
-            Value::nil(),
-        ],
-        [
-            val_0,
-            val_1,
-            val_1, // would land out-of-bounds after the first 7-slot push
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-        ],
-        [val_0, Value::nil(), Value::nil(), Value::nil(), val_0],
-        5,
-        [val_0, Value::nil(), Value::nil(), Value::nil(), val_0],
-    );
-    assert!(result.is_ok());
-}
-
-#[test]
-#[should_panic]
-fn test_ref_non_multiple_get_oob_unsat() {
-    setup_logger();
-
-    let val_0 = v(&[100]);
-
-    let result = prove_ref_non_multiple(
-        9,
-        [
-            val_0,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            val_0,
-            Value::nil(),
-            Value::nil(),
-        ],
-        [
-            val_0,
-            val_0,
-            Value::nil(), // padding
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-        ],
-        [val_0, Value::nil(), Value::nil(), Value::nil(), val_0],
-        9,
-        [
-            val_0,
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-            Value::nil(),
-        ],
-    );
     assert!(result.is_ok());
 }
