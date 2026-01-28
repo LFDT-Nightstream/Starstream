@@ -19,11 +19,11 @@ fn test_runtime_simple_effect_handlers() {
         assert_eq caller_hash_d, script_hash_d;
 
         let handler_id = call get_handler_for(1, 0, 0, 0);
-        let req = call new_ref(7);
-        call ref_push(42, 0, 0, 0, 0, 0, 0);
+        let req = call new_ref(1);
+        call ref_push(42, 0, 0, 0);
 
         let (resp, _caller) = call resume(handler_id, req);
-        let (resp_val, _b, _c, _d, _e) = call ref_get(resp, 0);
+        let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
 
         assert_eq resp_val, 1;
         let (_req2, _caller2) = call yield_(resp);
@@ -35,9 +35,9 @@ fn test_runtime_simple_effect_handlers() {
     let coord_bin = wasm_module!({
         call install_handler(1, 0, 0, 0);
 
-        let init_val = call new_ref(7);
+        let init_val = call new_ref(1);
 
-        call ref_push(0, 0, 0, 0, 0, 0, 0);
+        call ref_push(0, 0, 0, 0);
 
         let _utxo_id = call new_utxo(
             const(utxo_hash_limb_a),
@@ -48,12 +48,12 @@ fn test_runtime_simple_effect_handlers() {
         );
 
         let (req, _caller) = call resume(0, init_val);
-        let (req_val, _b, _c, _d, _e) = call ref_get(req, 0);
+        let (req_val, _b, _c, _d) = call ref_get(req, 0);
 
         assert_eq req_val, 42;
 
-        let resp = call new_ref(7);
-        call ref_push(1, 0, 0, 0, 0, 0, 0);
+        let resp = call new_ref(1);
+        call ref_push(1, 0, 0, 0);
 
         let (_ret, _caller2) = call resume(0, resp);
 
@@ -114,14 +114,14 @@ fn test_runtime_effect_handlers_cross_calls() {
             break_if i == n;
 
             // Allocate a ref for the number, then send a nested ref message (disc, num_ref).
-            let num_ref = call new_ref(7);
-            call ref_push(x, 0, 0, 0, 0, 0, 0);
+            let num_ref = call new_ref(1);
+            call ref_push(x, 0, 0, 0);
 
-            let req = call new_ref(7);
-            call ref_push(1, num_ref, 0, 0, 0, 0, 0);
+            let req = call new_ref(1);
+            call ref_push(1, num_ref, 0, 0);
 
             let (resp, _caller2) = call resume(handler_id, req);
-            let (y, _b, _c, _d, _e) = call ref_get(resp, 0);
+            let (y, _b, _c, _d) = call ref_get(resp, 0);
             let expected = add x, 1;
             assert_eq y, expected;
 
@@ -130,10 +130,10 @@ fn test_runtime_effect_handlers_cross_calls() {
             continue;
         }
 
-        let stop_num_ref = call new_ref(7);
-        call ref_push(x, 0, 0, 0, 0, 0, 0);
-        let stop = call new_ref(7);
-        call ref_push(2, stop_num_ref, 0, 0, 0, 0, 0);
+        let stop_num_ref = call new_ref(1);
+        call ref_push(x, 0, 0, 0);
+        let stop = call new_ref(1);
+        call ref_push(2, stop_num_ref, 0, 0);
         let (_resp_stop, _caller_stop) = call resume(handler_id, stop);
 
         let (_req3, _caller3) = call yield_(stop);
@@ -145,9 +145,9 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // Serve x -> x+1 for each incoming request, writing back into the same ref.
         loop {
-            let (x, _b, _c, _d, _e) = call ref_get(req, 0);
+            let (x, _b, _c, _d) = call ref_get(req, 0);
             let y = add x, 1;
-            call ref_write(req, 0, 1, y, 0, 0, 0);
+            call ref_write(req, 0, y, 0, 0, 0);
             let (next_req, _caller2) = call yield_(req);
             set req = next_req;
             continue;
@@ -164,7 +164,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         call install_handler(1, 2, 3, 4);
 
         let init_val = call new_ref(1);
-        call ref_push(0, 0, 0, 0, 0, 0, 0);
+        call ref_push(0, 0, 0, 0);
 
         let utxo_id1 = call new_utxo(
             const(utxo1_hash_limb_a),
@@ -188,7 +188,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         let caller1 = caller0;
 
         loop {
-            let (disc, num_ref, _c, _d, _e) = call ref_get(req, 0);
+            let (disc, num_ref, _c, _d) = call ref_get(req, 0);
             if disc == 2 {
                 let (_ret_stop, _caller_stop) = call resume(caller1, num_ref);
             }

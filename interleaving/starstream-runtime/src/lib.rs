@@ -68,7 +68,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         | WitLedgerEffect::NewCoord { .. }
         | WitLedgerEffect::GetHandlerFor { .. }
         | WitLedgerEffect::NewRef { .. } => 1,
-        WitLedgerEffect::RefGet { .. } => 5,
+        WitLedgerEffect::RefGet { .. } => 4,
         WitLedgerEffect::InstallHandler { .. }
         | WitLedgerEffect::UninstallHandler { .. }
         | WitLedgerEffect::Burn { .. }
@@ -95,7 +95,7 @@ pub struct RuntimeState {
     pub handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
     pub ref_store: HashMap<Ref, Vec<Value>>,
     pub ref_sizes: HashMap<Ref, usize>,
-    pub ref_state: HashMap<ProcessId, (Ref, usize, usize)>, // (ref, offset, size)
+    pub ref_state: HashMap<ProcessId, (Ref, usize, usize)>, // (ref, elem_offset, size_words)
     pub next_ref: u64,
 
     pub pending_activation: HashMap<ProcessId, (Ref, ProcessId)>,
@@ -449,24 +449,27 @@ impl Runtime {
                 "starstream_new_ref",
                 |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let size = size as usize;
+                    let size_words = size as usize;
+                    let size_elems = size_words
+                        .checked_mul(starstream_interleaving_spec::REF_PUSH_WIDTH)
+                        .ok_or(wasmi::Error::new("ref size overflow"))?;
                     let ref_id = Ref(caller.data().next_ref);
-                    caller.data_mut().next_ref += size as u64;
+                    caller.data_mut().next_ref += size_elems as u64;
 
                     caller
                         .data_mut()
                         .ref_store
-                        .insert(ref_id, vec![Value(0); size]);
-                    caller.data_mut().ref_sizes.insert(ref_id, size);
+                        .insert(ref_id, vec![Value(0); size_elems]);
+                    caller.data_mut().ref_sizes.insert(ref_id, size_words);
                     caller
                         .data_mut()
                         .ref_state
-                        .insert(current_pid, (ref_id, 0, size));
+                        .insert(current_pid, (ref_id, 0, size_words));
 
                     suspend_with_effect(
                         &mut caller,
                         WitLedgerEffect::NewRef {
-                            size,
+                            size: size_words,
                             ret: WitEffectOutput::Resolved(ref_id),
                         },
                     )
@@ -482,22 +485,11 @@ impl Runtime {
                  val_0: u64,
                  val_1: u64,
                  val_2: u64,
-                 val_3: u64,
-                 val_4: u64,
-                 val_5: u64,
-                 val_6: u64|
+                 val_3: u64|
                  -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let vals = [
-                        Value(val_0),
-                        Value(val_1),
-                        Value(val_2),
-                        Value(val_3),
-                        Value(val_4),
-                        Value(val_5),
-                        Value(val_6),
-                    ];
-                    let (ref_id, offset, size) = *caller
+                    let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
+                    let (ref_id, offset, size_words) = *caller
                         .data()
                         .ref_state
                         .get(&current_pid)
@@ -509,16 +501,21 @@ impl Runtime {
                         .get_mut(&ref_id)
                         .ok_or(wasmi::Error::new("ref not found"))?;
 
+                    let elem_offset = offset;
                     for (i, val) in vals.iter().enumerate() {
-                        if let Some(pos) = store.get_mut(offset + i) {
+                        if let Some(pos) = store.get_mut(elem_offset + i) {
                             *pos = *val;
                         }
                     }
 
-                    caller
-                        .data_mut()
-                        .ref_state
-                        .insert(current_pid, (ref_id, offset + vals.len(), size));
+                    caller.data_mut().ref_state.insert(
+                        current_pid,
+                        (
+                            ref_id,
+                            elem_offset + starstream_interleaving_spec::REF_PUSH_WIDTH,
+                            size_words,
+                        ),
+                    );
 
                     suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { vals })
                 },
@@ -532,19 +529,13 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64,
-                 len: u64,
                  val_0: u64,
                  val_1: u64,
                  val_2: u64,
                  val_3: u64|
                  -> Result<(), wasmi::Error> {
                     let ref_id = Ref(reff);
-                    let offset = offset as usize;
-                    let len = len as usize;
-
-                    if len > starstream_interleaving_spec::REF_WRITE_WIDTH {
-                        return Err(wasmi::Error::new("ref write len too large"));
-                    }
+                    let offset_words = offset as usize;
 
                     let size = *caller
                         .data()
@@ -552,7 +543,7 @@ impl Runtime {
                         .get(&ref_id)
                         .ok_or(wasmi::Error::new("ref size not found"))?;
 
-                    if offset + len > size {
+                    if offset_words >= size {
                         return Err(wasmi::Error::new("ref write overflow"));
                     }
 
@@ -563,16 +554,16 @@ impl Runtime {
                         .get_mut(&ref_id)
                         .ok_or(wasmi::Error::new("ref not found"))?;
 
-                    for (i, val) in vals.iter().enumerate().take(len) {
-                        store[offset + i] = *val;
+                    let elem_offset = offset_words * starstream_interleaving_spec::REF_WRITE_WIDTH;
+                    for (i, val) in vals.iter().enumerate() {
+                        store[elem_offset + i] = *val;
                     }
 
                     suspend_with_effect(
                         &mut caller,
                         WitLedgerEffect::RefWrite {
                             reff: ref_id,
-                            offset,
-                            len,
+                            offset: offset_words,
                             vals,
                         },
                     )
@@ -587,9 +578,9 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64|
-                 -> Result<(i64, i64, i64, i64, i64), wasmi::Error> {
+                 -> Result<(i64, i64, i64, i64), wasmi::Error> {
                     let ref_id = Ref(reff);
-                    let offset = offset as usize;
+                    let offset_words = offset as usize;
                     let store = caller
                         .data()
                         .ref_store
@@ -600,10 +591,13 @@ impl Runtime {
                         .ref_sizes
                         .get(&ref_id)
                         .ok_or(wasmi::Error::new("ref size not found"))?;
+                    if offset_words >= size {
+                        return Err(wasmi::Error::new("ref get overflow"));
+                    }
                     let mut ret = [Value::nil(); starstream_interleaving_spec::REF_GET_WIDTH];
                     for (i, slot) in ret.iter_mut().enumerate() {
-                        let idx = offset + i;
-                        if idx < size {
+                        let idx = (offset_words * starstream_interleaving_spec::REF_GET_WIDTH) + i;
+                        if idx < size * starstream_interleaving_spec::REF_GET_WIDTH {
                             *slot = store[idx];
                         }
                     }
@@ -611,7 +605,7 @@ impl Runtime {
                         &mut caller,
                         WitLedgerEffect::RefGet {
                             reff: ref_id,
-                            offset,
+                            offset: offset_words,
                             ret: WitEffectOutput::Resolved(ret),
                         },
                     )?;
@@ -620,7 +614,6 @@ impl Runtime {
                         ret[1].0 as i64,
                         ret[2].0 as i64,
                         ret[3].0 as i64,
-                        ret[4].0 as i64,
                     ))
                 },
             )
@@ -1000,7 +993,7 @@ impl UnprovenTransaction {
                         }
                         WitLedgerEffect::RefGet { ret, .. } => {
                             let ret = ret.unwrap();
-                            next_args = [ret[0].0, ret[1].0, ret[2].0, ret[3].0, ret[4].0];
+                            next_args = [ret[0].0, ret[1].0, ret[2].0, ret[3].0, 0];
                         }
                         WitLedgerEffect::RefWrite { .. } => {
                             next_args = [0; 5];

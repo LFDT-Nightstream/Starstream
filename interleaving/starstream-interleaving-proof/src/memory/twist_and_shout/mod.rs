@@ -169,7 +169,7 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
     fn conditional_read(&mut self, cond: bool, address: Address<u64>) -> Vec<F> {
         *self.current_step_read_lanes.entry(address.tag).or_default() += 1;
 
-        if let Some(&(_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
+        if let Some(&(_, _, MemType::Rom, debug_name)) = self.mems.get(&address.tag) {
             if cond {
                 let value = self.init.get(&address).unwrap().clone();
                 let shout_event = ShoutEvent {
@@ -177,6 +177,16 @@ impl<F: PrimeField> IVCMemory<F> for TSMemory<F> {
                     key: address.addr,
                     value: value[0].into_bigint().as_ref()[0],
                 };
+
+                if address.tag == 20 {
+                    tracing::info!(
+                        "traced rom read from address {} in table {} with value {:?}",
+                        address.addr,
+                        debug_name,
+                        value
+                    );
+                }
+
                 let shout_events = self.shout_events.entry(address.clone()).or_default();
                 shout_events.push_back(shout_event);
                 value

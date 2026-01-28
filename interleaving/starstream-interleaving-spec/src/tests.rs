@@ -197,7 +197,7 @@ fn test_transaction_with_coord_and_utxos() {
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: init_a_ref.into(),
         },
         WitLedgerEffect::RefPush {
@@ -209,7 +209,7 @@ fn test_transaction_with_coord_and_utxos() {
             id: ProcessId(2).into(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: init_b_ref.into(),
         },
         WitLedgerEffect::RefPush {
@@ -221,14 +221,14 @@ fn test_transaction_with_coord_and_utxos() {
             id: ProcessId(3).into(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: spend_input_1_ref.into(),
         },
         WitLedgerEffect::RefPush {
             vals: v7(b"spend_input_1"),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: continued_1_ref.into(),
         },
         WitLedgerEffect::RefPush {
@@ -241,14 +241,14 @@ fn test_transaction_with_coord_and_utxos() {
             id_prev: Some(ProcessId(0)).into(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: spend_input_2_ref.into(),
         },
         WitLedgerEffect::RefPush {
             vals: v7(b"spend_input_2"),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: burned_2_ref.into(),
         },
         WitLedgerEffect::RefPush {
@@ -261,7 +261,7 @@ fn test_transaction_with_coord_and_utxos() {
             id_prev: Some(ProcessId(1)).into(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: done_a_ref.into(),
         },
         WitLedgerEffect::RefPush {
@@ -274,7 +274,7 @@ fn test_transaction_with_coord_and_utxos() {
             id_prev: Some(ProcessId(2)).into(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: done_b_ref.into(),
         },
         WitLedgerEffect::RefPush {
@@ -351,7 +351,7 @@ fn test_effect_handlers() {
             handler_id: ProcessId(1).into(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: ref_gen.get("effect_request").into(),
         },
         WitLedgerEffect::RefPush {
@@ -375,7 +375,7 @@ fn test_effect_handlers() {
             interface_id: interface_id.clone(),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: ref_gen.get("init_utxo").into(),
         },
         WitLedgerEffect::RefPush {
@@ -393,14 +393,14 @@ fn test_effect_handlers() {
             id_prev: WitEffectOutput::Resolved(None),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: ref_gen.get("effect_request_response").into(),
         },
         WitLedgerEffect::RefPush {
             vals: v7(b"Interface::EffectResponse(43)"),
         },
         WitLedgerEffect::NewRef {
-            size: REF_PUSH_WIDTH,
+            size: 1,
             ret: ref_gen.get("utxo_final").into(),
         },
         WitLedgerEffect::RefPush {
@@ -455,7 +455,7 @@ fn test_burn_with_continuation_fails() {
             }),
             vec![
                 WitLedgerEffect::NewRef {
-                    size: REF_PUSH_WIDTH,
+                    size: 1,
                     ret: Ref(0).into(),
                 },
                 WitLedgerEffect::RefPush {
@@ -484,7 +484,7 @@ fn test_utxo_resumes_utxo_fails() {
             None,
             vec![
                 WitLedgerEffect::NewRef {
-                    size: REF_PUSH_WIDTH,
+                    size: 1,
                     ret: Ref(0).into(),
                 },
                 WitLedgerEffect::RefPush { vals: v7(b"") },
@@ -602,8 +602,8 @@ fn test_duplicate_input_utxo_fails() {
             None,
             vec![
                 WitLedgerEffect::NewRef {
-                    size: REF_PUSH_WIDTH,
-                    ret: Ref(7).into(),
+                    size: 1,
+                    ret: Ref(4).into(),
                 },
                 WitLedgerEffect::RefPush { vals: v7(b"") },
                 WitLedgerEffect::Burn { ret: Ref(0) },
@@ -613,7 +613,7 @@ fn test_duplicate_input_utxo_fails() {
             coord_hash,
             vec![
                 WitLedgerEffect::NewRef {
-                    size: REF_PUSH_WIDTH,
+                    size: 1,
                     ret: Ref(0).into(),
                 },
                 WitLedgerEffect::RefPush { vals: v7(b"") },

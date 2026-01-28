@@ -25,8 +25,8 @@ pub enum EffectDiscriminant {
     RefWrite = 16,
 }
 
-pub const REF_PUSH_WIDTH: usize = 7;
-pub const REF_GET_WIDTH: usize = 5;
+pub const REF_PUSH_WIDTH: usize = 4;
+pub const REF_GET_WIDTH: usize = 4;
 pub const REF_WRITE_WIDTH: usize = 4;
 
 // Both used to indicate which fields are outputs, and to have a placeholder
@@ -120,6 +120,7 @@ pub enum WitLedgerEffect {
 
     NewRef {
         // in
+        // Size is in 4-value words.
         size: usize,
         // out
         ret: WitEffectOutput<Ref>,
@@ -133,6 +134,7 @@ pub enum WitLedgerEffect {
     RefGet {
         // in
         reff: Ref,
+        // Offset is in 4-value words.
         offset: usize,
 
         // out
@@ -141,8 +143,8 @@ pub enum WitLedgerEffect {
     RefWrite {
         // in
         reff: Ref,
+        // Offset is in 4-value words.
         offset: usize,
-        len: usize,
         vals: [Value; REF_WRITE_WIDTH],
         // out
         // does not return anything

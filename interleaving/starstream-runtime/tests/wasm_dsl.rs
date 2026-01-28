@@ -238,34 +238,19 @@ impl ModuleBuilder {
         let ref_push = self.import_func(
             "env",
             "starstream_ref_push",
-            &[
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
+            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let ref_get = self.import_func(
             "env",
             "starstream_ref_get",
             &[ValType::I64, ValType::I64],
-            &[
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-                ValType::I64,
-            ],
+            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
         );
         let ref_write = self.import_func(
             "env",
             "starstream_ref_write",
             &[
-                ValType::I64,
                 ValType::I64,
                 ValType::I64,
                 ValType::I64,

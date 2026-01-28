@@ -9,7 +9,7 @@
 //! It's mainly a direct translation of the algorithm in the README
 
 use crate::{
-    Hash, InterleavingInstance, REF_GET_WIDTH, Ref, Value, WasmModule,
+    Hash, InterleavingInstance, REF_GET_WIDTH, REF_PUSH_WIDTH, Ref, Value, WasmModule,
     transaction_effects::{
         InterfaceId, ProcessId,
         witness::{REF_WRITE_WIDTH, WitLedgerEffect},
@@ -700,25 +700,27 @@ pub fn state_transition(
                 return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
             }
             let new_ref = Ref(state.ref_counter);
-            state.ref_counter += size as u64;
+            let size_words = size;
+            let size_elems = size_words * REF_PUSH_WIDTH;
+            state.ref_counter += size_elems as u64;
             if new_ref != ret.unwrap() {
                 return Err(InterleavingError::RefInitializationMismatch(
                     ret.unwrap(),
                     new_ref,
                 ));
             }
-            state.ref_store.insert(new_ref, vec![Value(0); size]);
-            state.ref_sizes.insert(new_ref, size);
-            state.ref_building.insert(id_curr, (new_ref, 0, size));
+            state.ref_store.insert(new_ref, vec![Value(0); size_elems]);
+            state.ref_sizes.insert(new_ref, size_words);
+            state.ref_building.insert(id_curr, (new_ref, 0, size_words));
         }
 
         WitLedgerEffect::RefPush { vals } => {
-            let (reff, offset, size) = state
+            let (reff, offset_words, size_words) = state
                 .ref_building
                 .remove(&id_curr)
                 .ok_or(InterleavingError::RefPushNotBuilding(id_curr))?;
 
-            let new_offset = offset + vals.len();
+            let new_offset = offset_words + 1;
 
             let vec = state
                 .ref_store
@@ -726,17 +728,23 @@ pub fn state_transition(
                 .ok_or(InterleavingError::RefNotFound(reff))?;
 
             for (i, val) in vals.iter().enumerate() {
-                if offset + i > size && *val != Value::nil() {
-                    return Err(InterleavingError::RefPushOutOfBounds { pid: id_curr, size });
+                let pos = (offset_words * REF_PUSH_WIDTH) + i;
+                if pos >= size_words * REF_PUSH_WIDTH && *val != Value::nil() {
+                    return Err(InterleavingError::RefPushOutOfBounds {
+                        pid: id_curr,
+                        size: size_words,
+                    });
                 }
 
-                if let Some(pos) = vec.get_mut(offset + i) {
+                if let Some(pos) = vec.get_mut(pos) {
                     *pos = *val;
                 }
             }
 
-            if new_offset < size {
-                state.ref_building.insert(id_curr, (reff, new_offset, size));
+            if new_offset < size_words {
+                state
+                    .ref_building
+                    .insert(id_curr, (reff, new_offset, size_words));
             }
         }
 
@@ -745,15 +753,18 @@ pub fn state_transition(
                 .ref_store
                 .get(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
-            let size = state
+            let size_words = state
                 .ref_sizes
                 .get(&reff)
                 .copied()
                 .ok_or(InterleavingError::RefNotFound(reff))?;
+            if offset >= size_words {
+                return Err(InterleavingError::Shape("RefGet out of bounds"));
+            }
             let mut val = [Value::nil(); REF_GET_WIDTH];
             for (i, slot) in val.iter_mut().enumerate() {
-                let idx = offset + i;
-                if idx < size {
+                let idx = (offset * REF_GET_WIDTH) + i;
+                if idx < size_words * REF_GET_WIDTH {
                     *slot = vec[idx];
                 }
             }
@@ -762,32 +773,24 @@ pub fn state_transition(
             }
         }
 
-        WitLedgerEffect::RefWrite {
-            reff,
-            offset,
-            len,
-            vals,
-        } => {
-            if len > REF_WRITE_WIDTH {
-                return Err(InterleavingError::Shape("RefWrite len too large"));
-            }
-
+        WitLedgerEffect::RefWrite { reff, offset, vals } => {
             let vec = state
                 .ref_store
                 .get_mut(&reff)
                 .ok_or(InterleavingError::RefNotFound(reff))?;
-            let size = state
+            let size_words = state
                 .ref_sizes
                 .get(&reff)
                 .copied()
                 .ok_or(InterleavingError::RefNotFound(reff))?;
 
-            if offset + len > size {
+            if offset >= size_words {
                 return Err(InterleavingError::Shape("RefWrite out of bounds"));
             }
 
-            for (i, val) in vals.iter().enumerate().take(len) {
-                vec[offset + i] = *val;
+            for (i, val) in vals.iter().enumerate() {
+                let idx = (offset * REF_WRITE_WIDTH) + i;
+                vec[idx] = *val;
             }
         }
 

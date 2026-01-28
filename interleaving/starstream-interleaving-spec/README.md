@@ -521,12 +521,12 @@ Rule: Unbind (owner calls)
 
 ## NewRef
 
-Allocates a new reference with a specific size.
+Allocates a new reference with a specific size (in 4-value words).
 
 ```text
 Rule: NewRef
 ==============
-    op = NewRef(size) -> ref
+    op = NewRef(size_words) -> ref
 
     1. let
         t = CC[id_curr] in
@@ -536,10 +536,10 @@ Rule: NewRef
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. size fits in 32 bits
-    2. ref_store'[ref] <- [uninitialized; size] (conceptually)
-    3. ref_sizes'[ref] <- size
+    2. ref_store'[ref] <- [uninitialized; size_words * 4] (conceptually)
+    3. ref_sizes'[ref] <- size_words
     4. counters'[id_curr] += 1
-    5. ref_state[id_curr] <- (ref, 0, size) // storing the ref being built, current offset, and total size
+    5. ref_state[id_curr] <- (ref, 0, size_words) // storing the ref being built, current word offset, and total size
 ```
 
 ## RefPush
@@ -549,22 +549,21 @@ Appends data to the currently building reference.
 ```text
 Rule: RefPush
 ==============
-    op = RefPush(vals[7])
+    op = RefPush(vals[4])
 
-    1. let (ref, offset, size) = ref_state[id_curr]
-    2. offset < size
+    1. let (ref, offset_words, size_words) = ref_state[id_curr]
+    2. offset_words < size_words
 
     3. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <RefPush, vals[7]>
+            t[c] == <RefPush, vals[4]>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. for i in 0..6:
-        if offset + i < size:
-            ref_store'[ref][offset + i] <- vals[i]
-    2. ref_state[id_curr] <- (ref, offset + min(7, size - offset), size)
+    1. for i in 0..3:
+            ref_store'[ref][(offset_words * 4) + i] <- vals[i]
+    2. ref_state[id_curr] <- (ref, offset_words + 1, size_words)
     3. counters'[id_curr] += 1
 ```
 
@@ -573,23 +572,43 @@ Rule: RefPush
 ```text
 Rule: RefGet
 ==============
-    op = RefGet(ref, offset) -> vals[5]
+    op = RefGet(ref, offset_words) -> vals[4]
 
-    1. let size = ref_sizes[ref]
-    2. for i in 0..4:
-        if offset + i < size:
-            vals[i] == ref_store[ref][offset + i]
-        else:
-            vals[i] == 0
+    1. let size_words = ref_sizes[ref]
+    2. offset_words < size_words
+    3. for i in 0..3:
+            vals[i] == ref_store[ref][(offset_words * 4) + i]
 
     2. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <RefGet, ref, offset, vals[5]>
+            t[c] == <RefGet, ref, offset_words, vals[4]>
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. counters'[id_curr] += 1
+```
+
+## RefWrite
+
+```text
+Rule: RefWrite
+==============
+    op = RefWrite(ref, offset_words, vals[4])
+
+    1. let size_words = ref_sizes[ref]
+    2. offset_words < size_words
+
+    3. let
+        t = CC[id_curr] in
+        c = counters[id_curr] in
+            t[c] == <RefWrite, ref, offset_words, vals[4]>
+
+    (Host call lookup condition)
+-----------------------------------------------------------------------
+    1. for i in 0..3:
+            ref_store'[ref][(offset_words * 4) + i] <- vals[i]
+    2. counters'[id_curr] += 1
 ```
 
 # Verification

@@ -10,7 +10,6 @@ mod neo;
 mod optional;
 mod program_state;
 mod ref_arena_gadget;
-mod rem_wires_gadget;
 mod switchboard;
 
 use crate::circuit::{InterRoundWires, IvcWireLayout};
