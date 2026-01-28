@@ -1,31 +1,33 @@
+use bytes::{Bytes, BytesMut};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
-use bytes::{Bytes, BytesMut};
 
 use anyhow::Context;
-use starstream_ledger::encode::gen_ctx;
-use tracing::debug;
+use core::pin::pin;
+use futures::StreamExt;
 use futures::TryStreamExt;
-use tokio::join;
-use tokio_util::codec::Encoder;
-use wasmtime::component::ResourceType;
-use wrpc_runtime_wasmtime::RemoteResource;
-use wrpc_transport::frame::Oneshot;
-use wrpc_transport::Invoke;
-use wrpc_transport::InvokeExt;
-use wrpc_runtime_wasmtime::ServeExt;
+use starstream_ledger::encode::gen_ctx;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use futures::StreamExt;
-use wrpc_transport::Accept;
-use core::pin::pin;
-use tokio::sync::Mutex;
 use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
+use tokio::join;
+use tokio::sync::Mutex;
+use tokio_util::codec::Encoder;
+use tracing::debug;
+use wasmtime::component::ResourceType;
+use wrpc_runtime_wasmtime::RemoteResource;
+use wrpc_runtime_wasmtime::ServeExt;
+use wrpc_transport::Accept;
+use wrpc_transport::Invoke;
+use wrpc_transport::InvokeExt;
+use wrpc_transport::frame::Oneshot;
 
-use starstream_ledger::{Chain};
-use wrpc_runtime_wasmtime::{ValEncoder, collect_component_resource_imports, collect_component_resource_exports};
-use wasmtime::{AsContextMut, Store, Engine};
+use starstream_ledger::Chain;
+use wasmtime::{AsContextMut, Engine, Store};
+use wrpc_runtime_wasmtime::{
+    ValEncoder, collect_component_resource_exports, collect_component_resource_imports,
+};
 
 #[derive(Clone)]
 pub struct Handler {
@@ -49,8 +51,10 @@ impl Handler {
         debug!(contract_hash, function, "forwarding invocation");
 
         let (oneshot_clt, oneshot_srv) = Oneshot::duplex(1024);
-        let srv: Arc<wrpc_transport::frame::Server<(), ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>> = Arc::new(wrpc_transport::frame::Server::default());
-        
+        let srv: Arc<
+            wrpc_transport::frame::Server<(), ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>,
+        > = Arc::new(wrpc_transport::frame::Server::default());
+
         // Look up the component handler
         let utxo = self
             .chain
@@ -60,7 +64,8 @@ impl Handler {
 
         let mut store = Store::new(&self.chain.engine(), gen_ctx(oneshot_clt, ()));
         let component = utxo.wasm_instance.component();
-        let instance = utxo.wasm_instance
+        let instance = utxo
+            .wasm_instance
             .instantiate_async(&mut store)
             .await
             .context("failed to instantiate component")?;
@@ -83,7 +88,11 @@ impl Handler {
         );
 
         let mut host_resources = BTreeMap::new();
-        collect_component_resource_imports(  store.engine(), &component.component_type(), &mut host_resources);
+        collect_component_resource_imports(
+            store.engine(),
+            &component.component_type(),
+            &mut host_resources,
+        );
 
         let host_resources = host_resources
             .into_iter()
@@ -103,7 +112,7 @@ impl Handler {
         } else {
             instance_name.clone()
         };
-        
+
         let func_name = function.clone();
         let pretty_name = pretty_name.clone();
         let pretty_name_for_server = pretty_name.clone();
@@ -120,9 +129,7 @@ impl Handler {
                 &function,
             )
             .await
-            .with_context(|| {
-                format!("failed to register handler for function `{function}`")
-            })?;
+            .with_context(|| format!("failed to register handler for function `{function}`"))?;
         let (result, invocation_handle) = join!(
             // client side
             async move {
@@ -131,7 +138,10 @@ impl Handler {
                 // Release the lock immediately after getting the streams
                 let (mut outgoing, mut incoming) = {
                     let store = store_shared_clone.lock().await;
-                    store.data().wrpc.wrpc
+                    store
+                        .data()
+                        .wrpc
+                        .wrpc
                         .invoke((), &instance_name, &function, params, paths)
                         .await
                         .expect(&format!("failed to invoke {}", function))
@@ -139,10 +149,9 @@ impl Handler {
                 // Lock is now released, allowing server to process the invocation
                 outgoing.flush().await?;
                 let mut buf = vec![];
-                incoming
-                    .read_to_end(&mut buf)
-                    .await
-                    .with_context(|| format!("failed to read result for {pretty_name} function `{function}`"))?;
+                incoming.read_to_end(&mut buf).await.with_context(|| {
+                    format!("failed to read result for {pretty_name} function `{function}`")
+                })?;
                 Ok(buf)
             },
             // server side
@@ -157,11 +166,15 @@ impl Handler {
                         match invocation {
                             Ok((_, fut)) => {
                                 if let Err(err) = fut.await {
-                                    eprintln!("failed to serve invocation for {pretty_name_for_server} function `{func_name}`: {err:?}");
+                                    eprintln!(
+                                        "failed to serve invocation for {pretty_name_for_server} function `{func_name}`: {err:?}"
+                                    );
                                 }
                             }
                             Err(err) => {
-                                eprintln!("failed to accept invocation for {pretty_name_for_server} function `{func_name}`: {err:?}");
+                                eprintln!(
+                                    "failed to accept invocation for {pretty_name_for_server} function `{func_name}`: {err:?}"
+                                );
                             }
                         }
                     }

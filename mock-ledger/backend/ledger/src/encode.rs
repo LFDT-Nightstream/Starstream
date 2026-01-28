@@ -1,9 +1,9 @@
+use core::time::Duration;
 use tokio::io::{DuplexStream, ReadHalf, WriteHalf};
 use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wrpc_runtime_wasmtime::{SharedResourceTable, WrpcCtxView, WrpcView};
 use wrpc_transport::Invoke;
-use core::time::Duration;
 use wrpc_transport::frame::Oneshot;
 
 pub type InMemoryTransport = Oneshot<ReadHalf<DuplexStream>, WriteHalf<DuplexStream>>;

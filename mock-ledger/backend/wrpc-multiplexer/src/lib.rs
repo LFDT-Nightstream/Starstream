@@ -3,7 +3,7 @@ use std::io::Cursor;
 
 use anyhow::Context as _;
 use bytes::{Bytes, BytesMut};
-use wrpc_transport::{Invoke};
+use wrpc_transport::Invoke;
 
 use crate::adapter::{AdapterIncoming, AdapterOutgoing};
 
@@ -18,7 +18,7 @@ mod bindings {
 
 pub struct InvocationContext<TCtx: Send + Sync> {
     contract_hash: String,
-    cx: TCtx
+    cx: TCtx,
 }
 
 impl<TCtx: Send + Sync> InvocationContext<TCtx> {

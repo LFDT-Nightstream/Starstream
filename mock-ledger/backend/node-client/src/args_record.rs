@@ -1,14 +1,13 @@
+use crate::rpc;
 use anyhow::Context as _;
 use bytes::BytesMut;
 use wrpc_pack::{pack, unpack};
-use crate::rpc;
 
 pub mod args_record_bindings {
     wit_bindgen_wrpc::generate!({
         path: "../node-server/genesis/wit/args-record/wit"
     });
 }
-
 
 pub async fn explicit_call(
     addr: String,
