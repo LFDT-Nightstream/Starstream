@@ -1,7 +1,11 @@
-use crate::F;
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::opcode_dsl::{OpcodeDsl, OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::switchboard::{HandlerSwitchboard, HandlerSwitchboardWires};
+use crate::{F, LedgerOperation};
 use crate::{circuit::MemoryTag, memory::IVCMemory, memory::IVCMemoryAllocated};
+use ark_ff::AdditiveGroup as _;
+use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 
@@ -142,4 +146,59 @@ pub fn handler_stack_access_wires<M: IVCMemoryAllocated<F>>(
         handler_stack_counter,
         id_curr,
     )
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct InterfaceResolver {
+    mapping: BTreeMap<F, usize>,
+}
+
+impl InterfaceResolver {
+    pub(crate) fn new(ops: &[LedgerOperation<F>]) -> Self {
+        let mut unique_interfaces = BTreeSet::new();
+        for op in ops.iter() {
+            match op {
+                LedgerOperation::InstallHandler { interface_id } => {
+                    unique_interfaces.insert(*interface_id);
+                }
+                LedgerOperation::UninstallHandler { interface_id } => {
+                    unique_interfaces.insert(*interface_id);
+                }
+                LedgerOperation::GetHandlerFor { interface_id, .. } => {
+                    unique_interfaces.insert(*interface_id);
+                }
+                _ => (),
+            }
+        }
+
+        let mapping = unique_interfaces
+            .iter()
+            .enumerate()
+            .map(|(index, interface_id)| (*interface_id, index))
+            .collect();
+
+        Self { mapping }
+    }
+
+    pub(crate) fn get_index(&self, interface_id: F) -> usize {
+        *self.mapping.get(&interface_id).unwrap_or(&0)
+    }
+
+    pub(crate) fn get_interface_index_field(&self, interface_id: F) -> F {
+        F::from(self.get_index(interface_id) as u64)
+    }
+
+    pub(crate) fn interfaces(&self) -> Vec<F> {
+        let mut interfaces = vec![F::ZERO; self.mapping.len()];
+        for (interface_id, index) in &self.mapping {
+            interfaces[*index] = *interface_id;
+        }
+        interfaces
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct HandlerState {
+    pub(crate) handler_stack_node_process: FpVar<F>,
+    pub(crate) interface_rom_read: FpVar<F>,
 }
