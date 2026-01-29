@@ -1,5 +1,7 @@
 use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
-use crate::handler_stack_gadget::{handler_stack_access_wires, trace_handler_stack_ops};
+use crate::handler_stack_gadget::{
+    HandlerState, InterfaceResolver, handler_stack_access_wires, trace_handler_stack_ops,
+};
 use crate::ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE};
 use crate::memory::{self, Address, IVCMemory, MemType};
 pub use crate::memory_tags::MemoryTag;
@@ -25,65 +27,9 @@ use ark_relations::{
     ns,
 };
 use starstream_interleaving_spec::{EffectDiscriminant, InterleavingInstance};
-use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::ops::Not;
 use tracing::debug_span;
-
-#[derive(Debug, Clone)]
-struct InterfaceResolver {
-    mapping: BTreeMap<F, usize>,
-}
-
-impl InterfaceResolver {
-    fn new(ops: &[LedgerOperation<F>]) -> Self {
-        let mut unique_interfaces = BTreeSet::new();
-        for op in ops.iter() {
-            match op {
-                LedgerOperation::InstallHandler { interface_id } => {
-                    unique_interfaces.insert(*interface_id);
-                }
-                LedgerOperation::UninstallHandler { interface_id } => {
-                    unique_interfaces.insert(*interface_id);
-                }
-                LedgerOperation::GetHandlerFor { interface_id, .. } => {
-                    unique_interfaces.insert(*interface_id);
-                }
-                _ => (),
-            }
-        }
-
-        let mapping = unique_interfaces
-            .iter()
-            .enumerate()
-            .map(|(index, interface_id)| (*interface_id, index))
-            .collect();
-
-        Self { mapping }
-    }
-
-    fn get_index(&self, interface_id: F) -> usize {
-        *self.mapping.get(&interface_id).unwrap_or(&0)
-    }
-
-    fn get_interface_index_field(&self, interface_id: F) -> F {
-        F::from(self.get_index(interface_id) as u64)
-    }
-
-    fn interfaces(&self) -> Vec<F> {
-        let mut interfaces = vec![F::ZERO; self.mapping.len()];
-        for (interface_id, index) in &self.mapping {
-            interfaces[*index] = *interface_id;
-        }
-        interfaces
-    }
-}
-
-#[derive(Clone)]
-struct HandlerState {
-    handler_stack_node_process: FpVar<F>,
-    interface_rom_read: FpVar<F>,
-}
 
 struct OpcodeConfig {
     mem_switches_curr: MemSwitchboard,
