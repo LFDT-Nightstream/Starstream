@@ -54,6 +54,15 @@ pub struct HandlerSwitchboard {
     pub write_head: bool,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct RefArenaSwitchboard {
+    pub ref_sizes_write: bool,
+    pub ref_sizes_read: bool,
+    pub ref_arena_read: bool,
+    pub ref_arena_write: bool,
+    pub ref_arena_write_is_push: bool,
+}
+
 #[derive(Clone)]
 pub struct HandlerSwitchboardWires {
     pub read_interface: Boolean<F>,
@@ -61,6 +70,15 @@ pub struct HandlerSwitchboardWires {
     pub read_node: Boolean<F>,
     pub write_node: Boolean<F>,
     pub write_head: Boolean<F>,
+}
+
+#[derive(Clone)]
+pub struct RefArenaSwitchboardWires {
+    pub ref_sizes_write: Boolean<F>,
+    pub ref_sizes_read: Boolean<F>,
+    pub ref_arena_read: Boolean<F>,
+    pub ref_arena_write: Boolean<F>,
+    pub ref_arena_write_is_push: Boolean<F>,
 }
 
 impl MemSwitchboardWires {
@@ -113,6 +131,23 @@ impl HandlerSwitchboardWires {
             read_node: Boolean::new_witness(cs.clone(), || Ok(switches.read_node))?,
             write_node: Boolean::new_witness(cs.clone(), || Ok(switches.write_node))?,
             write_head: Boolean::new_witness(cs.clone(), || Ok(switches.write_head))?,
+        })
+    }
+}
+
+impl RefArenaSwitchboardWires {
+    pub fn allocate(
+        cs: ConstraintSystemRef<F>,
+        switches: &RefArenaSwitchboard,
+    ) -> Result<Self, SynthesisError> {
+        Ok(Self {
+            ref_sizes_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_sizes_write))?,
+            ref_sizes_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_sizes_read))?,
+            ref_arena_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_arena_read))?,
+            ref_arena_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_arena_write))?,
+            ref_arena_write_is_push: Boolean::new_witness(cs, || {
+                Ok(switches.ref_arena_write_is_push)
+            })?,
         })
     }
 }

@@ -40,9 +40,7 @@ impl From<&HandlerSwitchboardWires> for HandlerSwitches<Boolean<F>> {
 
 pub struct HandlerStackReads<V> {
     pub interface_rom_read: V,
-    pub handler_stack_head_read: V,
     pub handler_stack_node_process: V,
-    pub handler_stack_node_next: V,
 }
 
 fn handler_stack_ops<D: OpcodeDsl>(
@@ -52,10 +50,16 @@ fn handler_stack_ops<D: OpcodeDsl>(
     handler_stack_counter: &D::Val,
     id_curr: &D::Val,
 ) -> Result<HandlerStackReads<D::Val>, D::Error> {
-    let interface_rom_read =
-        dsl.read(&switches.read_interface, MemoryTag::Interfaces, interface_index)?;
-    let handler_stack_head_read =
-        dsl.read(&switches.read_head, MemoryTag::HandlerStackHeads, interface_index)?;
+    let interface_rom_read = dsl.read(
+        &switches.read_interface,
+        MemoryTag::Interfaces,
+        interface_index,
+    )?;
+    let handler_stack_head_read = dsl.read(
+        &switches.read_head,
+        MemoryTag::HandlerStackHeads,
+        interface_index,
+    )?;
     let handler_stack_node_process = dsl.read(
         &switches.read_node,
         MemoryTag::HandlerStackArenaProcess,
@@ -98,9 +102,7 @@ fn handler_stack_ops<D: OpcodeDsl>(
 
     Ok(HandlerStackReads {
         interface_rom_read,
-        handler_stack_head_read,
         handler_stack_node_process,
-        handler_stack_node_next,
     })
 }
 

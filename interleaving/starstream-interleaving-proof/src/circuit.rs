@@ -1,4 +1,5 @@
 use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
+use crate::handler_stack_gadget::{handler_stack_access_wires, trace_handler_stack_ops};
 use crate::ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE};
 use crate::memory::{self, Address, IVCMemory, MemType};
 pub use crate::memory_tags::MemoryTag;
@@ -6,11 +7,10 @@ use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
 };
-use crate::handler_stack_gadget::{handler_stack_access_wires, trace_handler_stack_ops};
 use crate::ref_arena_gadget::{ref_arena_access_wires, ref_arena_read_size, trace_ref_arena_ops};
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
-    RomSwitchboard, RomSwitchboardWires,
+    RefArenaSwitchboard, RefArenaSwitchboardWires, RomSwitchboard, RomSwitchboardWires,
 };
 use crate::{
     F, OptionalF, OptionalFpVar, ledger_operation::LedgerOperation, memory::IVCMemoryAllocated,
@@ -90,6 +90,7 @@ struct OpcodeConfig {
     mem_switches_target: MemSwitchboard,
     rom_switches: RomSwitchboard,
     handler_switches: HandlerSwitchboard,
+    ref_arena_switches: RefArenaSwitchboard,
     execution_switches: ExecutionSwitches<bool>,
     opcode_args: [F; OPCODE_ARG_COUNT],
     opcode_discriminant: F,
@@ -397,6 +398,7 @@ pub struct StepCircuitBuilder<M> {
     mem_switches: Vec<(MemSwitchboard, MemSwitchboard)>,
     rom_switches: Vec<RomSwitchboard>,
     handler_switches: Vec<HandlerSwitchboard>,
+    ref_arena_switches: Vec<RefArenaSwitchboard>,
     interface_resolver: InterfaceResolver,
 
     mem: PhantomData<M>,
@@ -453,6 +455,7 @@ pub struct PreWires {
     target_mem_switches: MemSwitchboard,
     rom_switches: RomSwitchboard,
     handler_switches: HandlerSwitchboard,
+    ref_arena_switches: RefArenaSwitchboard,
 
     irw: InterRoundWires,
     ret_is_some: bool,
@@ -661,6 +664,8 @@ impl Wires {
 
         let handler_switches =
             HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
+        let ref_arena_switches =
+            RefArenaSwitchboardWires::allocate(cs.clone(), &vals.ref_arena_switches)?;
 
         let interface_index_var = FpVar::new_witness(cs.clone(), || Ok(vals.interface_index))?;
 
@@ -680,12 +685,13 @@ impl Wires {
 
         // ref arena wires
         let ref_arena_read = {
-            let ref_size_read = ref_arena_read_size(cs.clone(), rm, &switches, &opcode_args, &val)?;
+            let ref_size_read =
+                ref_arena_read_size(cs.clone(), rm, &ref_arena_switches, &opcode_args, &val)?;
 
             ref_arena_access_wires(
                 cs.clone(),
                 rm,
-                &switches,
+                &ref_arena_switches,
                 &opcode_args,
                 &ref_building_ptr,
                 &ref_building_remaining,
@@ -798,6 +804,7 @@ impl LedgerOperation<crate::F> {
             mem_switches_target: MemSwitchboard::default(),
             rom_switches: RomSwitchboard::default(),
             handler_switches: HandlerSwitchboard::default(),
+            ref_arena_switches: RefArenaSwitchboard::default(),
             execution_switches: ExecutionSwitches::default(),
             opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
             opcode_discriminant: F::ZERO,
@@ -910,15 +917,22 @@ impl LedgerOperation<crate::F> {
             }
             LedgerOperation::NewRef { .. } => {
                 config.execution_switches.new_ref = true;
+                config.ref_arena_switches.ref_sizes_write = true;
             }
             LedgerOperation::RefPush { .. } => {
                 config.execution_switches.ref_push = true;
+                config.ref_arena_switches.ref_arena_write = true;
+                config.ref_arena_switches.ref_arena_write_is_push = true;
             }
             LedgerOperation::RefGet { .. } => {
                 config.execution_switches.get = true;
+                config.ref_arena_switches.ref_sizes_read = true;
+                config.ref_arena_switches.ref_arena_read = true;
             }
             LedgerOperation::RefWrite { .. } => {
                 config.execution_switches.ref_write = true;
+                config.ref_arena_switches.ref_sizes_read = true;
+                config.ref_arena_switches.ref_arena_write = true;
             }
             LedgerOperation::InstallHandler { .. } => {
                 config.execution_switches.install_handler = true;
@@ -1057,6 +1071,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mem_switches: vec![],
             rom_switches: vec![],
             handler_switches: vec![],
+            ref_arena_switches: vec![],
             interface_resolver,
             mem: PhantomData,
             instance,
@@ -1297,12 +1312,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             let target_switches = config.mem_switches_target;
             let rom_switches = config.rom_switches;
             let handler_switches = config.handler_switches;
+            let ref_arena_switches = config.ref_arena_switches;
 
             self.mem_switches
                 .push((curr_switches.clone(), target_switches.clone()));
 
             self.rom_switches.push(rom_switches.clone());
             self.handler_switches.push(handler_switches.clone());
+            self.ref_arena_switches.push(ref_arena_switches.clone());
 
             // Get interface index for handler operations
             let interface_index = match instr {
@@ -1335,6 +1352,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &mut ref_building_id,
                 &mut ref_building_offset,
                 &mut ref_building_remaining,
+                &ref_arena_switches,
                 instr,
             );
 
@@ -1493,6 +1511,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let (curr_mem_switches, target_mem_switches) = &self.mem_switches[i];
         let rom_switches = &self.rom_switches[i];
         let handler_switches = &self.handler_switches[i];
+        let ref_arena_switches = &self.ref_arena_switches[i];
 
         // Compute interface index for handler operations
         let interface_index = match instruction {
@@ -1514,6 +1533,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             target_mem_switches.clone(),
             rom_switches.clone(),
             handler_switches.clone(),
+            ref_arena_switches.clone(),
             interface_index,
             abi::opcode_discriminant(instruction),
         );
@@ -2241,6 +2261,7 @@ impl PreWires {
         target_mem_switches: MemSwitchboard,
         rom_switches: RomSwitchboard,
         handler_switches: HandlerSwitchboard,
+        ref_arena_switches: RefArenaSwitchboard,
         interface_index: F,
         opcode_discriminant: F,
     ) -> Self {
@@ -2255,6 +2276,7 @@ impl PreWires {
             target_mem_switches,
             rom_switches,
             handler_switches,
+            ref_arena_switches,
         }
     }
 
