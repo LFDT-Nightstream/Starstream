@@ -1,4 +1,5 @@
 use crate::abi::{self, ArgName, OPCODE_ARG_COUNT};
+use crate::coroutine_args_gadget::{check_activation, check_init};
 use crate::execution_switches::ExecutionSwitches;
 use crate::handler_stack_gadget::{
     HandlerState, InterfaceResolver, handler_stack_access_wires, trace_handler_stack_ops,
@@ -13,7 +14,7 @@ use crate::program_state::{
 };
 use crate::ref_arena_gadget::{ref_arena_access_wires, ref_arena_read_size, trace_ref_arena_ops};
 use crate::switchboard::{
-    HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
+    HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboardBool, MemSwitchboardWires,
     RefArenaSwitchboard, RefArenaSwitchboardWires, RomSwitchboard, RomSwitchboardWires,
 };
 use crate::{
@@ -34,8 +35,8 @@ use std::ops::Not;
 use tracing::debug_span;
 
 struct OpcodeConfig {
-    mem_switches_curr: MemSwitchboard,
-    mem_switches_target: MemSwitchboard,
+    mem_switches_curr: MemSwitchboardBool,
+    mem_switches_target: MemSwitchboardBool,
     rom_switches: RomSwitchboard,
     handler_switches: HandlerSwitchboard,
     ref_arena_switches: RefArenaSwitchboard,
@@ -49,7 +50,7 @@ pub struct StepCircuitBuilder<M> {
     pub last_yield: Vec<F>,
     pub ops: Vec<LedgerOperation<crate::F>>,
     write_ops: Vec<(ProgramState, ProgramState)>,
-    mem_switches: Vec<(MemSwitchboard, MemSwitchboard)>,
+    mem_switches: Vec<(MemSwitchboardBool, MemSwitchboardBool)>,
     rom_switches: Vec<RomSwitchboard>,
     handler_switches: Vec<HandlerSwitchboard>,
     ref_arena_switches: Vec<RefArenaSwitchboard>,
@@ -105,8 +106,8 @@ pub struct PreWires {
     opcode_args: [F; OPCODE_ARG_COUNT],
     opcode_discriminant: F,
 
-    curr_mem_switches: MemSwitchboard,
-    target_mem_switches: MemSwitchboard,
+    curr_mem_switches: MemSwitchboardBool,
+    target_mem_switches: MemSwitchboardBool,
     rom_switches: RomSwitchboard,
     handler_switches: HandlerSwitchboard,
     ref_arena_switches: RefArenaSwitchboard,
@@ -256,7 +257,7 @@ impl Wires {
             rm,
             &cs,
             curr_address.clone(),
-            curr_write_wires.clone(),
+            &curr_write_wires,
             &curr_mem_switches,
         )?;
 
@@ -264,7 +265,7 @@ impl Wires {
             rm,
             &cs,
             target_address.clone(),
-            target_write_wires.clone(),
+            &target_write_wires,
             &target_mem_switches,
         )?;
 
@@ -442,8 +443,8 @@ impl InterRoundWires {
 impl LedgerOperation<crate::F> {
     fn get_config(&self) -> OpcodeConfig {
         let mut config = OpcodeConfig {
-            mem_switches_curr: MemSwitchboard::default(),
-            mem_switches_target: MemSwitchboard::default(),
+            mem_switches_curr: MemSwitchboardBool::default(),
+            mem_switches_target: MemSwitchboardBool::default(),
             rom_switches: RomSwitchboard::default(),
             handler_switches: HandlerSwitchboard::default(),
             ref_arena_switches: RefArenaSwitchboard::default(),
@@ -1491,19 +1492,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_activation(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.activation;
 
-        // When a process calls `input`, it's reading the argument that was
-        // passed to it when it was resumed.
-
-        // 1. Check that the value from the opcode matches the value in the `arg` register.
-        wires
-            .curr_read_wires
-            .activation
-            .conditional_enforce_equal(&wires.arg(ArgName::Val), switch)?;
-
-        // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
-        wires
-            .id_prev_value()?
-            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
+        check_activation(
+            switch,
+            &wires.curr_read_wires.activation,
+            &wires.arg(ArgName::Val),
+            &wires.id_prev_value()?,
+            &wires.arg(ArgName::Caller),
+        )?;
 
         Ok(wires)
     }
@@ -1512,19 +1507,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_init(&self, wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.init;
 
-        // When a process calls `input`, it's reading the argument that was
-        // passed to it when it was resumed.
-
-        // 1. Check that the value from the opcode matches the value in the `arg` register.
-        wires
-            .curr_read_wires
-            .init
-            .conditional_enforce_equal(&wires.arg(ArgName::Val), switch)?;
-
-        // 2. Check that the caller from the opcode matches the `id_prev` IVC variable.
-        wires
-            .id_prev_value()?
-            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
+        check_init(
+            switch,
+            &wires.curr_read_wires.init,
+            &wires.arg(ArgName::Val),
+            &wires.id_prev_value()?,
+            &wires.arg(ArgName::Caller),
+        )?;
 
         Ok(wires)
     }
@@ -1894,8 +1883,8 @@ fn fpvar_witness_index(
 impl PreWires {
     pub fn new(
         irw: InterRoundWires,
-        curr_mem_switches: MemSwitchboard,
-        target_mem_switches: MemSwitchboard,
+        curr_mem_switches: MemSwitchboardBool,
+        target_mem_switches: MemSwitchboardBool,
         rom_switches: RomSwitchboard,
         handler_switches: HandlerSwitchboard,
         ref_arena_switches: RefArenaSwitchboard,

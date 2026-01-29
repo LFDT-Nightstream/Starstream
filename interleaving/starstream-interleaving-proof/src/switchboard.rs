@@ -20,30 +20,20 @@ pub struct RomSwitchboardWires {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct MemSwitchboard {
-    pub expected_input: bool,
-    pub expected_resumer: bool,
-    pub activation: bool,
-    pub init: bool,
-    pub counters: bool,
-    pub initialized: bool,
-    pub finalized: bool,
-    pub did_burn: bool,
-    pub ownership: bool,
+pub struct MemSwitchboard<B> {
+    pub expected_input: B,
+    pub expected_resumer: B,
+    pub activation: B,
+    pub init: B,
+    pub counters: B,
+    pub initialized: B,
+    pub finalized: B,
+    pub did_burn: B,
+    pub ownership: B,
 }
 
-#[derive(Clone)]
-pub struct MemSwitchboardWires {
-    pub expected_input: Boolean<F>,
-    pub expected_resumer: Boolean<F>,
-    pub activation: Boolean<F>,
-    pub init: Boolean<F>,
-    pub counters: Boolean<F>,
-    pub initialized: Boolean<F>,
-    pub finalized: Boolean<F>,
-    pub did_burn: Boolean<F>,
-    pub ownership: Boolean<F>,
-}
+pub type MemSwitchboardBool = MemSwitchboard<bool>;
+pub type MemSwitchboardWires = MemSwitchboard<Boolean<F>>;
 
 #[derive(Clone, Debug, Default)]
 pub struct HandlerSwitchboard {
@@ -84,7 +74,7 @@ pub struct RefArenaSwitchboardWires {
 impl MemSwitchboardWires {
     pub fn allocate(
         cs: ConstraintSystemRef<F>,
-        switches: &MemSwitchboard,
+        switches: &MemSwitchboardBool,
     ) -> Result<Self, SynthesisError> {
         Ok(Self {
             expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
