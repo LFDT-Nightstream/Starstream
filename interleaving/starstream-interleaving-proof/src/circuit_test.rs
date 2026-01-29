@@ -400,3 +400,57 @@ fn test_ref_write_basic_sat() {
     let result = prove(instance, wit);
     assert!(result.is_ok());
 }
+
+#[test]
+fn test_install_handler_get_sat() {
+    test_install_handler_get(ProcessId(0));
+}
+
+#[test]
+#[should_panic]
+fn test_install_handler_get_unsat() {
+    test_install_handler_get(ProcessId(1));
+}
+
+fn test_install_handler_get(exp: ProcessId) {
+    setup_logger();
+
+    let coord_id = 0;
+    let p0 = ProcessId(coord_id);
+
+    let coord_trace = vec![
+        WitLedgerEffect::InstallHandler {
+            interface_id: h(100),
+        },
+        WitLedgerEffect::InstallHandler {
+            interface_id: h(105),
+        },
+        WitLedgerEffect::GetHandlerFor {
+            interface_id: h(100),
+            handler_id: exp.into(),
+        },
+    ];
+
+    let traces = vec![coord_trace];
+    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        must_burn: vec![false],
+        ownership_in: vec![None],
+        ownership_out: vec![None],
+        host_calls_roots,
+        host_calls_lens: trace_lens,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+    let result = prove(instance, wit);
+    assert!(result.is_ok());
+}
