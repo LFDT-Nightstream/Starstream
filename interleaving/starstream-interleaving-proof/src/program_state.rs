@@ -1,8 +1,10 @@
 use crate::F;
-use crate::memory::{Address, IVCMemory, IVCMemoryAllocated};
-use crate::memory_tags::{MemoryTag, ProgramStateTag};
+use crate::coroutine_args_gadget::coroutine_args_ops;
+use crate::memory::{IVCMemory, IVCMemoryAllocated};
+use crate::memory_tags::MemoryTag;
+use crate::opcode_dsl::{OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::optional::{OptionalF, OptionalFpVar};
-use crate::switchboard::{MemSwitchboard, MemSwitchboardWires};
+use crate::switchboard::{MemSwitchboardBool, MemSwitchboardWires};
 use ark_ff::{AdditiveGroup, Field};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::fields::{FieldVar, fp::FpVar};
@@ -36,6 +38,132 @@ pub struct ProgramStateWires {
     pub ownership: OptionalFpVar<F>, // encoded optional process id
 }
 
+struct RawProgramState<V> {
+    expected_input: V,
+    expected_resumer: V,
+    activation: V,
+    init: V,
+    counters: V,
+    initialized: V,
+    finalized: V,
+    did_burn: V,
+    ownership: V,
+}
+
+fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
+    dsl: &mut D,
+    switches: &crate::switchboard::MemSwitchboard<D::Bool>,
+    addr: &D::Val,
+) -> Result<RawProgramState<D::Val>, D::Error> {
+    let expected_input = dsl.read(&switches.expected_input, MemoryTag::ExpectedInput, addr)?;
+    let expected_resumer =
+        dsl.read(&switches.expected_resumer, MemoryTag::ExpectedResumer, addr)?;
+    let (activation, init) = coroutine_args_ops(dsl, &switches.activation, &switches.init, addr)?;
+    let counters = dsl.read(&switches.counters, MemoryTag::Counters, addr)?;
+    let initialized = dsl.read(&switches.initialized, MemoryTag::Initialized, addr)?;
+    let finalized = dsl.read(&switches.finalized, MemoryTag::Finalized, addr)?;
+    let did_burn = dsl.read(&switches.did_burn, MemoryTag::DidBurn, addr)?;
+    let ownership = dsl.read(&switches.ownership, MemoryTag::Ownership, addr)?;
+
+    Ok(RawProgramState {
+        expected_input,
+        expected_resumer,
+        activation,
+        init,
+        counters,
+        initialized,
+        finalized,
+        did_burn,
+        ownership,
+    })
+}
+
+fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
+    dsl: &mut D,
+    switches: &crate::switchboard::MemSwitchboard<D::Bool>,
+    addr: &D::Val,
+    state: &RawProgramState<D::Val>,
+) -> Result<(), D::Error> {
+    dsl.write(
+        &switches.expected_input,
+        MemoryTag::ExpectedInput,
+        addr,
+        &state.expected_input,
+    )?;
+    dsl.write(
+        &switches.expected_resumer,
+        MemoryTag::ExpectedResumer,
+        addr,
+        &state.expected_resumer,
+    )?;
+    dsl.write(
+        &switches.activation,
+        MemoryTag::Activation,
+        addr,
+        &state.activation,
+    )?;
+    dsl.write(&switches.init, MemoryTag::Init, addr, &state.init)?;
+    dsl.write(
+        &switches.counters,
+        MemoryTag::Counters,
+        addr,
+        &state.counters,
+    )?;
+    dsl.write(
+        &switches.initialized,
+        MemoryTag::Initialized,
+        addr,
+        &state.initialized,
+    )?;
+    dsl.write(
+        &switches.finalized,
+        MemoryTag::Finalized,
+        addr,
+        &state.finalized,
+    )?;
+    dsl.write(
+        &switches.did_burn,
+        MemoryTag::DidBurn,
+        addr,
+        &state.did_burn,
+    )?;
+    dsl.write(
+        &switches.ownership,
+        MemoryTag::Ownership,
+        addr,
+        &state.ownership,
+    )?;
+    Ok(())
+}
+
+fn raw_from_state(state: &ProgramState) -> RawProgramState<F> {
+    RawProgramState {
+        expected_input: state.expected_input.encoded(),
+        expected_resumer: state.expected_resumer.encoded(),
+        activation: state.activation,
+        init: state.init,
+        counters: state.counters,
+        initialized: F::from(state.initialized),
+        finalized: F::from(state.finalized),
+        did_burn: F::from(state.did_burn),
+        ownership: state.ownership.encoded(),
+    }
+}
+
+fn raw_from_wires(state: &ProgramStateWires) -> RawProgramState<FpVar<F>> {
+    RawProgramState {
+        expected_input: state.expected_input.encoded(),
+        expected_resumer: state.expected_resumer.encoded(),
+        activation: state.activation.clone(),
+        init: state.init.clone(),
+        counters: state.counters.clone(),
+        initialized: state.initialized.clone().into(),
+        finalized: state.finalized.clone().into(),
+        did_burn: state.did_burn.clone().into(),
+        ownership: state.ownership.encoded(),
+    }
+}
+
 impl ProgramStateWires {
     pub fn from_write_values(
         cs: ConstraintSystemRef<F>,
@@ -61,105 +189,55 @@ impl ProgramStateWires {
     }
 }
 
-macro_rules! define_program_state_operations {
-    ($(($field:ident, $tag:ident, $field_type:ident)),* $(,)?) => {
-        // Out-of-circuit version
-        pub fn trace_program_state_writes<M: IVCMemory<F>>(
-            mem: &mut M,
-            pid: u64,
-            state: &ProgramState,
-            switches: &MemSwitchboard,
-        ) {
-            $(
-                mem.conditional_write(
-                    switches.$field,
-                    Address {
-                        addr: pid,
-                        tag: ProgramStateTag::$tag.into(),
-                    },
-                    [define_program_state_operations!(@convert_to_f state.$field, $field_type)].to_vec(),
-                );
-            )*
-        }
-
-        // In-circuit version
-        pub fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
-            rm: &mut M,
-            cs: &ConstraintSystemRef<F>,
-            address: FpVar<F>,
-            state: ProgramStateWires,
-            switches: &MemSwitchboardWires,
-        ) -> Result<(), SynthesisError> {
-            $(
-                rm.conditional_write(
-                    &switches.$field,
-                    &Address {
-                        addr: address.clone(),
-                        tag: MemoryTag::from(ProgramStateTag::$tag).allocate(cs.clone())?,
-                    },
-                    &[define_program_state_operations!(@convert_to_fpvar state.$field, $field_type)],
-                )?;
-            )*
-            Ok(())
-        }
-
-        // Out-of-circuit read version
-        pub fn trace_program_state_reads<M: IVCMemory<F>>(
-            mem: &mut M,
-            pid: u64,
-            switches: &MemSwitchboard,
-        ) -> ProgramState {
-            ProgramState {
-                $(
-                    $field: define_program_state_operations!(@convert_from_f
-                        mem.conditional_read(
-                            switches.$field,
-                            Address {
-                                addr: pid,
-                                tag: ProgramStateTag::$tag.into(),
-                            },
-                        )[0], $field_type),
-                )*
-            }
-        }
-
-        // Just a helper for totality checking
-        //
-        // this will generate a compiler error if the macro is not called with all variants
-        #[allow(dead_code)]
-        fn _check_program_state_totality(tag: ProgramStateTag) {
-            match tag {
-                $(
-                    ProgramStateTag::$tag => {},
-                )*
-            }
-        }
-    };
-
-    (@convert_to_f $value:expr, field) => { $value };
-    (@convert_to_f $value:expr, bool) => { F::from($value) };
-    (@convert_to_f $value:expr, optional) => { $value.encoded() };
-
-    (@convert_from_f $value:expr, field) => { $value };
-    (@convert_from_f $value:expr, bool) => { $value == F::ONE };
-    (@convert_from_f $value:expr, optional) => { OptionalF::from_encoded($value) };
-
-    (@convert_to_fpvar $value:expr, field) => { $value.clone().into() };
-    (@convert_to_fpvar $value:expr, bool) => { $value.clone().into() };
-    (@convert_to_fpvar $value:expr, optional) => { $value.encoded() };
+// Out-of-circuit write version.
+pub fn trace_program_state_writes<M: IVCMemory<F>>(
+    mem: &mut M,
+    pid: u64,
+    state: &ProgramState,
+    switches: &MemSwitchboardBool,
+) {
+    let raw = raw_from_state(state);
+    let mut dsl = OpcodeTraceDsl { mb: mem };
+    let addr = F::from(pid);
+    program_state_write_ops(&mut dsl, switches, &addr, &raw).expect("trace program state writes");
 }
 
-define_program_state_operations!(
-    (expected_input, ExpectedInput, optional),
-    (expected_resumer, ExpectedResumer, optional),
-    (activation, Activation, field),
-    (init, Init, field),
-    (counters, Counters, field),
-    (initialized, Initialized, bool),
-    (finalized, Finalized, bool),
-    (did_burn, DidBurn, bool),
-    (ownership, Ownership, optional),
-);
+// In-circuit write version.
+pub fn program_state_write_wires<M: IVCMemoryAllocated<F>>(
+    rm: &mut M,
+    cs: &ConstraintSystemRef<F>,
+    address: FpVar<F>,
+    state: &ProgramStateWires,
+    switches: &MemSwitchboardWires,
+) -> Result<(), SynthesisError> {
+    let raw = raw_from_wires(state);
+    let mut dsl = OpcodeSynthDsl { cs: cs.clone(), rm };
+    program_state_write_ops(&mut dsl, switches, &address, &raw)?;
+    Ok(())
+}
+
+// Out-of-circuit read version.
+pub fn trace_program_state_reads<M: IVCMemory<F>>(
+    mem: &mut M,
+    pid: u64,
+    switches: &MemSwitchboardBool,
+) -> ProgramState {
+    let mut dsl = OpcodeTraceDsl { mb: mem };
+    let addr = F::from(pid);
+    let raw = program_state_read_ops(&mut dsl, switches, &addr).expect("trace program state");
+
+    ProgramState {
+        expected_input: OptionalF::from_encoded(raw.expected_input),
+        expected_resumer: OptionalF::from_encoded(raw.expected_resumer),
+        activation: raw.activation,
+        init: raw.init,
+        counters: raw.counters,
+        initialized: raw.initialized == F::ONE,
+        finalized: raw.finalized == F::ONE,
+        did_burn: raw.did_burn == F::ONE,
+        ownership: OptionalF::from_encoded(raw.ownership),
+    }
+}
 
 pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
     rm: &mut M,
@@ -167,112 +245,19 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
     address: FpVar<F>,
     switches: &MemSwitchboardWires,
 ) -> Result<ProgramStateWires, SynthesisError> {
+    let mut dsl = OpcodeSynthDsl { cs: cs.clone(), rm };
+    let raw = program_state_read_ops(&mut dsl, switches, &address)?;
+
     Ok(ProgramStateWires {
-        expected_input: OptionalFpVar::new(
-            rm.conditional_read(
-                &switches.expected_input,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::ExpectedInput.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        ),
-        expected_resumer: OptionalFpVar::new(
-            rm.conditional_read(
-                &switches.expected_resumer,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::ExpectedResumer.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        ),
-        activation: rm
-            .conditional_read(
-                &switches.activation,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Activation.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        init: rm
-            .conditional_read(
-                &switches.init,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Init.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        counters: rm
-            .conditional_read(
-                &switches.counters,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Counters.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        initialized: rm
-            .conditional_read(
-                &switches.initialized,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Initialized.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap()
-            .is_one()?,
-        finalized: rm
-            .conditional_read(
-                &switches.finalized,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Finalized.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap()
-            .is_one()?,
-        did_burn: rm
-            .conditional_read(
-                &switches.did_burn,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::DidBurn.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap()
-            .is_one()?,
-        ownership: OptionalFpVar::new(
-            rm.conditional_read(
-                &switches.ownership,
-                &Address {
-                    addr: address.clone(),
-                    tag: MemoryTag::Ownership.allocate(cs.clone())?,
-                },
-            )?
-            .into_iter()
-            .next()
-            .unwrap(),
-        ),
+        expected_input: OptionalFpVar::new(raw.expected_input),
+        expected_resumer: OptionalFpVar::new(raw.expected_resumer),
+        activation: raw.activation,
+        init: raw.init,
+        counters: raw.counters,
+        initialized: raw.initialized.is_one()?,
+        finalized: raw.finalized.is_one()?,
+        did_burn: raw.did_burn.is_one()?,
+        ownership: OptionalFpVar::new(raw.ownership),
     })
 }
 

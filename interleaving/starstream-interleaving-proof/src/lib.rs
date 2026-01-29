@@ -2,6 +2,7 @@ mod abi;
 mod circuit;
 #[cfg(test)]
 mod circuit_test;
+mod coroutine_args_gadget;
 mod execution_switches;
 mod handler_stack_gadget;
 mod ledger_operation;
