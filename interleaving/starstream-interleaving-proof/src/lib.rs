@@ -7,6 +7,7 @@ mod logging;
 mod memory;
 mod memory_tags;
 mod neo;
+mod opcode_dsl;
 mod optional;
 mod program_state;
 mod ref_arena_gadget;
