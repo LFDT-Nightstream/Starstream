@@ -494,6 +494,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_filter"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13c863f0904021b108aa8b2f55046443e6b1ebde8fd4a15c399893aae4fa069f"
+dependencies = [
+ "anstream",
+ "anstyle",
+ "env_filter",
+ "jiff",
+ "log",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -897,6 +920,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
+name = "jiff"
+version = "0.2.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e67e8da4c49d6d9909fe03361f9b620f58898859f5c7aded68351e85e71ecf50"
+dependencies = [
+ "jiff-static",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+]
+
+[[package]]
+name = "jiff-static"
+version = "0.2.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0c84ee7f197eca9a86c6fd6cb771e55eb991632f15f2bc3ca6ec838929e6e78"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1250,6 +1297,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
+name = "portable-atomic"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f89776e4d69bb58bc6993e99ffa1d11f228b839984854c7daeb5d37f87cbe950"
+
+[[package]]
+name = "portable-atomic-util"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8a2f0d8d040d7848a709caf78912debcc3f33ee4b3cac47d73d1e1069e83507"
+dependencies = [
+ "portable-atomic",
+]
+
+[[package]]
 name = "postcard"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1414,6 +1476,18 @@ dependencies = [
  "log",
  "rustc-hash",
  "smallvec",
+]
+
+[[package]]
+name = "regex"
+version = "1.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -1649,6 +1723,7 @@ dependencies = [
  "anyhow",
  "bytes",
  "clap",
+ "env_logger",
  "futures",
  "starstream-ledger",
  "tokio",
@@ -2626,6 +2701,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc"
 version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "bitflags",
@@ -2642,6 +2718,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust"
 version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "heck",
@@ -2654,6 +2731,7 @@ dependencies = [
 [[package]]
 name = "wit-bindgen-wrpc-rust-macro"
 version = "0.11.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "prettyplease",
@@ -2737,6 +2815,7 @@ checksum = "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9"
 [[package]]
 name = "wrpc-introspect"
 version = "0.7.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "wit-parser 0.220.1",
 ]
@@ -2756,6 +2835,7 @@ dependencies = [
 [[package]]
 name = "wrpc-pack"
 version = "0.4.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2767,6 +2847,7 @@ dependencies = [
 [[package]]
 name = "wrpc-runtime-wasmtime"
 version = "0.31.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2786,6 +2867,7 @@ dependencies = [
 [[package]]
 name = "wrpc-transport"
 version = "0.29.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2803,6 +2885,7 @@ dependencies = [
 [[package]]
 name = "wrpc-wave"
 version = "0.1.0"
+source = "git+https://github.com/bytecodealliance/wrpc?branch=main#99a67b48e5260dd70a6b2cbaef2c16b14a4e2219"
 dependencies = [
  "anyhow",
  "bytes",

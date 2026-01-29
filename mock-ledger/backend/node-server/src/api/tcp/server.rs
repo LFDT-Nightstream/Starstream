@@ -3,20 +3,23 @@ use core::pin::pin;
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use futures::stream::select_all;
+use core::net::SocketAddr;
 use futures::StreamExt as _;
+use futures::stream::select_all;
 use tokio::task::JoinSet;
 use tokio::{select, signal};
 use tracing::{debug, error, info, warn};
-use core::net::SocketAddr;
 use wrpc_transport::Server;
 
 use crate::api::binding::bindings;
 use crate::api::handler::Handler;
 
-type TcpServer = Server<SocketAddr, tokio::net::tcp::OwnedReadHalf, tokio::net::tcp::OwnedWriteHalf>;
+type TcpServer =
+    Server<SocketAddr, tokio::net::tcp::OwnedReadHalf, tokio::net::tcp::OwnedWriteHalf>;
 
-async fn create_tcp_server(addr: String) -> anyhow::Result<(Arc<TcpServer>, tokio::task::JoinHandle<()>)> {
+async fn create_tcp_server(
+    addr: String,
+) -> anyhow::Result<(Arc<TcpServer>, tokio::task::JoinHandle<()>)> {
     let srv = Arc::new(Server::default());
 
     // Bind TCP listener
@@ -54,7 +57,9 @@ pub async fn run_server(addr: String, handler: Handler) -> anyhow::Result<()> {
         invocations
             .into_iter()
             // TODO: currently we only support RPC calls that directly query a UTXO and not the chain directly
-            .map(|(contract_hash, name, invocations)| invocations.map(move |res| (contract_hash, name, res))),
+            .map(|(contract_hash, name, invocations)| {
+                invocations.map(move |res| (contract_hash, name, res))
+            }),
     );
 
     // create a pool of async tasks to handle incoming requests
@@ -95,4 +100,3 @@ pub async fn run_server(addr: String, handler: Handler) -> anyhow::Result<()> {
         }
     }
 }
-
