@@ -11,6 +11,7 @@ mod memory_tags;
 mod neo;
 mod opcode_dsl;
 mod optional;
+mod program_hash_gadget;
 mod program_state;
 mod ref_arena_gadget;
 mod switchboard;

@@ -6,6 +6,7 @@ use crate::handler_stack_gadget::{
 use crate::ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE};
 use crate::memory::{self, Address, IVCMemory, MemType};
 pub use crate::memory_tags::MemoryTag;
+use crate::program_hash_gadget::{program_hash_access_wires, trace_program_hash_ops};
 use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
@@ -296,24 +297,12 @@ impl Wires {
         )?[0]
             .clone();
 
-        let mut rom_program_hash_vec = Vec::with_capacity(4);
-        let process_table_stride = FpVar::new_constant(cs.clone(), F::from(4))?;
-        for i in 0..4 {
-            let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
-            let addr = &target_address * &process_table_stride + offset;
-            let value = rm.conditional_read(
-                &rom_switches.read_program_hash_target,
-                &Address {
-                    addr,
-                    tag: MemoryTag::ProcessTable.allocate(cs.clone())?,
-                },
-            )?[0]
-                .clone();
-            rom_program_hash_vec.push(value);
-        }
-        let rom_program_hash: [FpVar<F>; 4] = rom_program_hash_vec
-            .try_into()
-            .expect("rom program hash length");
+        let rom_program_hash = program_hash_access_wires(
+            cs.clone(),
+            rm,
+            &rom_switches.read_program_hash_target,
+            &target_address,
+        )?;
 
         let handler_switches =
             HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
@@ -1048,16 +1037,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 },
             );
             let target_pid_value = target_pid.unwrap_or(0);
-            for lane in 0..4 {
-                let addr = (target_pid_value * 4) + lane;
-                mb.conditional_read(
-                    rom_switches.read_program_hash_target,
-                    Address {
-                        addr: addr as u64,
-                        tag: MemoryTag::ProcessTable.into(),
-                    },
-                );
-            }
+            let _ = trace_program_hash_ops(
+                &mut mb,
+                rom_switches.read_program_hash_target,
+                &F::from(target_pid_value),
+            );
 
             let (curr_write, target_write) =
                 instr.program_state_transitions(curr_read, target_read);
