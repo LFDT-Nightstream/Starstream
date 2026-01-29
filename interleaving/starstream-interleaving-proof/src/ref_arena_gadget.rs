@@ -1,5 +1,6 @@
-use crate::circuit::{ExecutionSwitches, MemoryTag};
+use crate::circuit::MemoryTag;
 use crate::opcode_dsl::{OpcodeDsl, OpcodeSynthDsl, OpcodeTraceDsl};
+use crate::switchboard::{RefArenaSwitchboard, RefArenaSwitchboardWires};
 use crate::{
     F, LedgerOperation,
     abi::{ArgName, OPCODE_ARG_COUNT},
@@ -15,12 +16,7 @@ use ark_r1cs_std::{
     prelude::Boolean,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
-
-struct RefArenaSwitches<B> {
-    get: B,
-    ref_push: B,
-    ref_write: B,
-}
+use std::ops::Not;
 
 fn ref_sizes_access_ops<D: OpcodeDsl>(
     dsl: &mut D,
@@ -36,8 +32,9 @@ fn ref_sizes_access_ops<D: OpcodeDsl>(
 
 fn ref_arena_access_ops<D: OpcodeDsl>(
     dsl: &mut D,
-    switches: &RefArenaSwitches<D::Bool>,
+    read_cond: &D::Bool,
     write_cond: &D::Bool,
+    write_is_push: &D::Bool,
     push_vals: &[D::Val; REF_PUSH_BATCH_SIZE],
     write_vals: &[D::Val; REF_WRITE_BATCH_SIZE],
     ref_building_ptr: &D::Val,
@@ -52,21 +49,21 @@ fn ref_arena_access_ops<D: OpcodeDsl>(
     for i in 0..REF_GET_BATCH_SIZE {
         let off = dsl.const_u64(i as u64)?;
         let addr = dsl.add(&get_base_addr, &off)?;
-        let read = dsl.read(&switches.get, MemoryTag::RefArena, &addr)?;
+        let read = dsl.read(read_cond, MemoryTag::RefArena, &addr)?;
         ref_arena_read_vec.push(read);
     }
 
     let scale_write = dsl.const_u64(REF_WRITE_BATCH_SIZE as u64)?;
     let offset_scaled_write = dsl.mul(offset, &scale_write)?;
     let write_base_write = dsl.add(val, &offset_scaled_write)?;
-    let write_base_sel = dsl.select(&switches.ref_push, ref_building_ptr, &write_base_write)?;
+    let write_base_sel = dsl.select(write_is_push, ref_building_ptr, &write_base_write)?;
     let zero = dsl.zero();
     let write_base = dsl.select(write_cond, &write_base_sel, &zero)?;
 
     for i in 0..REF_WRITE_BATCH_SIZE {
         let off = dsl.const_u64(i as u64)?;
         let addr = dsl.add(&write_base, &off)?;
-        let val_sel = dsl.select(&switches.ref_push, &push_vals[i], &write_vals[i])?;
+        let val_sel = dsl.select(write_is_push, &push_vals[i], &write_vals[i])?;
         let val = dsl.select(write_cond, &val_sel, &zero)?;
         dsl.write(write_cond, MemoryTag::RefArena, &addr, &val)?;
     }
@@ -83,14 +80,16 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     ref_building_id: &mut F,
     ref_building_offset: &mut F,
     ref_building_remaining: &mut F,
+    switches: &RefArenaSwitchboard,
     instr: &LedgerOperation<F>,
 ) {
     let mut ref_push_vals = std::array::from_fn(|_| F::ZERO);
     let mut ref_write_vals = std::array::from_fn(|_| F::ZERO);
-    let mut ref_push = false;
-    let mut ref_get = false;
-    let mut ref_write = false;
-    let mut new_ref = false;
+    let ref_sizes_write = switches.ref_sizes_write;
+    let ref_sizes_read = switches.ref_sizes_read;
+    let ref_arena_read = switches.ref_arena_read;
+    let ref_arena_write = switches.ref_arena_write;
+    let write_is_push = switches.ref_arena_write_is_push;
 
     let mut ref_get_ref = F::ZERO;
     let mut ref_get_offset = F::ZERO;
@@ -101,25 +100,19 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
             *ref_building_id = *ret;
             *ref_building_offset = F::ZERO;
             *ref_building_remaining = *size;
-
-            new_ref = true;
         }
         LedgerOperation::RefPush { vals } => {
             ref_push_vals = *vals;
-            ref_push = true;
         }
         LedgerOperation::RefGet {
             reff,
             offset,
             ret: _,
         } => {
-            ref_get = true;
-
             ref_get_ref = *reff;
             ref_get_offset = *offset;
         }
         LedgerOperation::RefWrite { reff, offset, vals } => {
-            ref_write = true;
             ref_write_ref = *reff;
             ref_write_offset = *offset;
             ref_write_vals = *vals;
@@ -127,10 +120,9 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
         _ => {}
     };
 
-    let ref_sizes_read = ref_get || ref_write;
-    let ref_sizes_ref_id = if ref_get {
+    let ref_sizes_ref_id = if ref_arena_read {
         ref_get_ref
-    } else if ref_write {
+    } else if ref_arena_write && !write_is_push {
         ref_write_ref
     } else {
         F::ZERO
@@ -139,7 +131,7 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     let mut dsl = OpcodeTraceDsl { mb };
     let _ = ref_sizes_access_ops(
         &mut dsl,
-        &new_ref,
+        &ref_sizes_write,
         ref_building_id,
         ref_building_remaining,
         &ref_sizes_read,
@@ -147,34 +139,27 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     )
     .expect("trace ref sizes access");
 
-    let op_val = if ref_get {
+    let op_val = if ref_arena_read {
         ref_get_ref
-    } else if ref_write {
+    } else if ref_arena_write && !write_is_push {
         ref_write_ref
     } else {
         F::ZERO
     };
-    let op_offset = if ref_get {
+    let op_offset = if ref_arena_read {
         ref_get_offset
-    } else if ref_write {
+    } else if ref_arena_write && !write_is_push {
         ref_write_offset
     } else {
         F::ZERO
     };
 
-    let switches = RefArenaSwitches {
-        get: ref_get,
-        ref_push,
-        ref_write,
-    };
-
-    let write_cond = ref_push || ref_write;
-
     let push_ptr = *ref_building_id + *ref_building_offset;
     let _ = ref_arena_access_ops(
         &mut dsl,
-        &switches,
-        &write_cond,
+        &ref_arena_read,
+        &ref_arena_write,
+        &write_is_push,
         &ref_push_vals,
         &ref_write_vals,
         &push_ptr,
@@ -185,7 +170,7 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
 
     let remaining = ref_building_remaining.into_bigint().0[0] as usize;
 
-    if ref_push {
+    if ref_arena_write && write_is_push {
         *ref_building_offset += F::from(REF_PUSH_BATCH_SIZE as u64);
         *ref_building_remaining = F::from(remaining.saturating_sub(1) as u64);
     }
@@ -194,15 +179,15 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
 pub(crate) fn ref_arena_read_size<M: IVCMemoryAllocated<F>>(
     cs: ConstraintSystemRef<F>,
     rm: &mut M,
-    switches: &ExecutionSwitches<Boolean<F>>,
+    switches: &RefArenaSwitchboardWires,
     opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
     addr: &FpVar<F>,
 ) -> Result<FpVar<F>, SynthesisError> {
-    let write_cond = switches.new_ref.clone();
+    let write_cond = switches.ref_sizes_write.clone();
     let write_addr = opcode_args[ArgName::Ret.idx()].clone();
     let write_val = opcode_args[ArgName::Size.idx()].clone();
 
-    let read_cond = &switches.get | &switches.ref_write;
+    let read_cond = switches.ref_sizes_read.clone();
     let read_addr = read_cond.select(addr, &FpVar::zero())?;
 
     let mut dsl = OpcodeSynthDsl { cs, rm };
@@ -219,7 +204,7 @@ pub(crate) fn ref_arena_read_size<M: IVCMemoryAllocated<F>>(
 pub(crate) fn ref_arena_access_wires<M: IVCMemoryAllocated<F>>(
     cs: ConstraintSystemRef<F>,
     rm: &mut M,
-    switches: &ExecutionSwitches<Boolean<F>>,
+    switches: &RefArenaSwitchboardWires,
     opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
     ref_building_ptr: &FpVar<F>,
     ref_building_remaining: &FpVar<F>,
@@ -242,38 +227,40 @@ pub(crate) fn ref_arena_access_wires<M: IVCMemoryAllocated<F>>(
         opcode_args[ArgName::PackedRef5.idx()].clone(),
     ];
 
-    let size_sel_get = switches.get.select(ref_size_read, &FpVar::zero())?;
-    let offset_sel_get = switches.get.select(offset, &FpVar::zero())?;
-    let one_if_on_get = switches.get.select(&FpVar::one(), &FpVar::zero())?;
+    let size_sel_get = switches
+        .ref_arena_read
+        .select(ref_size_read, &FpVar::zero())?;
+    let offset_sel_get = switches.ref_arena_read.select(offset, &FpVar::zero())?;
+    let one_if_on_get = switches
+        .ref_arena_read
+        .select(&FpVar::one(), &FpVar::zero())?;
     let offset_plus_one_get = &offset_sel_get + one_if_on_get;
     let diff_get = &size_sel_get - &offset_plus_one_get;
 
-    range_check_u16(cs.clone(), &switches.get, &size_sel_get)?;
-    range_check_u16(cs.clone(), &switches.get, &offset_sel_get)?;
-    range_check_u16(cs.clone(), &switches.get, &diff_get)?;
+    range_check_u16(cs.clone(), &switches.ref_arena_read, &size_sel_get)?;
+    range_check_u16(cs.clone(), &switches.ref_arena_read, &offset_sel_get)?;
+    range_check_u16(cs.clone(), &switches.ref_arena_read, &diff_get)?;
 
-    let size_sel_write = switches.ref_write.select(ref_size_read, &FpVar::zero())?;
-    let offset_sel_write = switches.ref_write.select(offset, &FpVar::zero())?;
-    let one_if_on_write = switches.ref_write.select(&FpVar::one(), &FpVar::zero())?;
+    let write_check_cond =
+        &switches.ref_arena_write & switches.ref_arena_write_is_push.clone().not();
+
+    let size_sel_write = write_check_cond.select(ref_size_read, &FpVar::zero())?;
+    let offset_sel_write = write_check_cond.select(offset, &FpVar::zero())?;
+    let one_if_on_write = write_check_cond.select(&FpVar::one(), &FpVar::zero())?;
     let offset_plus_one_write = &offset_sel_write + one_if_on_write;
     let diff_write = &size_sel_write - &offset_plus_one_write;
 
-    range_check_u16(cs.clone(), &switches.ref_write, &size_sel_write)?;
-    range_check_u16(cs.clone(), &switches.ref_write, &offset_sel_write)?;
-    range_check_u16(cs.clone(), &switches.ref_write, &diff_write)?;
-
-    let switches = RefArenaSwitches {
-        get: switches.get.clone(),
-        ref_push: switches.ref_push.clone(),
-        ref_write: switches.ref_write.clone(),
-    };
-    let write_cond = &switches.ref_push | &switches.ref_write;
+    range_check_u16(cs.clone(), &write_check_cond, &size_sel_write)?;
+    range_check_u16(cs.clone(), &write_check_cond, &offset_sel_write)?;
+    range_check_u16(cs.clone(), &write_check_cond, &diff_write)?;
 
     let mut dsl = OpcodeSynthDsl { cs: cs.clone(), rm };
+
     ref_arena_access_ops(
         &mut dsl,
-        &switches,
-        &write_cond,
+        &switches.ref_arena_read,
+        &switches.ref_arena_write,
+        &switches.ref_arena_write_is_push,
         &ref_push_vals,
         &ref_write_vals,
         ref_building_ptr,
