@@ -494,6 +494,7 @@ Rule: Bind (token calls)
 
 ## Unbind
 
+```text
 Rule: Unbind (owner calls)
 ==========================
     op = Unbind(token_id)
