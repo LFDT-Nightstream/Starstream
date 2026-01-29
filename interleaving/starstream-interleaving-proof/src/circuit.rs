@@ -6,6 +6,7 @@ use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
 };
+use crate::handler_stack_gadget::{handler_stack_access_wires, trace_handler_stack_ops};
 use crate::ref_arena_gadget::{ref_arena_access_wires, ref_arena_read_size, trace_ref_arena_ops};
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboard, MemSwitchboardWires,
@@ -663,80 +664,18 @@ impl Wires {
 
         let interface_index_var = FpVar::new_witness(cs.clone(), || Ok(vals.interface_index))?;
 
-        let interface_rom_read = rm.conditional_read(
-            &handler_switches.read_interface,
-            &Address {
-                tag: MemoryTag::Interfaces.allocate(cs.clone())?,
-                addr: interface_index_var.clone(),
-            },
-        )?[0]
-            .clone();
-
-        let handler_stack_head_read = rm.conditional_read(
-            &handler_switches.read_head,
-            &Address {
-                tag: MemoryTag::HandlerStackHeads.allocate(cs.clone())?,
-                addr: interface_index_var.clone(),
-            },
-        )?[0]
-            .clone();
-
-        let handler_stack_node_process = rm.conditional_read(
-            &handler_switches.read_node,
-            &Address {
-                tag: MemoryTag::HandlerStackArenaProcess.allocate(cs.clone())?,
-                addr: handler_stack_head_read.clone(),
-            },
-        )?[0]
-            .clone();
-
-        let handler_stack_node_next = rm.conditional_read(
-            &handler_switches.read_node,
-            &Address {
-                tag: MemoryTag::HandlerStackArenaNextPtr.allocate(cs.clone())?,
-                addr: handler_stack_head_read.clone(),
-            },
-        )?[0]
-            .clone();
-
-        rm.conditional_write(
-            &handler_switches.write_node,
-            &Address {
-                tag: MemoryTag::HandlerStackArenaProcess.allocate(cs.clone())?,
-                addr: handler_stack_counter.clone(),
-            },
-            &[handler_switches
-                .write_node
-                .select(&id_curr, &FpVar::new_constant(cs.clone(), F::ZERO)?)?], // process_id
-        )?;
-
-        rm.conditional_write(
-            &handler_switches.write_node,
-            &Address {
-                tag: MemoryTag::HandlerStackArenaNextPtr.allocate(cs.clone())?,
-                addr: handler_stack_counter.clone(),
-            },
-            &[handler_switches.write_node.select(
-                &handler_stack_head_read,
-                &FpVar::new_constant(cs.clone(), F::ZERO)?,
-            )?], // next_ptr (old head)
-        )?;
-
-        rm.conditional_write(
-            &handler_switches.write_head,
-            &Address {
-                tag: MemoryTag::HandlerStackHeads.allocate(cs.clone())?,
-                addr: interface_index_var.clone(),
-            },
-            &[handler_switches.write_node.select(
-                &handler_stack_counter, // install: new node becomes head
-                &handler_stack_node_next,
-            )?],
+        let handler_reads = handler_stack_access_wires(
+            cs.clone(),
+            rm,
+            &handler_switches,
+            &interface_index_var,
+            &handler_stack_counter,
+            &id_curr,
         )?;
 
         let handler_state = HandlerState {
-            handler_stack_node_process,
-            interface_rom_read: interface_rom_read.clone(),
+            handler_stack_node_process: handler_reads.handler_stack_node_process,
+            interface_rom_read: handler_reads.interface_rom_read,
         };
 
         // ref arena wires
@@ -1379,77 +1318,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 _ => F::ZERO,
             };
 
-            mb.conditional_read(
-                handler_switches.read_interface,
-                Address {
-                    tag: MemoryTag::Interfaces.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-            );
-
-            let current_head = mb.conditional_read(
-                handler_switches.read_head,
-                Address {
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-            )[0];
-
-            let _node_process = mb.conditional_read(
-                handler_switches.read_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaProcess.into(),
-                    addr: current_head.into_bigint().0[0],
-                },
-            )[0];
-
-            let node_next = mb.conditional_read(
-                handler_switches.read_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
-                    addr: current_head.into_bigint().0[0],
-                },
-            )[0];
-
-            mb.conditional_write(
-                handler_switches.write_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaProcess.into(),
-                    addr: irw.handler_stack_counter.into_bigint().0[0],
-                },
-                if handler_switches.write_node {
-                    vec![irw.id_curr]
-                } else {
-                    vec![F::ZERO]
-                },
-            );
-
-            mb.conditional_write(
-                handler_switches.write_node,
-                Address {
-                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
-                    addr: irw.handler_stack_counter.into_bigint().0[0],
-                },
-                if handler_switches.write_node {
-                    vec![current_head]
-                } else {
-                    vec![F::ZERO]
-                },
-            );
-
-            mb.conditional_write(
-                handler_switches.write_head,
-                Address {
-                    tag: MemoryTag::HandlerStackHeads.into(),
-                    addr: interface_index.into_bigint().0[0],
-                },
-                vec![if handler_switches.write_node {
-                    irw.handler_stack_counter
-                } else if handler_switches.write_head {
-                    node_next
-                } else {
-                    F::ZERO
-                }],
+            let _handler_reads = trace_handler_stack_ops(
+                &mut mb,
+                &handler_switches,
+                &interface_index,
+                &irw.handler_stack_counter,
+                &irw.id_curr,
             );
 
             if config.execution_switches.install_handler {
