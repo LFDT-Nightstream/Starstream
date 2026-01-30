@@ -392,7 +392,7 @@ The flow of execution to proving then looks something like this:
 
 Note: WASM is an arbitrary trace of wasm opcodes from the corresponding program.
 
-![img](graph-scaled.png)
+![img](graph.png)
 
 ## Proving algebraic effects
 
