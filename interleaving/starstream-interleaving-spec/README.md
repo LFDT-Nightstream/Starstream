@@ -96,11 +96,11 @@ Rule: Resume
     (No self resume)
 
     2. let val = ref_store[val_ref] in
-       expected_input[target] == val
+       if expected_input[target] is set, it must equal val
 
     (Check val matches target's previous claim)
 
-    3. expected_resumer[target] == id_curr
+    3. if expected_resumer[target] is set, it must equal id_curr
 
     (Check that the current process matches the expected resumer for the target)
 
@@ -177,11 +177,11 @@ Rule: Yield (resumed)
     op = Yield(val_ref) -> (ret_ref, id_prev)
 
     1. let val = ref_store[val_ref] in
-       expected_input[id_prev] == val
+       if expected_input[id_prev] is set, it must equal val
 
     (Check val matches target's previous claim)
 
-    2. expected_resumer[id_prev] == id_curr
+    2. if expected_resumer[id_prev] is set, it must equal id_curr
 
     (Check that the current process matches the expected resumer for the parent)
 
@@ -285,11 +285,9 @@ Assigns a new (transaction-local) ID for a UTXO program.
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
-    1. initialized[id] <- True
-    2. expected_input[id] <- val
-    3. expected_resumer[id] <- id_curr
-    4. init'[id]         <- Some(val, id_curr)
-    5. counters'[id_curr] += 1
+    1. initialized[id]     <- True
+    2. init'[id]           <- Some(val, id_curr)
+    3. counters'[id_curr]  += 1
 ```
 
 ## New Coordination Script (Spawn)
@@ -329,11 +327,9 @@ handler) instance.
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
-    1. initialized[id] <- True
-    2. expected_input[id] <- val
-    3. expected_resumer[id] <- id_curr
-    4. init'[id]         <- Some(val, id_curr)
-    5. counters'[id_curr] += 1
+    1. initialized[id]     <- True
+    2. init'[id]           <- Some(val, id_curr)
+    3. counters'[id_curr]  += 1
 ```
 
 ---
@@ -434,7 +430,7 @@ Destroys the UTXO state.
     2. is_initialized[id_curr]
     3. is_burned[id_curr]
 
-    4. expected_input[id_prev] == ret
+    4. if expected_input[id_prev] is set, it must equal ret
 
     (Resume receives ret)
 
@@ -536,7 +532,7 @@ Rule: NewRef
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. size fits in 32 bits
+    1. size fits in 16 bits
     2. ref_store'[ref] <- [uninitialized; size_words * 4] (conceptually)
     3. ref_sizes'[ref] <- size_words
     4. counters'[id_curr] += 1
