@@ -1282,18 +1282,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
         // 5. Claim check: val passed in must match target's expected_input (if set).
-        let expected_input_is_some = wires.target_read_wires.expected_input.is_some()?;
-        let expected_input_value = wires.target_read_wires.expected_input.decode_or_zero()?;
-        expected_input_value.conditional_enforce_equal(
-            &wires.arg(ArgName::Val),
-            &(switch & expected_input_is_some),
-        )?;
+        wires
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Val))?;
 
         // 6. Resumer check: current process must match target's expected_resumer (if set).
-        let expected_resumer_is_some = wires.target_read_wires.expected_resumer.is_some()?;
-        let expected_resumer_value = wires.target_read_wires.expected_resumer.decode_or_zero()?;
-        expected_resumer_value
-            .conditional_enforce_equal(&wires.id_curr, &(switch & expected_resumer_is_some))?;
+        wires
+            .target_read_wires
+            .expected_resumer
+            .conditional_enforce_eq_if_some(switch, &wires.id_curr)?;
 
         // 7. Store expected resumer for the current process.
         wires
@@ -1347,12 +1345,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Claim check: burned value `ret` must match parent's `expected_input` (if set).
         // Parent's state is in `target_read_wires`.
-        let expected_input_is_some = wires.target_read_wires.expected_input.is_some()?;
-        let expected_input_value = wires.target_read_wires.expected_input.decode_or_zero()?;
-        expected_input_value.conditional_enforce_equal(
-            &wires.arg(ArgName::Ret),
-            &(switch & expected_input_is_some),
-        )?;
+        wires
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Ret))?;
 
         // ---
         // IVC state updates
@@ -1382,12 +1378,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Claim check: yielded value `val` must match parent's `expected_input`.
         // The parent's state is in `target_read_wires` because we set `target = irw.id_prev`.
-        let expected_input_is_some = wires.target_read_wires.expected_input.is_some()?;
-        let expected_input_value = wires.target_read_wires.expected_input.decode_or_zero()?;
-        expected_input_value.conditional_enforce_equal(
-            &wires.arg(ArgName::Val),
-            &(switch & expected_input_is_some),
-        )?;
+        wires
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Val))?;
+
+        // 3. Resumer check: parent must expect the current process (if set).
+        wires
+            .target_read_wires
+            .expected_resumer
+            .conditional_enforce_eq_if_some(switch, &wires.id_curr)?;
 
         // ---
         // State update enforcement
@@ -1404,6 +1404,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let new_expected_input_encoded = wires
             .ret_is_some
             .select(&(&wires.arg(ArgName::Ret) + FpVar::one()), &FpVar::zero())?;
+
         wires
             .curr_write_wires
             .expected_input

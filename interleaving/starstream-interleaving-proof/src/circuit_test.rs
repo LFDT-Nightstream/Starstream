@@ -151,7 +151,7 @@ fn test_circuit_many_steps() {
             target: p0,
             val: ref_0,
             ret: ref_1.into(),
-            id_prev: Some(p1).into(),
+            id_prev: Some(p0).into(),
         },
         WitLedgerEffect::UninstallHandler {
             interface_id: h(100),
@@ -453,4 +453,62 @@ fn test_install_handler_get(exp: ProcessId) {
     let wit = InterleavingWitness { traces };
     let result = prove(instance, wit);
     assert!(result.is_ok());
+}
+
+#[test]
+#[should_panic]
+fn test_yield_parent_resumer_mismatch_trace() {
+    setup_logger();
+
+    let utxo_id = 0;
+    let coord_a_id = 1;
+    let coord_b_id = 2;
+
+    let p0 = ProcessId(utxo_id);
+    let p1 = ProcessId(coord_a_id);
+    let p2 = ProcessId(coord_b_id);
+
+    let ref_0 = Ref(0);
+    let ref_1 = Ref(4);
+
+    // Coord A resumes UTXO but sets its own expected_resumer to Coord B.
+    // Then UTXO yields back to Coord A. Spec says this should fail.
+    let utxo_trace = vec![WitLedgerEffect::Yield {
+        val: ref_1.clone(),
+        ret: WitEffectOutput::Thunk,
+        id_prev: Some(p1).into(),
+    }];
+
+    let coord_a_trace = vec![WitLedgerEffect::Resume {
+        target: p0,
+        val: ref_0.clone(),
+        ret: ref_1.into(),
+        id_prev: Some(p2).into(),
+    }];
+
+    let coord_b_trace = vec![];
+
+    let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
+
+    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 1,
+        n_new: 0,
+        n_coords: 2,
+        entrypoint: p1,
+        process_table: vec![h(0), h(1), h(2)],
+        is_utxo: vec![true, false, false],
+        must_burn: vec![false, false, false],
+        ownership_in: vec![None, None, None],
+        ownership_out: vec![None, None, None],
+        host_calls_roots,
+        host_calls_lens: trace_lens,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+
+    let _result = prove(instance, wit);
 }
