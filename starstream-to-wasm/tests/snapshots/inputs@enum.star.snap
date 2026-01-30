@@ -678,7 +678,7 @@ TypedProgram {
     (call 0
       (i32.const 0)
       (local.set 0
-        (i64.extend32_s
+        (i64.extend_i32_u
           (i32.const 1)))
       (local.get 0))
   )

@@ -1833,7 +1833,7 @@ impl Compiler {
                 (a, b) if a == b => {}
                 (ValType::I32, ValType::I64) => {
                     // Do we need to distinguish i32 and u32 here?
-                    func.instructions().i64_extend32_s();
+                    func.instructions().i64_extend_i32_u();
                 }
                 _ => {
                     self.push_error(span, format!("Unknown promotion from {src:?} to {dst:?}"));
