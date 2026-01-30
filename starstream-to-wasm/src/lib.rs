@@ -660,7 +660,17 @@ impl Compiler {
         let mut ok = Ok(());
         match ty {
             ComponentAbiType::Bool => dest.push(ValType::I32),
+            ComponentAbiType::U8 => dest.push(ValType::I32),
+            ComponentAbiType::S8 => dest.push(ValType::I32),
+            ComponentAbiType::U16 => dest.push(ValType::I32),
+            ComponentAbiType::S16 => dest.push(ValType::I32),
+            ComponentAbiType::U32 => dest.push(ValType::I32),
+            ComponentAbiType::S32 => dest.push(ValType::I32),
+            ComponentAbiType::U64 => dest.push(ValType::I64),
             ComponentAbiType::S64 => dest.push(ValType::I64),
+            ComponentAbiType::F32 => dest.push(ValType::F32),
+            ComponentAbiType::F64 => dest.push(ValType::F64),
+            ComponentAbiType::Char => dest.push(ValType::I32),
             ComponentAbiType::Record { fields } => {
                 // flatten_record
                 for (_, f) in fields {
