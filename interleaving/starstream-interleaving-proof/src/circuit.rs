@@ -496,6 +496,7 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.finalized = true;
                 config.mem_switches_curr.did_burn = true;
                 config.mem_switches_curr.expected_input = true;
+                config.mem_switches_curr.initialized = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_must_burn_curr = true;
@@ -1332,18 +1333,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .is_one()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 2. This UTXO must be marked for burning.
+        // 2. Must be initialized.
+        wires
+            .curr_read_wires
+            .initialized
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // 3. This UTXO must be marked for burning.
         wires
             .must_burn_curr
             .is_one()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 3. Parent must exist.
+        // 4. Parent must exist.
         wires
             .id_prev_is_some()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 2. Claim check: burned value `ret` must match parent's `expected_input` (if set).
+        // 5. Claim check: burned value `ret` must match parent's `expected_input` (if set).
         // Parent's state is in `target_read_wires`.
         wires
             .target_read_wires
