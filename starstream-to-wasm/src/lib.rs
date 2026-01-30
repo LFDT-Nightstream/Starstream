@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
-    rc::Rc,
-};
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
@@ -1673,7 +1669,8 @@ impl Compiler {
                 let fields = fields
                     .iter()
                     .map(|f| (f.name.as_str(), &f.value))
-                    .collect::<BTreeMap<_, _>>();
+                    .collect::<HashMap<_, _>>();
+                // NB: currently compiles in declaration order, not the order written in source.
                 for field in &record.fields {
                     let expr = fields
                         .get(field.name.as_str())
@@ -1697,10 +1694,11 @@ impl Compiler {
 
                 // Push the discriminant
                 assert_eq!(iter.next().unwrap(), ValType::I32);
-                let Some(discriminant) = enum_
+                let Some((discriminant, variant_ty)) = enum_
                     .variants
                     .iter()
-                    .position(|v| v.name == variant.as_str())
+                    .enumerate()
+                    .find(|(_, v)| v.name == variant.as_str())
                 else {
                     panic!(
                         "EnumConstructor variant {} not found in {:?}",
@@ -1714,10 +1712,30 @@ impl Compiler {
                 match payload {
                     TypedEnumConstructorPayload::Unit => {}
                     TypedEnumConstructorPayload::Tuple(fields) => {
-                        // ...
+                        for f in fields {
+                            self.visit_expr_stack(func, locals, f.span, &f.node)?;
+                            self.enum_promote(func, f.span, &f.node.ty, &mut iter);
+                        }
                     }
                     TypedEnumConstructorPayload::Struct(fields) => {
-                        // ...
+                        let EnumVariantKind::Struct(struct_) = &variant_ty.kind else {
+                            panic!(
+                                "EnumConstructor struct used for non-struct variant {}",
+                                variant
+                            );
+                        };
+                        let fields = fields
+                            .iter()
+                            .map(|f| (f.name.as_str(), &f.value))
+                            .collect::<HashMap<_, _>>();
+                        // NB: currently compiles in declaration order, not the order written in source.
+                        for field in struct_ {
+                            let expr = fields
+                                .get(field.name.as_str())
+                                .expect("StructLiteral missing field");
+                            self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
+                            self.enum_promote(func, expr.span, &expr.node.ty, &mut iter);
+                        }
                     }
                 }
 
@@ -1780,6 +1798,53 @@ impl Compiler {
             }
             // Todo
             TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
+        }
+    }
+
+    fn enum_promote(
+        &mut self,
+        func: &mut Function,
+        span: Span,
+        ty: &Type,
+        iter: &mut dyn Iterator<Item = ValType>,
+    ) {
+        // Collect from & to vectors.
+        let mut from = Vec::new();
+        _ = self.star_to_core_types(span, &mut from, ty);
+        let to = iter.take(from.len()).collect::<Vec<_>>();
+
+        let mut from = &from[..];
+        let mut to = &to[..];
+
+        // Erase the common prefix of from and to that don't need promoting.
+        while let Some((from_first, from_rest)) = from.split_first()
+            && let Some((to_first, to_rest)) = to.split_first()
+            && from_first == to_first
+        {
+            from = from_rest;
+            to = to_rest;
+        }
+
+        // Store promoted values into locals in reverse order.
+        let first_local = func.add_locals(to.iter().copied());
+        for (i, (&src, &dst)) in from.iter().zip(to).enumerate().rev() {
+            dbg!(i, src, dst);
+            match (src, dst) {
+                (a, b) if a == b => {}
+                (ValType::I32, ValType::I64) => {
+                    // Do we need to distinguish i32 and u32 here?
+                    func.instructions().i64_extend32_s();
+                }
+                _ => {
+                    self.push_error(span, format!("Unknown promotion from {src:?} to {dst:?}"));
+                }
+            }
+            func.instructions().local_set(first_local + (i as u32));
+        }
+
+        // Read the locals back in forward order.
+        for i in 0..to.len() {
+            func.instructions().local_get(first_local + (i as u32));
         }
     }
 

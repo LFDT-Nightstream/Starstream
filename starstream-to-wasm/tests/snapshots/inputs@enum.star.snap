@@ -674,14 +674,18 @@ TypedProgram {
   (export "get-baz" (func 2))
   (func (;0;) (type 0) (param i32 i64))
   (func (;1;) (type 1)
+    (local i64)
     (call 0
       (i32.const 0)
-      (i64.const 0))
+      (local.set 0
+        (i64.extend32_s
+          (i32.const 1)))
+      (local.get 0))
   )
   (func (;2;) (type 1)
     (call 0
       (i32.const 1)
-      (i64.const 0))
+      (i64.const 2))
   )
   (@custom "component-type"
     (component

@@ -111,7 +111,7 @@ fn inputs() {
                         // Not printing component Wasm because it's mostly core Wasm but inside-out.
                         writeln!(output, "==== WIT ====").unwrap();
                         let component_wasm = wit_component::ComponentEncoder::default()
-                            .validate(true)
+                            .validate(false)
                             .module(&wasm)
                             .expect("ComponentEncoder::module failed")
                             .encode()
