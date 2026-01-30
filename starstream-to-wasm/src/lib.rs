@@ -1660,12 +1660,56 @@ impl Compiler {
                 Ok(())
             }
             TypedExprKind::EnumConstructor {
-                enum_name,
+                enum_name: _,
                 variant,
                 payload,
             } => {
-                // ...
-                Err(self.todo(format!("{:?}", expr.kind)))
+                let Type::Enum(enum_) = &expr.ty else {
+                    panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
+                };
+
+                let mut dest_types = Vec::new();
+                self.star_to_core_types(&mut dest_types, &expr.ty);
+                let mut iter = dest_types.into_iter();
+
+                // Push the discriminant
+                assert_eq!(iter.next().unwrap(), ValType::I32);
+                let Some(discriminant) = enum_
+                    .variants
+                    .iter()
+                    .position(|v| v.name == variant.as_str())
+                else {
+                    panic!(
+                        "EnumConstructor variant {} not found in {:?}",
+                        variant, &expr.ty
+                    );
+                };
+                let discriminant = u32::try_from(discriminant).unwrap();
+                func.instructions().i32_const(discriminant as i32);
+
+                // Push the values
+                match payload {
+                    TypedEnumConstructorPayload::Unit => {}
+                    TypedEnumConstructorPayload::Tuple(fields) => {
+                        // ...
+                    }
+                    TypedEnumConstructorPayload::Struct(fields) => {
+                        // ...
+                    }
+                }
+
+                // Push 0 for the rest
+                for ty in iter {
+                    match ty {
+                        ValType::I32 => func.instructions().i32_const(0),
+                        ValType::I64 => func.instructions().i64_const(0),
+                        ValType::F32 => func.instructions().f32_const(Ieee32::new(0)),
+                        ValType::F64 => func.instructions().f64_const(Ieee64::new(0)),
+                        _ => todo!(),
+                    };
+                }
+
+                Ok(())
             }
             // Function calls
             TypedExprKind::Call { callee, args } => {
