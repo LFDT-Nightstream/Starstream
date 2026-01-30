@@ -2,6 +2,7 @@ use ark_ff::PrimeField;
 use ark_r1cs_std::{
     GR1CSVar,
     boolean::Boolean,
+    eq::EqGadget as _,
     fields::{FieldVar, fp::FpVar},
 };
 use ark_relations::gr1cs::SynthesisError;
@@ -67,6 +68,17 @@ impl<F: PrimeField> OptionalFpVar<F> {
         let is_zero = self.0.is_zero()?;
         let value = &self.0 - FpVar::one();
         is_zero.select(&FpVar::zero(), &value)
+    }
+
+    pub fn conditional_enforce_eq_if_some(
+        &self,
+        switch: &Boolean<F>,
+        value: &FpVar<F>,
+    ) -> Result<(), SynthesisError> {
+        let is_some = self.is_some()?;
+        let decoded = self.decode_or_zero()?;
+        decoded.conditional_enforce_equal(value, &(switch & is_some))?;
+        Ok(())
     }
 
     pub fn select_encoded(
