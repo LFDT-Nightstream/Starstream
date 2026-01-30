@@ -423,7 +423,12 @@ impl Compiler {
             }
             wrapper_func.instructions().call(func_idx);
             // Write to our return slot.
-            self.component_store(&mut wrapper_func, &result, 0);
+            self.component_store(
+                function.name.span.unwrap_or(Span::from(0..0)),
+                &mut wrapper_func,
+                &result,
+                0,
+            );
             // Return our return slot.
             wrapper_func.instructions().i32_const(return_slot as i32);
             wrapper_func.instructions().end();
@@ -476,9 +481,15 @@ impl Compiler {
 
     // Expects address then values on the stack.
     // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#storing
-    fn component_store(&mut self, func: &mut Function, ty: &ComponentAbiType, offset: u64) {
+    fn component_store(
+        &mut self,
+        span: Span,
+        func: &mut Function,
+        ty: &ComponentAbiType,
+        offset: u64,
+    ) {
         let mut core_types = Vec::new();
-        self.component_to_core_types(&mut core_types, ty);
+        _ = self.component_to_core_types(span, &mut core_types, ty);
 
         let mut store_fns = Vec::new();
         ty.get_store_fns(0, offset, &mut store_fns);
@@ -580,9 +591,8 @@ impl Compiler {
         Some(cat)
     }
 
-    // #[must_use]
-    fn star_to_core_types(&self, dest: &mut Vec<ValType>, ty: &Type) -> bool {
-        let mut ok = true;
+    fn star_to_core_types(&mut self, span: Span, dest: &mut Vec<ValType>, ty: &Type) -> Result<()> {
+        let mut ok = Ok(());
         match ty {
             Type::Unit => {}
             Type::Bool => dest.push(ValType::I32),
@@ -590,13 +600,13 @@ impl Compiler {
             Type::Tuple(items) => {
                 // flatten_record
                 for each in items {
-                    ok = self.star_to_core_types(dest, each) && ok;
+                    ok = self.star_to_core_types(span, dest, each).and(ok);
                 }
             }
             Type::Record(record) => {
                 // flatten_record
                 for f in &record.fields {
-                    ok = self.star_to_core_types(dest, &f.ty) && ok;
+                    ok = self.star_to_core_types(span, dest, &f.ty).and(ok);
                 }
             }
             Type::Enum(EnumType { name: _, variants }) => {
@@ -608,12 +618,14 @@ impl Compiler {
                         EnumVariantKind::Unit => {}
                         EnumVariantKind::Tuple(fields) => {
                             for each in fields {
-                                ok = self.star_to_core_types(&mut case_flat, each) && ok;
+                                ok = self.star_to_core_types(span, &mut case_flat, each).and(ok);
                             }
                         }
                         EnumVariantKind::Struct(fields) => {
                             for each in fields {
-                                ok = self.star_to_core_types(&mut case_flat, &each.ty) && ok;
+                                ok = self
+                                    .star_to_core_types(span, &mut case_flat, &each.ty)
+                                    .and(ok);
                             }
                         }
                     }
@@ -625,34 +637,40 @@ impl Compiler {
                         }
                     }
                 }
-                ok = self.component_to_core_types(
-                    dest,
-                    &ComponentAbiType::discriminant_type(variants.len()),
-                ) && ok;
+                ok = self
+                    .component_to_core_types(
+                        span,
+                        dest,
+                        &ComponentAbiType::discriminant_type(variants.len()),
+                    )
+                    .and(ok);
                 dest.extend(flat);
             }
-            Type::Function { .. } => ok = false,
-            Type::Var(_) => ok = false,
+            _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
         }
         ok
     }
 
-    // #[must_use]
-    fn component_to_core_types(&self, dest: &mut Vec<ValType>, ty: &ComponentAbiType) -> bool {
-        let mut ok = true;
+    fn component_to_core_types(
+        &mut self,
+        span: Span,
+        dest: &mut Vec<ValType>,
+        ty: &ComponentAbiType,
+    ) -> Result<()> {
+        let mut ok = Ok(());
         match ty {
             ComponentAbiType::Bool => dest.push(ValType::I32),
             ComponentAbiType::S64 => dest.push(ValType::I64),
             ComponentAbiType::Record { fields } => {
                 // flatten_record
                 for (_, f) in fields {
-                    ok = self.component_to_core_types(dest, f) && ok;
+                    ok = self.component_to_core_types(span, dest, f).and(ok);
                 }
             }
             ComponentAbiType::Tuple { fields } => {
                 // flatten_record
                 for f in fields {
-                    ok = self.component_to_core_types(dest, f) && ok;
+                    ok = self.component_to_core_types(span, dest, f).and(ok);
                 }
             }
             ComponentAbiType::Variant { cases } => {
@@ -661,7 +679,9 @@ impl Compiler {
                 for (_, t) in cases {
                     if let Some(t) = t {
                         let mut case_flat = Vec::new();
-                        ok = self.component_to_core_types(&mut case_flat, t) && ok;
+                        ok = self
+                            .component_to_core_types(span, &mut case_flat, t)
+                            .and(ok);
                         for (i, ft) in case_flat.into_iter().enumerate() {
                             if let Some(e) = flat.get_mut(i) {
                                 *e = Self::join(*e, ft);
@@ -671,13 +691,16 @@ impl Compiler {
                         }
                     }
                 }
-                ok = self.component_to_core_types(
-                    dest,
-                    &ComponentAbiType::discriminant_type(cases.len()),
-                ) && ok;
+                ok = self
+                    .component_to_core_types(
+                        span,
+                        dest,
+                        &ComponentAbiType::discriminant_type(cases.len()),
+                    )
+                    .and(ok);
                 dest.extend(flat);
             }
-            _ => ok = false,
+            _ => ok = Err(self.push_error(span, format!("unknown component lowering for {ty:?}"))),
         }
         ok
     }
@@ -686,7 +709,7 @@ impl Compiler {
         match (a, b) {
             (a, b) if a == b => a,
             (ValType::I32, ValType::F32) | (ValType::F32, ValType::I32) => ValType::I32,
-            _ => ValType::F64,
+            _ => ValType::I64,
         }
     }
 
@@ -774,20 +797,11 @@ impl Compiler {
                 } => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
+                    let span = item.local.span.unwrap_or(Span::from(0..0));
                     for p in params {
-                        if !self.star_to_core_types(&mut core_params, p) {
-                            self.push_error(
-                                item.local.span.unwrap_or(Span::from(0..0)),
-                                format!("unknown lowering for parameter type {:?}", p),
-                            );
-                        }
+                        _ = self.star_to_core_types(span, &mut core_params, p);
                     }
-                    if !self.star_to_core_types(&mut core_results, result) {
-                        self.push_error(
-                            item.local.span.unwrap_or(Span::from(0..0)),
-                            format!("unknown lowering for return type {:?}", result),
-                        );
-                    }
+                    _ = self.star_to_core_types(span, &mut core_results, result);
 
                     let kebab = to_kebab_case(&item.imported.name);
 
@@ -830,13 +844,9 @@ impl Compiler {
             match part {
                 TypedAbiPart::Event(event) => {
                     let mut core_params = Vec::with_capacity(16);
+                    let span = event.name.span.unwrap_or(Span::from(0..0));
                     for p in &event.params {
-                        if !self.star_to_core_types(&mut core_params, &p.ty) {
-                            self.push_error(
-                                event.name.span.unwrap_or(Span::from(0..0)),
-                                format!("unknown lowering for parameter type {:?}", p),
-                            );
-                        }
+                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                     }
 
                     let interface = to_kebab_case(def.name.as_str());
@@ -875,29 +885,24 @@ impl Compiler {
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
             locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
-            if !self.star_to_core_types(&mut params, &p.ty) {
-                self.push_error(
-                    p.name
-                        .span
-                        .or(function.name.span)
-                        .unwrap_or(Span::from(0..0)),
-                    format!("unknown lowering for parameter type {:?}", p.ty),
-                );
-            }
+            _ = self.star_to_core_types(
+                p.name
+                    .span
+                    .or(function.name.span)
+                    .unwrap_or(Span::from(0..0)),
+                &mut params,
+                &p.ty,
+            );
         }
 
         let mut func = Function::from_params(&params);
 
         let mut results = Vec::with_capacity(1);
-        if !self.star_to_core_types(&mut results, &function.return_type) {
-            self.push_error(
-                function.name.span.unwrap_or(Span::from(0..0)),
-                format!(
-                    "unknown lowering for return type {:?}",
-                    function.return_type
-                ),
-            );
-        }
+        _ = self.star_to_core_types(
+            function.name.span.unwrap_or(Span::from(0..0)),
+            &mut results,
+            &function.return_type,
+        );
 
         let _ = self.visit_block_stack(&mut func, &(&() as &dyn Locals, &locals), &function.body);
         func.instructions().end();
@@ -932,7 +937,11 @@ impl Compiler {
                 TypedUtxoPart::Storage(vars) => {
                     for var in vars {
                         let mut types = Vec::new();
-                        self.star_to_core_types(&mut types, &var.ty);
+                        _ = self.star_to_core_types(
+                            utxo.name.span.unwrap_or(Span::from(0..0)),
+                            &mut types,
+                            &var.ty,
+                        );
                         let idx = self.add_globals(types.iter().copied());
                         // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
                         self.global_vars.insert(var.name.name.clone(), idx);
@@ -968,7 +977,7 @@ impl Compiler {
                 } => {
                     // Allocate local space.
                     let mut local_types = Vec::new();
-                    self.star_to_core_types(&mut local_types, &value.node.ty);
+                    _ = self.star_to_core_types(value.span, &mut local_types, &value.node.ty);
                     let local = func.add_locals(local_types.iter().copied());
                     locals.insert(name.name.clone(), local);
 
@@ -989,7 +998,11 @@ impl Compiler {
                             .is_ok()
                         {
                             let mut local_types = Vec::new();
-                            self.star_to_core_types(&mut local_types, &value.node.ty);
+                            _ = self.star_to_core_types(
+                                value.span,
+                                &mut local_types,
+                                &value.node.ty,
+                            );
 
                             // Pop from stack to set locals in reverse order.
                             for i in (0..local_types.len()).rev() {
@@ -1002,7 +1015,7 @@ impl Compiler {
                             .is_ok()
                         {
                             let mut types = Vec::new();
-                            self.star_to_core_types(&mut types, &value.node.ty);
+                            _ = self.star_to_core_types(value.span, &mut types, &value.node.ty);
 
                             // Pop from stack to set locals in reverse order.
                             for i in (0..types.len()).rev() {
@@ -1550,7 +1563,7 @@ impl Compiler {
                         }
                         if let Some(ty) = ty {
                             let mut new_locals = Vec::new();
-                            self.star_to_core_types(&mut new_locals, ty);
+                            _ = self.star_to_core_types(target.span, &mut new_locals, ty);
 
                             // Drop everything after what we are selecting.
                             for _ in offset + (new_locals.len() as u32)..total {
@@ -1607,7 +1620,7 @@ impl Compiler {
             } => {
                 // Create locals to store expression result.
                 let mut new_locals = Vec::new();
-                assert!(self.star_to_core_types(&mut new_locals, &expr.ty));
+                self.star_to_core_types(span, &mut new_locals, &expr.ty)?;
                 let first_local = func.add_locals(new_locals.iter().copied());
 
                 // Emit basic double-block and trust the optimizer.
@@ -1669,7 +1682,7 @@ impl Compiler {
                 };
 
                 let mut dest_types = Vec::new();
-                self.star_to_core_types(&mut dest_types, &expr.ty);
+                _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
                 let mut iter = dest_types.into_iter();
 
                 // Push the discriminant
