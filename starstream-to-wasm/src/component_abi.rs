@@ -35,7 +35,9 @@ pub enum ComponentAbiType {
     Record {
         fields: Vec<(String, Rc<ComponentAbiType>)>,
     },
-    // TODO: Tuple
+    Tuple {
+        fields: Vec<Rc<ComponentAbiType>>,
+    },
     Variant {
         cases: Vec<(String, Option<Rc<ComponentAbiType>>)>,
     },
@@ -72,6 +74,9 @@ impl ComponentAbiType {
             ComponentAbiType::List { ty, len } => todo!(),
             ComponentAbiType::Record { fields } => {
                 Self::alignment_record(fields.iter().map(|x| &*x.1))
+            }
+            ComponentAbiType::Tuple { fields } => {
+                Self::alignment_record(fields.iter().map(|f| &**f))
             }
             ComponentAbiType::Variant { cases } => Self::alignment_variant(cases),
             ComponentAbiType::Flags { labels } => todo!(),
@@ -135,6 +140,9 @@ impl ComponentAbiType {
             ComponentAbiType::List { ty, len } => todo!(),
             ComponentAbiType::Record { fields } => {
                 Self::elem_size_record(fields.iter().map(|x| &*x.1))
+            }
+            ComponentAbiType::Tuple { fields } => {
+                Self::elem_size_record(fields.iter().map(|f| &**f))
             }
             ComponentAbiType::Variant { cases } => Self::elem_size_variant(cases),
             ComponentAbiType::Flags { labels } => todo!(),
@@ -205,6 +213,14 @@ impl ComponentAbiType {
             ComponentAbiType::Record { fields } => {
                 let mut o = 0u64;
                 for (_, f) in fields {
+                    o = o.next_multiple_of(u64::from(f.alignment()));
+                    f.get_store_fns(memory_index, offset + o, out);
+                    o += u64::from(f.elem_size());
+                }
+            }
+            ComponentAbiType::Tuple { fields } => {
+                let mut o = 0u64;
+                for f in fields {
                     o = o.next_multiple_of(u64::from(f.alignment()));
                     f.get_store_fns(memory_index, offset + o, out);
                     o += u64::from(f.elem_size());
@@ -293,7 +309,27 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                 ty.defined_type().record(fields);
                 ComponentValType::Type(idx)
             }
-            ComponentAbiType::Variant { .. } => todo!(),
+            ComponentAbiType::Tuple { fields } => {
+                let fields: Vec<_> = fields.iter().map(|f| self.encode_value(f)).collect();
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().tuple(fields);
+                ComponentValType::Type(idx)
+            }
+            ComponentAbiType::Variant { cases } => {
+                let cases: Vec<_> = cases
+                    .iter()
+                    .map(|(name, ty)| {
+                        (
+                            name.as_str(),
+                            ty.as_ref().map(|ty| self.encode_value(ty)),
+                            None,
+                        )
+                    })
+                    .collect();
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().variant(cases);
+                ComponentValType::Type(idx)
+            }
             ComponentAbiType::Flags { .. } => todo!(),
             ComponentAbiType::Own => todo!(),
             ComponentAbiType::Borrow => todo!(),

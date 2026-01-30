@@ -446,6 +446,24 @@ impl Compiler {
         }
     }
 
+    fn export_component_ty(&mut self, name: &str, ty: &Type) {
+        // Export to WIT.
+        let component_ty = self.star_to_component_type(ty).unwrap();
+        let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
+            unreachable!()
+        };
+        // "Exporting" a type consists of importing it with an equality constraint.
+        let new_idx = self.world_type.inner.type_count();
+        self.world_type.inner.import(
+            &to_kebab_case(name),
+            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
+        );
+        // Future uses must also refer to the imported version.
+        self.world_type
+            .component_to_encoded
+            .insert(component_ty, ComponentValType::Type(new_idx));
+    }
+
     // ------------------------------------------------------------------------
     // Memory management
 
@@ -515,7 +533,46 @@ impl Compiler {
                     .collect();
                 ComponentAbiType::Record { fields }
             }
-            Type::Enum(_enum_variant_types) => todo!(),
+            Type::Enum(enum_variant_types) => {
+                let cases = enum_variant_types
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        (
+                            to_kebab_case(&v.name),
+                            match &v.kind {
+                                EnumVariantKind::Unit => None,
+                                EnumVariantKind::Tuple(fields) => {
+                                    let fields: Vec<_> = fields
+                                        .iter()
+                                        .flat_map(|f| self.star_to_component_type(&f))
+                                        .collect();
+                                    if fields.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
+                                    }
+                                }
+                                EnumVariantKind::Struct(fields) => {
+                                    let fields: Vec<_> = fields
+                                        .iter()
+                                        .flat_map(|f| {
+                                            self.star_to_component_type(&f.ty)
+                                                .map(|ty| (f.name.as_str().to_owned(), ty))
+                                        })
+                                        .collect();
+                                    if fields.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Rc::new(ComponentAbiType::Record { fields }))
+                                    }
+                                }
+                            },
+                        )
+                    })
+                    .collect();
+                ComponentAbiType::Variant { cases }
+            }
         };
 
         let cat = Rc::new(cat);
@@ -530,16 +587,45 @@ impl Compiler {
             Type::Bool => dest.push(ValType::I32),
             Type::Int => dest.push(ValType::I64),
             Type::Tuple(items) => {
+                // flatten_record
                 for each in items {
                     ok = self.star_to_core_types(dest, each) && ok;
                 }
             }
             Type::Record(record) => {
+                // flatten_record
                 for f in &record.fields {
                     ok = self.star_to_core_types(dest, &f.ty) && ok;
                 }
             }
-            Type::Enum(_enum_variant_types) => ok = false,
+            Type::Enum(EnumType { name: _, variants }) => {
+                // flatten_variant
+                let mut flat = Vec::new();
+                for v in variants {
+                    let mut case_flat = Vec::new();
+                    match &v.kind {
+                        EnumVariantKind::Unit => {}
+                        EnumVariantKind::Tuple(fields) => {
+                            for each in fields {
+                                ok = self.star_to_core_types(&mut case_flat, each) && ok;
+                            }
+                        }
+                        EnumVariantKind::Struct(fields) => {
+                            for each in fields {
+                                ok = self.star_to_core_types(&mut case_flat, &each.ty) && ok;
+                            }
+                        }
+                    }
+                    for (i, ft) in case_flat.into_iter().enumerate() {
+                        if let Some(e) = flat.get_mut(i) {
+                            *e = Self::join(*e, ft);
+                        } else {
+                            flat.push(ft);
+                        }
+                    }
+                }
+                dest.extend(flat);
+            }
             Type::Function { .. } => ok = false,
             Type::Var(_) => ok = false,
         }
@@ -552,13 +638,46 @@ impl Compiler {
             ComponentAbiType::Bool => dest.push(ValType::I32),
             ComponentAbiType::S64 => dest.push(ValType::I64),
             ComponentAbiType::Record { fields } => {
+                // flatten_record
                 for (_, f) in fields {
                     ok = self.component_to_core_types(dest, f) && ok;
                 }
             }
+            ComponentAbiType::Tuple { fields } => {
+                // flatten_record
+                for f in fields {
+                    ok = self.component_to_core_types(dest, f) && ok;
+                }
+            }
+            ComponentAbiType::Variant { cases } => {
+                // flatten_variant
+                let mut flat = Vec::new();
+                for (_, t) in cases {
+                    if let Some(t) = t {
+                        let mut case_flat = Vec::new();
+                        ok = self.component_to_core_types(&mut case_flat, t) && ok;
+                        for (i, ft) in case_flat.into_iter().enumerate() {
+                            if let Some(e) = flat.get_mut(i) {
+                                *e = Self::join(*e, ft);
+                            } else {
+                                flat.push(ft);
+                            }
+                        }
+                    }
+                }
+                dest.extend(flat);
+            }
             _ => ok = false,
         }
         ok
+    }
+
+    fn join(a: ValType, b: ValType) -> ValType {
+        match (a, b) {
+            (a, b) if a == b => a,
+            (ValType::I32, ValType::F32) | (ValType::F32, ValType::I32) => ValType::I32,
+            _ => ValType::F64,
+        }
     }
 
     fn star_count_core_types(&mut self, ty: &Type) -> u32 {
@@ -603,9 +722,7 @@ impl Compiler {
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
-                TypedDefinition::Enum(_) => {
-                    self.todo("enums are not supported in Wasm yet".into());
-                }
+                TypedDefinition::Enum(enum_) => self.visit_enum(enum_),
             }
         }
     }
@@ -774,21 +891,11 @@ impl Compiler {
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
-        // Export to WIT.
-        let component_ty = self.star_to_component_type(&struct_.ty).unwrap();
-        let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
-            unreachable!()
-        };
-        // "Exporting" a type consists of importing it with an equality constraint.
-        let new_idx = self.world_type.inner.type_count();
-        self.world_type.inner.import(
-            &to_kebab_case(struct_.name.as_str()),
-            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
-        );
-        // Future uses must also refer to the imported version.
-        self.world_type
-            .component_to_encoded
-            .insert(component_ty, ComponentValType::Type(new_idx));
+        self.export_component_ty(struct_.name.as_str(), &struct_.ty);
+    }
+
+    fn visit_enum(&mut self, enum_: &TypedEnumDef) {
+        self.export_component_ty(enum_.name.as_str(), &enum_.ty);
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {

@@ -1,0 +1,500 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/enum.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Enum(
+                EnumDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: Some(
+                            5..8,
+                        ),
+                    },
+                    variants: [
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Bar",
+                                span: Some(
+                                    15..18,
+                                ),
+                            },
+                            payload: Tuple(
+                                [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "bool",
+                                            span: Some(
+                                                19..23,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            ),
+                            span: 15..24,
+                        },
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Baz",
+                                span: Some(
+                                    30..33,
+                                ),
+                            },
+                            payload: Tuple(
+                                [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                34..37,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            ),
+                            span: 30..38,
+                        },
+                    ],
+                },
+            ),
+            span: 0..43,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "get_bar",
+                        span: Some(
+                            53..60,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "Foo",
+                                span: Some(
+                                    66..69,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Foo",
+                                        span: Some(
+                                            76..79,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Bar",
+                                        span: Some(
+                                            81..84,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Literal(
+                                                    Boolean(
+                                                        true,
+                                                    ),
+                                                ),
+                                                span: 85..89,
+                                            },
+                                        ],
+                                    ),
+                                },
+                                span: 76..91,
+                            },
+                        ),
+                        span: 70..94,
+                    },
+                },
+            ),
+            span: 43..94,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "get_baz",
+                        span: Some(
+                            104..111,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "Foo",
+                                span: Some(
+                                    117..120,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Foo",
+                                        span: Some(
+                                            127..130,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Baz",
+                                        span: Some(
+                                            132..135,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        2,
+                                                    ),
+                                                ),
+                                                span: 136..137,
+                                            },
+                                        ],
+                                    ),
+                                },
+                                span: 127..139,
+                            },
+                        ),
+                        span: 121..141,
+                    },
+                },
+            ),
+            span: 94..141,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Fn: get_bar => Foo
+  T-ReturnTail: Foo::Bar(true) => Foo
+    T-EnumCtor: {} ⊢ Foo::Bar(true) ⇒ Foo
+      T-Bool: {} ⊢ true ⇒ bool
+      Unify-Const: bool ~ bool => {}
+    Unify-Enum: Foo ~ Foo => {}
+      Unify-Const: bool ~ bool => {}
+      Unify-Const: i64 ~ i64 => {}
+
+T-Fn: get_baz => Foo
+  T-ReturnTail: Foo::Baz(2) => Foo
+    T-EnumCtor: {} ⊢ Foo::Baz(2) ⇒ Foo
+      T-Int: {} ⊢ 2 ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+    Unify-Enum: Foo ~ Foo => {}
+      Unify-Const: bool ~ bool => {}
+      Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Enum(
+            TypedEnumDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: Some(
+                        5..8,
+                    ),
+                },
+                variants: [
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Bar",
+                            span: Some(
+                                15..18,
+                            ),
+                        },
+                        payload: Tuple(
+                            [
+                                Bool,
+                            ],
+                        ),
+                    },
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Baz",
+                            span: Some(
+                                30..33,
+                            ),
+                        },
+                        payload: Tuple(
+                            [
+                                Int,
+                            ],
+                        ),
+                    },
+                ],
+                ty: Enum(
+                    EnumType {
+                        name: "Foo",
+                        variants: [
+                            EnumVariantType {
+                                name: "Bar",
+                                kind: Tuple(
+                                    [
+                                        Bool,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Baz",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                        ],
+                    },
+                ),
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "get_bar",
+                    span: Some(
+                        53..60,
+                    ),
+                },
+                params: [],
+                return_type: Enum(
+                    EnumType {
+                        name: "Foo",
+                        variants: [
+                            EnumVariantType {
+                                name: "Bar",
+                                kind: Tuple(
+                                    [
+                                        Bool,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Baz",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                        ],
+                    },
+                ),
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Foo",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Bar",
+                                                kind: Tuple(
+                                                    [
+                                                        Bool,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "Baz",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                        ],
+                                    },
+                                ),
+                                kind: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Foo",
+                                        span: Some(
+                                            76..79,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Bar",
+                                        span: Some(
+                                            81..84,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Bool,
+                                                    kind: Literal(
+                                                        Boolean(
+                                                            true,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 85..89,
+                                            },
+                                        ],
+                                    ),
+                                },
+                            },
+                            span: 76..91,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "get_baz",
+                    span: Some(
+                        104..111,
+                    ),
+                },
+                params: [],
+                return_type: Enum(
+                    EnumType {
+                        name: "Foo",
+                        variants: [
+                            EnumVariantType {
+                                name: "Bar",
+                                kind: Tuple(
+                                    [
+                                        Bool,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Baz",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                        ],
+                    },
+                ),
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Foo",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Bar",
+                                                kind: Tuple(
+                                                    [
+                                                        Bool,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "Baz",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                        ],
+                                    },
+                                ),
+                                kind: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Foo",
+                                        span: Some(
+                                            127..130,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Baz",
+                                        span: Some(
+                                            132..135,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int,
+                                                    kind: Literal(
+                                                        Integer(
+                                                            2,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 136..137,
+                                            },
+                                        ],
+                                    ),
+                                },
+                            },
+                            span: 127..139,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+  x TODO: EnumConstructor { enum_name: Identifier { name: "Foo", span: Some(76..79) }, variant: Identifier { name: "Bar", span: Some(81..84) }, payload: Tuple([Spanned { node: TypedExpr { ty: Bool,
+  | kind: Literal(Boolean(true)) }, span: 85..89 }]) }
+   ,-[1:1]
+ 1 | enum Foo {
+   : ^
+   : `-- TODO: EnumConstructor { enum_name: Identifier { name: "Foo", span: Some(76..79) }, variant: Identifier { name: "Bar", span: Some(81..84) }, payload: Tuple([Spanned { node: TypedExpr { ty: Bool, kind: Literal(Boolean(true)) }, span: 85..89 }]) }
+ 2 |     Bar(bool),
+   `----
+  x TODO: EnumConstructor { enum_name: Identifier { name: "Foo", span: Some(127..130) }, variant: Identifier { name: "Baz", span: Some(132..135) }, payload: Tuple([Spanned { node: TypedExpr { ty:
+  | Int, kind: Literal(Integer(2)) }, span: 136..137 }]) }
+   ,-[1:1]
+ 1 | enum Foo {
+   : ^
+   : `-- TODO: EnumConstructor { enum_name: Identifier { name: "Foo", span: Some(127..130) }, variant: Identifier { name: "Baz", span: Some(132..135) }, payload: Tuple([Spanned { node: TypedExpr { ty: Int, kind: Literal(Integer(2)) }, span: 136..137 }]) }
+ 2 |     Bar(bool),
+   `----
