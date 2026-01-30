@@ -9,6 +9,11 @@ members = [
   "starstream-sandbox-web",
   "starstream-to-wasm",
   "starstream-types",
+  "interleaving/starstream-interleaving-proof",
+  "interleaving/starstream-interleaving-spec",
+  "interleaving/starstream-runtime",
+  "ark-poseidon2",
+  "ark-goldilocks"
 ]
 exclude = ["old"]
 
@@ -39,5 +44,20 @@ wasm-encoder = "0.240.0"
 wasmprinter = "0.240.0"
 wit-component = "0.240.0"
 
+neo-fold = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+neo-ccs = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+neo-ajtai = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+neo-vm-trace = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+neo-memory = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "f6e80467807967735a16293ec04d5ee5a36d984e" }
+
 [profile.dev.package]
 insta.opt-level = 3
+
+[patch.crates-io]
+ark-relations = {  git = "https://github.com/arkworks-rs/snark/" }
+ark-snark = {  git = "https://github.com/arkworks-rs/snark/" }
+ark-r1cs-std = {  git = "https://github.com/arkworks-rs/r1cs-std" }
+ark-serialize = { git = "https://github.com/arkworks-rs/algebra"}
+ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives"}
