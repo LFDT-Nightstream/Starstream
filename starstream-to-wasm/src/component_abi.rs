@@ -35,9 +35,11 @@ pub enum ComponentAbiType {
     Record {
         fields: Vec<(String, Rc<ComponentAbiType>)>,
     },
-    // TODO: Tuple
+    Tuple {
+        fields: Vec<Rc<ComponentAbiType>>,
+    },
     Variant {
-        cases: Vec<(String, Rc<ComponentAbiType>)>,
+        cases: Vec<(String, Option<Rc<ComponentAbiType>>)>,
     },
     // TODO: Enum
     // TODO: Option
@@ -73,7 +75,10 @@ impl ComponentAbiType {
             ComponentAbiType::Record { fields } => {
                 Self::alignment_record(fields.iter().map(|x| &*x.1))
             }
-            ComponentAbiType::Variant { cases } => todo!(),
+            ComponentAbiType::Tuple { fields } => {
+                Self::alignment_record(fields.iter().map(|f| &**f))
+            }
+            ComponentAbiType::Variant { cases } => Self::alignment_variant(cases),
             ComponentAbiType::Flags { labels } => todo!(),
             ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
@@ -84,6 +89,36 @@ impl ComponentAbiType {
         let mut a = 1;
         for f in fields {
             a = a.max(f.alignment());
+        }
+        a
+    }
+
+    fn alignment_variant(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
+        Self::discriminant_type(cases.len())
+            .alignment()
+            .max(Self::max_case_alignment(cases))
+    }
+
+    pub fn discriminant_type(n: usize) -> ComponentAbiType {
+        if n <= usize::from(u8::MAX) {
+            ComponentAbiType::U8
+        } else if n <= usize::from(u16::MAX) {
+            ComponentAbiType::U16
+        } else if let Ok(m) = usize::try_from(u32::MAX)
+            && n <= m
+        {
+            ComponentAbiType::U32
+        } else {
+            panic!("number of cases out of range for variant: {n}")
+        }
+    }
+
+    fn max_case_alignment<'a>(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
+        let mut a = 1;
+        for c in cases {
+            if let Some(t) = &c.1 {
+                a = a.max(t.alignment());
+            }
         }
         a
     }
@@ -105,7 +140,10 @@ impl ComponentAbiType {
             ComponentAbiType::Record { fields } => {
                 Self::elem_size_record(fields.iter().map(|x| &*x.1))
             }
-            ComponentAbiType::Variant { cases } => todo!(),
+            ComponentAbiType::Tuple { fields } => {
+                Self::elem_size_record(fields.iter().map(|f| &**f))
+            }
+            ComponentAbiType::Variant { cases } => Self::elem_size_variant(cases),
             ComponentAbiType::Flags { labels } => todo!(),
             ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
@@ -120,6 +158,19 @@ impl ComponentAbiType {
         }
         assert!(s > 0);
         s.next_multiple_of(Self::alignment_record(fields))
+    }
+
+    fn elem_size_variant(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
+        let s = Self::discriminant_type(cases.len())
+            .elem_size()
+            .next_multiple_of(Self::max_case_alignment(cases));
+        let mut cs = 0;
+        for c in cases {
+            if let Some(t) = &c.1 {
+                cs = cs.max(t.elem_size());
+            }
+        }
+        (s + cs).next_multiple_of(Self::alignment_variant(cases))
     }
 
     // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#storing
@@ -161,6 +212,14 @@ impl ComponentAbiType {
             ComponentAbiType::Record { fields } => {
                 let mut o = 0u64;
                 for (_, f) in fields {
+                    o = o.next_multiple_of(u64::from(f.alignment()));
+                    f.get_store_fns(memory_index, offset + o, out);
+                    o += u64::from(f.elem_size());
+                }
+            }
+            ComponentAbiType::Tuple { fields } => {
+                let mut o = 0u64;
+                for f in fields {
                     o = o.next_multiple_of(u64::from(f.alignment()));
                     f.get_store_fns(memory_index, offset + o, out);
                     o += u64::from(f.elem_size());
@@ -249,7 +308,27 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                 ty.defined_type().record(fields);
                 ComponentValType::Type(idx)
             }
-            ComponentAbiType::Variant { .. } => todo!(),
+            ComponentAbiType::Tuple { fields } => {
+                let fields: Vec<_> = fields.iter().map(|f| self.encode_value(f)).collect();
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().tuple(fields);
+                ComponentValType::Type(idx)
+            }
+            ComponentAbiType::Variant { cases } => {
+                let cases: Vec<_> = cases
+                    .iter()
+                    .map(|(name, ty)| {
+                        (
+                            name.as_str(),
+                            ty.as_ref().map(|ty| self.encode_value(ty)),
+                            None,
+                        )
+                    })
+                    .collect();
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().variant(cases);
+                ComponentValType::Type(idx)
+            }
             ComponentAbiType::Flags { .. } => todo!(),
             ComponentAbiType::Own => todo!(),
             ComponentAbiType::Borrow => todo!(),

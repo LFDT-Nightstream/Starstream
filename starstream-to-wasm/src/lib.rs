@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap},
-    rc::Rc,
-};
+use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use starstream_types::*;
@@ -423,7 +419,12 @@ impl Compiler {
             }
             wrapper_func.instructions().call(func_idx);
             // Write to our return slot.
-            self.component_store(&mut wrapper_func, &result, 0);
+            self.component_store(
+                function.name.span.unwrap_or(Span::from(0..0)),
+                &mut wrapper_func,
+                &result,
+                0,
+            );
             // Return our return slot.
             wrapper_func.instructions().i32_const(return_slot as i32);
             wrapper_func.instructions().end();
@@ -446,6 +447,24 @@ impl Compiler {
         }
     }
 
+    fn export_component_ty(&mut self, name: &str, ty: &Type) {
+        // Export to WIT.
+        let component_ty = self.star_to_component_type(ty).unwrap();
+        let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
+            unreachable!()
+        };
+        // "Exporting" a type consists of importing it with an equality constraint.
+        let new_idx = self.world_type.inner.type_count();
+        self.world_type.inner.import(
+            &to_kebab_case(name),
+            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
+        );
+        // Future uses must also refer to the imported version.
+        self.world_type
+            .component_to_encoded
+            .insert(component_ty, ComponentValType::Type(new_idx));
+    }
+
     // ------------------------------------------------------------------------
     // Memory management
 
@@ -458,9 +477,15 @@ impl Compiler {
 
     // Expects address then values on the stack.
     // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#storing
-    fn component_store(&mut self, func: &mut Function, ty: &ComponentAbiType, offset: u64) {
+    fn component_store(
+        &mut self,
+        span: Span,
+        func: &mut Function,
+        ty: &ComponentAbiType,
+        offset: u64,
+    ) {
         let mut core_types = Vec::new();
-        self.component_to_core_types(&mut core_types, ty);
+        _ = self.component_to_core_types(span, &mut core_types, ty);
 
         let mut store_fns = Vec::new();
         ty.get_store_fns(0, offset, &mut store_fns);
@@ -515,7 +540,46 @@ impl Compiler {
                     .collect();
                 ComponentAbiType::Record { fields }
             }
-            Type::Enum(_enum_variant_types) => todo!(),
+            Type::Enum(enum_variant_types) => {
+                let cases = enum_variant_types
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        (
+                            to_kebab_case(&v.name),
+                            match &v.kind {
+                                EnumVariantKind::Unit => None,
+                                EnumVariantKind::Tuple(fields) => {
+                                    let fields: Vec<_> = fields
+                                        .iter()
+                                        .flat_map(|f| self.star_to_component_type(&f))
+                                        .collect();
+                                    if fields.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
+                                    }
+                                }
+                                EnumVariantKind::Struct(fields) => {
+                                    let fields: Vec<_> = fields
+                                        .iter()
+                                        .flat_map(|f| {
+                                            self.star_to_component_type(&f.ty)
+                                                .map(|ty| (f.name.as_str().to_owned(), ty))
+                                        })
+                                        .collect();
+                                    if fields.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Rc::new(ComponentAbiType::Record { fields }))
+                                    }
+                                }
+                            },
+                        )
+                    })
+                    .collect();
+                ComponentAbiType::Variant { cases }
+            }
         };
 
         let cat = Rc::new(cat);
@@ -523,42 +587,136 @@ impl Compiler {
         Some(cat)
     }
 
-    fn star_to_core_types(&self, dest: &mut Vec<ValType>, ty: &Type) -> bool {
-        let mut ok = true;
+    fn star_to_core_types(&mut self, span: Span, dest: &mut Vec<ValType>, ty: &Type) -> Result<()> {
+        let mut ok = Ok(());
         match ty {
             Type::Unit => {}
             Type::Bool => dest.push(ValType::I32),
             Type::Int => dest.push(ValType::I64),
             Type::Tuple(items) => {
+                // flatten_record
                 for each in items {
-                    ok = self.star_to_core_types(dest, each) && ok;
+                    ok = self.star_to_core_types(span, dest, each).and(ok);
                 }
             }
             Type::Record(record) => {
+                // flatten_record
                 for f in &record.fields {
-                    ok = self.star_to_core_types(dest, &f.ty) && ok;
+                    ok = self.star_to_core_types(span, dest, &f.ty).and(ok);
                 }
             }
-            Type::Enum(_enum_variant_types) => ok = false,
-            Type::Function { .. } => ok = false,
-            Type::Var(_) => ok = false,
+            Type::Enum(EnumType { name: _, variants }) => {
+                // flatten_variant
+                let mut flat = Vec::new();
+                for v in variants {
+                    let mut case_flat = Vec::new();
+                    match &v.kind {
+                        EnumVariantKind::Unit => {}
+                        EnumVariantKind::Tuple(fields) => {
+                            for each in fields {
+                                ok = self.star_to_core_types(span, &mut case_flat, each).and(ok);
+                            }
+                        }
+                        EnumVariantKind::Struct(fields) => {
+                            for each in fields {
+                                ok = self
+                                    .star_to_core_types(span, &mut case_flat, &each.ty)
+                                    .and(ok);
+                            }
+                        }
+                    }
+                    for (i, ft) in case_flat.into_iter().enumerate() {
+                        if let Some(e) = flat.get_mut(i) {
+                            *e = Self::join(*e, ft);
+                        } else {
+                            flat.push(ft);
+                        }
+                    }
+                }
+                ok = self
+                    .component_to_core_types(
+                        span,
+                        dest,
+                        &ComponentAbiType::discriminant_type(variants.len()),
+                    )
+                    .and(ok);
+                dest.extend(flat);
+            }
+            _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
         }
         ok
     }
 
-    fn component_to_core_types(&self, dest: &mut Vec<ValType>, ty: &ComponentAbiType) -> bool {
-        let mut ok = true;
+    fn component_to_core_types(
+        &mut self,
+        span: Span,
+        dest: &mut Vec<ValType>,
+        ty: &ComponentAbiType,
+    ) -> Result<()> {
+        let mut ok = Ok(());
         match ty {
             ComponentAbiType::Bool => dest.push(ValType::I32),
+            ComponentAbiType::U8 => dest.push(ValType::I32),
+            ComponentAbiType::S8 => dest.push(ValType::I32),
+            ComponentAbiType::U16 => dest.push(ValType::I32),
+            ComponentAbiType::S16 => dest.push(ValType::I32),
+            ComponentAbiType::U32 => dest.push(ValType::I32),
+            ComponentAbiType::S32 => dest.push(ValType::I32),
+            ComponentAbiType::U64 => dest.push(ValType::I64),
             ComponentAbiType::S64 => dest.push(ValType::I64),
+            ComponentAbiType::F32 => dest.push(ValType::F32),
+            ComponentAbiType::F64 => dest.push(ValType::F64),
+            ComponentAbiType::Char => dest.push(ValType::I32),
             ComponentAbiType::Record { fields } => {
+                // flatten_record
                 for (_, f) in fields {
-                    ok = self.component_to_core_types(dest, f) && ok;
+                    ok = self.component_to_core_types(span, dest, f).and(ok);
                 }
             }
-            _ => ok = false,
+            ComponentAbiType::Tuple { fields } => {
+                // flatten_record
+                for f in fields {
+                    ok = self.component_to_core_types(span, dest, f).and(ok);
+                }
+            }
+            ComponentAbiType::Variant { cases } => {
+                // flatten_variant
+                let mut flat = Vec::new();
+                for (_, t) in cases {
+                    if let Some(t) = t {
+                        let mut case_flat = Vec::new();
+                        ok = self
+                            .component_to_core_types(span, &mut case_flat, t)
+                            .and(ok);
+                        for (i, ft) in case_flat.into_iter().enumerate() {
+                            if let Some(e) = flat.get_mut(i) {
+                                *e = Self::join(*e, ft);
+                            } else {
+                                flat.push(ft);
+                            }
+                        }
+                    }
+                }
+                ok = self
+                    .component_to_core_types(
+                        span,
+                        dest,
+                        &ComponentAbiType::discriminant_type(cases.len()),
+                    )
+                    .and(ok);
+                dest.extend(flat);
+            }
+            _ => ok = Err(self.push_error(span, format!("unknown component lowering for {ty:?}"))),
         }
         ok
+    }
+
+    fn join(a: ValType, b: ValType) -> ValType {
+        match (a, b) {
+            (a, b) if a == b => a,
+            (ValType::I32, ValType::F32) | (ValType::F32, ValType::I32) => ValType::I32,
+            _ => ValType::I64,
+        }
     }
 
     fn star_count_core_types(&mut self, ty: &Type) -> u32 {
@@ -572,7 +730,24 @@ impl Compiler {
                 .iter()
                 .map(|f| self.star_count_core_types(&f.ty))
                 .sum(),
-            Type::Enum(_variants) => todo!(),
+            Type::Enum(enum_) => {
+                // discriminator + the max number of slots used by any variant
+                1 + enum_
+                    .variants
+                    .iter()
+                    .map(|v| match &v.kind {
+                        EnumVariantKind::Unit => 0,
+                        EnumVariantKind::Tuple(fields) => {
+                            fields.iter().map(|t| self.star_count_core_types(t)).sum()
+                        }
+                        EnumVariantKind::Struct(fields) => fields
+                            .iter()
+                            .map(|f| self.star_count_core_types(&f.ty))
+                            .sum(),
+                    })
+                    .max()
+                    .unwrap_or(0)
+            }
             Type::Function { .. } => todo!(),
             Type::Var(_) => todo!(),
         }
@@ -603,9 +778,7 @@ impl Compiler {
                 TypedDefinition::Function(func) => self.visit_function(func),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
-                TypedDefinition::Enum(_) => {
-                    self.todo("enums are not supported in Wasm yet".into());
-                }
+                TypedDefinition::Enum(enum_) => self.visit_enum(enum_),
             }
         }
     }
@@ -630,20 +803,11 @@ impl Compiler {
                 } => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
+                    let span = item.local.span.unwrap_or(Span::from(0..0));
                     for p in params {
-                        if !self.star_to_core_types(&mut core_params, p) {
-                            self.push_error(
-                                item.local.span.unwrap_or(Span::from(0..0)),
-                                format!("unknown lowering for parameter type {:?}", p),
-                            );
-                        }
+                        _ = self.star_to_core_types(span, &mut core_params, p);
                     }
-                    if !self.star_to_core_types(&mut core_results, result) {
-                        self.push_error(
-                            item.local.span.unwrap_or(Span::from(0..0)),
-                            format!("unknown lowering for return type {:?}", result),
-                        );
-                    }
+                    _ = self.star_to_core_types(span, &mut core_results, result);
 
                     let kebab = to_kebab_case(&item.imported.name);
 
@@ -686,13 +850,9 @@ impl Compiler {
             match part {
                 TypedAbiPart::Event(event) => {
                     let mut core_params = Vec::with_capacity(16);
+                    let span = event.name.span.unwrap_or(Span::from(0..0));
                     for p in &event.params {
-                        if !self.star_to_core_types(&mut core_params, &p.ty) {
-                            self.push_error(
-                                event.name.span.unwrap_or(Span::from(0..0)),
-                                format!("unknown lowering for parameter type {:?}", p),
-                            );
-                        }
+                        _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                     }
 
                     let interface = to_kebab_case(def.name.as_str());
@@ -731,29 +891,24 @@ impl Compiler {
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
             locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
-            if !self.star_to_core_types(&mut params, &p.ty) {
-                self.push_error(
-                    p.name
-                        .span
-                        .or(function.name.span)
-                        .unwrap_or(Span::from(0..0)),
-                    format!("unknown lowering for parameter type {:?}", p.ty),
-                );
-            }
+            _ = self.star_to_core_types(
+                p.name
+                    .span
+                    .or(function.name.span)
+                    .unwrap_or(Span::from(0..0)),
+                &mut params,
+                &p.ty,
+            );
         }
 
         let mut func = Function::from_params(&params);
 
         let mut results = Vec::with_capacity(1);
-        if !self.star_to_core_types(&mut results, &function.return_type) {
-            self.push_error(
-                function.name.span.unwrap_or(Span::from(0..0)),
-                format!(
-                    "unknown lowering for return type {:?}",
-                    function.return_type
-                ),
-            );
-        }
+        _ = self.star_to_core_types(
+            function.name.span.unwrap_or(Span::from(0..0)),
+            &mut results,
+            &function.return_type,
+        );
 
         let _ = self.visit_block_stack(&mut func, &(&() as &dyn Locals, &locals), &function.body);
         func.instructions().end();
@@ -774,21 +929,11 @@ impl Compiler {
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
-        // Export to WIT.
-        let component_ty = self.star_to_component_type(&struct_.ty).unwrap();
-        let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
-            unreachable!()
-        };
-        // "Exporting" a type consists of importing it with an equality constraint.
-        let new_idx = self.world_type.inner.type_count();
-        self.world_type.inner.import(
-            &to_kebab_case(struct_.name.as_str()),
-            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
-        );
-        // Future uses must also refer to the imported version.
-        self.world_type
-            .component_to_encoded
-            .insert(component_ty, ComponentValType::Type(new_idx));
+        self.export_component_ty(struct_.name.as_str(), &struct_.ty);
+    }
+
+    fn visit_enum(&mut self, enum_: &TypedEnumDef) {
+        self.export_component_ty(enum_.name.as_str(), &enum_.ty);
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
@@ -798,7 +943,11 @@ impl Compiler {
                 TypedUtxoPart::Storage(vars) => {
                     for var in vars {
                         let mut types = Vec::new();
-                        self.star_to_core_types(&mut types, &var.ty);
+                        _ = self.star_to_core_types(
+                            utxo.name.span.unwrap_or(Span::from(0..0)),
+                            &mut types,
+                            &var.ty,
+                        );
                         let idx = self.add_globals(types.iter().copied());
                         // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
                         self.global_vars.insert(var.name.name.clone(), idx);
@@ -834,7 +983,7 @@ impl Compiler {
                 } => {
                     // Allocate local space.
                     let mut local_types = Vec::new();
-                    self.star_to_core_types(&mut local_types, &value.node.ty);
+                    _ = self.star_to_core_types(value.span, &mut local_types, &value.node.ty);
                     let local = func.add_locals(local_types.iter().copied());
                     locals.insert(name.name.clone(), local);
 
@@ -855,7 +1004,11 @@ impl Compiler {
                             .is_ok()
                         {
                             let mut local_types = Vec::new();
-                            self.star_to_core_types(&mut local_types, &value.node.ty);
+                            _ = self.star_to_core_types(
+                                value.span,
+                                &mut local_types,
+                                &value.node.ty,
+                            );
 
                             // Pop from stack to set locals in reverse order.
                             for i in (0..local_types.len()).rev() {
@@ -868,7 +1021,7 @@ impl Compiler {
                             .is_ok()
                         {
                             let mut types = Vec::new();
-                            self.star_to_core_types(&mut types, &value.node.ty);
+                            _ = self.star_to_core_types(value.span, &mut types, &value.node.ty);
 
                             // Pop from stack to set locals in reverse order.
                             for i in (0..types.len()).rev() {
@@ -1416,7 +1569,7 @@ impl Compiler {
                         }
                         if let Some(ty) = ty {
                             let mut new_locals = Vec::new();
-                            self.star_to_core_types(&mut new_locals, ty);
+                            _ = self.star_to_core_types(target.span, &mut new_locals, ty);
 
                             // Drop everything after what we are selecting.
                             for _ in offset + (new_locals.len() as u32)..total {
@@ -1473,7 +1626,7 @@ impl Compiler {
             } => {
                 // Create locals to store expression result.
                 let mut new_locals = Vec::new();
-                assert!(self.star_to_core_types(&mut new_locals, &expr.ty));
+                self.star_to_core_types(span, &mut new_locals, &expr.ty)?;
                 let first_local = func.add_locals(new_locals.iter().copied());
 
                 // Emit basic double-block and trust the optimizer.
@@ -1508,7 +1661,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            // Todo
+            // Data constructors
             TypedExprKind::StructLiteral { name: _, fields } => {
                 let Type::Record(record) = &expr.ty else {
                     panic!("StructLiteral type must be a Record");
@@ -1516,13 +1669,87 @@ impl Compiler {
                 let fields = fields
                     .iter()
                     .map(|f| (f.name.as_str(), &f.value))
-                    .collect::<BTreeMap<_, _>>();
+                    .collect::<HashMap<_, _>>();
+                // NB: currently compiles in declaration order, not the order written in source.
                 for field in &record.fields {
                     let expr = fields
                         .get(field.name.as_str())
                         .expect("StructLiteral missing field");
                     self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
                 }
+                Ok(())
+            }
+            TypedExprKind::EnumConstructor {
+                enum_name: _,
+                variant,
+                payload,
+            } => {
+                let Type::Enum(enum_) = &expr.ty else {
+                    panic!("EnumConstructor type should be Enum, got {:?}", &expr.ty);
+                };
+
+                let mut dest_types = Vec::new();
+                _ = self.star_to_core_types(span, &mut dest_types, &expr.ty);
+                let mut iter = dest_types.into_iter();
+
+                // Push the discriminant
+                assert_eq!(iter.next().unwrap(), ValType::I32);
+                let Some((discriminant, variant_ty)) = enum_
+                    .variants
+                    .iter()
+                    .enumerate()
+                    .find(|(_, v)| v.name == variant.as_str())
+                else {
+                    panic!(
+                        "EnumConstructor variant {} not found in {:?}",
+                        variant, &expr.ty
+                    );
+                };
+                let discriminant = u32::try_from(discriminant).unwrap();
+                func.instructions().i32_const(discriminant as i32);
+
+                // Push the values
+                match payload {
+                    TypedEnumConstructorPayload::Unit => {}
+                    TypedEnumConstructorPayload::Tuple(fields) => {
+                        for f in fields {
+                            self.visit_expr_stack(func, locals, f.span, &f.node)?;
+                            self.enum_promote(func, f.span, &f.node.ty, &mut iter);
+                        }
+                    }
+                    TypedEnumConstructorPayload::Struct(fields) => {
+                        let EnumVariantKind::Struct(struct_) = &variant_ty.kind else {
+                            panic!(
+                                "EnumConstructor struct used for non-struct variant {}",
+                                variant
+                            );
+                        };
+                        let fields = fields
+                            .iter()
+                            .map(|f| (f.name.as_str(), &f.value))
+                            .collect::<HashMap<_, _>>();
+                        // NB: currently compiles in declaration order, not the order written in source.
+                        for field in struct_ {
+                            let expr = fields
+                                .get(field.name.as_str())
+                                .expect("StructLiteral missing field");
+                            self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
+                            self.enum_promote(func, expr.span, &expr.node.ty, &mut iter);
+                        }
+                    }
+                }
+
+                // Push 0 for the rest
+                for ty in iter {
+                    match ty {
+                        ValType::I32 => func.instructions().i32_const(0),
+                        ValType::I64 => func.instructions().i64_const(0),
+                        ValType::F32 => func.instructions().f32_const(Ieee32::new(0)),
+                        ValType::F64 => func.instructions().f64_const(Ieee64::new(0)),
+                        _ => todo!(),
+                    };
+                }
+
                 Ok(())
             }
             // Function calls
@@ -1570,9 +1797,53 @@ impl Compiler {
                 self.visit_call(func, locals, span, target, args)
             }
             // Todo
-            TypedExprKind::EnumConstructor { .. } | TypedExprKind::Match { .. } => {
-                Err(self.todo(format!("{:?}", expr.kind)))
+            TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
+        }
+    }
+
+    fn enum_promote(
+        &mut self,
+        func: &mut Function,
+        span: Span,
+        ty: &Type,
+        iter: &mut dyn Iterator<Item = ValType>,
+    ) {
+        // Collect from & to vectors.
+        let mut from = Vec::new();
+        _ = self.star_to_core_types(span, &mut from, ty);
+        let to = iter.take(from.len()).collect::<Vec<_>>();
+
+        let mut from = &from[..];
+        let mut to = &to[..];
+
+        // Erase the common prefix of from and to that don't need promoting.
+        while let Some((from_first, from_rest)) = from.split_first()
+            && let Some((to_first, to_rest)) = to.split_first()
+            && from_first == to_first
+        {
+            from = from_rest;
+            to = to_rest;
+        }
+
+        // Store promoted values into locals in reverse order.
+        let first_local = func.add_locals(to.iter().copied());
+        for (i, (&src, &dst)) in from.iter().zip(to).enumerate().rev() {
+            match (src, dst) {
+                (a, b) if a == b => {}
+                (ValType::I32, ValType::I64) => {
+                    // Do we need to distinguish i32 and u32 here?
+                    func.instructions().i64_extend_i32_u();
+                }
+                _ => {
+                    self.push_error(span, format!("Unknown promotion from {src:?} to {dst:?}"));
+                }
             }
+            func.instructions().local_set(first_local + (i as u32));
+        }
+
+        // Read the locals back in forward order.
+        for i in 0..to.len() {
+            func.instructions().local_get(first_local + (i as u32));
         }
     }
 
