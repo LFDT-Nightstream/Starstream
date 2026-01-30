@@ -1828,7 +1828,6 @@ impl Compiler {
         // Store promoted values into locals in reverse order.
         let first_local = func.add_locals(to.iter().copied());
         for (i, (&src, &dst)) in from.iter().zip(to).enumerate().rev() {
-            dbg!(i, src, dst);
             match (src, dst) {
                 (a, b) if a == b => {}
                 (ValType::I32, ValType::I64) => {
