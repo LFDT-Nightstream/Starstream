@@ -580,6 +580,7 @@ impl Compiler {
         Some(cat)
     }
 
+    // #[must_use]
     fn star_to_core_types(&self, dest: &mut Vec<ValType>, ty: &Type) -> bool {
         let mut ok = true;
         match ty {
@@ -624,6 +625,10 @@ impl Compiler {
                         }
                     }
                 }
+                ok = self.component_to_core_types(
+                    dest,
+                    &ComponentAbiType::discriminant_type(variants.len()),
+                ) && ok;
                 dest.extend(flat);
             }
             Type::Function { .. } => ok = false,
@@ -632,6 +637,7 @@ impl Compiler {
         ok
     }
 
+    // #[must_use]
     fn component_to_core_types(&self, dest: &mut Vec<ValType>, ty: &ComponentAbiType) -> bool {
         let mut ok = true;
         match ty {
@@ -665,6 +671,10 @@ impl Compiler {
                         }
                     }
                 }
+                ok = self.component_to_core_types(
+                    dest,
+                    &ComponentAbiType::discriminant_type(cases.len()),
+                ) && ok;
                 dest.extend(flat);
             }
             _ => ok = false,
@@ -691,7 +701,24 @@ impl Compiler {
                 .iter()
                 .map(|f| self.star_count_core_types(&f.ty))
                 .sum(),
-            Type::Enum(_variants) => todo!(),
+            Type::Enum(enum_) => {
+                // discriminator + the max number of slots used by any variant
+                1 + enum_
+                    .variants
+                    .iter()
+                    .map(|v| match &v.kind {
+                        EnumVariantKind::Unit => 0,
+                        EnumVariantKind::Tuple(fields) => {
+                            fields.iter().map(|t| self.star_count_core_types(t)).sum()
+                        }
+                        EnumVariantKind::Struct(fields) => fields
+                            .iter()
+                            .map(|f| self.star_count_core_types(&f.ty))
+                            .sum(),
+                    })
+                    .max()
+                    .unwrap_or(0)
+            }
             Type::Function { .. } => todo!(),
             Type::Var(_) => todo!(),
         }
@@ -1615,7 +1642,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            // Todo
+            // Data constructors
             TypedExprKind::StructLiteral { name: _, fields } => {
                 let Type::Record(record) = &expr.ty else {
                     panic!("StructLiteral type must be a Record");
@@ -1631,6 +1658,14 @@ impl Compiler {
                     self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
                 }
                 Ok(())
+            }
+            TypedExprKind::EnumConstructor {
+                enum_name,
+                variant,
+                payload,
+            } => {
+                // ...
+                Err(self.todo(format!("{:?}", expr.kind)))
             }
             // Function calls
             TypedExprKind::Call { callee, args } => {
@@ -1677,9 +1712,7 @@ impl Compiler {
                 self.visit_call(func, locals, span, target, args)
             }
             // Todo
-            TypedExprKind::EnumConstructor { .. } | TypedExprKind::Match { .. } => {
-                Err(self.todo(format!("{:?}", expr.kind)))
-            }
+            TypedExprKind::Match { .. } => Err(self.todo(format!("{:?}", expr.kind))),
         }
     }
 

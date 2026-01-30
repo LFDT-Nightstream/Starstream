@@ -94,13 +94,12 @@ impl ComponentAbiType {
     }
 
     fn alignment_variant(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
-        Self::discriminant_type(cases)
+        Self::discriminant_type(cases.len())
             .alignment()
             .max(Self::max_case_alignment(cases))
     }
 
-    fn discriminant_type(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> ComponentAbiType {
-        let n = cases.len();
+    pub fn discriminant_type(n: usize) -> ComponentAbiType {
         if n <= usize::from(u8::MAX) {
             ComponentAbiType::U8
         } else if n <= usize::from(u16::MAX) {
@@ -162,7 +161,7 @@ impl ComponentAbiType {
     }
 
     fn elem_size_variant(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
-        let s = Self::discriminant_type(cases)
+        let s = Self::discriminant_type(cases.len())
             .elem_size()
             .next_multiple_of(Self::max_case_alignment(cases));
         let mut cs = 0;
