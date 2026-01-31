@@ -101,13 +101,17 @@ impl NeoCircuit for StepCircuitNeo {
     }
 
     fn resources(&self, resources: &mut neo_fold::session::SharedBusResources) {
-        let max_rom_size = self.ts_mem_init.rom_sizes.values().max();
-
         for (tag, (_dims, lanes, ty, _)) in &self.ts_mem_init.mems {
             match ty {
                 crate::memory::MemType::Rom => {
-                    // TODO: could this be avoided?
-                    let size = *max_rom_size.unwrap();
+                    let size = self
+                        .ts_mem_init
+                        .rom_sizes
+                        .get(tag)
+                        .copied()
+                        // it can't be empty
+                        .unwrap_or(1usize);
+
                     let mut dense_content = vec![neo_math::F::ZERO; size];
 
                     for (addr, val) in self.get_mem_content_iter(tag) {
