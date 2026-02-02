@@ -553,7 +553,7 @@ impl Compiler {
                                 EnumVariantKind::Tuple(fields) => {
                                     let fields: Vec<_> = fields
                                         .iter()
-                                        .flat_map(|f| self.star_to_component_type(&f))
+                                        .flat_map(|f| self.star_to_component_type(f))
                                         .collect();
                                     if fields.is_empty() {
                                         None
@@ -2322,11 +2322,8 @@ impl Compiler {
                     let joined_vt = enum_core_types[slot_idx as usize];
                     func.instructions().local_get(enum_base_local + slot_idx);
                     if joined_vt != field_vt {
-                        match (joined_vt, field_vt) {
-                            (ValType::I64, ValType::I32) => {
-                                func.instructions().i32_wrap_i64();
-                            }
-                            _ => {}
+                        if let (ValType::I64, ValType::I32) = (joined_vt, field_vt) {
+                            func.instructions().i32_wrap_i64();
                         }
                     }
                     func.instructions().local_set(demoted_base + j as u32);
