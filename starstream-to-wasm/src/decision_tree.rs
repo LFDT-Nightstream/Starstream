@@ -312,9 +312,10 @@ fn head_constructors(matrix: &Matrix, col: usize) -> Vec<Ctor> {
     let mut ctors = Vec::new();
     for row in &matrix.rows {
         if let Pat::Ctor { ctor, .. } = &row.pats[col]
-            && !ctors.contains(ctor) {
-                ctors.push(ctor.clone());
-            }
+            && !ctors.contains(ctor)
+        {
+            ctors.push(ctor.clone());
+        }
     }
     ctors
 }
