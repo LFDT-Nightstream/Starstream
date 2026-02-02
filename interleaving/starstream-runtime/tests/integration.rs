@@ -82,7 +82,6 @@ fn test_runtime_simple_effect_handlers() {
 }
 
 #[test]
-#[ignore = "this test is still quite expensive to run in the CI (it generates like a 100 folding steps)"]
 fn test_runtime_effect_handlers_cross_calls() {
     // this test emulates a coordination script acting as a middle-man for a channel-like flow
     //
