@@ -1891,9 +1891,15 @@ impl Compiler {
         // 5. Emit wasm from decision tree.
         func.instructions().block(BlockType::Empty);
         self.emit_decision_tree(
-            func, locals, span, &tree,
+            func,
+            locals,
+            span,
+            &tree,
             &[(scrut_base, scrutinee.node.ty.clone())],
-            arms, result_base, result_types.len() as u32, 0,
+            arms,
+            result_base,
+            result_types.len() as u32,
+            0,
         );
         func.instructions().end();
 
@@ -1935,9 +1941,15 @@ impl Compiler {
 
         func.instructions().block(BlockType::Empty);
         self.emit_decision_tree(
-            func, locals, span, &tree,
+            func,
+            locals,
+            span,
+            &tree,
             &[(scrut_base, scrutinee.node.ty.clone())],
-            arms, 0, 0, 0,
+            arms,
+            0,
+            0,
+            0,
         );
         func.instructions().end();
         Ok(())
@@ -1946,12 +1958,7 @@ impl Compiler {
     /// Lower a TypedPattern into the simplified Pat for the decision tree matrix.
     /// Bindings are embedded as `Pat::Wildcard { binding: Some(...) }` so that
     /// the CC algorithm's specialization automatically tracks them through columns.
-    fn lower_pattern(
-        &mut self,
-        pattern: &TypedPattern,
-        arm_idx: usize,
-        ty: &Type,
-    ) -> Pat {
+    fn lower_pattern(&mut self, pattern: &TypedPattern, arm_idx: usize, ty: &Type) -> Pat {
         match pattern {
             TypedPattern::Wildcard => Pat::Wildcard { binding: None },
             TypedPattern::Binding(ident) => Pat::Wildcard {
@@ -2026,9 +2033,8 @@ impl Compiler {
                     .fields
                     .iter()
                     .map(|field_def| {
-                        if let Some(sf) = fields
-                            .iter()
-                            .find(|sf| sf.name.as_str() == field_def.name)
+                        if let Some(sf) =
+                            fields.iter().find(|sf| sf.name.as_str() == field_def.name)
                         {
                             self.lower_pattern(&sf.pattern, arm_idx, &field_def.ty)
                         } else {
@@ -2069,20 +2075,14 @@ impl Compiler {
                 }
 
                 if result_count > 0 {
-                    let _ = self.visit_block_stack(
-                        func,
-                        &(locals, &arm_locals),
-                        &arms[*action].body,
-                    );
+                    let _ =
+                        self.visit_block_stack(func, &(locals, &arm_locals), &arms[*action].body);
                     for i in (0..result_count).rev() {
                         func.instructions().local_set(result_base + i);
                     }
                 } else {
-                    let _ = self.visit_block_drop(
-                        func,
-                        &(locals, &arm_locals),
-                        &arms[*action].body,
-                    );
+                    let _ =
+                        self.visit_block_drop(func, &(locals, &arm_locals), &arms[*action].body);
                 }
                 func.instructions().br(outer_depth);
             }
@@ -2099,16 +2099,36 @@ impl Compiler {
                 match col_type {
                     Type::Enum(enum_ty) => {
                         self.emit_enum_switch(
-                            func, locals, span, *column, base_local, enum_ty, col_type,
-                            cases, default, col_locals, arms,
-                            result_base, result_count, outer_depth,
+                            func,
+                            locals,
+                            span,
+                            *column,
+                            base_local,
+                            enum_ty,
+                            col_type,
+                            cases,
+                            default,
+                            col_locals,
+                            arms,
+                            result_base,
+                            result_count,
+                            outer_depth,
                         );
                     }
                     Type::Bool => {
                         self.emit_simple_switch(
-                            func, locals, span, *column, base_local,
-                            cases, default, col_locals, arms,
-                            result_base, result_count, outer_depth,
+                            func,
+                            locals,
+                            span,
+                            *column,
+                            base_local,
+                            cases,
+                            default,
+                            col_locals,
+                            arms,
+                            result_base,
+                            result_count,
+                            outer_depth,
                             |func_inst, ctor, base| match ctor {
                                 Ctor::BoolTrue => {
                                     func_inst.local_get(base);
@@ -2125,9 +2145,18 @@ impl Compiler {
                     }
                     Type::Int => {
                         self.emit_simple_switch(
-                            func, locals, span, *column, base_local,
-                            cases, default, col_locals, arms,
-                            result_base, result_count, outer_depth,
+                            func,
+                            locals,
+                            span,
+                            *column,
+                            base_local,
+                            cases,
+                            default,
+                            col_locals,
+                            arms,
+                            result_base,
+                            result_count,
+                            outer_depth,
                             |func_inst, ctor, base| {
                                 if let Ctor::IntLiteral(n) = ctor {
                                     func_inst.local_get(base);
@@ -2141,11 +2170,22 @@ impl Compiler {
                     Type::Record(_) => {
                         if let Some((ctor, subtree)) = cases.first() {
                             let field_types = ctor.field_types(col_type);
-                            let new_col_locals =
-                                self.expand_col_locals_for_struct(col_locals, *column, base_local, &field_types);
+                            let new_col_locals = self.expand_col_locals_for_struct(
+                                col_locals,
+                                *column,
+                                base_local,
+                                &field_types,
+                            );
                             self.emit_decision_tree(
-                                func, locals, span, subtree, &new_col_locals,
-                                arms, result_base, result_count, outer_depth,
+                                func,
+                                locals,
+                                span,
+                                subtree,
+                                &new_col_locals,
+                                arms,
+                                result_base,
+                                result_count,
+                                outer_depth,
                             );
                         }
                     }
@@ -2153,8 +2193,15 @@ impl Compiler {
                         if let Some((_, subtree)) = cases.first() {
                             let new_col_locals = remove_col(col_locals, *column);
                             self.emit_decision_tree(
-                                func, locals, span, subtree, &new_col_locals,
-                                arms, result_base, result_count, outer_depth,
+                                func,
+                                locals,
+                                span,
+                                subtree,
+                                &new_col_locals,
+                                arms,
+                                result_base,
+                                result_count,
+                                outer_depth,
                             );
                         }
                     }
@@ -2207,12 +2254,25 @@ impl Compiler {
             };
 
             let new_col_locals = self.demote_enum_fields(
-                func, span, column, base_local, &enum_core_types, &field_types, col_locals,
+                func,
+                span,
+                column,
+                base_local,
+                &enum_core_types,
+                &field_types,
+                col_locals,
             );
 
             self.emit_decision_tree(
-                func, locals, span, subtree, &new_col_locals,
-                arms, result_base, result_count, outer_depth + 1,
+                func,
+                locals,
+                span,
+                subtree,
+                &new_col_locals,
+                arms,
+                result_base,
+                result_count,
+                outer_depth + 1,
             );
 
             func.instructions().end();
@@ -2221,8 +2281,15 @@ impl Compiler {
         if let Some(def) = default {
             let new_col_locals = remove_col(col_locals, column);
             self.emit_decision_tree(
-                func, locals, span, def, &new_col_locals,
-                arms, result_base, result_count, outer_depth,
+                func,
+                locals,
+                span,
+                def,
+                &new_col_locals,
+                arms,
+                result_base,
+                result_count,
+                outer_depth,
             );
         } else {
             func.instructions().unreachable();
@@ -2253,8 +2320,7 @@ impl Compiler {
                 let slot_idx = slot_offset + j as u32;
                 if slot_idx < enum_core_types.len() as u32 {
                     let joined_vt = enum_core_types[slot_idx as usize];
-                    func.instructions()
-                        .local_get(enum_base_local + slot_idx);
+                    func.instructions().local_get(enum_base_local + slot_idx);
                     if joined_vt != field_vt {
                         match (joined_vt, field_vt) {
                             (ValType::I64, ValType::I32) => {
@@ -2302,16 +2368,30 @@ impl Compiler {
             func.instructions().block(BlockType::Empty);
             emit_test(&mut func.instructions(), ctor, base_local);
             self.emit_decision_tree(
-                func, locals, span, subtree, &new_col_locals,
-                arms, result_base, result_count, outer_depth + 1,
+                func,
+                locals,
+                span,
+                subtree,
+                &new_col_locals,
+                arms,
+                result_base,
+                result_count,
+                outer_depth + 1,
             );
             func.instructions().end();
         }
 
         if let Some(def) = default {
             self.emit_decision_tree(
-                func, locals, span, def, &new_col_locals,
-                arms, result_base, result_count, outer_depth,
+                func,
+                locals,
+                span,
+                def,
+                &new_col_locals,
+                arms,
+                result_base,
+                result_count,
+                outer_depth,
             );
         } else {
             func.instructions().unreachable();

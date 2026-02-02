@@ -16,7 +16,10 @@ pub enum Pat {
     Wildcard {
         binding: Option<(usize, String)>, // (arm_index, variable_name)
     },
-    Ctor { ctor: Ctor, args: Vec<Pat> },
+    Ctor {
+        ctor: Ctor,
+        args: Vec<Pat>,
+    },
 }
 
 /// Constructor tag — identifies which constructor was used.
@@ -320,14 +323,11 @@ fn head_constructors(matrix: &Matrix, col: usize) -> Vec<Ctor> {
 /// Check if the set of constructors forms a complete signature for the type.
 fn is_complete_signature(ctors: &[Ctor], ty: &Type) -> bool {
     match ty {
-        Type::Bool => {
-            ctors.contains(&Ctor::BoolTrue) && ctors.contains(&Ctor::BoolFalse)
-        }
+        Type::Bool => ctors.contains(&Ctor::BoolTrue) && ctors.contains(&Ctor::BoolFalse),
         Type::Enum(EnumType { variants, .. }) => {
             !variants.is_empty()
-                && (0..variants.len()).all(|i| {
-                    ctors.contains(&Ctor::EnumVariant { variant_index: i })
-                })
+                && (0..variants.len())
+                    .all(|i| ctors.contains(&Ctor::EnumVariant { variant_index: i }))
         }
         Type::Record(_) => true,
         Type::Unit => true,
