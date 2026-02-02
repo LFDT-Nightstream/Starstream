@@ -52,6 +52,22 @@ fn match_literal(x: i64) -> i64 {
     }
 }
 
+enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}
+
+fn match_point(msg: Message) -> i64 {
+    match msg {
+        Message::Point { x, y } => {
+            x + y
+        },
+        _ => {
+            0
+        },
+    }
+}
+
 script fn get_bar() {
     match_foo(Foo::Bar(true));
 }

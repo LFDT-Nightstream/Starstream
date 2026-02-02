@@ -450,7 +450,6 @@ impl Compiler {
     }
 
     fn export_component_ty(&mut self, name: &str, ty: &Type) {
-        // Export to WIT.
         let component_ty = self.star_to_component_type(ty).unwrap();
         let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
             unreachable!()
@@ -565,15 +564,12 @@ impl Compiler {
                                 EnumVariantKind::Struct(fields) => {
                                     let fields: Vec<_> = fields
                                         .iter()
-                                        .flat_map(|f| {
-                                            self.star_to_component_type(&f.ty)
-                                                .map(|ty| (f.name.as_str().to_owned(), ty))
-                                        })
+                                        .flat_map(|f| self.star_to_component_type(&f.ty))
                                         .collect();
                                     if fields.is_empty() {
                                         None
                                     } else {
-                                        Some(Rc::new(ComponentAbiType::Record { fields }))
+                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
                                     }
                                 }
                             },
