@@ -79,10 +79,16 @@ utxo_definition ::=
 
 utxo_part ::=
   | storage_utxo_part
+  | main_fn_utxo_part
 
 storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
 utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
+
+main_fn_utxo_part ::=
+  "main" "fn" identifier
+  "(" ( parameter ( "," parameter )* )? ")"
+  block
 
 abi_definition ::=
   "abi" identifier "{" abi_part* "}"
