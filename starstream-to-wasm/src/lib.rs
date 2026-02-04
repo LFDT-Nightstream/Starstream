@@ -1174,7 +1174,7 @@ impl Compiler {
                                 code.instructions().if_(BlockType::Empty); //  [sum]
                                 code.instructions().unreachable();
                                 code.instructions().end();
-                                
+
                                 // Sum is already on stack, add function body end
                                 code.instructions().end();
 
