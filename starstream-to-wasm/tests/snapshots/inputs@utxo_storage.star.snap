@@ -252,23 +252,47 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (result i64)))
-  (type (;1;) (func (param i64)))
+  (type (;0;) (func (param i64 i64) (result i64)))
+  (type (;1;) (func (result i64)))
+  (type (;2;) (func (param i64)))
   (global (;0;) (mut i64) (i64.const 0))
-  (export "increment" (func 0))
-  (export "get-storage" (func 1))
-  (export "set-storage" (func 2))
-  (func (;0;) (type 0) (result i64)
-    (global.set 0
+  (export "increment" (func 1))
+  (export "get-storage" (func 2))
+  (export "set-storage" (func 3))
+  (func (;0;) (type 0) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
       (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.ge_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;1;) (type 1) (result i64)
+    (global.set 0
+      (call 0
         (global.get 0)
         (i64.const 1)))
     (global.get 0)
   )
-  (func (;1;) (type 0) (result i64)
+  (func (;2;) (type 1) (result i64)
     (global.get 0)
   )
-  (func (;2;) (type 1) (param i64)
+  (func (;3;) (type 2) (param i64)
     (global.set 0
       (local.get 0))
   )
