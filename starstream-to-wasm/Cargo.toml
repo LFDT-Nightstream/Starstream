@@ -17,4 +17,5 @@ wasm-encoder = { workspace = true, features = ["component-model"] }
 insta = { workspace = true, features = ["glob"] }
 starstream-compiler.workspace = true
 wasmprinter = { workspace = true, features = ["component-model"] }
+wasmtime = "39.0"
 wit-component.workspace = true
