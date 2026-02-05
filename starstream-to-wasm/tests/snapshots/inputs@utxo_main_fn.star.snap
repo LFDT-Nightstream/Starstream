@@ -1,0 +1,181 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_main_fn.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: Some(
+                            4..7,
+                        ),
+                    },
+                    parts: [
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "Hello",
+                                    span: Some(
+                                        20..25,
+                                    ),
+                                },
+                                params: [],
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..32,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: Some(
+                            37..43,
+                        ),
+                    },
+                    parts: [
+                        MainFn(
+                            FunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "hello",
+                                    span: Some(
+                                        58..63,
+                                    ),
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Emit {
+                                                        event: Identifier {
+                                                            name: "Hello",
+                                                            span: Some(
+                                                                81..86,
+                                                            ),
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 76..88,
+                                                },
+                                            ),
+                                            span: 76..94,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 66..96,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 32..98,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Utxo: MyUtxo => 
+  T-Fn: hello => ()
+    T-Expr: {} ⊢ emit Hello(); ⇒ ()
+      T-Emit: {} ⊢ emit Hello() ⇒ ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: Some(
+                        4..7,
+                    ),
+                },
+                parts: [
+                    Event(
+                        TypedEventDef {
+                            name: Identifier {
+                                name: "Hello",
+                                span: Some(
+                                    20..25,
+                                ),
+                            },
+                            params: [],
+                        },
+                    ),
+                ],
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: Some(
+                        37..43,
+                    ),
+                },
+                parts: [
+                    MainFn(
+                        TypedFunctionDef {
+                            export: None,
+                            name: Identifier {
+                                name: "hello",
+                                span: Some(
+                                    58..63,
+                                ),
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Emit {
+                                                    event: Identifier {
+                                                        name: "Hello",
+                                                        span: Some(
+                                                            81..86,
+                                                        ),
+                                                    },
+                                                    args: [],
+                                                },
+                                            },
+                                            span: 76..88,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                ],
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+  x `main fn` not yet implemented
+   ,-[6:13]
+ 5 | utxo MyUtxo {
+ 6 |     main fn hello() {
+   :             ^^|^^
+   :               `-- `main fn` not yet implemented
+ 7 |         emit Hello();
+   `----

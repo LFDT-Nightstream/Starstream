@@ -955,6 +955,12 @@ impl Compiler {
                         });
                     }
                 }
+                TypedUtxoPart::MainFn(function) => {
+                    self.push_error(
+                        function.name.span.unwrap_or(Span::from(0..0)),
+                        "`main fn` not yet implemented",
+                    );
+                }
             }
         }
     }
