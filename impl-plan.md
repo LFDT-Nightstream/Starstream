@@ -76,7 +76,7 @@ Language features:
 - [ ] coroutine support (yield/resume)
 - [ ] algebraic effects and effect handlers
 - [x] enum (tagged union) types
-  - [ ] builtin `Option<T>`, `Result<T, E>`
+  - [x] builtin `Option<T>`, `Result<T, E>`
   - [ ] support in interpreter/wasm codegen
 - [ ] string type & string literals
 - [x] patterns and pattern matching
