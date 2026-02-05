@@ -1015,15 +1015,14 @@ impl Inferencer {
     }
 
     fn lookup_enum_info(&mut self, name: &Identifier) -> Result<EnumInfo, TypeError> {
-        self.instantiate_enum_info(&name.name)
-            .ok_or_else(|| {
-                TypeError::new(
-                    TypeErrorKind::UnknownEnum {
-                        name: name.name.clone(),
-                    },
-                    name.span.unwrap_or_else(dummy_span),
-                )
-            })
+        self.instantiate_enum_info(&name.name).ok_or_else(|| {
+            TypeError::new(
+                TypeErrorKind::UnknownEnum {
+                    name: name.name.clone(),
+                },
+                name.span.unwrap_or_else(dummy_span),
+            )
+        })
     }
 
     /// Instantiate a (possibly generic) enum type entry, creating fresh type
@@ -1060,11 +1059,7 @@ impl Inferencer {
     }
 
     /// Instantiate a generic enum with explicit type arguments.
-    fn instantiate_enum_with_args(
-        &mut self,
-        name: &str,
-        type_args: &[Type],
-    ) -> Option<EnumInfo> {
+    fn instantiate_enum_with_args(&mut self, name: &str, type_args: &[Type]) -> Option<EnumInfo> {
         let entry = self.types.get(name)?;
         let TypeEntryKind::Enum { variants } = &entry.kind else {
             return None;
@@ -1098,10 +1093,7 @@ impl Inferencer {
                 kind: match &v.kind {
                     EnumVariantInfoKind::Unit => EnumVariantInfoKind::Unit,
                     EnumVariantInfoKind::Tuple(types) => EnumVariantInfoKind::Tuple(
-                        types
-                            .iter()
-                            .map(|t| substitute_type(t, mapping))
-                            .collect(),
+                        types.iter().map(|t| substitute_type(t, mapping)).collect(),
                     ),
                     EnumVariantInfoKind::Struct(fields) => EnumVariantInfoKind::Struct(
                         fields
@@ -3151,9 +3143,7 @@ impl Inferencer {
                 .map(|g| self.type_from_annotation(g))
                 .collect::<Result<_, _>>()?;
 
-            let info = self
-                .instantiate_enum_with_args(name, &type_args)
-                .unwrap();
+            let info = self.instantiate_enum_with_args(name, &type_args).unwrap();
             return Ok(info.ty);
         }
 
@@ -3165,10 +3155,7 @@ impl Inferencer {
             other => {
                 // Extract type_params info before potentially calling mutable methods
                 let (has_params, ty_clone) = match self.types.get(other) {
-                    Some(entry) => (
-                        !entry.type_params.is_empty(),
-                        Some(entry.ty.clone()),
-                    ),
+                    Some(entry) => (!entry.type_params.is_empty(), Some(entry.ty.clone())),
                     None => (false, None),
                 };
 
@@ -3176,14 +3163,14 @@ impl Inferencer {
                     if has_params {
                         // Generic type used without args — require explicit args
                         let param_count = self.types.get(other).unwrap().type_params.len();
-                        return Err(TypeError::new(
+                        Err(TypeError::new(
                             TypeErrorKind::WrongGenericArity {
                                 type_name: other.to_string(),
                                 expected: param_count,
                                 found: 0,
                             },
                             annotation.name.span.unwrap_or_else(dummy_span),
-                        ));
+                        ))
                     } else {
                         Ok(ty)
                     }

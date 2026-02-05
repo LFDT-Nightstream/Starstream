@@ -547,14 +547,14 @@ impl Compiler {
                     && enum_variant_types.variants.len() == 2
                     && enum_variant_types.variants.iter().any(|v| v.name == "Some")
                     && enum_variant_types.variants.iter().any(|v| v.name == "None")
+                    && let Some(some_variant) = enum_variant_types
+                        .variants
+                        .iter()
+                        .find(|v| v.name == "Some")
+                    && let EnumVariantKind::Tuple(fields) = &some_variant.kind
+                    && let Some(inner) = self.star_to_component_type(&fields[0])
                 {
-                    if let Some(some_variant) = enum_variant_types.variants.iter().find(|v| v.name == "Some") {
-                        if let EnumVariantKind::Tuple(fields) = &some_variant.kind {
-                            if let Some(inner) = self.star_to_component_type(&fields[0]) {
-                                return Some(Rc::new(ComponentAbiType::Option { inner }));
-                            }
-                        }
-                    }
+                    return Some(Rc::new(ComponentAbiType::Option { inner }));
                 }
 
                 // Detect builtin Result type
@@ -2364,10 +2364,10 @@ impl Compiler {
                 if slot_idx < enum_core_types.len() as u32 {
                     let joined_vt = enum_core_types[slot_idx as usize];
                     func.instructions().local_get(enum_base_local + slot_idx);
-                    if joined_vt != field_vt {
-                        if let (ValType::I64, ValType::I32) = (joined_vt, field_vt) {
-                            func.instructions().i32_wrap_i64();
-                        }
+                    if joined_vt != field_vt
+                        && let (ValType::I64, ValType::I32) = (joined_vt, field_vt)
+                    {
+                        func.instructions().i32_wrap_i64();
                     }
                     func.instructions().local_set(demoted_base + j as u32);
                 }
