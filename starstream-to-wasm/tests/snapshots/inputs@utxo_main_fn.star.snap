@@ -10,18 +10,18 @@ Program {
             node: Abi(
                 AbiDef {
                     name: Identifier {
-                        name: "Foo",
+                        name: "FooAbi",
                         span: Some(
-                            4..7,
+                            4..10,
                         ),
                     },
                     parts: [
                         Event(
                             EventDef {
                                 name: Identifier {
-                                    name: "Hello",
+                                    name: "HelloEvent",
                                     span: Some(
-                                        20..25,
+                                        23..33,
                                     ),
                                 },
                                 params: [],
@@ -30,7 +30,7 @@ Program {
                     ],
                 },
             ),
-            span: 0..32,
+            span: 0..40,
         },
         Spanned {
             node: Utxo(
@@ -38,7 +38,7 @@ Program {
                     name: Identifier {
                         name: "MyUtxo",
                         span: Some(
-                            37..43,
+                            45..51,
                         ),
                     },
                     parts: [
@@ -48,9 +48,9 @@ Program {
                                     UtxoMain,
                                 ),
                                 name: Identifier {
-                                    name: "hello",
+                                    name: "hello_utxo",
                                     span: Some(
-                                        58..63,
+                                        66..76,
                                     ),
                                 },
                                 params: [],
@@ -62,28 +62,28 @@ Program {
                                                 Spanned {
                                                     node: Emit {
                                                         event: Identifier {
-                                                            name: "Hello",
+                                                            name: "HelloEvent",
                                                             span: Some(
-                                                                81..86,
+                                                                94..104,
                                                             ),
                                                         },
                                                         args: [],
                                                     },
-                                                    span: 76..88,
+                                                    span: 89..106,
                                                 },
                                             ),
-                                            span: 76..94,
+                                            span: 89..112,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 66..96,
+                                    span: 79..114,
                                 },
                             },
                         ),
                     ],
                 },
             ),
-            span: 32..98,
+            span: 40..116,
         },
     ],
 }
@@ -91,9 +91,9 @@ Program {
 ==== Inference trace ====
 
 T-Utxo: MyUtxo => 
-  T-Fn: hello => ()
-    T-Expr: {} ⊢ emit Hello(); ⇒ ()
-      T-Emit: {} ⊢ emit Hello() ⇒ ()
+  T-Fn: hello_utxo => ()
+    T-Expr: {} ⊢ emit HelloEvent(); ⇒ ()
+      T-Emit: {} ⊢ emit HelloEvent() ⇒ ()
 
 ==== Typed AST ====
 TypedProgram {
@@ -101,18 +101,18 @@ TypedProgram {
         Abi(
             TypedAbiDef {
                 name: Identifier {
-                    name: "Foo",
+                    name: "FooAbi",
                     span: Some(
-                        4..7,
+                        4..10,
                     ),
                 },
                 parts: [
                     Event(
                         TypedEventDef {
                             name: Identifier {
-                                name: "Hello",
+                                name: "HelloEvent",
                                 span: Some(
-                                    20..25,
+                                    23..33,
                                 ),
                             },
                             params: [],
@@ -126,7 +126,7 @@ TypedProgram {
                 name: Identifier {
                     name: "MyUtxo",
                     span: Some(
-                        37..43,
+                        45..51,
                     ),
                 },
                 parts: [
@@ -136,9 +136,9 @@ TypedProgram {
                                 UtxoMain,
                             ),
                             name: Identifier {
-                                name: "hello",
+                                name: "hello_utxo",
                                 span: Some(
-                                    58..63,
+                                    66..76,
                                 ),
                             },
                             params: [],
@@ -152,15 +152,15 @@ TypedProgram {
                                                 ty: Unit,
                                                 kind: Emit {
                                                     event: Identifier {
-                                                        name: "Hello",
+                                                        name: "HelloEvent",
                                                         span: Some(
-                                                            81..86,
+                                                            94..104,
                                                         ),
                                                     },
                                                     args: [],
                                                 },
                                             },
-                                            span: 76..88,
+                                            span: 89..106,
                                         },
                                     ),
                                 ],
@@ -177,8 +177,8 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func))
-  (import "foo" "hello" (func (;0;) (type 0)))
-  (export "hello" (func 0))
+  (import "foo-abi" "hello-event" (func (;0;) (type 0)))
+  (export "hello-utxo" (func 0))
   (func (;1;) (type 0)
     (call 0)
   )
@@ -190,14 +190,14 @@ TypedProgram {
           (type (;0;)
             (component
               (type (;0;) (func))
-              (export (;0;) "hello" (func (type 0)))
+              (export (;0;) "hello-utxo" (func (type 0)))
               (type (;1;)
                 (instance
                   (type (;0;) (func))
-                  (export (;0;) "hello" (func (type 0)))
+                  (export (;0;) "hello-event" (func (type 0)))
                 )
               )
-              (import "foo" (instance (;0;) (type 1)))
+              (import "foo-abi" (instance (;0;) (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -212,9 +212,9 @@ TypedProgram {
 package root:component;
 
 world root {
-  import foo: interface {
-    hello: func();
+  import foo-abi: interface {
+    hello-event: func();
   }
 
-  export hello: func();
+  export hello-utxo: func();
 }

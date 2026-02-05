@@ -1,9 +1,9 @@
-abi Foo {
-    event Hello();
+abi FooAbi {
+    event HelloEvent();
 }
 
 utxo MyUtxo {
-    main fn hello() {
-        emit Hello();
+    main fn hello_utxo() {
+        emit HelloEvent();
     }
 }
