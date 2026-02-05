@@ -228,6 +228,7 @@ fn function_to_doc<'a>(
 fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDoc<'a, ()> {
     match export {
         FunctionExport::Script => RcDoc::text("script"),
+        FunctionExport::UtxoMain => RcDoc::text("main"),
     }
 }
 
@@ -463,9 +464,7 @@ fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str, comments: &CommentMap)
             )
             .append(RcDoc::line())
             .append("}"),
-        UtxoPart::MainFn(function) => RcDoc::text("main")
-            .append(RcDoc::space())
-            .append(function_to_doc(function, source, comments)),
+        UtxoPart::MainFn(function) => function_to_doc(function, source, comments),
     }
 }
 

@@ -185,7 +185,10 @@ pub struct FunctionDef {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum FunctionExport {
+    /// `script fn`
     Script,
+    /// `utxo { main fn }`
+    UtxoMain,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

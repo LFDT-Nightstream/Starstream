@@ -44,7 +44,9 @@ Program {
                     parts: [
                         MainFn(
                             FunctionDef {
-                                export: None,
+                                export: Some(
+                                    UtxoMain,
+                                ),
                                 name: Identifier {
                                     name: "hello",
                                     span: Some(
@@ -130,7 +132,9 @@ TypedProgram {
                 parts: [
                     MainFn(
                         TypedFunctionDef {
-                            export: None,
+                            export: Some(
+                                UtxoMain,
+                            ),
                             name: Identifier {
                                 name: "hello",
                                 span: Some(
@@ -171,11 +175,46 @@ TypedProgram {
 }
 
 ==== Core WebAssembly ====
-  x `main fn` not yet implemented
-   ,-[6:13]
- 5 | utxo MyUtxo {
- 6 |     main fn hello() {
-   :             ^^|^^
-   :               `-- `main fn` not yet implemented
- 7 |         emit Hello();
-   `----
+(module
+  (type (;0;) (func))
+  (import "foo" "hello" (func (;0;) (type 0)))
+  (export "hello" (func 0))
+  (func (;1;) (type 0)
+    (call 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func))
+              (export (;0;) "hello" (func (type 0)))
+              (type (;1;)
+                (instance
+                  (type (;0;) (func))
+                  (export (;0;) "hello" (func (type 0)))
+                )
+              )
+              (import "foo" (instance (;0;) (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import foo: interface {
+    hello: func();
+  }
+
+  export hello: func();
+}

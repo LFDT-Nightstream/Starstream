@@ -1,5 +1,5 @@
 use chumsky::prelude::*;
-use starstream_types::{UtxoDef, UtxoGlobal, UtxoPart};
+use starstream_types::{FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart};
 
 use crate::parser::{
     context::Extra, definition::function::function_with_body, primitives, type_annotation,
@@ -27,7 +27,12 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
     let main_fn_part = just("main")
         .padded()
         .ignore_then(function_with_body())
-        .map(UtxoPart::MainFn);
+        .map(|def| {
+            UtxoPart::MainFn(FunctionDef {
+                export: Some(FunctionExport::UtxoMain),
+                ..def
+            })
+        });
 
     let part = choice((storage_part, main_fn_part));
 

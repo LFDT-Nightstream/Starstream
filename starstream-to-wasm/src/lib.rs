@@ -922,6 +922,9 @@ impl Compiler {
             Some(FunctionExport::Script) => {
                 self.export_component_fn(function, idx, &params, &results);
             }
+            Some(FunctionExport::UtxoMain) => {
+                self.export_component_fn(function, idx, &params, &results);
+            }
             None => {}
         }
     }
@@ -956,10 +959,7 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::MainFn(function) => {
-                    self.push_error(
-                        function.name.span.unwrap_or(Span::from(0..0)),
-                        "`main fn` not yet implemented",
-                    );
+                    self.visit_function(function);
                 }
             }
         }
