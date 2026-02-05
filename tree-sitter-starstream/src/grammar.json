@@ -255,6 +255,24 @@
           ]
         },
         {
+          "type": "SYMBOL",
+          "name": "function"
+        }
+      ]
+    },
+    "function_export": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "script"
+        }
+      ]
+    },
+    "function": {
+      "type": "SEQ",
+      "members": [
+        {
           "type": "STRING",
           "value": "fn"
         },
@@ -327,15 +345,6 @@
         {
           "type": "SYMBOL",
           "name": "block"
-        }
-      ]
-    },
-    "function_export": {
-      "type": "CHOICE",
-      "members": [
-        {
-          "type": "STRING",
-          "value": "script"
         }
       ]
     },
@@ -685,6 +694,10 @@
         {
           "type": "SYMBOL",
           "name": "storage_utxo_part"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "main_fn_utxo_part"
         }
       ]
     },
@@ -738,6 +751,19 @@
         {
           "type": "STRING",
           "value": ";"
+        }
+      ]
+    },
+    "main_fn_utxo_part": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "main"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "function"
         }
       ]
     },

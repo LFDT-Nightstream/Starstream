@@ -559,7 +559,7 @@
     }
   },
   {
-    "type": "function_definition",
+    "type": "function",
     "named": true,
     "fields": {},
     "children": {
@@ -568,10 +568,6 @@
       "types": [
         {
           "type": "block",
-          "named": true
-        },
-        {
-          "type": "function_export",
           "named": true
         },
         {
@@ -584,6 +580,25 @@
         },
         {
           "type": "type_annotation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "function_definition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "function",
+          "named": true
+        },
+        {
+          "type": "function_export",
           "named": true
         }
       ]
@@ -746,6 +761,21 @@
         },
         {
           "type": "unit_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "main_fn_utxo_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "function",
           "named": true
         }
       ]
@@ -1096,6 +1126,10 @@
           "named": true
         },
         {
+          "type": "main_fn_utxo_part",
+          "named": true
+        },
+        {
           "type": "storage_utxo_part",
           "named": true
         }
@@ -1319,6 +1353,10 @@
   },
   {
     "type": "let",
+    "named": false
+  },
+  {
+    "type": "main",
     "named": false
   },
   {
