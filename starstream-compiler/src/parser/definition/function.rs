@@ -1,44 +1,60 @@
 use chumsky::prelude::*;
 use starstream_types::{
-    FunctionExport,
+    FunctionExport, TypeAnnotation,
     ast::{FunctionDef, FunctionParam},
 };
 
 use crate::parser::{context::Extra, primitives, statement, type_annotation};
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
-    let type_parser = type_annotation::parser().boxed();
-    let block_parser = statement::block_parser();
-
-    let parameter = primitives::identifier()
+fn parameter<'a>() -> impl Parser<'a, &'a str, FunctionParam, Extra<'a>> {
+    primitives::identifier()
         .then_ignore(just(':').padded())
-        .then(type_parser.clone())
-        .map(|(name, ty)| FunctionParam { name, ty });
+        .then(type_annotation::parser().boxed())
+        .map(|(name, ty)| FunctionParam { name, ty })
+}
 
+fn parameter_list<'a>() -> impl Parser<'a, &'a str, Vec<FunctionParam>, Extra<'a>> {
+    parameter()
+        .separated_by(just(',').padded())
+        .allow_trailing()
+        .collect::<Vec<_>>()
+        .delimited_by(just('(').padded(), just(')').padded())
+}
+
+fn return_type<'a>() -> impl Parser<'a, &'a str, Option<TypeAnnotation>, Extra<'a>> {
+    just("->")
+        .padded()
+        .ignore_then(type_annotation::parser().boxed())
+        .or_not()
+}
+
+// Note: FunctionDef's export is not parsed, always None.
+// Maybe splitting another struct out is cleaner long-term?
+pub fn function_with_body<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+    just("fn")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(parameter_list())
+        .then(return_type())
+        .then(statement::block_parser())
+        .map(|(((name, params), return_type), body)| FunctionDef {
+            export: None,
+            name,
+            params,
+            return_type,
+            body,
+        })
+}
+
+/// Parse `function_definition` grammar node.
+///
+/// Like `script fn foo(bar: i32) -> i32 { bar }`.
+pub fn parser<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
     function_export()
         .padded()
         .or_not()
-        .then_ignore(just("fn"))
-        .padded()
-        .then(primitives::identifier())
-        .then(
-            parameter
-                .separated_by(just(',').padded())
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just('(').padded(), just(')').padded()),
-        )
-        .then(just("->").padded().ignore_then(type_parser).or_not())
-        .then(block_parser)
-        .map(
-            |((((export, name), params), return_type), body)| FunctionDef {
-                export,
-                name,
-                params,
-                return_type,
-                body,
-            },
-        )
+        .then(function_with_body())
+        .map(|(export, func)| FunctionDef { export, ..func })
 }
 
 fn function_export<'a>() -> impl Parser<'a, &'a str, FunctionExport, Extra<'a>> {

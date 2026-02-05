@@ -243,6 +243,7 @@ pub struct UtxoDef {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum UtxoPart {
     Storage(Vec<UtxoGlobal>),
+    MainFn(FunctionDef),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

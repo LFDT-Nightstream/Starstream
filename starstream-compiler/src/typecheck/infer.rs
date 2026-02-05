@@ -880,6 +880,16 @@ impl Inferencer {
                             .map(|var| self.infer_utxo_global(env, var))
                             .collect::<Result<Vec<_>, _>>()?,
                     ),
+                    UtxoPart::MainFn(function) => {
+                        if let Some(ty) = function.return_type {
+                            return Err(TypeError::new(
+                                TypeErrorKind::ReturnTypeNotAllowed,
+                                function.name.span.unwrap_or_else(dummy_span),
+                            ));
+                        }
+                        let (func, trace) = self.infer_function(env, function)?;
+                        TypedUtxoPart::MainFn(func)
+                    }
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -3178,6 +3188,9 @@ impl Inferencer {
                     for var in vars {
                         var.ty = self.apply(&var.ty);
                     }
+                }
+                TypedUtxoPart::MainFn(func) => {
+                    self.apply_function(func);
                 }
             }
         }
