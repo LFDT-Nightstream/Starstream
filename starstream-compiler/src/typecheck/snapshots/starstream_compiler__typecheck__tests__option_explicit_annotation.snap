@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x: Option<i64> = Option::Some(42);\n}\n"
+---
+T-Fn: test => ()
+  T-Let: {} ⊢ let x: Option<i64> = Option::Some(42); ⇒ Option
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t3}
+    Unify-Enum: Option ~ Option => {}
+      Unify-Const: i64 ~ i64 => {}

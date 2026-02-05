@@ -112,6 +112,7 @@ struct TypeEntry {
     ty: Type,
     kind: TypeEntryKind,
     span: Span,
+    type_params: Vec<TypeVarId>,
 }
 
 enum TypeEntryKind {
@@ -311,7 +312,7 @@ struct FunctionCtx {
 impl Inferencer {
     /// Construct a fresh inferencer with an empty substitution environment.
     fn new(capture_traces: bool) -> Self {
-        Self {
+        let mut inferencer = Self {
             capture_traces,
             next_type_var: 0,
             subst: HashMap::new(),
@@ -320,7 +321,83 @@ impl Inferencer {
             events: EventRegistry::new(),
             namespaces: NamespaceRegistry::new(),
             builtins: BuiltinRegistry::new(),
-        }
+        };
+        inferencer.register_prelude_types();
+        inferencer
+    }
+
+    /// Register builtin prelude types (`Option<T>`, `Result<T, E>`).
+    fn register_prelude_types(&mut self) {
+        // Option<T>
+        let t = self.fresh_var_id();
+        let option_type_variants = vec![
+            TypeEnumVariant::tuple("Some", vec![Type::Var(t)]),
+            TypeEnumVariant::unit("None"),
+        ];
+        let option_ty = Type::enum_type("Option", option_type_variants);
+        let option_variants = vec![
+            EnumVariantInfo {
+                name: Identifier {
+                    name: "Some".to_string(),
+                    span: None,
+                },
+                kind: EnumVariantInfoKind::Tuple(vec![Type::Var(t)]),
+            },
+            EnumVariantInfo {
+                name: Identifier {
+                    name: "None".to_string(),
+                    span: None,
+                },
+                kind: EnumVariantInfoKind::Unit,
+            },
+        ];
+        self.types.insert(
+            "Option".to_string(),
+            TypeEntry {
+                ty: option_ty,
+                kind: TypeEntryKind::Enum {
+                    variants: option_variants,
+                },
+                span: dummy_span(),
+                type_params: vec![t],
+            },
+        );
+
+        // Result<T, E>
+        let t2 = self.fresh_var_id();
+        let e = self.fresh_var_id();
+        let result_type_variants = vec![
+            TypeEnumVariant::tuple("Ok", vec![Type::Var(t2)]),
+            TypeEnumVariant::tuple("Err", vec![Type::Var(e)]),
+        ];
+        let result_ty = Type::enum_type("Result", result_type_variants);
+        let result_variants = vec![
+            EnumVariantInfo {
+                name: Identifier {
+                    name: "Ok".to_string(),
+                    span: None,
+                },
+                kind: EnumVariantInfoKind::Tuple(vec![Type::Var(t2)]),
+            },
+            EnumVariantInfo {
+                name: Identifier {
+                    name: "Err".to_string(),
+                    span: None,
+                },
+                kind: EnumVariantInfoKind::Tuple(vec![Type::Var(e)]),
+            },
+        ];
+        self.types.insert(
+            "Result".to_string(),
+            TypeEntry {
+                ty: result_ty,
+                kind: TypeEntryKind::Enum {
+                    variants: result_variants,
+                },
+                span: dummy_span(),
+                type_params: vec![t2, e],
+            },
+        );
     }
 
     fn register_type_definitions(
@@ -543,11 +620,16 @@ impl Inferencer {
     fn register_struct(&mut self, def: &StructDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
         if let Some(existing) = self.types.get(&name) {
-            return Err(TypeError::new(
-                TypeErrorKind::TypeAlreadyDefined { name },
-                def.name.span.unwrap_or_else(dummy_span),
-            )
-            .with_secondary(existing.span, "previously defined here"));
+            // Allow user types to shadow prelude types
+            if !existing.type_params.is_empty() && existing.span == dummy_span() {
+                // Prelude type — allow shadowing
+            } else {
+                return Err(TypeError::new(
+                    TypeErrorKind::TypeAlreadyDefined { name },
+                    def.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_secondary(existing.span, "previously defined here"));
+            }
         }
 
         let mut seen = HashMap::new();
@@ -587,6 +669,7 @@ impl Inferencer {
                 ty,
                 kind: TypeEntryKind::Struct { fields },
                 span: def.name.span.unwrap_or_else(dummy_span),
+                type_params: vec![],
             },
         );
         Ok(())
@@ -595,11 +678,16 @@ impl Inferencer {
     fn register_enum(&mut self, def: &EnumDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
         if let Some(existing) = self.types.get(&name) {
-            return Err(TypeError::new(
-                TypeErrorKind::TypeAlreadyDefined { name },
-                def.name.span.unwrap_or_else(dummy_span),
-            )
-            .with_secondary(existing.span, "previously defined here"));
+            // Allow user types to shadow prelude types
+            if !existing.type_params.is_empty() && existing.span == dummy_span() {
+                // Prelude type — allow shadowing
+            } else {
+                return Err(TypeError::new(
+                    TypeErrorKind::TypeAlreadyDefined { name },
+                    def.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_secondary(existing.span, "previously defined here"));
+            }
         }
 
         let mut seen = HashMap::new();
@@ -693,6 +781,7 @@ impl Inferencer {
                 ty,
                 kind: TypeEntryKind::Enum { variants },
                 span: def.name.span.unwrap_or_else(dummy_span),
+                type_params: vec![],
             },
         );
         Ok(())
@@ -925,15 +1014,108 @@ impl Inferencer {
         })
     }
 
-    fn lookup_enum_info(&self, name: &Identifier) -> Result<EnumInfo, TypeError> {
-        self.types.enum_info(&name.name).ok_or_else(|| {
-            TypeError::new(
-                TypeErrorKind::UnknownEnum {
-                    name: name.name.clone(),
+    fn lookup_enum_info(&mut self, name: &Identifier) -> Result<EnumInfo, TypeError> {
+        self.instantiate_enum_info(&name.name)
+            .ok_or_else(|| {
+                TypeError::new(
+                    TypeErrorKind::UnknownEnum {
+                        name: name.name.clone(),
+                    },
+                    name.span.unwrap_or_else(dummy_span),
+                )
+            })
+    }
+
+    /// Instantiate a (possibly generic) enum type entry, creating fresh type
+    /// variables for any type parameters.
+    fn instantiate_enum_info(&mut self, name: &str) -> Option<EnumInfo> {
+        let entry = self.types.get(name)?;
+        let TypeEntryKind::Enum { variants } = &entry.kind else {
+            return None;
+        };
+
+        if entry.type_params.is_empty() {
+            // Non-generic — return directly
+            return Some(EnumInfo {
+                ty: entry.ty.clone(),
+                variants: variants.clone(),
+            });
+        }
+
+        // Extract data we need before borrowing self mutably
+        let type_params = entry.type_params.clone();
+        let template_ty = entry.ty.clone();
+        let template_variants = variants.clone();
+
+        // Create fresh vars and substitution map
+        let mapping: HashMap<TypeVarId, Type> = type_params
+            .iter()
+            .map(|&var| (var, self.fresh_var()))
+            .collect();
+
+        let ty = substitute_type(&template_ty, &mapping);
+        let variants = Self::substitute_variants(&template_variants, &mapping);
+
+        Some(EnumInfo { ty, variants })
+    }
+
+    /// Instantiate a generic enum with explicit type arguments.
+    fn instantiate_enum_with_args(
+        &mut self,
+        name: &str,
+        type_args: &[Type],
+    ) -> Option<EnumInfo> {
+        let entry = self.types.get(name)?;
+        let TypeEntryKind::Enum { variants } = &entry.kind else {
+            return None;
+        };
+
+        let type_params = entry.type_params.clone();
+        let template_ty = entry.ty.clone();
+        let template_variants = variants.clone();
+
+        let mapping: HashMap<TypeVarId, Type> = type_params
+            .iter()
+            .zip(type_args.iter())
+            .map(|(&var, arg)| (var, arg.clone()))
+            .collect();
+
+        let ty = substitute_type(&template_ty, &mapping);
+        let variants = Self::substitute_variants(&template_variants, &mapping);
+
+        Some(EnumInfo { ty, variants })
+    }
+
+    /// Apply a type variable substitution to enum variant info.
+    fn substitute_variants(
+        variants: &[EnumVariantInfo],
+        mapping: &HashMap<TypeVarId, Type>,
+    ) -> Vec<EnumVariantInfo> {
+        variants
+            .iter()
+            .map(|v| EnumVariantInfo {
+                name: v.name.clone(),
+                kind: match &v.kind {
+                    EnumVariantInfoKind::Unit => EnumVariantInfoKind::Unit,
+                    EnumVariantInfoKind::Tuple(types) => EnumVariantInfoKind::Tuple(
+                        types
+                            .iter()
+                            .map(|t| substitute_type(t, mapping))
+                            .collect(),
+                    ),
+                    EnumVariantInfoKind::Struct(fields) => EnumVariantInfoKind::Struct(
+                        fields
+                            .iter()
+                            .map(|f| StructFieldInfo {
+                                name: f.name.clone(),
+                                ty: substitute_type(&f.ty, mapping),
+                                span: f.span,
+                            })
+                            .collect(),
+                    ),
                 },
-                name.span.unwrap_or_else(dummy_span),
-            )
-        })
+            })
+            .collect()
     }
 
     fn bind_pattern_identifier(
@@ -2225,7 +2407,7 @@ impl Inferencer {
                     .map(|c| c.is_lowercase())
                     .unwrap_or(false);
 
-                let info = self.types.enum_info(&enum_name.name).ok_or_else(|| {
+                let info = self.instantiate_enum_info(&enum_name.name).ok_or_else(|| {
                     if is_likely_namespace {
                         TypeError::new(
                             TypeErrorKind::UnknownImportPackage {
@@ -2932,13 +3114,47 @@ impl Inferencer {
 
     fn type_from_annotation(&mut self, annotation: &TypeAnnotation) -> Result<Type, TypeError> {
         if !annotation.generics.is_empty() {
-            return Err(TypeError::new(
-                TypeErrorKind::UnsupportedTypeFeature {
-                    description: "generic type parameters are not supported yet".to_string(),
-                },
-                annotation.name.span.unwrap_or_else(dummy_span),
-            )
-            .with_help("remove `<...>` until generics are implemented"));
+            let name = &annotation.name.name;
+
+            // Check if this type exists and has type_params
+            let (has_params, param_count) = match self.types.get(name) {
+                Some(entry) => (!entry.type_params.is_empty(), entry.type_params.len()),
+                None => (false, 0),
+            };
+
+            if !has_params {
+                return Err(TypeError::new(
+                    TypeErrorKind::UnsupportedTypeFeature {
+                        description: "generic type parameters are not supported yet".to_string(),
+                    },
+                    annotation.name.span.unwrap_or_else(dummy_span),
+                )
+                .with_help("remove `<...>` until generics are implemented"));
+            }
+
+            // Check arity
+            if annotation.generics.len() != param_count {
+                return Err(TypeError::new(
+                    TypeErrorKind::WrongGenericArity {
+                        type_name: name.clone(),
+                        expected: param_count,
+                        found: annotation.generics.len(),
+                    },
+                    annotation.name.span.unwrap_or_else(dummy_span),
+                ));
+            }
+
+            // Resolve each generic arg
+            let type_args: Vec<Type> = annotation
+                .generics
+                .iter()
+                .map(|g| self.type_from_annotation(g))
+                .collect::<Result<_, _>>()?;
+
+            let info = self
+                .instantiate_enum_with_args(name, &type_args)
+                .unwrap();
+            return Ok(info.ty);
         }
 
         match annotation.name.name.as_str() {
@@ -2947,8 +3163,30 @@ impl Inferencer {
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
             other => {
-                if let Some(entry) = self.types.get(other) {
-                    Ok(entry.ty.clone())
+                // Extract type_params info before potentially calling mutable methods
+                let (has_params, ty_clone) = match self.types.get(other) {
+                    Some(entry) => (
+                        !entry.type_params.is_empty(),
+                        Some(entry.ty.clone()),
+                    ),
+                    None => (false, None),
+                };
+
+                if let Some(ty) = ty_clone {
+                    if has_params {
+                        // Generic type used without args — require explicit args
+                        let param_count = self.types.get(other).unwrap().type_params.len();
+                        return Err(TypeError::new(
+                            TypeErrorKind::WrongGenericArity {
+                                type_name: other.to_string(),
+                                expected: param_count,
+                                found: 0,
+                            },
+                            annotation.name.span.unwrap_or_else(dummy_span),
+                        ));
+                    } else {
+                        Ok(ty)
+                    }
                 } else {
                     Err(TypeError::new(
                         TypeErrorKind::UnknownTypeAnnotation {
@@ -3307,10 +3545,14 @@ impl Inferencer {
     }
 
     /// Allocate a new inference variable unique to this inferencer.
-    fn fresh_var(&mut self) -> Type {
-        let id = TypeVarId(self.next_type_var);
+    fn fresh_var_id(&mut self) -> TypeVarId {
+        let var = TypeVarId(self.next_type_var);
         self.next_type_var += 1;
-        Type::Var(id)
+        var
+    }
+
+    fn fresh_var(&mut self) -> Type {
+        Type::Var(self.fresh_var_id())
     }
 
     /// Render the current environment snapshot into a deterministic string.
@@ -3513,11 +3755,41 @@ impl Inferencer {
                 }
                 Ok((Type::Record(ls), children, "Unify-Record"))
             }
-            (Type::Enum(ls), Type::Enum(rs))
+            (Type::Enum(mut ls), Type::Enum(mut rs))
                 if ls.name == rs.name && ls.variants.len() == rs.variants.len() =>
             {
-                // Simplified: just check structural compatibility
-                Ok((Type::Enum(ls), Vec::new(), "Unify-Enum"))
+                ls.variants.sort_by(|a, b| a.name.cmp(&b.name));
+                rs.variants.sort_by(|a, b| a.name.cmp(&b.name));
+                let mut children = Vec::new();
+                for (lv, rv) in ls.variants.iter().zip(rs.variants.iter()) {
+                    if lv.name != rv.name {
+                        return Err(());
+                    }
+                    match (&lv.kind, &rv.kind) {
+                        (TypeEnumVariantKind::Unit, TypeEnumVariantKind::Unit) => {}
+                        (TypeEnumVariantKind::Tuple(lt), TypeEnumVariantKind::Tuple(rt))
+                            if lt.len() == rt.len() =>
+                        {
+                            for (l, r) in lt.iter().zip(rt.iter()) {
+                                let (_, c, _) = self.unify_inner(l.clone(), r.clone())?;
+                                children.extend(c);
+                            }
+                        }
+                        (TypeEnumVariantKind::Struct(lf), TypeEnumVariantKind::Struct(rf))
+                            if lf.len() == rf.len() =>
+                        {
+                            for (l, r) in lf.iter().zip(rf.iter()) {
+                                if l.name != r.name {
+                                    return Err(());
+                                }
+                                let (_, c, _) = self.unify_inner(l.ty.clone(), r.ty.clone())?;
+                                children.extend(c);
+                            }
+                        }
+                        _ => return Err(()),
+                    }
+                }
+                Ok((Type::Enum(ls), children, "Unify-Enum"))
             }
             (Type::Var(id), ty) => {
                 if ty == Type::Var(id) {

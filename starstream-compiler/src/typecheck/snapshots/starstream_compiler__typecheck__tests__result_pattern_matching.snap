@@ -1,0 +1,55 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x: Result<i64, bool> = Result::Ok(42);\n    let y = match x {\n        Result::Ok(v) => {\n            v\n        },\n        Result::Err(e) => {\n            0\n        },\n    };\n}\n"
+---
+T-Fn: test => ()
+  T-Let: {} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t3}
+    Unify-Enum: Result ~ Result => {bool/t4}
+      Unify-Var: bool ~ t4 => {bool/t4}
+      Unify-Const: i64 ~ i64 => {}
+  T-Let: {x: enum Result {
+    Err(bool),
+    Ok(i64),
+}} ⊢ let y = match x {
+    Result::Ok(v) => {
+        v
+    },
+    Result::Err(e) => {
+        0
+    },
+}; ⇒ i64
+    T-Match: {x: enum Result {
+    Err(bool),
+    Ok(i64),
+}} ⊢ match x {
+    Result::Ok(v) => {
+        v
+    },
+    Result::Err(e) => {
+        0
+    },
+} ⇒ i64
+      T-Var: {x: enum Result {
+    Err(bool),
+    Ok(i64),
+}} ⊢ x ⇒ Result
+      Unify-Enum: Result ~ Result => {bool/t6, i64/t5}
+        Unify-Var: bool ~ t6 => {bool/t6}
+        Unify-Var: i64 ~ t5 => {i64/t5}
+      T-Tail: v => t5
+        T-Var: {v: t5, x: enum Result {
+    Err(bool),
+    Ok(i64),
+}} ⊢ v ⇒ t5
+      Unify-Enum: Result ~ Result => {bool/t8, i64/t7}
+        Unify-Var: bool ~ t8 => {bool/t8}
+        Unify-Var: i64 ~ t7 => {i64/t7}
+      T-Tail: 0 => i64
+        T-Int: {e: t8, x: enum Result {
+    Err(bool),
+    Ok(i64),
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64

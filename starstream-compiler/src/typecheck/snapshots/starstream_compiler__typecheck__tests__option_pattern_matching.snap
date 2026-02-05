@@ -1,0 +1,50 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x = Option::Some(42);\n    let y = match x {\n        Option::Some(v) => {\n            v\n        },\n        Option::None => {\n            0\n        },\n    };\n}\n"
+---
+T-Fn: test => ()
+  T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t3}
+  T-Let: {x: enum Option {
+    Some(i64),
+    None,
+}} ⊢ let y = match x {
+    Option::Some(v) => {
+        v
+    },
+    Option::None => {
+        0
+    },
+}; ⇒ i64
+    T-Match: {x: enum Option {
+    Some(i64),
+    None,
+}} ⊢ match x {
+    Option::Some(v) => {
+        v
+    },
+    Option::None => {
+        0
+    },
+} ⇒ i64
+      T-Var: {x: enum Option {
+    Some(i64),
+    None,
+}} ⊢ x ⇒ Option
+      Unify-Enum: Option ~ Option => {i64/t4}
+        Unify-Var: i64 ~ t4 => {i64/t4}
+      T-Tail: v => t4
+        T-Var: {v: t4, x: enum Option {
+    Some(i64),
+    None,
+}} ⊢ v ⇒ t4
+      Unify-Enum: Option ~ Option => {i64/t5}
+        Unify-Var: i64 ~ t5 => {i64/t5}
+      T-Tail: 0 => i64
+        T-Int: {x: enum Option {
+    Some(i64),
+    None,
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64

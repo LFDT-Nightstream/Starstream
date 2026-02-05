@@ -542,6 +542,49 @@ impl Compiler {
                 ComponentAbiType::Record { fields }
             }
             Type::Enum(enum_variant_types) => {
+                // Detect builtin Option type
+                if enum_variant_types.name == "Option"
+                    && enum_variant_types.variants.len() == 2
+                    && enum_variant_types.variants.iter().any(|v| v.name == "Some")
+                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
+                {
+                    if let Some(some_variant) = enum_variant_types.variants.iter().find(|v| v.name == "Some") {
+                        if let EnumVariantKind::Tuple(fields) = &some_variant.kind {
+                            if let Some(inner) = self.star_to_component_type(&fields[0]) {
+                                return Some(Rc::new(ComponentAbiType::Option { inner }));
+                            }
+                        }
+                    }
+                }
+
+                // Detect builtin Result type
+                if enum_variant_types.name == "Result"
+                    && enum_variant_types.variants.len() == 2
+                    && enum_variant_types.variants.iter().any(|v| v.name == "Ok")
+                    && enum_variant_types.variants.iter().any(|v| v.name == "Err")
+                {
+                    let ok_variant = enum_variant_types.variants.iter().find(|v| v.name == "Ok");
+                    let err_variant = enum_variant_types.variants.iter().find(|v| v.name == "Err");
+                    if let (Some(ok_v), Some(err_v)) = (ok_variant, err_variant) {
+                        let ok = match &ok_v.kind {
+                            EnumVariantKind::Tuple(fields) => {
+                                Some(self.star_to_component_type(&fields[0])?)
+                            }
+                            EnumVariantKind::Unit => None,
+                            _ => None,
+                        };
+                        let err = match &err_v.kind {
+                            EnumVariantKind::Tuple(fields) => {
+                                Some(self.star_to_component_type(&fields[0])?)
+                            }
+                            EnumVariantKind::Unit => None,
+                            _ => None,
+                        };
+                        return Some(Rc::new(ComponentAbiType::Result { ok, err }));
+                    }
+                }
+
+                // Generic variant conversion
                 let cases = enum_variant_types
                     .variants
                     .iter()
