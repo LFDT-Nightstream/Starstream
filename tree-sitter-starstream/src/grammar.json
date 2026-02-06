@@ -256,7 +256,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "function"
+          "name": "_function"
         }
       ]
     },
@@ -269,7 +269,7 @@
         }
       ]
     },
-    "function": {
+    "_function": {
       "type": "SEQ",
       "members": [
         {
@@ -763,7 +763,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "function"
+          "name": "_function"
         }
       ]
     },

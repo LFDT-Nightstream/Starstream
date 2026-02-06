@@ -63,11 +63,11 @@ module.exports = grammar({
         optional(seq("/", field("interface", $.identifier))),
       ),
 
-    function_definition: ($) => seq(optional($.function_export), $.function),
+    function_definition: ($) => seq(optional($.function_export), $._function),
 
     function_export: ($) => choice("script"),
 
-    function: ($) =>
+    _function: ($) =>
       seq(
         "fn",
         $.identifier,
@@ -136,7 +136,7 @@ module.exports = grammar({
     utxo_global: ($) =>
       seq("let", "mut", $.identifier, ":", $.type_annotation, ";"),
 
-    main_fn_utxo_part: ($) => seq("main", $.function),
+    main_fn_utxo_part: ($) => seq("main", $._function),
 
     abi_definition: ($) =>
       seq("abi", $.identifier, "{", repeat($._abi_part), "}"),

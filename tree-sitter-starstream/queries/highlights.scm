@@ -59,7 +59,8 @@
 ] @operator
 
 ; Actual syntax forms
-(function (identifier) @function.definition)
+(function_definition (identifier) @function.definition)
+(main_fn_utxo_part (identifier) @function.definition)
 (function_export "script" @keyword)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
