@@ -113,7 +113,15 @@ pub enum InterleavingError {
     #[error("utxo-only op used by coord (pid={0})")]
     UtxoOnly(ProcessId),
 
-    #[error("uninstall handler not top: interface={interface_id:?} pid={pid}")]
+    #[error(
+        "uninstall handler: only the installing process can uninstall itself (top != current): interface={interface_id:?} pid={pid}"
+    )]
+    InstalledHandlerIsNotCurrent {
+        interface_id: InterfaceId,
+        pid: ProcessId,
+    },
+
+    #[error("uninstall handler not found: interface={interface_id:?} pid={pid}")]
     HandlerNotFound {
         interface_id: InterfaceId,
         pid: ProcessId,
@@ -646,6 +654,18 @@ pub fn state_transition(
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
             let stack = state.handler_stack.entry(interface_id.clone()).or_default();
+            let Some(top) = stack.last().copied() else {
+                return Err(InterleavingError::HandlerNotFound {
+                    interface_id,
+                    pid: id_curr,
+                });
+            };
+            if top != id_curr {
+                return Err(InterleavingError::InstalledHandlerIsNotCurrent {
+                    interface_id,
+                    pid: id_curr,
+                });
+            }
             let Some(_) = stack.pop() else {
                 return Err(InterleavingError::HandlerNotFound {
                     interface_id,
