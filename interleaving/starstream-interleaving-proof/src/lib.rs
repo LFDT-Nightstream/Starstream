@@ -110,8 +110,7 @@ pub fn prove(
 
     let mut session = FoldingSession::new(FoldingMode::Optimized, params, committer);
 
-    // TODO: not sound, but not important right now
-    session.set_step_linking(StepLinkingConfig::new(vec![(0, 0)]));
+    session.set_step_linking(StepLinkingConfig::new(neo::ivc_step_linking_pairs()));
 
     let (constraints, shout, twist) = mb.split();
 

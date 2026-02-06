@@ -74,6 +74,16 @@ impl StepCircuitNeo {
     }
 }
 
+pub(crate) fn ivc_step_linking_pairs() -> Vec<(usize, usize)> {
+    // Per-step instance vector is [1, inputs..., outputs...].
+    // Enforce prev outputs == next inputs.
+    let input_base = BASE_INSTANCE_COLS;
+    let output_base = BASE_INSTANCE_COLS + IvcWireLayout::FIELD_COUNT;
+    (0..IvcWireLayout::FIELD_COUNT)
+        .map(|i| (output_base + i, input_base + i))
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct CircuitLayout {}
 
@@ -227,7 +237,7 @@ impl NeoCircuit for StepCircuitNeo {
             let out_instance_col = output_base + field_offset;
 
             // This means step_linking in the IVC setup should link pairs:
-            //   (i, i + IvcWireLayout::FIELD_COUNT)
+            //   (output_base + i, input_base + i)
 
             cs.r1cs_terms(
                 vec![(in_instance_col, one), (first_chunk_in_col, minus_one)],
