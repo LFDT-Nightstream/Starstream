@@ -305,6 +305,8 @@ pub enum TypeErrorKind {
     RuntimeWithoutKeyword {
         function_name: String,
     },
+    /// A function was declared with a return type in a position where it shouldn't have one.
+    ReturnTypeNotAllowed,
 }
 
 impl TypeErrorKind {
@@ -352,6 +354,7 @@ impl TypeErrorKind {
             TypeErrorKind::EffectfulWithoutRaise { .. } => "E0039",
             TypeErrorKind::RuntimeRequiresRuntime => "E0040",
             TypeErrorKind::RuntimeWithoutKeyword { .. } => "E0041",
+            TypeErrorKind::ReturnTypeNotAllowed { .. } => "E0042",
         }
     }
 }
@@ -662,6 +665,9 @@ impl fmt::Display for TypeErrorKind {
                     f,
                     "runtime function `{function_name}` must be called with `runtime`"
                 )
+            }
+            TypeErrorKind::ReturnTypeNotAllowed => {
+                write!(f, "return type not allowed on this function")
             }
         }
     }

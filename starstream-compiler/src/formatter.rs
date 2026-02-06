@@ -228,6 +228,7 @@ fn function_to_doc<'a>(
 fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDoc<'a, ()> {
     match export {
         FunctionExport::Script => RcDoc::text("script"),
+        FunctionExport::UtxoMain => RcDoc::text("main"),
     }
 }
 
@@ -426,7 +427,7 @@ fn params_to_doc<'a>(params: &[FunctionParam], source: &'a str) -> RcDoc<'a, ()>
 fn utxo_definition_to_doc<'a>(
     definition: &UtxoDef,
     source: &'a str,
-    _comments: &CommentMap,
+    comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
     RcDoc::text("utxo")
         .append(RcDoc::space())
@@ -436,7 +437,10 @@ fn utxo_definition_to_doc<'a>(
         .append(
             RcDoc::line()
                 .append(RcDoc::intersperse(
-                    definition.parts.iter().map(|x| utxo_part_to_doc(x, source)),
+                    definition
+                        .parts
+                        .iter()
+                        .map(|x| utxo_part_to_doc(x, source, comments)),
                     RcDoc::line(),
                 ))
                 .nest(INDENT),
@@ -445,7 +449,7 @@ fn utxo_definition_to_doc<'a>(
         .append("}")
 }
 
-fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str) -> RcDoc<'a, ()> {
+fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
     match part {
         UtxoPart::Storage(vars) => RcDoc::text("storage")
             .append(RcDoc::space())
@@ -460,6 +464,7 @@ fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str) -> RcDoc<'a, ()> {
             )
             .append(RcDoc::line())
             .append("}"),
+        UtxoPart::MainFn(function) => function_to_doc(function, source, comments),
     }
 }
 

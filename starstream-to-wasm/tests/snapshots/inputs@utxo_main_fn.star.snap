@@ -1,0 +1,220 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_main_fn.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "FooAbi",
+                        span: Some(
+                            4..10,
+                        ),
+                    },
+                    parts: [
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "HelloEvent",
+                                    span: Some(
+                                        23..33,
+                                    ),
+                                },
+                                params: [],
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..40,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: Some(
+                            45..51,
+                        ),
+                    },
+                    parts: [
+                        MainFn(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "hello_utxo",
+                                    span: Some(
+                                        66..76,
+                                    ),
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Emit {
+                                                        event: Identifier {
+                                                            name: "HelloEvent",
+                                                            span: Some(
+                                                                94..104,
+                                                            ),
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 89..106,
+                                                },
+                                            ),
+                                            span: 89..112,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 79..114,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 40..116,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Utxo: MyUtxo => 
+  T-Fn: hello_utxo => ()
+    T-Expr: {} ⊢ emit HelloEvent(); ⇒ ()
+      T-Emit: {} ⊢ emit HelloEvent() ⇒ ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "FooAbi",
+                    span: Some(
+                        4..10,
+                    ),
+                },
+                parts: [
+                    Event(
+                        TypedEventDef {
+                            name: Identifier {
+                                name: "HelloEvent",
+                                span: Some(
+                                    23..33,
+                                ),
+                            },
+                            params: [],
+                        },
+                    ),
+                ],
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: Some(
+                        45..51,
+                    ),
+                },
+                parts: [
+                    MainFn(
+                        TypedFunctionDef {
+                            export: Some(
+                                UtxoMain,
+                            ),
+                            name: Identifier {
+                                name: "hello_utxo",
+                                span: Some(
+                                    66..76,
+                                ),
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Emit {
+                                                    event: Identifier {
+                                                        name: "HelloEvent",
+                                                        span: Some(
+                                                            94..104,
+                                                        ),
+                                                    },
+                                                    args: [],
+                                                },
+                                            },
+                                            span: 89..106,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                ],
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func))
+  (import "foo-abi" "hello-event" (func (;0;) (type 0)))
+  (export "hello-utxo" (func 0))
+  (func (;1;) (type 0)
+    (call 0)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (func))
+              (export (;0;) "hello-utxo" (func (type 0)))
+              (type (;1;)
+                (instance
+                  (type (;0;) (func))
+                  (export (;0;) "hello-event" (func (type 0)))
+                )
+              )
+              (import "foo-abi" (instance (;0;) (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import foo-abi: interface {
+    hello-event: func();
+  }
+
+  export hello-utxo: func();
+}

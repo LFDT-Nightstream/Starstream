@@ -752,6 +752,33 @@
     }
   },
   {
+    "type": "main_fn_utxo_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "match_arm",
     "named": true,
     "fields": {},
@@ -1096,6 +1123,10 @@
           "named": true
         },
         {
+          "type": "main_fn_utxo_part",
+          "named": true
+        },
+        {
           "type": "storage_utxo_part",
           "named": true
         }
@@ -1319,6 +1350,10 @@
   },
   {
     "type": "let",
+    "named": false
+  },
+  {
+    "type": "main",
     "named": false
   },
   {

@@ -261,6 +261,7 @@ Program {
 }
 
 ==== Inference trace ====
+T-Utxo: MyUtxo => 
 
 T-Fn: increment => i64
   T-Assign: {counter: i64, multiplier: i64} ⊢ counter = counter + 1; ⇒ i64

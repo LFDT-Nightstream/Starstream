@@ -922,6 +922,9 @@ impl Compiler {
             Some(FunctionExport::Script) => {
                 self.export_component_fn(function, idx, &params, &results);
             }
+            Some(FunctionExport::UtxoMain) => {
+                self.export_component_fn(function, idx, &params, &results);
+            }
             None => {}
         }
     }
@@ -954,6 +957,9 @@ impl Compiler {
                             ty: var.ty.clone(),
                         });
                     }
+                }
+                TypedUtxoPart::MainFn(function) => {
+                    self.visit_function(function);
                 }
             }
         }
