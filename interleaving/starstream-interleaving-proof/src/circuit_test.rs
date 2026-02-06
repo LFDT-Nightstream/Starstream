@@ -86,7 +86,7 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::Yield {
             val: ref_1.clone(),          // Yielding nothing
             ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
-            id_prev: Some(p2).into(),
+            caller: Some(p2).into(),
         },
     ];
 
@@ -108,7 +108,7 @@ fn test_circuit_many_steps() {
         WitLedgerEffect::Yield {
             val: ref_1.clone(),          // Yielding nothing
             ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
-            id_prev: Some(p2).into(),
+            caller: Some(p2).into(),
         },
     ];
 
@@ -142,7 +142,7 @@ fn test_circuit_many_steps() {
             target: p1,
             val: ref_0.clone(),
             ret: ref_1.clone().into(),
-            id_prev: WitEffectOutput::Resolved(None),
+            caller: WitEffectOutput::Resolved(None),
         },
         WitLedgerEffect::InstallHandler {
             interface_id: h(100),
@@ -151,7 +151,7 @@ fn test_circuit_many_steps() {
             target: p0,
             val: ref_0,
             ret: ref_1.into(),
-            id_prev: Some(p0).into(),
+            caller: Some(p0).into(),
         },
         WitLedgerEffect::UninstallHandler {
             interface_id: h(100),
@@ -202,7 +202,7 @@ fn test_circuit_small() {
     let utxo_trace = vec![WitLedgerEffect::Yield {
         val: ref_0.clone(),          // Yielding nothing
         ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
-        id_prev: Some(p1).into(),    // This should be None actually?
+        caller: Some(p1).into(),     // This should be None actually?
     }];
 
     let coord_trace = vec![
@@ -220,7 +220,7 @@ fn test_circuit_small() {
             target: p0,
             val: ref_0.clone(),
             ret: ref_0.clone().into(),
-            id_prev: WitEffectOutput::Resolved(None.into()),
+            caller: WitEffectOutput::Resolved(None.into()),
         },
     ];
 
@@ -271,7 +271,7 @@ fn test_circuit_resumer_mismatch() {
     let utxo_trace = vec![WitLedgerEffect::Yield {
         val: ref_0.clone(),
         ret: WitEffectOutput::Thunk,
-        id_prev: Some(p1).into(),
+        caller: Some(p1).into(),
     }];
 
     let coord_a_trace = vec![
@@ -294,13 +294,13 @@ fn test_circuit_resumer_mismatch() {
             target: p0,
             val: ref_0.clone(),
             ret: ref_0.clone().into(),
-            id_prev: WitEffectOutput::Resolved(None),
+            caller: WitEffectOutput::Resolved(None),
         },
         WitLedgerEffect::Resume {
             target: p2,
             val: ref_0.clone(),
             ret: ref_0.clone().into(),
-            id_prev: WitEffectOutput::Resolved(None),
+            caller: WitEffectOutput::Resolved(None),
         },
     ];
 
@@ -308,7 +308,7 @@ fn test_circuit_resumer_mismatch() {
         target: p0,
         val: ref_0,
         ret: ref_0.into(),
-        id_prev: WitEffectOutput::Resolved(None),
+        caller: WitEffectOutput::Resolved(None),
     }];
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
@@ -476,14 +476,14 @@ fn test_yield_parent_resumer_mismatch_trace() {
     let utxo_trace = vec![WitLedgerEffect::Yield {
         val: ref_1.clone(),
         ret: WitEffectOutput::Thunk,
-        id_prev: Some(p1).into(),
+        caller: Some(p1).into(),
     }];
 
     let coord_a_trace = vec![WitLedgerEffect::Resume {
         target: p0,
         val: ref_0.clone(),
         ret: ref_1.into(),
-        id_prev: Some(p2).into(),
+        caller: Some(p2).into(),
     }];
 
     let coord_b_trace = vec![];

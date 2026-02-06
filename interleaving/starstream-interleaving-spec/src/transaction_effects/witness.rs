@@ -49,14 +49,14 @@ pub enum WitLedgerEffect {
         val: Ref,
         // out
         ret: WitEffectOutput<Ref>,
-        id_prev: WitEffectOutput<Option<ProcessId>>,
+        caller: WitEffectOutput<Option<ProcessId>>,
     },
     Yield {
         // in
         val: Ref,
         // out
         ret: WitEffectOutput<Ref>,
-        id_prev: WitEffectOutput<Option<ProcessId>>,
+        caller: WitEffectOutput<Option<ProcessId>>,
     },
     ProgramHash {
         // in

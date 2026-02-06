@@ -164,6 +164,8 @@ fn make_interleaved_trace(
     let mut id_curr = inst.entrypoint.0;
     let mut id_prev: Option<usize> = None;
     let mut counters: HashMap<usize, usize> = HashMap::new();
+    let mut on_yield = vec![true; inst.process_table.len()];
+    let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
 
     let expected_len: usize = wit.traces.iter().map(|t| t.len()).sum();
 
@@ -186,11 +188,18 @@ fn make_interleaved_trace(
 
         match instr {
             starstream_interleaving_spec::WitLedgerEffect::Resume { target, .. } => {
+                if on_yield[target.0] {
+                    yield_to[target.0] = Some(id_curr);
+                    on_yield[target.0] = false;
+                }
                 id_prev = Some(id_curr);
                 id_curr = target.0;
             }
             starstream_interleaving_spec::WitLedgerEffect::Yield { .. } => {
-                let parent = id_prev.expect("Yield called without a parent process");
+                on_yield[id_curr] = true;
+                let Some(parent) = yield_to[id_curr] else {
+                    break;
+                };
                 let old_id_curr = id_curr;
                 id_curr = parent;
                 id_prev = Some(old_id_curr);

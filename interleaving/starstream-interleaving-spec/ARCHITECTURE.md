@@ -42,6 +42,11 @@ coordination script could be a different one. Also because we have algebraic
 effect handlers, control flow may go to a coordination script that was deeper in
 the call stack.
 
+To model this, each process keeps a `yield_to` pointer and an `on_yield` flag.
+When a process yields, it sets `on_yield = true`. The next resumer records
+`yield_to[process] = resumer` and clears `on_yield`. A yield then returns control
+to `yield_to[process]`, not necessarily to the most recent resumer in the trace.
+
 As mentioned before, programs are modelled as WASM programs, both in the case
 of coordination scripts and in the case of utxos. Inter-program communication is
 expressed as WASM host (imported) function calls. To verify execution, we use a

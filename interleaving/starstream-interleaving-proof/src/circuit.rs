@@ -242,8 +242,8 @@ impl Wires {
         let curr_read_wires =
             program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
 
-        let id_prev_value = id_prev.decode_or_zero()?;
-        let target_address = switches.yield_op.select(&id_prev_value, &target)?;
+        let yield_to_value = curr_read_wires.yield_to.decode_or_zero()?;
+        let target_address = switches.yield_op.select(&yield_to_value, &target)?;
         let target_read_wires =
             program_state_read_wires(rm, &cs, target_address.clone(), &target_mem_switches)?;
 
@@ -472,6 +472,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.activation = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.on_yield = true;
+                config.mem_switches_target.yield_to = true;
                 config.mem_switches_target.finalized = true;
                 config.mem_switches_target.initialized = true;
 
@@ -484,6 +486,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.activation = true;
                 config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.expected_resumer = true;
+                config.mem_switches_curr.on_yield = true;
+                config.mem_switches_curr.yield_to = true;
                 config.mem_switches_curr.finalized = true;
 
                 config.mem_switches_target.expected_input = true;
@@ -514,6 +518,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.counters = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.on_yield = true;
+                config.mem_switches_target.yield_to = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
@@ -527,6 +533,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.counters = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.on_yield = true;
+                config.mem_switches_target.yield_to = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
@@ -618,6 +626,7 @@ impl LedgerOperation<crate::F> {
     // new state for each one too.
     pub fn program_state_transitions(
         &self,
+        curr_id: F,
         curr_read: ProgramState,
         target_read: ProgramState,
     ) -> (ProgramState, ProgramState) {
@@ -633,25 +642,31 @@ impl LedgerOperation<crate::F> {
                 curr_write.counters -= F::ONE; // revert counter increment
             }
             LedgerOperation::Resume {
-                val, ret, id_prev, ..
+                val, ret, caller, ..
             } => {
                 // Current process gives control to target.
                 // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
                 curr_write.activation = F::ZERO; // Represents None
                 curr_write.expected_input = OptionalF::new(*ret);
-                curr_write.expected_resumer = *id_prev;
+                curr_write.expected_resumer = *caller;
 
                 // Target process receives control.
                 // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
                 target_write.activation = *val;
                 target_write.finalized = false;
+
+                // If target was in a yield state, record who resumed it and clear the flag.
+                if target_read.on_yield {
+                    target_write.yield_to = OptionalF::new(curr_id);
+                }
+                target_write.on_yield = false;
             }
             LedgerOperation::Yield {
                 // The yielded value `val` is checked against the parent's `expected_input`,
                 // but this doesn't change the parent's state itself.
                 val: _,
                 ret,
-                id_prev,
+                caller,
                 ..
             } => {
                 // Current process yields control back to its parent (the target of this operation).
@@ -666,7 +681,8 @@ impl LedgerOperation<crate::F> {
                     curr_write.expected_input = OptionalF::none();
                     curr_write.finalized = true;
                 }
-                curr_write.expected_resumer = *id_prev;
+                curr_write.expected_resumer = *caller;
+                curr_write.on_yield = true;
             }
             LedgerOperation::Burn { ret } => {
                 // The current UTXO is burned.
@@ -684,6 +700,8 @@ impl LedgerOperation<crate::F> {
                 target_write.counters = F::ZERO;
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
+                target_write.on_yield = true;
+                target_write.yield_to = OptionalF::none();
             }
             LedgerOperation::Bind { owner_id } => {
                 curr_write.ownership = OptionalF::new(*owner_id);
@@ -864,6 +882,22 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
+                        tag: MemoryTag::OnYield.into(),
+                    },
+                    vec![F::ONE], // true
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: MemoryTag::YieldTo.into(),
+                    },
+                    vec![OptionalF::none().encoded()],
+                );
+
+                mb.init(
+                    Address {
+                        addr: pid as u64,
                         tag: MemoryTag::Activation.into(),
                     },
                     vec![F::from(0u64)], // None
@@ -1000,18 +1034,19 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 instr,
             );
 
+            let curr_read =
+                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
+            let curr_yield_to = curr_read.yield_to;
+
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
-                LedgerOperation::Yield { .. } => irw.id_prev.to_option(),
+                LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
                 LedgerOperation::ProgramHash { target, .. } => Some(*target),
                 _ => None,
             };
-
-            let curr_read =
-                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
 
             let target_pid = target_addr.map(|t| t.into_bigint().0[0]);
             let target_read =
@@ -1046,7 +1081,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             );
 
             let (curr_write, target_write) =
-                instr.program_state_transitions(curr_read, target_read);
+                instr.program_state_transitions(irw.id_curr, curr_read, target_read);
 
             self.write_ops
                 .push((curr_write.clone(), target_write.clone()));
@@ -1065,7 +1100,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     irw.id_prev = OptionalF::new(irw.id_curr);
                     irw.id_curr = *target;
                 }
-                LedgerOperation::Yield { .. } | LedgerOperation::Burn { .. } => {
+                LedgerOperation::Yield { .. } => {
+                    let old_curr = irw.id_curr;
+                    irw.id_curr = curr_yield_to.decode_or_zero();
+                    irw.id_prev = OptionalF::new(old_curr);
+                }
+                LedgerOperation::Burn { .. } => {
                     let old_curr = irw.id_curr;
                     irw.id_curr = irw.id_prev.decode_or_zero();
                     irw.id_prev = OptionalF::new(old_curr);
@@ -1294,12 +1334,32 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .expected_resumer
             .conditional_enforce_eq_if_some(switch, &wires.id_curr)?;
 
-        // 7. Store expected resumer for the current process.
+        // 7. If target was in yield state, record yield_to; otherwise keep it unchanged.
+        let target_on_yield = wires.target_read_wires.on_yield.clone();
+        let new_yield_to = OptionalFpVar::select_encoded(
+            &(switch & target_on_yield.clone()),
+            &OptionalFpVar::from_pid(&wires.id_curr),
+            &wires.target_read_wires.yield_to,
+        )?;
+
+        wires
+            .target_write_wires
+            .yield_to
+            .encoded()
+            .conditional_enforce_equal(&new_yield_to.encoded(), switch)?;
+
+        // After a resume, the target is no longer in yield state.
+        wires
+            .target_write_wires
+            .on_yield
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
+        // 8. Store expected resumer for the current process.
         wires
             .curr_write_wires
             .expected_resumer
             .encoded()
-            .conditional_enforce_equal(&wires.arg(ArgName::IdPrev), switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
         // ---
         // IVC state updates
@@ -1377,24 +1437,42 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_yield(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.yield_op;
+        let yield_to = wires.curr_read_wires.yield_to.clone();
+        let yield_to_is_some = yield_to.is_some()?;
 
-        // 1. Must have a parent.
-        wires
-            .id_prev_is_some()?
-            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        // 1. Must have a target to yield to.
+        yield_to_is_some.conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // 2. Claim check: yielded value `val` must match parent's `expected_input`.
-        // The parent's state is in `target_read_wires` because we set `target = irw.id_prev`.
+        // The parent's state is in `target_read_wires` because we set `target = yield_to`.
         wires
             .target_read_wires
             .expected_input
-            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Val))?;
+            .conditional_enforce_eq_if_some(
+                &(switch & &yield_to_is_some),
+                &wires.arg(ArgName::Val),
+            )?;
 
         // 3. Resumer check: parent must expect the current process (if set).
         wires
             .target_read_wires
             .expected_resumer
-            .conditional_enforce_eq_if_some(switch, &wires.id_curr)?;
+            .conditional_enforce_eq_if_some(&(switch & &yield_to_is_some), &wires.id_curr)?;
+
+        // Target state should be preserved on yield.
+        wires
+            .target_write_wires
+            .expected_input
+            .encoded()
+            .conditional_enforce_equal(&wires.target_read_wires.expected_input.encoded(), switch)?;
+        wires
+            .target_write_wires
+            .expected_resumer
+            .encoded()
+            .conditional_enforce_equal(
+                &wires.target_read_wires.expected_resumer.encoded(),
+                switch,
+            )?;
 
         // ---
         // State update enforcement
@@ -1423,17 +1501,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .curr_write_wires
             .expected_resumer
             .encoded()
-            .conditional_enforce_equal(&wires.arg(ArgName::IdPrev), switch)?;
+            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
+
+        // Mark the current process as in-yield and preserve yield_to.
+        wires
+            .curr_write_wires
+            .on_yield
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        wires
+            .curr_write_wires
+            .yield_to
+            .encoded()
+            .conditional_enforce_equal(&wires.curr_read_wires.yield_to.encoded(), switch)?;
 
         // ---
         // IVC state updates
         // ---
-        // On yield, the current program becomes the parent (old id_prev),
+        // On yield, the current program becomes the parent (yield_to),
         // and the new prev program is the one that just yielded.
-        let prev_value = wires.id_prev_value()?;
-        let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
+        let yield_to_value = yield_to.decode_or_zero()?;
+        let next_id_curr = (switch & &yield_to_is_some).select(&yield_to_value, &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
-            switch,
+            &(switch & yield_to_is_some),
             &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.id_prev,
         )?;
@@ -1788,6 +1877,8 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Ram,
         "RAM_EXPECTED_RESUMER",
     );
+    mb.register_mem(MemoryTag::OnYield.into(), 1, MemType::Ram, "RAM_ON_YIELD");
+    mb.register_mem(MemoryTag::YieldTo.into(), 1, MemType::Ram, "RAM_YIELD_TO");
     mb.register_mem(
         MemoryTag::Activation.into(),
         1,

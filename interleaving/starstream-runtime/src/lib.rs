@@ -6,6 +6,7 @@ use starstream_interleaving_spec::{
     Value, WasmModule, WitEffectOutput, WitLedgerEffect, builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use wasmi::{
     Caller, Config, Engine, Linker, Memory, Store, TypedResumableCall, TypedResumableCallHostTrap,
     Val, errors::HostError,
@@ -89,7 +90,6 @@ pub struct UnprovenTransaction {
 pub struct RuntimeState {
     pub traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
     pub current_process: ProcessId,
-    pub prev_id: Option<ProcessId>,
     pub memories: HashMap<ProcessId, Memory>,
 
     pub handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
@@ -105,7 +105,8 @@ pub struct RuntimeState {
     pub process_hashes: HashMap<ProcessId, Hash<WasmModule>>,
     pub is_utxo: HashMap<ProcessId, bool>,
     pub allocated_processes: HashSet<ProcessId>,
-    pub call_stack: Vec<ProcessId>,
+    pub parent_of: HashMap<ProcessId, ProcessId>,
+    pub on_yield: HashMap<ProcessId, bool>,
 
     pub must_burn: HashSet<ProcessId>,
     pub n_new: usize,
@@ -127,7 +128,6 @@ impl Runtime {
         let state = RuntimeState {
             traces: HashMap::new(),
             current_process: ProcessId(0),
-            prev_id: None,
             memories: HashMap::new(),
             handler_stack: HashMap::new(),
             ref_store: HashMap::new(),
@@ -140,7 +140,8 @@ impl Runtime {
             process_hashes: HashMap::new(),
             is_utxo: HashMap::new(),
             allocated_processes: HashSet::new(),
-            call_stack: Vec::new(),
+            parent_of: HashMap::new(),
+            on_yield: HashMap::new(),
             must_burn: HashSet::new(),
             n_new: 0,
             n_coord: 1,
@@ -160,12 +161,22 @@ impl Runtime {
                     let target = ProcessId(target as usize);
                     let val = Ref(val);
                     let ret = WitEffectOutput::Thunk;
-                    let id_prev = caller.data().prev_id;
 
                     caller
                         .data_mut()
                         .pending_activation
                         .insert(target, (val, current_pid));
+
+                    let was_on_yield = caller
+                        .data()
+                        .on_yield
+                        .get(&target)
+                        .copied()
+                        .unwrap_or(true);
+                    if was_on_yield {
+                        caller.data_mut().parent_of.insert(target, current_pid);
+                        caller.data_mut().on_yield.insert(target, false);
+                    }
 
                     suspend_with_effect(
                         &mut caller,
@@ -173,7 +184,7 @@ impl Runtime {
                             target,
                             val,
                             ret,
-                            id_prev: WitEffectOutput::Resolved(id_prev),
+                            caller: WitEffectOutput::Thunk,
                         },
                     )
                 },
@@ -187,13 +198,15 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>,
                  val: u64|
                  -> Result<(u64, u64), wasmi::Error> {
-                    let id_prev = caller.data().prev_id;
+                    let current_pid = caller.data().current_process;
+                    let parent = caller.data().parent_of.get(&current_pid).copied();
+                    caller.data_mut().on_yield.insert(current_pid, true);
                     suspend_with_effect(
                         &mut caller,
                         WitLedgerEffect::Yield {
                             val: Ref(val),
                             ret: WitEffectOutput::Thunk,
-                            id_prev: WitEffectOutput::Resolved(id_prev),
+                            caller: WitEffectOutput::Resolved(parent),
                         },
                     )
                 },
@@ -870,7 +883,6 @@ impl UnprovenTransaction {
             .allocated_processes
             .insert(current_pid);
 
-        let mut prev_id = None;
         runtime.store.data_mut().current_process = current_pid;
 
         // Initial argument? 0?
@@ -878,7 +890,6 @@ impl UnprovenTransaction {
 
         loop {
             runtime.store.data_mut().current_process = current_pid;
-            runtime.store.data_mut().prev_id = prev_id;
 
             let result = if let Some(continuation) = resumables.remove(&current_pid) {
                 let n_results = {
@@ -892,17 +903,14 @@ impl UnprovenTransaction {
                 if let Some(trace) = traces.get_mut(&current_pid) {
                     if let Some(last) = trace.last_mut() {
                         match last {
-                            WitLedgerEffect::Resume { ret, id_prev, .. } => {
+                            WitLedgerEffect::Resume { ret, caller, .. } => {
                                 *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                                *id_prev = WitEffectOutput::Resolved(Some(ProcessId(
+                                *caller = WitEffectOutput::Resolved(Some(ProcessId(
                                     next_args[1] as usize,
                                 )));
                             }
-                            WitLedgerEffect::Yield { ret, id_prev, .. } => {
+                            WitLedgerEffect::Yield { ret, .. } => {
                                 *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                                *id_prev = WitEffectOutput::Resolved(Some(ProcessId(
-                                    next_args[1] as usize,
-                                )));
                             }
                             _ => {}
                         }
@@ -946,30 +954,26 @@ impl UnprovenTransaction {
 
                     match last_effect {
                         WitLedgerEffect::Resume { target, val, .. } => {
-                            runtime.store.data_mut().call_stack.push(current_pid);
-                            prev_id = Some(current_pid);
                             next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = target;
                         }
                         WitLedgerEffect::Yield { val, .. } => {
-                            let caller = runtime
+                            let caller = *runtime
                                 .store
-                                .data_mut()
-                                .call_stack
-                                .pop()
-                                .expect("yield on empty stack");
-                            prev_id = Some(current_pid);
+                                .data()
+                                .parent_of
+                                .get(&current_pid)
+                                .expect("yield on missing parent");
                             next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = caller;
                         }
                         WitLedgerEffect::Burn { .. } => {
-                            let caller = runtime
+                            let caller = *runtime
                                 .store
-                                .data_mut()
-                                .call_stack
-                                .pop()
-                                .expect("burn on empty stack");
-                            prev_id = Some(current_pid);
+                                .data()
+                                .parent_of
+                                .get(&current_pid)
+                                .expect("burn on missing parent");
                             next_args = [0; 5];
                             current_pid = caller;
                         }

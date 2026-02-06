@@ -18,14 +18,14 @@ pub enum LedgerOperation<F: PrimeField> {
         target: F,
         val: F,
         ret: F,
-        id_prev: OptionalF<F>,
+        caller: OptionalF<F>,
     },
     /// Called by utxo to yield.
     ///
     Yield {
         val: F,
         ret: Option<F>,
-        id_prev: OptionalF<F>,
+        caller: OptionalF<F>,
     },
     ProgramHash {
         target: F,
