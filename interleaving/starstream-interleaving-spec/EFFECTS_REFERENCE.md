@@ -29,25 +29,27 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, counters, safe_to_ledger, is_utxo, initialized, handler_stack, ownership, is_burned)
+σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, counters, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn)
 
 Where:
   id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
-  id_prev          : ID of the VM that called the current one (return address).
+  id_prev          : ID of the VM that executed immediately before the current one (trace-local).
   expected_input   : A map {ProcessID -> Ref}
   expected_resumer : A map {ProcessID -> ProcessID}
+  on_yield         : A map {ProcessID -> Bool} (true if the process most recently yielded)
+  yield_to         : A map {ProcessID -> Option<ProcessID>} (who to return to on yield)
   activation       : A map {ProcessID -> Option<(Ref, ProcessID)>}
   init             : A map {ProcessID -> Option<(Value, ProcessID)>}
   ref_store        : A map {Ref -> Value}
   process_table    : Read-only map {ID -> ProgramHash} for attestation.
   host_calls       : A map {ProcessID -> Host-calls lookup table}
   counters         : A map {ProcessID -> Counter}
-  safe_to_ledger   : A map {ProcessID -> Bool}
+  finalized        : A map {ProcessID -> Bool} (true if the process ends the transaction with a final yield)
   is_utxo          : Read-only map {ProcessID -> Bool}
   initialized      : A map {ProcessID -> Bool}
   handler_stack    : A map {InterfaceID -> Stack<ProcessID>}
   ownership        : A map {ProcessID -> Option<ProcessID>} (token -> owner)
-  is_burned        : A map {ProcessID -> Bool}
+  did_burn         : A map {ProcessID -> Bool}
 ```
 
 Note that the maps are used here for convenience of notation. In practice they
@@ -86,10 +88,14 @@ The primary control flow operation. Transfers control to `target`. It records a
 Since we are also resuming a currently suspended process, we can only do it if
 our value matches its claim.
 
+When a process yields, it sets `on_yield = true`. The next resumer records
+`yield_to[target] = id_curr` and clears `on_yield`. Subsequent resumes do not
+change `yield_to` unless the process yields again.
+
 ```text
 Rule: Resume
 ============
-    op = Resume(target, val_ref) -> (ret_ref, id_prev)
+    op = Resume(target, val_ref) -> (ret_ref, caller)
 
     1. id_curr ≠ target
 
@@ -107,7 +113,7 @@ Rule: Resume
     4. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Resume, target, val_ref, ret_ref, id_prev>
+            t[c] == <Resume, target, val_ref, ret_ref, caller>
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 
@@ -119,13 +125,15 @@ Rule: Resume
 
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
-    1. expected_input[id_curr]  <- ret_ref   (Claim, needs to be checked later by future resumer)
-    2. expected_resumer[id_curr] <- id_prev  (Claim, needs to be checked later by future resumer)
-    3. counters'[id_curr]       += 1         (Keep track of host call index per process)
-    4. id_prev'                 <- id_curr   (Save "caller" for yield)
-    5. id_curr'                 <- target    (Switch)
-    6. safe_to_ledger'[target]  <- False     (This is not the final yield for this utxo in this transaction)
-    7. activation'[target]      <- Some(val_ref, id_curr)
+    1. expected_input[id_curr]   <- ret_ref   (Claim, needs to be checked later by future resumer)
+    2. expected_resumer[id_curr] <- caller   (Claim, needs to be checked later by future resumer)
+    3. counters'[id_curr]        += 1         (Keep track of host call index per process)
+    4. id_prev'                  <- id_curr   (Trace-local previous id)
+    5. id_curr'                  <- target    (Switch)
+    6. if on_yield[target] then
+           yield_to'[target]     <- Some(id_curr)
+           on_yield'[target]     <- False
+    7. activation'[target]       <- Some(val_ref, id_curr)
 ```
 
 ## Activation
@@ -169,37 +177,40 @@ This also marks the utxo as **safe** to persist in the ledger.
 
 If the utxo is not iterated again in the transaction, the return value is null
 for this execution (next transaction will have to execute `yield` again, but
-with an actual result). In that case, id_prev would be null (or some sentinel).
+with an actual result).
 
 ```text
 Rule: Yield (resumed)
 ============
-    op = Yield(val_ref) -> (ret_ref, id_prev)
+    op = Yield(val_ref) -> (ret_ref, caller)
 
-    1. let val = ref_store[val_ref] in
-       if expected_input[id_prev] is set, it must equal val
+    1. yield_to[id_curr] is set
+
+    2. let val = ref_store[val_ref] in
+       if expected_input[yield_to[id_curr]] is set, it must equal val
 
     (Check val matches target's previous claim)
 
-    2. if expected_resumer[id_prev] is set, it must equal id_curr
+    3. if expected_resumer[yield_to[id_curr]] is set, it must equal id_curr
 
     (Check that the current process matches the expected resumer for the parent)
 
-    3. let
+    4. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Yield, val_ref, ret_ref, id_prev>
+            t[c] == <Yield, val_ref, ret_ref, caller>
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
 
     1. expected_input[id_curr]   <- ret_ref       (Claim, needs to be checked later by future resumer)
-    2. expected_resumer[id_curr] <- id_prev      (Claim, needs to be checked later by future resumer)
+    2. expected_resumer[id_curr] <- caller      (Claim, needs to be checked later by future resumer)
     3. counters'[id_curr]        += 1         (Keep track of host call index per process)
-    4. id_curr'                  <- id_prev   (Switch to parent)
-    5. id_prev'                  <- id_curr   (Save "caller")
-    6. safe_to_ledger'[id_curr]  <- False     (This is not the final yield for this utxo in this transaction)
-    7. activation'[id_curr]      <- None
+    4. on_yield'[id_curr]        <- True      (The next resumer sets yield_to)
+    5. id_curr'                  <- yield_to[id_curr]   (Switch to parent)
+    6. id_prev'                  <- id_curr   (Trace-local previous id)
+    7. finalized'[id_curr]       <- False
+    8. activation'[id_curr]      <- None
 ```
 
 ```text
@@ -207,21 +218,24 @@ Rule: Yield (end transaction)
 =============================
     op = Yield(val_ref)
 
-    3. let
+    1. yield_to[id_curr] is set
+
+    2. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Yield, val_ref, null, id_prev>
+            t[c] == <Yield, val_ref, null, caller>
 
     (Remember, there is no ret value since that won't be known until the next transaction)
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
-    1. expected_resumer[id_curr] <- id_prev (Claim, needs to be checked later by future resumer)
+    1. expected_resumer[id_curr] <- caller (Claim, needs to be checked later by future resumer)
     2. counters'[id_curr]        += 1        (Keep track of host call index per process)
-    3. id_curr'                  <- id_prev  (Switch to parent)
-    4. id_prev'                  <- id_curr  (Save "caller")
-    5. safe_to_ledger'[id_curr]  <- True     (This utxo creates a transacition output)
-    6. activation'[id_curr]      <- None
+    3. on_yield'[id_curr]        <- True     (The next resumer sets yield_to)
+    4. id_curr'                  <- yield_to[id_curr]  (Switch to parent)
+    5. id_prev'                  <- id_curr  (Trace-local previous id)
+    6. finalized'[id_curr]       <- True     (This utxo creates a transaction output)
+    7. activation'[id_curr]      <- None
 ```
 
 ## Program Hash
@@ -428,7 +442,7 @@ Destroys the UTXO state.
 
     1. is_utxo[id_curr]
     2. is_initialized[id_curr]
-    3. is_burned[id_curr]
+    3. did_burn[id_curr]
 
     4. if expected_input[id_prev] is set, it must equal ret
 
@@ -441,7 +455,7 @@ Destroys the UTXO state.
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. safe_to_ledger'[id_curr] <- True
+    1. finalized'[id_curr]      <- True
     2. id_curr'                 <- id_prev
 
     (Control flow goes to caller)
@@ -453,6 +467,7 @@ Destroys the UTXO state.
     4. counters'[id_curr]       += 1
 
     5. activation'[id_curr]     <- None
+    6. did_burn'[id_curr]       <- True
 ```
 
 # 6. Tokens
@@ -624,7 +639,7 @@ for (process, proof, host_calls) in transaction.proofs:
 
     // all the utxos either did `yield` at the end, or called `burn`
     if is_utxo[process] {
-        assert(safe_to_ledger[process])
+        assert(finalized[process] || did_burn[process])
     }
 
 assert_not(is_utxo[id_curr])

@@ -27,6 +27,8 @@ pub enum MemoryTag {
     HandlerStackHeads = 17,
     TraceCommitments = 18,
     ExpectedResumer = 19,
+    OnYield = 20,
+    YieldTo = 21,
 }
 
 impl From<MemoryTag> for u64 {
@@ -51,6 +53,8 @@ impl MemoryTag {
 pub enum ProgramStateTag {
     ExpectedInput,
     ExpectedResumer,
+    OnYield,
+    YieldTo,
     Activation,
     Init,
     Counters,
@@ -65,6 +69,8 @@ impl From<ProgramStateTag> for MemoryTag {
         match tag {
             ProgramStateTag::ExpectedInput => MemoryTag::ExpectedInput,
             ProgramStateTag::ExpectedResumer => MemoryTag::ExpectedResumer,
+            ProgramStateTag::OnYield => MemoryTag::OnYield,
+            ProgramStateTag::YieldTo => MemoryTag::YieldTo,
             ProgramStateTag::Activation => MemoryTag::Activation,
             ProgramStateTag::Init => MemoryTag::Init,
             ProgramStateTag::Counters => MemoryTag::Counters,

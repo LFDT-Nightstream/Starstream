@@ -26,14 +26,14 @@ pub enum ArgName {
     Target,
     Val,
     Ret,
-    IdPrev,
+    Caller,
     Offset,
     Size,
     ProgramHash0,
     ProgramHash1,
     ProgramHash2,
     ProgramHash3,
-    Caller,
+    ActivationCaller,
     OwnerId,
     TokenId,
     InterfaceId,
@@ -55,7 +55,7 @@ impl ArgName {
             ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
             ArgName::Val | ArgName::InterfaceId => 1,
             ArgName::Ret => 2,
-            ArgName::IdPrev | ArgName::Offset | ArgName::Size | ArgName::Caller => 3,
+            ArgName::Caller | ArgName::Offset | ArgName::Size | ArgName::ActivationCaller => 3,
             ArgName::ProgramHash0 => 3,
             ArgName::ProgramHash1 => 4,
             ArgName::ProgramHash2 => 5,
@@ -78,20 +78,20 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             target,
             val,
             ret,
-            id_prev,
+            caller,
         } => LedgerOperation::Resume {
             target: F::from(target.0 as u64),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
-            id_prev: OptionalF::from_option(
-                id_prev.to_option().flatten().map(|p| F::from(p.0 as u64)),
+            caller: OptionalF::from_option(
+                caller.to_option().flatten().map(|p| F::from(p.0 as u64)),
             ),
         },
-        WitLedgerEffect::Yield { val, ret, id_prev } => LedgerOperation::Yield {
+        WitLedgerEffect::Yield { val, ret, caller } => LedgerOperation::Yield {
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)),
-            id_prev: OptionalF::from_option(
-                id_prev.to_option().flatten().map(|p| F::from(p.0 as u64)),
+            caller: OptionalF::from_option(
+                caller.to_option().flatten().map(|p| F::from(p.0 as u64)),
             ),
         },
         WitLedgerEffect::Burn { ret } => LedgerOperation::Burn {
@@ -204,17 +204,17 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             target,
             val,
             ret,
-            id_prev,
+            caller,
         } => {
             args[ArgName::Target.idx()] = *target;
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
-            args[ArgName::IdPrev.idx()] = id_prev.encoded();
+            args[ArgName::Caller.idx()] = caller.encoded();
         }
-        LedgerOperation::Yield { val, ret, id_prev } => {
+        LedgerOperation::Yield { val, ret, caller } => {
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = ret.unwrap_or_default();
-            args[ArgName::IdPrev.idx()] = id_prev.encoded();
+            args[ArgName::Caller.idx()] = caller.encoded();
         }
         LedgerOperation::Burn { ret } => {
             args[ArgName::Target.idx()] = F::zero();
@@ -249,11 +249,11 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         }
         LedgerOperation::Activation { val, caller } => {
             args[ArgName::Val.idx()] = *val;
-            args[ArgName::Caller.idx()] = *caller;
+            args[ArgName::ActivationCaller.idx()] = *caller;
         }
         LedgerOperation::Init { val, caller } => {
             args[ArgName::Val.idx()] = *val;
-            args[ArgName::Caller.idx()] = *caller;
+            args[ArgName::ActivationCaller.idx()] = *caller;
         }
         LedgerOperation::Bind { owner_id } => {
             args[ArgName::OwnerId.idx()] = *owner_id;

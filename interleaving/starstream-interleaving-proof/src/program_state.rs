@@ -15,6 +15,8 @@ use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 pub struct ProgramState {
     pub expected_input: OptionalF<F>,
     pub expected_resumer: OptionalF<F>,
+    pub on_yield: bool,
+    pub yield_to: OptionalF<F>,
     pub activation: F,
     pub init: F,
     pub counters: F,
@@ -29,6 +31,8 @@ pub struct ProgramState {
 pub struct ProgramStateWires {
     pub expected_input: OptionalFpVar<F>,
     pub expected_resumer: OptionalFpVar<F>,
+    pub on_yield: Boolean<F>,
+    pub yield_to: OptionalFpVar<F>,
     pub activation: FpVar<F>,
     pub init: FpVar<F>,
     pub counters: FpVar<F>,
@@ -41,6 +45,8 @@ pub struct ProgramStateWires {
 struct RawProgramState<V> {
     expected_input: V,
     expected_resumer: V,
+    on_yield: V,
+    yield_to: V,
     activation: V,
     init: V,
     counters: V,
@@ -58,6 +64,8 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     let expected_input = dsl.read(&switches.expected_input, MemoryTag::ExpectedInput, addr)?;
     let expected_resumer =
         dsl.read(&switches.expected_resumer, MemoryTag::ExpectedResumer, addr)?;
+    let on_yield = dsl.read(&switches.on_yield, MemoryTag::OnYield, addr)?;
+    let yield_to = dsl.read(&switches.yield_to, MemoryTag::YieldTo, addr)?;
     let (activation, init) = coroutine_args_ops(dsl, &switches.activation, &switches.init, addr)?;
     let counters = dsl.read(&switches.counters, MemoryTag::Counters, addr)?;
     let initialized = dsl.read(&switches.initialized, MemoryTag::Initialized, addr)?;
@@ -68,6 +76,8 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     Ok(RawProgramState {
         expected_input,
         expected_resumer,
+        on_yield,
+        yield_to,
         activation,
         init,
         counters,
@@ -95,6 +105,18 @@ fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
         MemoryTag::ExpectedResumer,
         addr,
         &state.expected_resumer,
+    )?;
+    dsl.write(
+        &switches.on_yield,
+        MemoryTag::OnYield,
+        addr,
+        &state.on_yield,
+    )?;
+    dsl.write(
+        &switches.yield_to,
+        MemoryTag::YieldTo,
+        addr,
+        &state.yield_to,
     )?;
     dsl.write(
         &switches.activation,
@@ -140,6 +162,8 @@ fn raw_from_state(state: &ProgramState) -> RawProgramState<F> {
     RawProgramState {
         expected_input: state.expected_input.encoded(),
         expected_resumer: state.expected_resumer.encoded(),
+        on_yield: F::from(state.on_yield),
+        yield_to: state.yield_to.encoded(),
         activation: state.activation,
         init: state.init,
         counters: state.counters,
@@ -154,6 +178,8 @@ fn raw_from_wires(state: &ProgramStateWires) -> RawProgramState<FpVar<F>> {
     RawProgramState {
         expected_input: state.expected_input.encoded(),
         expected_resumer: state.expected_resumer.encoded(),
+        on_yield: state.on_yield.clone().into(),
+        yield_to: state.yield_to.encoded(),
         activation: state.activation.clone(),
         init: state.init.clone(),
         counters: state.counters.clone(),
@@ -175,6 +201,10 @@ impl ProgramStateWires {
             })?),
             expected_resumer: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
                 Ok(write_values.expected_resumer.encoded())
+            })?),
+            on_yield: Boolean::new_witness(cs.clone(), || Ok(write_values.on_yield))?,
+            yield_to: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(write_values.yield_to.encoded())
             })?),
             activation: FpVar::new_witness(cs.clone(), || Ok(write_values.activation))?,
             init: FpVar::new_witness(cs.clone(), || Ok(write_values.init))?,
@@ -229,6 +259,8 @@ pub fn trace_program_state_reads<M: IVCMemory<F>>(
     ProgramState {
         expected_input: OptionalF::from_encoded(raw.expected_input),
         expected_resumer: OptionalF::from_encoded(raw.expected_resumer),
+        on_yield: raw.on_yield == F::ONE,
+        yield_to: OptionalF::from_encoded(raw.yield_to),
         activation: raw.activation,
         init: raw.init,
         counters: raw.counters,
@@ -251,6 +283,8 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
     Ok(ProgramStateWires {
         expected_input: OptionalFpVar::new(raw.expected_input),
         expected_resumer: OptionalFpVar::new(raw.expected_resumer),
+        on_yield: raw.on_yield.is_one()?,
+        yield_to: OptionalFpVar::new(raw.yield_to),
         activation: raw.activation,
         init: raw.init,
         counters: raw.counters,
@@ -267,6 +301,8 @@ impl ProgramState {
             finalized: false,
             expected_input: OptionalF::none(),
             expected_resumer: OptionalF::none(),
+            on_yield: false,
+            yield_to: OptionalF::none(),
             activation: F::ZERO,
             init: F::ZERO,
             counters: F::ZERO,
@@ -279,6 +315,8 @@ impl ProgramState {
     pub fn debug_print(&self) {
         tracing::debug!("expected_input={}", self.expected_input.encoded());
         tracing::debug!("expected_resumer={}", self.expected_resumer.encoded());
+        tracing::debug!("on_yield={}", self.on_yield);
+        tracing::debug!("yield_to={}", self.yield_to.encoded());
         tracing::debug!("activation={}", self.activation);
         tracing::debug!("init={}", self.init);
         tracing::debug!("counters={}", self.counters);

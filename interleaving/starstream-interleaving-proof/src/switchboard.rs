@@ -23,6 +23,8 @@ pub struct RomSwitchboardWires {
 pub struct MemSwitchboard<B> {
     pub expected_input: B,
     pub expected_resumer: B,
+    pub on_yield: B,
+    pub yield_to: B,
     pub activation: B,
     pub init: B,
     pub counters: B,
@@ -79,6 +81,8 @@ impl MemSwitchboardWires {
         Ok(Self {
             expected_input: Boolean::new_witness(cs.clone(), || Ok(switches.expected_input))?,
             expected_resumer: Boolean::new_witness(cs.clone(), || Ok(switches.expected_resumer))?,
+            on_yield: Boolean::new_witness(cs.clone(), || Ok(switches.on_yield))?,
+            yield_to: Boolean::new_witness(cs.clone(), || Ok(switches.yield_to))?,
             activation: Boolean::new_witness(cs.clone(), || Ok(switches.activation))?,
             init: Boolean::new_witness(cs.clone(), || Ok(switches.init))?,
             counters: Boolean::new_witness(cs.clone(), || Ok(switches.counters))?,

@@ -232,6 +232,8 @@ pub struct InterleavingState {
     /// Claims memory: M[pid] = expected argument to next Resume into pid.
     expected_input: Vec<Option<Ref>>,
     expected_resumer: Vec<Option<ProcessId>>,
+    on_yield: Vec<bool>,
+    yield_to: Vec<Option<ProcessId>>,
 
     activation: Vec<Option<(Ref, ProcessId)>>,
     init: Vec<Option<(Ref, ProcessId)>>,
@@ -287,6 +289,8 @@ pub fn verify_interleaving_semantics(
         id_prev: None,
         expected_input: claims_memory,
         expected_resumer: vec![None; n],
+        on_yield: vec![true; n],
+        yield_to: vec![None; n],
         activation: vec![None; n],
         init: vec![None; n],
         counters: vec![0; n],
@@ -448,7 +452,7 @@ pub fn state_transition(
             target,
             val,
             ret,
-            id_prev,
+            caller,
         } => {
             if id_curr == target {
                 return Err(InterleavingError::SelfResume(id_curr));
@@ -494,7 +498,12 @@ pub fn state_transition(
             state.activation[target.0] = Some((val, id_curr));
 
             state.expected_input[id_curr.0] = ret.to_option();
-            state.expected_resumer[id_curr.0] = id_prev.to_option().flatten();
+            state.expected_resumer[id_curr.0] = caller.to_option().flatten();
+
+            if state.on_yield[target.0] {
+                state.yield_to[target.0] = Some(id_curr);
+                state.on_yield[target.0] = false;
+            }
 
             state.id_prev = Some(id_curr);
 
@@ -503,9 +512,11 @@ pub fn state_transition(
             state.finalized[target.0] = false;
         }
 
-        WitLedgerEffect::Yield { val, ret, id_prev } => {
+        WitLedgerEffect::Yield { val, ret, caller } => {
             let parent = state
-                .id_prev
+                .yield_to
+                .get(id_curr.0)
+                .and_then(|p| *p)
                 .ok_or(InterleavingError::YieldWithNoParent { pid: id_curr })?;
 
             let val = state
@@ -548,7 +559,8 @@ pub fn state_transition(
                 }
             }
 
-            state.expected_resumer[id_curr.0] = id_prev.to_option().flatten();
+            state.expected_resumer[id_curr.0] = caller.to_option().flatten();
+            state.on_yield[id_curr.0] = true;
             state.id_prev = Some(id_curr);
             state.activation[id_curr.0] = None;
             state.id_curr = parent;
@@ -600,6 +612,8 @@ pub fn state_transition(
             state.init[id.0] = Some((val.clone(), id_curr));
             state.expected_input[id.0] = None;
             state.expected_resumer[id.0] = None;
+            state.on_yield[id.0] = true;
+            state.yield_to[id.0] = None;
         }
 
         WitLedgerEffect::NewCoord {
@@ -636,6 +650,8 @@ pub fn state_transition(
             state.init[id.0] = Some((val.clone(), id_curr));
             state.expected_input[id.0] = None;
             state.expected_resumer[id.0] = None;
+            state.on_yield[id.0] = true;
+            state.yield_to[id.0] = None;
         }
 
         WitLedgerEffect::InstallHandler { interface_id } => {

@@ -148,7 +148,7 @@ fn test_transaction_with_coord_and_utxos() {
         WitLedgerEffect::Yield {
             val: continued_1_ref,
             ret: None.into(),
-            id_prev: Some(ProcessId(4)).into(),
+            caller: Some(ProcessId(4)).into(),
         },
     ];
 
@@ -175,7 +175,7 @@ fn test_transaction_with_coord_and_utxos() {
         WitLedgerEffect::Yield {
             val: done_a_ref,
             ret: None.into(),
-            id_prev: Some(ProcessId(4)).into(),
+            caller: Some(ProcessId(4)).into(),
         },
     ];
 
@@ -191,7 +191,7 @@ fn test_transaction_with_coord_and_utxos() {
         WitLedgerEffect::Yield {
             val: done_b_ref,
             ret: None.into(),
-            id_prev: Some(ProcessId(4)).into(),
+            caller: Some(ProcessId(4)).into(),
         },
     ];
 
@@ -238,7 +238,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(0),
             val: spend_input_1_ref,
             ret: continued_1_ref.into(),
-            id_prev: Some(ProcessId(0)).into(),
+            caller: Some(ProcessId(0)).into(),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -258,7 +258,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(1),
             val: spend_input_2_ref,
             ret: burned_2_ref.into(),
-            id_prev: Some(ProcessId(1)).into(),
+            caller: Some(ProcessId(1)).into(),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -271,7 +271,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(2),
             val: init_a_ref,
             ret: done_a_ref.into(),
-            id_prev: Some(ProcessId(2)).into(),
+            caller: Some(ProcessId(2)).into(),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -284,7 +284,7 @@ fn test_transaction_with_coord_and_utxos() {
             target: ProcessId(3),
             val: init_b_ref,
             ret: done_b_ref.into(),
-            id_prev: Some(ProcessId(3)).into(),
+            caller: Some(ProcessId(3)).into(),
         },
     ];
 
@@ -361,12 +361,12 @@ fn test_effect_handlers() {
             target: ProcessId(1),
             val: ref_gen.get("effect_request"),
             ret: ref_gen.get("effect_request_response").into(),
-            id_prev: Some(ProcessId(1)).into(),
+            caller: Some(ProcessId(1)).into(),
         },
         WitLedgerEffect::Yield {
             val: ref_gen.get("utxo_final"),
             ret: None.into(),
-            id_prev: Some(ProcessId(1)).into(),
+            caller: Some(ProcessId(1)).into(),
         },
     ];
 
@@ -390,7 +390,7 @@ fn test_effect_handlers() {
             target: ProcessId(0),
             val: ref_gen.get("init_utxo"),
             ret: ref_gen.get("effect_request").into(),
-            id_prev: WitEffectOutput::Resolved(None),
+            caller: WitEffectOutput::Resolved(None),
         },
         WitLedgerEffect::NewRef {
             size: 1,
@@ -410,7 +410,7 @@ fn test_effect_handlers() {
             target: ProcessId(0),
             val: ref_gen.get("effect_request_response"),
             ret: ref_gen.get("utxo_final").into(),
-            id_prev: Some(ProcessId(0)).into(),
+            caller: Some(ProcessId(0)).into(),
         },
         WitLedgerEffect::UninstallHandler { interface_id },
     ];
@@ -492,7 +492,7 @@ fn test_utxo_resumes_utxo_fails() {
                     target: ProcessId(1),
                     val: Ref(0),
                     ret: Ref(0).into(),
-                    id_prev: WitEffectOutput::Resolved(None),
+                    caller: WitEffectOutput::Resolved(None),
                 },
             ],
         )
@@ -621,7 +621,7 @@ fn test_duplicate_input_utxo_fails() {
                     target: 0.into(),
                     val: Ref(0),
                     ret: Ref(0).into(),
-                    id_prev: WitEffectOutput::Resolved(None),
+                    caller: WitEffectOutput::Resolved(None),
                 },
             ],
         )
