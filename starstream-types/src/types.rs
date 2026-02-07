@@ -180,11 +180,7 @@ impl Type {
         self.to_doc(mode, &HashMap::new())
     }
 
-    fn to_doc(
-        &self,
-        mode: TypeDocMode,
-        params: &HashMap<TypeVarId, String>,
-    ) -> RcDoc<'static, ()> {
+    fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
         match self {
             Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.as_str())),
             Type::Int => RcDoc::text("i64"),
@@ -270,10 +266,7 @@ where
     RcDoc::intersperse(docs, RcDoc::text(", "))
 }
 
-fn record_doc(
-    record: &RecordType,
-    params: &HashMap<TypeVarId, String>,
-) -> RcDoc<'static, ()> {
+fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
     if record.fields.is_empty() {
         RcDoc::text("struct ").append(RcDoc::text(record.name.clone()))
     } else {
@@ -297,10 +290,7 @@ fn record_doc(
     }
 }
 
-fn enum_name_doc(
-    enum_type: &EnumType,
-    params: &HashMap<TypeVarId, String>,
-) -> RcDoc<'static, ()> {
+fn enum_name_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
     let name = RcDoc::text(enum_type.name.clone());
     if enum_type.type_args.is_empty() {
         name
