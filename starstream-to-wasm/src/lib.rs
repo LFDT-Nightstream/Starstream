@@ -646,7 +646,9 @@ impl Compiler {
                     ok = self.star_to_core_types(span, dest, &f.ty).and(ok);
                 }
             }
-            Type::Enum(EnumType { name: _, variants }) => {
+            Type::Enum(EnumType {
+                name: _, variants, ..
+            }) => {
                 // flatten_variant
                 let mut flat = Vec::new();
                 for v in variants {

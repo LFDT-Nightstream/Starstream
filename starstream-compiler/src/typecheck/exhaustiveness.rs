@@ -838,6 +838,7 @@ mod tests {
                     }
                 })
                 .collect(),
+            type_args: vec![],
         })
     }
 

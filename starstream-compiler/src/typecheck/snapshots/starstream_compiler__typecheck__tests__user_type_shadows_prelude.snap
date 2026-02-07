@@ -1,7 +1,0 @@
----
-source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nenum Option {\n    A,\n    B,\n}\n\nfn test() {\n    let x = Option::A;\n}\n"
----
-T-Fn: test => ()
-  T-Let: {} ⊢ let x = Option::A; ⇒ Option
-    T-EnumCtor: {} ⊢ Option::A ⇒ Option

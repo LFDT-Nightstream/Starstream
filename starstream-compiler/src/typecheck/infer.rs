@@ -6,8 +6,8 @@ use std::{
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, EffectKind, EventDef, Scheme, Span, Spanned, Type, TypeVarId, TypedUtxoDef,
-    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, EffectKind, EventDef, GenericTypeDef, Scheme, Span, Spanned, Type, TypeParam,
+    TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, Literal,
@@ -46,6 +46,7 @@ pub struct TypecheckOptions {
 pub struct TypecheckSuccess {
     pub program: TypedProgram,
     pub traces: Vec<InferenceTree>,
+    pub generic_types: HashMap<String, GenericTypeDef>,
 }
 
 impl TypecheckSuccess {
@@ -112,7 +113,9 @@ struct TypeEntry {
     ty: Type,
     kind: TypeEntryKind,
     span: Span,
-    type_params: Vec<TypeVarId>,
+    type_params: Vec<TypeParam>,
+    doc: Option<String>,
+    variant_docs: HashMap<String, String>,
 }
 
 enum TypeEntryKind {
@@ -195,9 +198,12 @@ pub fn typecheck_program(
         Vec::new()
     };
 
+    let generic_types = inferencer.build_generic_type_defs();
+
     Ok(TypecheckSuccess {
         program: typed_program,
         traces,
+        generic_types,
     })
 }
 
@@ -330,74 +336,123 @@ impl Inferencer {
     fn register_prelude_types(&mut self) {
         // Option<T>
         let t = self.fresh_var_id();
-        let option_type_variants = vec![
-            TypeEnumVariant::tuple("Some", vec![Type::Var(t)]),
-            TypeEnumVariant::unit("None"),
-        ];
-        let option_ty = Type::enum_type("Option", option_type_variants);
-        let option_variants = vec![
-            EnumVariantInfo {
-                name: Identifier {
-                    name: "Some".to_string(),
-                    span: None,
-                },
-                kind: EnumVariantInfoKind::Tuple(vec![Type::Var(t)]),
-            },
-            EnumVariantInfo {
-                name: Identifier {
-                    name: "None".to_string(),
-                    span: None,
-                },
-                kind: EnumVariantInfoKind::Unit,
-            },
-        ];
-        self.types.insert(
-            "Option".to_string(),
-            TypeEntry {
-                ty: option_ty,
-                kind: TypeEntryKind::Enum {
-                    variants: option_variants,
-                },
-                span: dummy_span(),
-                type_params: vec![t],
-            },
+        self.register_prelude_enum(
+            "Option",
+            vec![
+                ("Some", EnumVariantInfoKind::Tuple(vec![Type::Var(t)])),
+                ("None", EnumVariantInfoKind::Unit),
+            ],
+            vec![TypeParam {
+                id: t,
+                name: "T".into(),
+            }],
+            "A value that may or may not be present.",
+            &[("Some", "Contains a value."), ("None", "No value present.")],
         );
 
         // Result<T, E>
         let t2 = self.fresh_var_id();
         let e = self.fresh_var_id();
-        let result_type_variants = vec![
-            TypeEnumVariant::tuple("Ok", vec![Type::Var(t2)]),
-            TypeEnumVariant::tuple("Err", vec![Type::Var(e)]),
-        ];
-        let result_ty = Type::enum_type("Result", result_type_variants);
-        let result_variants = vec![
-            EnumVariantInfo {
+        self.register_prelude_enum(
+            "Result",
+            vec![
+                ("Ok", EnumVariantInfoKind::Tuple(vec![Type::Var(t2)])),
+                ("Err", EnumVariantInfoKind::Tuple(vec![Type::Var(e)])),
+            ],
+            vec![
+                TypeParam {
+                    id: t2,
+                    name: "T".into(),
+                },
+                TypeParam {
+                    id: e,
+                    name: "E".into(),
+                },
+            ],
+            "A value representing either success or failure.",
+            &[
+                ("Ok", "Contains a success value."),
+                ("Err", "Contains an error value."),
+            ],
+        );
+    }
+
+    /// Helper to register a prelude enum type, building both the `Type::Enum`
+    /// and the internal `EnumVariantInfo` from a single variant description.
+    fn register_prelude_enum(
+        &mut self,
+        name: &str,
+        variants: Vec<(&str, EnumVariantInfoKind)>,
+        type_params: Vec<TypeParam>,
+        doc: &str,
+        variant_docs: &[(&str, &str)],
+    ) {
+        let type_variants: Vec<TypeEnumVariant> = variants
+            .iter()
+            .map(|(vname, kind)| match kind {
+                EnumVariantInfoKind::Unit => TypeEnumVariant::unit(*vname),
+                EnumVariantInfoKind::Tuple(types) => TypeEnumVariant::tuple(*vname, types.clone()),
+                EnumVariantInfoKind::Struct(fields) => TypeEnumVariant::struct_variant(
+                    *vname,
+                    fields
+                        .iter()
+                        .map(|f| TypeRecordField::new(f.name.name.clone(), f.ty.clone()))
+                        .collect(),
+                ),
+            })
+            .collect();
+
+        let info_variants: Vec<EnumVariantInfo> = variants
+            .into_iter()
+            .map(|(vname, kind)| EnumVariantInfo {
                 name: Identifier {
-                    name: "Ok".to_string(),
+                    name: vname.to_string(),
                     span: None,
                 },
-                kind: EnumVariantInfoKind::Tuple(vec![Type::Var(t2)]),
-            },
-            EnumVariantInfo {
-                name: Identifier {
-                    name: "Err".to_string(),
-                    span: None,
-                },
-                kind: EnumVariantInfoKind::Tuple(vec![Type::Var(e)]),
-            },
-        ];
+                kind,
+            })
+            .collect();
+
         self.types.insert(
-            "Result".to_string(),
+            name.to_string(),
             TypeEntry {
-                ty: result_ty,
+                ty: Type::enum_type(name, type_variants),
                 kind: TypeEntryKind::Enum {
-                    variants: result_variants,
+                    variants: info_variants,
                 },
                 span: dummy_span(),
-                type_params: vec![t2, e],
+                type_params,
+                doc: Some(doc.into()),
+                variant_docs: variant_docs
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
             },
         );
+    }
+
+    fn build_generic_type_defs(&self) -> HashMap<String, GenericTypeDef> {
+        self.types
+            .entries
+            .iter()
+            .filter(|(_, entry)| !entry.type_params.is_empty() || entry.doc.is_some())
+            .map(|(name, entry)| {
+                let mut ty = entry.ty.clone();
+                // Set type_args to the type param vars so display renders them
+                if let Type::Enum(ref mut e) = ty {
+                    e.type_args = entry.type_params.iter().map(|p| Type::Var(p.id)).collect();
+                }
+                (
+                    name.clone(),
+                    GenericTypeDef {
+                        ty,
+                        type_params: entry.type_params.clone(),
+                        doc: entry.doc.clone(),
+                        variant_docs: entry.variant_docs.clone(),
+                    },
+                )
+            })
+            .collect()
     }
 
     fn register_type_definitions(
@@ -620,16 +675,11 @@ impl Inferencer {
     fn register_struct(&mut self, def: &StructDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
         if let Some(existing) = self.types.get(&name) {
-            // Allow user types to shadow prelude types
-            if !existing.type_params.is_empty() && existing.span == dummy_span() {
-                // Prelude type — allow shadowing
-            } else {
-                return Err(TypeError::new(
-                    TypeErrorKind::TypeAlreadyDefined { name },
-                    def.name.span.unwrap_or_else(dummy_span),
-                )
-                .with_secondary(existing.span, "previously defined here"));
-            }
+            return Err(TypeError::new(
+                TypeErrorKind::TypeAlreadyDefined { name },
+                def.name.span.unwrap_or_else(dummy_span),
+            )
+            .with_secondary(existing.span, "previously defined here"));
         }
 
         let mut seen = HashMap::new();
@@ -670,6 +720,8 @@ impl Inferencer {
                 kind: TypeEntryKind::Struct { fields },
                 span: def.name.span.unwrap_or_else(dummy_span),
                 type_params: vec![],
+                doc: None,
+                variant_docs: HashMap::new(),
             },
         );
         Ok(())
@@ -678,16 +730,11 @@ impl Inferencer {
     fn register_enum(&mut self, def: &EnumDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
         if let Some(existing) = self.types.get(&name) {
-            // Allow user types to shadow prelude types
-            if !existing.type_params.is_empty() && existing.span == dummy_span() {
-                // Prelude type — allow shadowing
-            } else {
-                return Err(TypeError::new(
-                    TypeErrorKind::TypeAlreadyDefined { name },
-                    def.name.span.unwrap_or_else(dummy_span),
-                )
-                .with_secondary(existing.span, "previously defined here"));
-            }
+            return Err(TypeError::new(
+                TypeErrorKind::TypeAlreadyDefined { name },
+                def.name.span.unwrap_or_else(dummy_span),
+            )
+            .with_secondary(existing.span, "previously defined here"));
         }
 
         let mut seen = HashMap::new();
@@ -782,6 +829,8 @@ impl Inferencer {
                 kind: TypeEntryKind::Enum { variants },
                 span: def.name.span.unwrap_or_else(dummy_span),
                 type_params: vec![],
+                doc: None,
+                variant_docs: HashMap::new(),
             },
         );
         Ok(())
@@ -1034,28 +1083,19 @@ impl Inferencer {
         };
 
         if entry.type_params.is_empty() {
-            // Non-generic — return directly
             return Some(EnumInfo {
                 ty: entry.ty.clone(),
                 variants: variants.clone(),
             });
         }
 
-        // Extract data we need before borrowing self mutably
+        // Extract data before borrowing self mutably for fresh_var()
         let type_params = entry.type_params.clone();
         let template_ty = entry.ty.clone();
         let template_variants = variants.clone();
 
-        // Create fresh vars and substitution map
-        let mapping: HashMap<TypeVarId, Type> = type_params
-            .iter()
-            .map(|&var| (var, self.fresh_var()))
-            .collect();
-
-        let ty = substitute_type(&template_ty, &mapping);
-        let variants = Self::substitute_variants(&template_variants, &mapping);
-
-        Some(EnumInfo { ty, variants })
+        let fresh_args: Vec<Type> = type_params.iter().map(|_| self.fresh_var()).collect();
+        Self::apply_enum_substitution(&type_params, &fresh_args, &template_ty, &template_variants)
     }
 
     /// Instantiate a generic enum with explicit type arguments.
@@ -1069,14 +1109,28 @@ impl Inferencer {
         let template_ty = entry.ty.clone();
         let template_variants = variants.clone();
 
+        Self::apply_enum_substitution(&type_params, type_args, &template_ty, &template_variants)
+    }
+
+    /// Substitute type parameters with concrete args in an enum template,
+    /// returning the instantiated `EnumInfo`.
+    fn apply_enum_substitution(
+        type_params: &[TypeParam],
+        type_args: &[Type],
+        template_ty: &Type,
+        template_variants: &[EnumVariantInfo],
+    ) -> Option<EnumInfo> {
         let mapping: HashMap<TypeVarId, Type> = type_params
             .iter()
             .zip(type_args.iter())
-            .map(|(&var, arg)| (var, arg.clone()))
+            .map(|(param, arg)| (param.id, arg.clone()))
             .collect();
 
-        let ty = substitute_type(&template_ty, &mapping);
-        let variants = Self::substitute_variants(&template_variants, &mapping);
+        let mut ty = substitute_type(template_ty, &mapping);
+        if let Type::Enum(ref mut enum_type) = ty {
+            enum_type.type_args = type_args.to_vec();
+        }
+        let variants = Self::substitute_variants(template_variants, &mapping);
 
         Some(EnumInfo { ty, variants })
     }
@@ -3152,37 +3206,23 @@ impl Inferencer {
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
-            other => {
-                // Extract type_params info before potentially calling mutable methods
-                let (has_params, ty_clone) = match self.types.get(other) {
-                    Some(entry) => (!entry.type_params.is_empty(), Some(entry.ty.clone())),
-                    None => (false, None),
-                };
-
-                if let Some(ty) = ty_clone {
-                    if has_params {
-                        // Generic type used without args — require explicit args
-                        let param_count = self.types.get(other).unwrap().type_params.len();
-                        Err(TypeError::new(
-                            TypeErrorKind::WrongGenericArity {
-                                type_name: other.to_string(),
-                                expected: param_count,
-                                found: 0,
-                            },
-                            annotation.name.span.unwrap_or_else(dummy_span),
-                        ))
-                    } else {
-                        Ok(ty)
-                    }
-                } else {
-                    Err(TypeError::new(
-                        TypeErrorKind::UnknownTypeAnnotation {
-                            name: other.to_string(),
-                        },
-                        annotation.name.span.unwrap_or_else(dummy_span),
-                    ))
-                }
-            }
+            other => match self.types.get(other) {
+                Some(entry) if !entry.type_params.is_empty() => Err(TypeError::new(
+                    TypeErrorKind::WrongGenericArity {
+                        type_name: other.to_string(),
+                        expected: entry.type_params.len(),
+                        found: 0,
+                    },
+                    annotation.name.span.unwrap_or_else(dummy_span),
+                )),
+                Some(entry) => Ok(entry.ty.clone()),
+                None => Err(TypeError::new(
+                    TypeErrorKind::UnknownTypeAnnotation {
+                        name: other.to_string(),
+                    },
+                    annotation.name.span.unwrap_or_else(dummy_span),
+                )),
+            },
         }
     }
 
@@ -3370,6 +3410,11 @@ impl Inferencer {
                             ),
                         },
                     })
+                    .collect(),
+                type_args: enum_type
+                    .type_args
+                    .iter()
+                    .map(|ty| self.apply(ty))
                     .collect(),
             }),
             Type::Int => Type::Int,
@@ -4131,6 +4176,11 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                         ),
                     },
                 })
+                .collect(),
+            type_args: enum_type
+                .type_args
+                .iter()
+                .map(|ty| substitute_type(ty, mapping))
                 .collect(),
         }),
         Type::Int => Type::Int,

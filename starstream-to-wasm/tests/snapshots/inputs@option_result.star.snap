@@ -834,18 +834,18 @@ Program {
 }
 
 ==== Inference trace ====
-T-Fn: make_some => Option
-  T-ReturnTail: Option::Some(42) => Option
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option
+T-Fn: make_some => Option<i64>
+  T-ReturnTail: Option::Some(42) => Option<t3>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
       T-Int: {} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t3}
-    Unify-Enum: Option ~ Option => {}
+    Unify-Enum: Option<i64> ~ Option<i64> => {}
       Unify-Const: i64 ~ i64 => {}
 
-T-Fn: make_none => Option
-  T-ReturnTail: Option::None => Option
-    T-EnumCtor: {} ⊢ Option::None ⇒ Option
-    Unify-Enum: Option ~ Option => {i64/t4}
+T-Fn: make_none => Option<i64>
+  T-ReturnTail: Option::None => Option<t4>
+    T-EnumCtor: {} ⊢ Option::None ⇒ Option<t4>
+    Unify-Enum: Option<t4> ~ Option<i64> => {i64/t4}
       Unify-Var: t4 ~ i64 => {i64/t4}
 
 T-Fn: unwrap_option => i64
@@ -857,7 +857,7 @@ T-Fn: unwrap_option => i64
         0
     },
 } => i64
-    T-Match: {opt: enum Option {
+    T-Match: {opt: enum Option<i64> {
     Some(i64),
     None,
 }} ⊢ match opt {
@@ -868,42 +868,42 @@ T-Fn: unwrap_option => i64
         0
     },
 } ⇒ i64
-      T-Var: {opt: enum Option {
+      T-Var: {opt: enum Option<i64> {
     Some(i64),
     None,
-}} ⊢ opt ⇒ Option
-      Unify-Enum: Option ~ Option => {i64/t5}
+}} ⊢ opt ⇒ Option<i64>
+      Unify-Enum: Option<i64> ~ Option<t5> => {i64/t5}
         Unify-Var: i64 ~ t5 => {i64/t5}
       T-Tail: v => t5
-        T-Var: {opt: enum Option {
+        T-Var: {opt: enum Option<i64> {
     Some(i64),
     None,
 }, v: t5} ⊢ v ⇒ t5
-      Unify-Enum: Option ~ Option => {i64/t6}
+      Unify-Enum: Option<i64> ~ Option<t6> => {i64/t6}
         Unify-Var: i64 ~ t6 => {i64/t6}
       T-Tail: 0 => i64
-        T-Int: {opt: enum Option {
+        T-Int: {opt: enum Option<i64> {
     Some(i64),
     None,
 }} ⊢ 0 ⇒ i64
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
-T-Fn: make_ok => Result
-  T-ReturnTail: Result::Ok(42) => Result
-    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result
+T-Fn: make_ok => Result<i64, bool>
+  T-ReturnTail: Result::Ok(42) => Result<t7, t8>
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<t7, t8>
       T-Int: {} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t7 => {i64/t7}
-    Unify-Enum: Result ~ Result => {bool/t8}
+    Unify-Enum: Result<i64, t8> ~ Result<i64, bool> => {bool/t8}
       Unify-Var: t8 ~ bool => {bool/t8}
       Unify-Const: i64 ~ i64 => {}
 
-T-Fn: make_err => Result
-  T-ReturnTail: Result::Err(false) => Result
-    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result
+T-Fn: make_err => Result<i64, bool>
+  T-ReturnTail: Result::Err(false) => Result<t9, t10>
+    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t9, t10>
       T-Bool: {} ⊢ false ⇒ bool
       Unify-Var: bool ~ t10 => {bool/t10}
-    Unify-Enum: Result ~ Result => {i64/t9}
+    Unify-Enum: Result<t9, bool> ~ Result<i64, bool> => {i64/t9}
       Unify-Const: bool ~ bool => {}
       Unify-Var: t9 ~ i64 => {i64/t9}
 
@@ -916,7 +916,7 @@ T-Fn: unwrap_result => i64
         0
     },
 } => i64
-    T-Match: {res: enum Result {
+    T-Match: {res: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }} ⊢ match res {
@@ -927,23 +927,23 @@ T-Fn: unwrap_result => i64
         0
     },
 } ⇒ i64
-      T-Var: {res: enum Result {
+      T-Var: {res: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ res ⇒ Result
-      Unify-Enum: Result ~ Result => {bool/t12, i64/t11}
+}} ⊢ res ⇒ Result<i64, bool>
+      Unify-Enum: Result<i64, bool> ~ Result<t11, t12> => {bool/t12, i64/t11}
         Unify-Var: bool ~ t12 => {bool/t12}
         Unify-Var: i64 ~ t11 => {i64/t11}
       T-Tail: v => t11
-        T-Var: {res: enum Result {
+        T-Var: {res: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }, v: t11} ⊢ v ⇒ t11
-      Unify-Enum: Result ~ Result => {bool/t14, i64/t13}
+      Unify-Enum: Result<i64, bool> ~ Result<t13, t14> => {bool/t14, i64/t13}
         Unify-Var: bool ~ t14 => {bool/t14}
         Unify-Var: i64 ~ t13 => {i64/t13}
       T-Tail: 0 => i64
-        T-Int: {e: t14, res: enum Result {
+        T-Int: {e: t14, res: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }} ⊢ 0 ⇒ i64
@@ -953,68 +953,68 @@ T-Fn: unwrap_result => i64
 
 T-Fn: run => ()
   T-Expr: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }} ⊢ unwrap_option(make_some()); ⇒ ()
     T-Call: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }} ⊢ unwrap_option(make_some()) ⇒ i64
       T-Var: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ unwrap_option ⇒ fn(Option) -> i64
+}} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
       T-Call: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ make_some() ⇒ Option
+}} ⊢ make_some() ⇒ Option<i64>
         T-Var: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ make_some ⇒ fn() -> Option
-      Unify-Enum: Option ~ Option => {}
+}} ⊢ make_some ⇒ fn() -> Option<i64>
+      Unify-Enum: Option<i64> ~ Option<i64> => {}
         Unify-Const: i64 ~ i64 => {}
   T-Expr: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }} ⊢ unwrap_result(make_ok()); ⇒ ()
     T-Call: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
 }} ⊢ unwrap_result(make_ok()) ⇒ i64
       T-Var: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ unwrap_result ⇒ fn(Result) -> i64
+}} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
       T-Call: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ make_ok() ⇒ Result
+}} ⊢ make_ok() ⇒ Result<i64, bool>
         T-Var: {x: struct Thing {
-    x: Option,
-}, y: enum Result {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
     Ok(i64),
     Err(bool),
-}} ⊢ make_ok ⇒ fn() -> Result
-      Unify-Enum: Result ~ Result => {}
+}} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
+      Unify-Enum: Result<i64, bool> ~ Result<i64, bool> => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
 
@@ -1048,6 +1048,9 @@ TypedProgram {
                                 kind: Unit,
                             },
                         ],
+                        type_args: [
+                            Int,
+                        ],
                     },
                 ),
                 effect: Pure,
@@ -1072,6 +1075,9 @@ TypedProgram {
                                                 name: "None",
                                                 kind: Unit,
                                             },
+                                        ],
+                                        type_args: [
+                                            Int,
                                         ],
                                     },
                                 ),
@@ -1138,6 +1144,9 @@ TypedProgram {
                                 kind: Unit,
                             },
                         ],
+                        type_args: [
+                            Int,
+                        ],
                     },
                 ),
                 effect: Pure,
@@ -1162,6 +1171,9 @@ TypedProgram {
                                                 name: "None",
                                                 kind: Unit,
                                             },
+                                        ],
+                                        type_args: [
+                                            Int,
                                         ],
                                     },
                                 ),
@@ -1221,6 +1233,9 @@ TypedProgram {
                                         kind: Unit,
                                     },
                                 ],
+                                type_args: [
+                                    Int,
+                                ],
                             },
                         ),
                     },
@@ -1252,6 +1267,9 @@ TypedProgram {
                                                             name: "None",
                                                             kind: Unit,
                                                         },
+                                                    ],
+                                                    type_args: [
+                                                        Int,
                                                     ],
                                                 },
                                             ),
@@ -1387,6 +1405,10 @@ TypedProgram {
                                 ),
                             },
                         ],
+                        type_args: [
+                            Int,
+                            Bool,
+                        ],
                     },
                 ),
                 effect: Pure,
@@ -1415,6 +1437,10 @@ TypedProgram {
                                                     ],
                                                 ),
                                             },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                            Bool,
                                         ],
                                     },
                                 ),
@@ -1485,6 +1511,10 @@ TypedProgram {
                                 ),
                             },
                         ],
+                        type_args: [
+                            Int,
+                            Bool,
+                        ],
                     },
                 ),
                 effect: Pure,
@@ -1513,6 +1543,10 @@ TypedProgram {
                                                     ],
                                                 ),
                                             },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                            Bool,
                                         ],
                                     },
                                 ),
@@ -1590,6 +1624,10 @@ TypedProgram {
                                         ),
                                     },
                                 ],
+                                type_args: [
+                                    Int,
+                                    Bool,
+                                ],
                             },
                         ),
                     },
@@ -1625,6 +1663,10 @@ TypedProgram {
                                                                 ],
                                                             ),
                                                         },
+                                                    ],
+                                                    type_args: [
+                                                        Int,
+                                                        Bool,
                                                     ],
                                                 },
                                             ),
@@ -1773,6 +1815,9 @@ TypedProgram {
                                         kind: Unit,
                                     },
                                 ],
+                                type_args: [
+                                    Int,
+                                ],
                             },
                         ),
                     },
@@ -1799,6 +1844,9 @@ TypedProgram {
                                                 name: "None",
                                                 kind: Unit,
                                             },
+                                        ],
+                                        type_args: [
+                                            Int,
                                         ],
                                     },
                                 ),
@@ -1850,6 +1898,9 @@ TypedProgram {
                                                         kind: Unit,
                                                     },
                                                 ],
+                                                type_args: [
+                                                    Int,
+                                                ],
                                             },
                                         ),
                                     },
@@ -1885,6 +1936,10 @@ TypedProgram {
                                         ),
                                     },
                                 ],
+                                type_args: [
+                                    Int,
+                                    Bool,
+                                ],
                             },
                         ),
                     },
@@ -1918,6 +1973,9 @@ TypedProgram {
                                                                         name: "None",
                                                                         kind: Unit,
                                                                     },
+                                                                ],
+                                                                type_args: [
+                                                                    Int,
                                                                 ],
                                                             },
                                                         ),
@@ -1956,6 +2014,9 @@ TypedProgram {
                                                                     kind: Unit,
                                                                 },
                                                             ],
+                                                            type_args: [
+                                                                Int,
+                                                            ],
                                                         },
                                                     ),
                                                     kind: Call {
@@ -1979,6 +2040,9 @@ TypedProgram {
                                                                                     name: "None",
                                                                                     kind: Unit,
                                                                                 },
+                                                                            ],
+                                                                            type_args: [
+                                                                                Int,
                                                                             ],
                                                                         },
                                                                     ),
@@ -2036,6 +2100,10 @@ TypedProgram {
                                                                         ),
                                                                     },
                                                                 ],
+                                                                type_args: [
+                                                                    Int,
+                                                                    Bool,
+                                                                ],
                                                             },
                                                         ),
                                                     ],
@@ -2077,6 +2145,10 @@ TypedProgram {
                                                                     ),
                                                                 },
                                                             ],
+                                                            type_args: [
+                                                                Int,
+                                                                Bool,
+                                                            ],
                                                         },
                                                     ),
                                                     kind: Call {
@@ -2104,6 +2176,10 @@ TypedProgram {
                                                                                         ],
                                                                                     ),
                                                                                 },
+                                                                            ],
+                                                                            type_args: [
+                                                                                Int,
+                                                                                Bool,
                                                                             ],
                                                                         },
                                                                     ),

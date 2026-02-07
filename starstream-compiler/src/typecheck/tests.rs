@@ -650,12 +650,7 @@ fn exhaustive_match_with_wildcard() {
 fn unreachable_pattern_error() {
     assert_typecheck_snapshot!(
         r#"
-        enum Option {
-            None,
-            Some(i64),
-        }
-
-        fn test(o: Option) -> i64 {
+        fn test(o: Option<i64>) -> i64 {
             match o {
                 _ => {
                     0
@@ -673,12 +668,7 @@ fn unreachable_pattern_error() {
 fn exhaustive_match_all_variants() {
     assert_typecheck_snapshot!(
         r#"
-        enum Result {
-            Ok(i64),
-            Err(i64),
-        }
-
-        fn test(r: Result) -> i64 {
+        fn test(r: Result<i64, i64>) -> i64 {
             match r {
                 Result::Ok(value) => {
                     value
@@ -1218,16 +1208,12 @@ fn option_wrong_arity() {
 }
 
 #[test]
-fn user_type_shadows_prelude() {
+fn user_type_cannot_shadow_prelude() {
     assert_typecheck_snapshot!(
         r#"
         enum Option {
             A,
             B,
-        }
-
-        fn test() {
-            let x = Option::A;
         }
         "#
     );
