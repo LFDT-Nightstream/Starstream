@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nenum Option {\n    A,\n    B,\n}\n"
+---
+E0012 (https://starstream.nightstream.dev/errors/E0012)
+
+  x type `Option` is already defined in this module
+   ,-[test.star:1:6]
+ 1 | enum Option {
+   : ^    ^^^^^^
+   : `-- previously defined here
+ 2 |     A,
+   `----

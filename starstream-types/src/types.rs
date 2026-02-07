@@ -6,6 +6,7 @@
 //! discarding the API surface introduced here.
 
 use pretty::RcDoc;
+use std::collections::HashMap;
 use std::fmt;
 
 const TYPE_FORMAT_WIDTH: usize = 80;
@@ -35,6 +36,33 @@ impl TypeVarId {
     /// Render the identifier using the conventional `t0`, `t1`, … scheme.
     pub fn as_str(&self) -> String {
         format!("t{}", self.0)
+    }
+}
+
+/// A named type parameter in a generic type definition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeParam {
+    pub id: TypeVarId,
+    pub name: String,
+}
+
+/// A generic type definition with its template type and named parameters.
+#[derive(Clone, Debug)]
+pub struct GenericTypeDef {
+    /// The generic type with Type::Var for each param
+    /// (type_args set to the param vars so display works naturally).
+    pub ty: Type,
+    pub type_params: Vec<TypeParam>,
+    pub doc: Option<String>,
+    pub variant_docs: HashMap<String, String>,
+}
+
+impl GenericTypeDef {
+    pub fn param_name_map(&self) -> HashMap<TypeVarId, String> {
+        self.type_params
+            .iter()
+            .map(|p| (p.id, p.name.clone()))
+            .collect()
     }
 }
 
@@ -94,6 +122,7 @@ impl Type {
         Type::Enum(EnumType {
             name: name.into(),
             variants,
+            type_args: vec![],
         })
     }
 
@@ -137,23 +166,39 @@ impl Type {
         render_doc(self.to_doc_mode(TypeDocMode::Compact))
     }
 
+    /// Render expanded display using named type parameters for `Type::Var`.
+    pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
+        render_doc(self.to_doc(TypeDocMode::Expanded, params))
+    }
+
+    /// Render compact display using named type parameters for `Type::Var`.
+    pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
+        render_doc(self.to_doc(TypeDocMode::Compact, params))
+    }
+
     fn to_doc_mode(&self, mode: TypeDocMode) -> RcDoc<'static, ()> {
+        self.to_doc(mode, &HashMap::new())
+    }
+
+    fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
         match self {
-            Type::Var(id) => RcDoc::text(id.as_str()),
+            Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.as_str())),
             Type::Int => RcDoc::text("i64"),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
             Type::Function {
-                params,
+                params: fn_params,
                 result,
                 effect,
             } => {
-                let params_doc = if params.is_empty() {
+                let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")
                 } else {
                     RcDoc::text("(")
                         .append(comma_separated_docs(
-                            params.iter().map(|ty| ty.to_doc_mode(TypeDocMode::Compact)),
+                            fn_params
+                                .iter()
+                                .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
                         ))
                         .append(RcDoc::text(")"))
                 };
@@ -167,20 +212,35 @@ impl Type {
                 effect_prefix
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
-                    .append(result.to_doc_mode(TypeDocMode::Compact))
+                    .append(result.to_doc(TypeDocMode::Compact, params))
             }
             Type::Tuple(items) => RcDoc::text("(")
                 .append(comma_separated_docs(
-                    items.iter().map(|ty| ty.to_doc_mode(TypeDocMode::Compact)),
+                    items
+                        .iter()
+                        .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
                 ))
                 .append(RcDoc::text(")")),
             Type::Record(record) => match mode {
                 TypeDocMode::Compact => RcDoc::text(record.name.clone()),
-                TypeDocMode::Expanded => record_doc(record),
+                TypeDocMode::Expanded => record_doc(record, params),
             },
             Type::Enum(enum_type) => match mode {
-                TypeDocMode::Compact => RcDoc::text(enum_type.name.clone()),
-                TypeDocMode::Expanded => enum_doc(enum_type),
+                TypeDocMode::Compact => {
+                    if enum_type.type_args.is_empty() {
+                        RcDoc::text(enum_type.name.clone())
+                    } else {
+                        let args = enum_type
+                            .type_args
+                            .iter()
+                            .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
+                        RcDoc::text(enum_type.name.clone())
+                            .append(RcDoc::text("<"))
+                            .append(comma_separated_docs(args))
+                            .append(RcDoc::text(">"))
+                    }
+                }
+                TypeDocMode::Expanded => enum_doc(enum_type, params),
             },
         }
     }
@@ -206,7 +266,7 @@ where
     RcDoc::intersperse(docs, RcDoc::text(", "))
 }
 
-fn record_doc(record: &RecordType) -> RcDoc<'static, ()> {
+fn record_doc(record: &RecordType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
     if record.fields.is_empty() {
         RcDoc::text("struct ").append(RcDoc::text(record.name.clone()))
     } else {
@@ -214,7 +274,7 @@ fn record_doc(record: &RecordType) -> RcDoc<'static, ()> {
             record.fields.iter().map(|field| {
                 RcDoc::text(field.name.clone())
                     .append(RcDoc::text(": "))
-                    .append(field.ty.to_doc_mode(TypeDocMode::Compact))
+                    .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
             }),
             RcDoc::hardline(),
@@ -230,10 +290,25 @@ fn record_doc(record: &RecordType) -> RcDoc<'static, ()> {
     }
 }
 
-fn enum_doc(enum_type: &EnumType) -> RcDoc<'static, ()> {
+fn enum_name_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
+    let name = RcDoc::text(enum_type.name.clone());
+    if enum_type.type_args.is_empty() {
+        name
+    } else {
+        let args = enum_type
+            .type_args
+            .iter()
+            .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
+        name.append(RcDoc::text("<"))
+            .append(comma_separated_docs(args))
+            .append(RcDoc::text(">"))
+    }
+}
+
+fn enum_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
     if enum_type.variants.is_empty() {
         RcDoc::text("enum ")
-            .append(RcDoc::text(enum_type.name.clone()))
+            .append(enum_name_doc(enum_type, params))
             .append(RcDoc::space())
             .append(RcDoc::text("{}"))
     } else {
@@ -250,18 +325,18 @@ fn enum_doc(enum_type: &EnumType) -> RcDoc<'static, ()> {
                         .append(comma_separated_docs(
                             payload
                                 .iter()
-                                .map(|ty| ty.to_doc_mode(TypeDocMode::Compact)),
+                                .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
                         ))
                         .append(RcDoc::text("),")),
                     EnumVariantKind::Struct(fields) => {
-                        enum_variant_struct_doc(&variant.name, fields)
+                        enum_variant_struct_doc(&variant.name, fields, params)
                     }
                 }),
             RcDoc::hardline(),
         );
 
         RcDoc::text("enum ")
-            .append(RcDoc::text(enum_type.name.clone()))
+            .append(enum_name_doc(enum_type, params))
             .append(RcDoc::space())
             .append(RcDoc::text("{"))
             .append(RcDoc::hardline().append(variants).nest(4))
@@ -270,19 +345,23 @@ fn enum_doc(enum_type: &EnumType) -> RcDoc<'static, ()> {
     }
 }
 
-fn enum_variant_struct_doc(variant_name: &str, fields: &[RecordFieldType]) -> RcDoc<'static, ()> {
+fn enum_variant_struct_doc(
+    variant_name: &str,
+    fields: &[RecordFieldType],
+    params: &HashMap<TypeVarId, String>,
+) -> RcDoc<'static, ()> {
     if fields.is_empty() {
         return RcDoc::text(format!("{variant_name} {{}},"));
     }
 
-    if let Some(inline) = inline_struct_variant(variant_name, fields) {
+    if let Some(inline) = inline_struct_variant(variant_name, fields, params) {
         RcDoc::text(inline).append(RcDoc::text(","))
     } else {
         let body = RcDoc::intersperse(
             fields.iter().map(|field| {
                 RcDoc::text(field.name.clone())
                     .append(RcDoc::text(": "))
-                    .append(field.ty.to_doc_mode(TypeDocMode::Compact))
+                    .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
             }),
             RcDoc::hardline(),
@@ -297,14 +376,24 @@ fn enum_variant_struct_doc(variant_name: &str, fields: &[RecordFieldType]) -> Rc
     }
 }
 
-fn inline_struct_variant(variant_name: &str, fields: &[RecordFieldType]) -> Option<String> {
+fn inline_struct_variant(
+    variant_name: &str,
+    fields: &[RecordFieldType],
+    params: &HashMap<TypeVarId, String>,
+) -> Option<String> {
     if fields.len() >= 3 {
         return None;
     }
 
     let contents = fields
         .iter()
-        .map(|field| format!("{}: {}", field.name, field.ty.to_compact_string()))
+        .map(|field| {
+            format!(
+                "{}: {}",
+                field.name,
+                field.ty.compact_display_with_params(params)
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
 
@@ -341,6 +430,9 @@ impl RecordFieldType {
 pub struct EnumType {
     pub name: String,
     pub variants: Vec<EnumVariantType>,
+    /// Instantiated type arguments for generic enums (e.g., `[i64]` for `Option<i64>`).
+    /// Empty for non-generic enums.
+    pub type_args: Vec<Type>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

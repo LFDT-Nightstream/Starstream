@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x: Option = Option::Some(42);\n}\n"
+---
+E0042 (https://starstream.nightstream.dev/errors/E0042)
+
+  x type `Option` expects 1 generic argument(s) but 0 were provided
+   ,-[test.star:2:12]
+ 1 | fn test() {
+ 2 |     let x: Option = Option::Some(42);
+   :            ^^^^^^
+ 3 | }
+   `----

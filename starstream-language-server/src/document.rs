@@ -17,7 +17,7 @@ use starstream_compiler::{
     typecheck::{TypeError, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    CommentMap, Span, Spanned, TypedUtxoDef, TypedUtxoPart,
+    CommentMap, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
@@ -25,7 +25,7 @@ use starstream_types::{
         TypedFunctionDef, TypedImportDef, TypedImportItems, TypedMatchArm, TypedPattern,
         TypedProgram, TypedStatement, TypedStructDef, TypedStructLiteralField,
     },
-    types::Type,
+    types::{EnumType, EnumVariantKind, Type},
 };
 
 use crate::diagnostics::diagnostic_to_lsp;
@@ -83,6 +83,8 @@ pub struct DocumentState {
     struct_field_docs: HashMap<String, HashMap<String, String>>,
     /// Maps (enum, variant) -> doc comment for variant usage hover.
     enum_variant_docs: HashMap<EnumVariantKey, String>,
+    /// Generic type definitions from the type checker (Option, Result, etc.).
+    generic_types: HashMap<String, GenericTypeDef>,
     /// Comment map for efficient span-based comment lookups.
     comment_map: CommentMap,
 }
@@ -116,6 +118,7 @@ impl DocumentState {
             enum_docs: HashMap::new(),
             struct_field_docs: HashMap::new(),
             enum_variant_docs: HashMap::new(),
+            generic_types: HashMap::new(),
             comment_map: CommentMap::new(),
         };
 
@@ -193,6 +196,7 @@ impl DocumentState {
         self.enum_docs.clear();
         self.struct_field_docs.clear();
         self.enum_variant_docs.clear();
+        self.generic_types.clear();
 
         let parse_output = parse_program(text);
 
@@ -210,6 +214,8 @@ impl DocumentState {
         if let Some(program) = self.program.as_ref() {
             match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                 Ok(typed) => {
+                    self.generic_types = typed.generic_types.clone();
+
                     let program_ast = self.program.clone();
                     self.build_indexes(&typed.program, program_ast.as_deref(), text);
 
@@ -261,7 +267,7 @@ impl DocumentState {
 
         let value = match &entry.doc {
             Some(doc) => format!("```star\n{}\n```\n---\n{}", entry.label, doc),
-            None => format!("`{}`", entry.label),
+            None => format!("```star\n{}\n```", entry.label),
         };
 
         let contents = HoverContents::Markup(MarkupContent {
@@ -368,6 +374,8 @@ impl DocumentState {
         self.definition_entries.clear();
         self.type_definitions.clear();
 
+        self.register_docs_from_generics();
+
         let mut scopes: Vec<HashMap<String, Span>> = vec![HashMap::new()];
 
         // Collect definitions, pairing typed and untyped for doc comment extraction
@@ -384,6 +392,31 @@ impl DocumentState {
 
         if let Some(program_ast) = ast {
             self.collect_type_annotations_from_ast(program_ast);
+        }
+    }
+
+    /// Register doc comments and variant info from generic type definitions
+    /// so that hover shows documentation and syntax-highlighted labels.
+    fn register_docs_from_generics(&mut self) {
+        for (name, def) in &self.generic_types {
+            if let Some(doc) = &def.doc {
+                self.enum_docs.insert(name.clone(), doc.clone());
+            }
+            for (variant_name, doc) in &def.variant_docs {
+                self.enum_variant_docs
+                    .insert(EnumVariantKey::new(name, variant_name), doc.clone());
+            }
+            // Register unit variant infos for pattern matching hover
+            if let Type::Enum(e) = &def.ty {
+                for variant in &e.variants {
+                    if matches!(variant.kind, EnumVariantKind::Unit) {
+                        self.enum_variant_infos.insert(
+                            EnumVariantKey::new(name, &variant.name),
+                            EnumVariantPayloadInfo::Unit,
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -831,7 +864,7 @@ impl DocumentState {
 
     fn collect_expr(&mut self, expr: &Spanned<TypedExpr>, scopes: &mut Vec<HashMap<String, Span>>) {
         let doc = self.doc_for_type(&expr.node.ty);
-        self.add_hover_span_with_doc(expr.span, &expr.node.ty, doc);
+        self.add_hover_label_with_doc(expr.span, expr.node.ty.to_compact_string(), doc);
 
         match &expr.node.kind {
             TypedExprKind::Identifier(identifier) => {
@@ -892,23 +925,23 @@ impl DocumentState {
                 self.add_type_usage(enum_name.span, &enum_name.name);
 
                 // Add hover for enum name with doc comment
-                if let Some(span) = enum_name.span
-                    && let Some(ty) = self.enum_types.get(&enum_name.name).cloned()
-                {
+                if let Some(span) = enum_name.span {
                     let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
-                    self.add_hover_span_with_doc(span, &ty, enum_doc);
+                    self.add_generic_or_concrete_type_hover(
+                        span,
+                        &enum_name.name,
+                        Some(&expr.node.ty),
+                        enum_doc,
+                    );
                 }
 
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
-
-                if let Some(span) = variant.span
-                    && let Some(label) =
-                        self.enum_variant_label_from_maps(&enum_name.name, &variant.name)
-                {
-                    let key = EnumVariantKey::new(&enum_name.name, &variant.name);
-                    let variant_doc = self.enum_variant_docs.get(&key).cloned();
-                    self.add_hover_label_with_doc(span, label, variant_doc);
-                }
+                self.add_variant_hover(
+                    variant.span,
+                    &enum_name.name,
+                    &variant.name,
+                    Some(&expr.node.ty),
+                );
 
                 match payload {
                     TypedEnumConstructorPayload::Unit => {}
@@ -1065,34 +1098,36 @@ impl DocumentState {
             } => {
                 self.add_type_usage(enum_name.span, &enum_name.name);
 
-                if let Some(span) = enum_name.span
-                    && let Some(ty) = expected_ty
-                        .as_ref()
-                        .cloned()
-                        .or_else(|| self.enum_types.get(&enum_name.name).cloned())
-                {
+                if let Some(span) = enum_name.span {
                     // Include enum doc comment for the enum name in pattern
                     let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
-                    self.add_hover_span_with_doc(span, &ty, enum_doc);
+                    self.add_generic_or_concrete_type_hover(
+                        span,
+                        &enum_name.name,
+                        expected_ty.as_ref(),
+                        enum_doc,
+                    );
                 }
 
                 self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
-
-                if let Some(span) = variant.span
-                    && let Some(label) =
-                        self.enum_variant_label_from_maps(&enum_name.name, &variant.name)
-                {
-                    let key = EnumVariantKey::new(&enum_name.name, &variant.name);
-                    let variant_doc = self.enum_variant_docs.get(&key).cloned();
-                    self.add_hover_label_with_doc(span, label, variant_doc);
-                }
+                self.add_variant_hover(
+                    variant.span,
+                    &enum_name.name,
+                    &variant.name,
+                    expected_ty.as_ref(),
+                );
 
                 match payload {
                     TypedEnumPatternPayload::Unit => {}
                     TypedEnumPatternPayload::Tuple(patterns) => {
-                        if let Some(types) =
-                            self.lookup_enum_tuple_types(&enum_name.name, &variant.name)
-                        {
+                        let types = self
+                            .lookup_enum_tuple_types(&enum_name.name, &variant.name)
+                            .or_else(|| {
+                                expected_ty.as_ref().and_then(|ty| {
+                                    Self::enum_variant_tuple_types_from_type(ty, &variant.name)
+                                })
+                            });
+                        if let Some(types) = types {
                             for (pattern, ty) in patterns.iter().zip(types.into_iter()) {
                                 self.collect_pattern(pattern, scopes, Some(ty));
                             }
@@ -1298,19 +1333,17 @@ impl DocumentState {
 
     /// Look up the doc comment for a type (struct or enum).
     fn doc_for_type(&self, ty: &Type) -> Option<String> {
-        // Check if it's a struct type
         if let Some(struct_name) = self.find_struct_name_for_type(ty) {
             return self.struct_docs.get(&struct_name).cloned();
         }
 
-        // Check if it's an enum type
         if matches!(ty, Type::Enum(_)) {
-            // Find enum by matching the type
-            for (name, enum_ty) in &self.enum_types {
-                if enum_ty == ty {
-                    return self.enum_docs.get(name).cloned();
-                }
-            }
+            return self
+                .enum_types
+                .iter()
+                .find(|(_, enum_ty)| *enum_ty == ty)
+                .and_then(|(name, _)| self.enum_docs.get(name))
+                .cloned();
         }
 
         None
@@ -1482,6 +1515,10 @@ impl DocumentState {
     }
 
     fn type_label_for_name(&self, name: &str) -> Option<String> {
+        // Generic types: show generic definition with named params (e.g. `enum Option<T> { ... }`)
+        if let Some(def) = self.generic_types.get(name) {
+            return Some(def.ty.display_with_params(&def.param_name_map()));
+        }
         match name {
             "i64" => Some(Type::int().to_string()),
             "bool" => Some(Type::bool().to_string()),
@@ -1494,10 +1531,100 @@ impl DocumentState {
         }
     }
 
+    /// Resolve and add hover for an enum variant, trying generic param labels,
+    /// then indexed variant info, then a concrete type fallback.
+    fn add_variant_hover(
+        &mut self,
+        span: Option<Span>,
+        enum_name: &str,
+        variant_name: &str,
+        fallback_ty: Option<&Type>,
+    ) {
+        let Some(span) = span else { return };
+
+        let label = self
+            .generic_variant_label(enum_name, variant_name)
+            .or_else(|| self.enum_variant_label_from_maps(enum_name, variant_name))
+            .or_else(|| {
+                fallback_ty.and_then(|ty| Self::enum_variant_label_from_type(ty, variant_name))
+            });
+
+        if let Some(label) = label {
+            let key = EnumVariantKey::new(enum_name, variant_name);
+            let variant_doc = self.enum_variant_docs.get(&key).cloned();
+            self.add_hover_label_with_doc(span, label, variant_doc);
+        }
+    }
+
+    /// Add hover for an enum type name, preferring the generic definition (e.g. `enum Option<T> { ... }`)
+    /// over a concrete instantiation (e.g. `enum Option<i64> { ... }`).
+    fn add_generic_or_concrete_type_hover(
+        &mut self,
+        span: Span,
+        name: &str,
+        fallback_ty: Option<&Type>,
+        doc: Option<String>,
+    ) {
+        if let Some(def) = self.generic_types.get(name) {
+            let label = def.ty.display_with_params(&def.param_name_map());
+            self.add_hover_label_with_doc(span, label, doc);
+        } else {
+            let ty = self.enum_types.get(name).or_else(|| fallback_ty).cloned();
+            if let Some(ty) = ty {
+                self.add_hover_span_with_doc(span, &ty, doc);
+            }
+        }
+    }
+
     fn enum_variant_label_from_maps(&self, enum_name: &str, variant_name: &str) -> Option<String> {
         self.enum_variant_infos
             .get(&EnumVariantKey::new(enum_name, variant_name))
             .map(|info| format_enum_variant_hover_from_info(enum_name, variant_name, info))
+    }
+
+    /// Get variant label from generic type definition using named type params.
+    fn generic_variant_label(&self, enum_name: &str, variant_name: &str) -> Option<String> {
+        let def = self.generic_types.get(enum_name)?;
+        let params = def.param_name_map();
+        let Type::Enum(enum_type) = &def.ty else {
+            return None;
+        };
+        format_variant_with_params(&enum_type.name, enum_type, variant_name, &params)
+    }
+
+    /// Extract variant label from a concrete `Type::Enum` value.
+    fn enum_variant_label_from_type(ty: &Type, variant_name: &str) -> Option<String> {
+        let Type::Enum(enum_type) = ty else {
+            return None;
+        };
+        let variant = enum_type.variants.iter().find(|v| v.name == variant_name)?;
+        let info = match &variant.kind {
+            EnumVariantKind::Unit => EnumVariantPayloadInfo::Unit,
+            EnumVariantKind::Tuple(types) => EnumVariantPayloadInfo::Tuple(types.clone()),
+            EnumVariantKind::Struct(fields) => EnumVariantPayloadInfo::Struct(
+                fields
+                    .iter()
+                    .map(|f| (f.name.clone(), f.ty.clone()))
+                    .collect(),
+            ),
+        };
+        Some(format_enum_variant_hover_from_info(
+            &enum_type.name,
+            variant_name,
+            &info,
+        ))
+    }
+
+    /// Extract tuple payload types from a concrete `Type::Enum` value.
+    fn enum_variant_tuple_types_from_type(ty: &Type, variant_name: &str) -> Option<Vec<Type>> {
+        let Type::Enum(enum_type) = ty else {
+            return None;
+        };
+        let variant = enum_type.variants.iter().find(|v| v.name == variant_name)?;
+        match &variant.kind {
+            EnumVariantKind::Tuple(types) => Some(types.clone()),
+            _ => None,
+        }
     }
 
     fn lookup_definition(&self, name: &str, scopes: &[HashMap<String, Span>]) -> Option<Span> {
@@ -1911,6 +2038,37 @@ fn format_struct_variant_hover(
     out.push('}');
 
     out
+}
+
+fn format_variant_with_params(
+    enum_name: &str,
+    enum_type: &EnumType,
+    variant_name: &str,
+    params: &HashMap<TypeVarId, String>,
+) -> Option<String> {
+    let variant = enum_type.variants.iter().find(|v| v.name == variant_name)?;
+    Some(match &variant.kind {
+        EnumVariantKind::Unit => format!("{enum_name}::{variant_name}"),
+        EnumVariantKind::Tuple(types) => {
+            if types.is_empty() {
+                format!("{enum_name}::{variant_name}()")
+            } else {
+                let payload = types
+                    .iter()
+                    .map(|ty| ty.compact_display_with_params(params))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{enum_name}::{variant_name}({payload})")
+            }
+        }
+        EnumVariantKind::Struct(fields) => {
+            let rendered: Vec<(String, String)> = fields
+                .iter()
+                .map(|f| (f.name.clone(), f.ty.compact_display_with_params(params)))
+                .collect();
+            format_struct_variant_hover(enum_name, variant_name, &rendered)
+        }
+    })
 }
 
 impl DefinitionEntry {

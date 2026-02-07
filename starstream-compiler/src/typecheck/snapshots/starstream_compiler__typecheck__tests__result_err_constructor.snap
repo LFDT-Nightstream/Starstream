@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test() {\n    let x = Result::Err(false);\n}\n"
+---
+T-Fn: test => ()
+  T-Let: {} ⊢ let x = Result::Err(false); ⇒ Result<t3, bool>
+    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t3, t4>
+      T-Bool: {} ⊢ false ⇒ bool
+      Unify-Var: bool ~ t4 => {bool/t4}

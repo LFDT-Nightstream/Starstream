@@ -110,6 +110,7 @@ TypedProgram {
                                 ),
                             },
                         ],
+                        type_args: [],
                     },
                 ),
             },

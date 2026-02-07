@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nfn test() {\nlet answer = 42;\nlet foo: i64 = 10;\nlet bar: bool = false;\nlet baz: _ = 2;\n}\n"
+description: "Source:\n\nfn test() {\n    let answer = 42;\n    let foo: i64 = 10;\n    let bar: bool = false;\n    let baz: _ = 2;\n}\n"
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let answer = 42; ⇒ i64
@@ -13,4 +13,4 @@ T-Fn: test => ()
     Unify-Const: bool ~ bool => {}
   T-Let: {answer: i64, bar: bool, foo: i64} ⊢ let baz: _ = 2; ⇒ i64
     T-Int: {answer: i64, bar: bool, foo: i64} ⊢ 2 ⇒ i64
-    Unify-Var: t0 ~ i64 => {i64/t0}
+    Unify-Var: t3 ~ i64 => {i64/t3}

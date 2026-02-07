@@ -305,6 +305,12 @@ pub enum TypeErrorKind {
     RuntimeWithoutKeyword {
         function_name: String,
     },
+    /// Generic type used with wrong number of type arguments.
+    WrongGenericArity {
+        type_name: String,
+        expected: usize,
+        found: usize,
+    },
 }
 
 impl TypeErrorKind {
@@ -352,6 +358,7 @@ impl TypeErrorKind {
             TypeErrorKind::EffectfulWithoutRaise { .. } => "E0039",
             TypeErrorKind::RuntimeRequiresRuntime => "E0040",
             TypeErrorKind::RuntimeWithoutKeyword { .. } => "E0041",
+            TypeErrorKind::WrongGenericArity { .. } => "E0042",
         }
     }
 }
@@ -661,6 +668,16 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "runtime function `{function_name}` must be called with `runtime`"
+                )
+            }
+            TypeErrorKind::WrongGenericArity {
+                type_name,
+                expected,
+                found,
+            } => {
+                write!(
+                    f,
+                    "type `{type_name}` expects {expected} generic argument(s) but {found} were provided"
                 )
             }
         }

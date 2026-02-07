@@ -1,14 +1,14 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nenum Option {\n    None,\n    Some(i64),\n}\n\nfn test(o: Option) -> i64 {\n    match o {\n        _ => {\n            0\n        },\n        Option::None => {\n            1\n        },\n    }\n}\n"
+description: "Source:\n\nfn test(o: Option<i64>) -> i64 {\n    match o {\n        _ => {\n            0\n        },\n        Option::None => {\n            1\n        },\n    }\n}\n"
 ---
 E0028 (https://starstream.nightstream.dev/errors/E0028)
 
   x unreachable pattern
-    ,-[test.star:11:9]
- 10 |         },
- 11 |         Option::None => {
-    :         ^^^^^^^^^^^^
- 12 |             1
-    `----
+   ,-[test.star:6:9]
+ 5 |         },
+ 6 |         Option::None => {
+   :         ^^^^^^^^^^^^
+ 7 |             1
+   `----
   help: this pattern is already covered by previous patterns
