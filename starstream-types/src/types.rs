@@ -168,19 +168,19 @@ impl Type {
 
     /// Render expanded display using named type parameters for `Type::Var`.
     pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
-        render_doc(self.to_doc_inner(TypeDocMode::Expanded, params))
+        render_doc(self.to_doc(TypeDocMode::Expanded, params))
     }
 
     /// Render compact display using named type parameters for `Type::Var`.
     pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
-        render_doc(self.to_doc_inner(TypeDocMode::Compact, params))
+        render_doc(self.to_doc(TypeDocMode::Compact, params))
     }
 
     fn to_doc_mode(&self, mode: TypeDocMode) -> RcDoc<'static, ()> {
-        self.to_doc_inner(mode, &HashMap::new())
+        self.to_doc(mode, &HashMap::new())
     }
 
-    fn to_doc_inner(
+    fn to_doc(
         &self,
         mode: TypeDocMode,
         params: &HashMap<TypeVarId, String>,
@@ -202,7 +202,7 @@ impl Type {
                         .append(comma_separated_docs(
                             fn_params
                                 .iter()
-                                .map(|ty| ty.to_doc_inner(TypeDocMode::Compact, params)),
+                                .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
                         ))
                         .append(RcDoc::text(")"))
                 };
@@ -216,18 +216,18 @@ impl Type {
                 effect_prefix
                     .append(params_doc)
                     .append(RcDoc::text(" -> "))
-                    .append(result.to_doc_inner(TypeDocMode::Compact, params))
+                    .append(result.to_doc(TypeDocMode::Compact, params))
             }
             Type::Tuple(items) => RcDoc::text("(")
                 .append(comma_separated_docs(
                     items
                         .iter()
-                        .map(|ty| ty.to_doc_inner(TypeDocMode::Compact, params)),
+                        .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
                 ))
                 .append(RcDoc::text(")")),
             Type::Record(record) => match mode {
                 TypeDocMode::Compact => RcDoc::text(record.name.clone()),
-                TypeDocMode::Expanded => record_doc_inner(record, params),
+                TypeDocMode::Expanded => record_doc(record, params),
             },
             Type::Enum(enum_type) => match mode {
                 TypeDocMode::Compact => {
@@ -237,14 +237,14 @@ impl Type {
                         let args = enum_type
                             .type_args
                             .iter()
-                            .map(|ty| ty.to_doc_inner(TypeDocMode::Compact, params));
+                            .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
                         RcDoc::text(enum_type.name.clone())
                             .append(RcDoc::text("<"))
                             .append(comma_separated_docs(args))
                             .append(RcDoc::text(">"))
                     }
                 }
-                TypeDocMode::Expanded => enum_doc_inner(enum_type, params),
+                TypeDocMode::Expanded => enum_doc(enum_type, params),
             },
         }
     }
@@ -270,7 +270,7 @@ where
     RcDoc::intersperse(docs, RcDoc::text(", "))
 }
 
-fn record_doc_inner(
+fn record_doc(
     record: &RecordType,
     params: &HashMap<TypeVarId, String>,
 ) -> RcDoc<'static, ()> {
@@ -281,7 +281,7 @@ fn record_doc_inner(
             record.fields.iter().map(|field| {
                 RcDoc::text(field.name.clone())
                     .append(RcDoc::text(": "))
-                    .append(field.ty.to_doc_inner(TypeDocMode::Compact, params))
+                    .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
             }),
             RcDoc::hardline(),
@@ -297,7 +297,7 @@ fn record_doc_inner(
     }
 }
 
-fn enum_name_doc_inner(
+fn enum_name_doc(
     enum_type: &EnumType,
     params: &HashMap<TypeVarId, String>,
 ) -> RcDoc<'static, ()> {
@@ -308,17 +308,17 @@ fn enum_name_doc_inner(
         let args = enum_type
             .type_args
             .iter()
-            .map(|ty| ty.to_doc_inner(TypeDocMode::Compact, params));
+            .map(|ty| ty.to_doc(TypeDocMode::Compact, params));
         name.append(RcDoc::text("<"))
             .append(comma_separated_docs(args))
             .append(RcDoc::text(">"))
     }
 }
 
-fn enum_doc_inner(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
+fn enum_doc(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
     if enum_type.variants.is_empty() {
         RcDoc::text("enum ")
-            .append(enum_name_doc_inner(enum_type, params))
+            .append(enum_name_doc(enum_type, params))
             .append(RcDoc::space())
             .append(RcDoc::text("{}"))
     } else {
@@ -335,18 +335,18 @@ fn enum_doc_inner(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> 
                         .append(comma_separated_docs(
                             payload
                                 .iter()
-                                .map(|ty| ty.to_doc_inner(TypeDocMode::Compact, params)),
+                                .map(|ty| ty.to_doc(TypeDocMode::Compact, params)),
                         ))
                         .append(RcDoc::text("),")),
                     EnumVariantKind::Struct(fields) => {
-                        enum_variant_struct_doc_inner(&variant.name, fields, params)
+                        enum_variant_struct_doc(&variant.name, fields, params)
                     }
                 }),
             RcDoc::hardline(),
         );
 
         RcDoc::text("enum ")
-            .append(enum_name_doc_inner(enum_type, params))
+            .append(enum_name_doc(enum_type, params))
             .append(RcDoc::space())
             .append(RcDoc::text("{"))
             .append(RcDoc::hardline().append(variants).nest(4))
@@ -355,7 +355,7 @@ fn enum_doc_inner(enum_type: &EnumType, params: &HashMap<TypeVarId, String>) -> 
     }
 }
 
-fn enum_variant_struct_doc_inner(
+fn enum_variant_struct_doc(
     variant_name: &str,
     fields: &[RecordFieldType],
     params: &HashMap<TypeVarId, String>,
@@ -364,14 +364,14 @@ fn enum_variant_struct_doc_inner(
         return RcDoc::text(format!("{variant_name} {{}},"));
     }
 
-    if let Some(inline) = inline_struct_variant_inner(variant_name, fields, params) {
+    if let Some(inline) = inline_struct_variant(variant_name, fields, params) {
         RcDoc::text(inline).append(RcDoc::text(","))
     } else {
         let body = RcDoc::intersperse(
             fields.iter().map(|field| {
                 RcDoc::text(field.name.clone())
                     .append(RcDoc::text(": "))
-                    .append(field.ty.to_doc_inner(TypeDocMode::Compact, params))
+                    .append(field.ty.to_doc(TypeDocMode::Compact, params))
                     .append(RcDoc::text(","))
             }),
             RcDoc::hardline(),
@@ -386,7 +386,7 @@ fn enum_variant_struct_doc_inner(
     }
 }
 
-fn inline_struct_variant_inner(
+fn inline_struct_variant(
     variant_name: &str,
     fields: &[RecordFieldType],
     params: &HashMap<TypeVarId, String>,

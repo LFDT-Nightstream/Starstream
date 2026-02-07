@@ -1597,7 +1597,6 @@ impl DocumentState {
     }
 
     /// Extract variant label from a concrete `Type::Enum` value.
-    /// Used as fallback for prelude types (Option, Result) not in `enum_variant_infos`.
     fn enum_variant_label_from_type(ty: &Type, variant_name: &str) -> Option<String> {
         let Type::Enum(enum_type) = ty else {
             return None;
@@ -1621,7 +1620,6 @@ impl DocumentState {
     }
 
     /// Extract tuple payload types from a concrete `Type::Enum` value.
-    /// Used as fallback for prelude types (Option, Result) not in `enum_variant_infos`.
     fn enum_variant_tuple_types_from_type(ty: &Type, variant_name: &str) -> Option<Vec<Type>> {
         let Type::Enum(enum_type) = ty else {
             return None;
