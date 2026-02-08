@@ -14,11 +14,17 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     //   word1 = arg1 (cell_ref)
     //   word2 = arg2 (value)
     //
-    // discs:
+    // request discs:
     //   1 = new_cell
     //   2 = write(cell_ref, value)
     //   3 = read(cell_ref)
     //   4 = end
+    //
+    // response discs:
+    //   10 = ack
+    //   11 = new_cell_resp(cell_ref)
+    //   12 = read_resp(value)
+    //   13 = end_ack
 
     let utxo1_bin = wasm_module!({
         let (init_ref, _caller) = call activation();
@@ -44,7 +50,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         call ref_push(3, cell_ref, 0, 0);
 
         let (resp, _caller2) = call resume(handler_id, req);
-        let (val, _b2, _c2, _d2) = call ref_get(resp, 0);
+        let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
         assert_eq val, 42;
 
         let (_req2, _caller3) = call yield_(init_ref);
@@ -65,7 +71,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         let req_new = call new_ref(1);
         call ref_push(1, 0, 0, 0);
         let (resp_new, _caller2) = call resume(handler_id, req_new);
-        let (cell_ref, _b2, _c2, _d2) = call ref_get(resp_new, 0);
+        let (_disc, cell_ref, _c2, _d2) = call ref_get(resp_new, 0);
 
         let cell_init = call new_ref(1);
         call ref_push(cell_ref, 0, 0, 0);
@@ -89,25 +95,17 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
     let wrapper_coord_bin = wasm_module!({
         let (init_ref, _caller) = call init();
-        let (utxo1_id, utxo2_id, _c, _d) = call ref_get(init_ref, 0);
-
-        let inner_init = call new_ref(1);
-        call ref_push(utxo1_id, utxo2_id, 0, 0);
-
-        let inner_id = call new_coord(
-            const(inner_hash_limb_a),
-            const(inner_hash_limb_b),
-            const(inner_hash_limb_c),
-            const(inner_hash_limb_d),
-            inner_init
-        );
+        let (inner_id, inner_init, _c, _d) = call ref_get(init_ref, 0);
 
         call install_handler(1, 2, 3, 4);
 
-        let (req0, caller0) = call resume(inner_id, inner_init);
+        let (req0, caller0) = call resume(inner_id, 0);
         let req = req0;
         let caller = caller0;
         let handled = const(0);
+        let cell_val = const(0);
+        // Single-cell wrapper for this test: ignore cell_ref and return a fixed cell id.
+        let cell_id = const(1);
 
         loop {
             set handled = const(0);
@@ -115,17 +113,14 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
             if disc == 4 {
                 let resp = call new_ref(1);
-                call ref_push(1, 0, 0, 0);
+                call ref_push(13, 0, 0, 0);
                 let (_req_next, _caller_next) = call resume(caller, resp);
                 set handled = const(2);
             }
 
             if disc == 1 {
-                let cell = call new_ref(1);
-                call ref_push(0, 0, 0, 0);
-
                 let resp = call new_ref(1);
-                call ref_push(cell, 0, 0, 0);
+                call ref_push(11, cell_id, 0, 0);
 
                 let (req_next, caller_next) = call resume(caller, resp);
                 set req = req_next;
@@ -134,9 +129,9 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             }
 
             if disc == 2 {
-                call ref_write(cell_ref, 0, value, 0, 0, 0);
+                set cell_val = value;
                 let resp = call new_ref(1);
-                call ref_push(1, 0, 0, 0);
+                call ref_push(10, 0, 0, 0);
                 let (req_next, caller_next) = call resume(caller, resp);
                 set req = req_next;
                 set caller = caller_next;
@@ -145,9 +140,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
             // disc == 3 (read)
             if handled == 0 {
-                let (val, _b3, _c3, _d3) = call ref_get(cell_ref, 0);
                 let resp = call new_ref(1);
-                call ref_push(val, 0, 0, 0);
+                call ref_push(12, cell_val, 0, 0);
                 let (req_next, caller_next) = call resume(caller, resp);
                 set req = req_next;
                 set caller = caller_next;
@@ -187,8 +181,19 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             init_val
         );
 
-        let wrapper_init = call new_ref(1);
+        let inner_init = call new_ref(1);
         call ref_push(utxo1_id, utxo2_id, 0, 0);
+
+        let inner_id = call new_coord(
+            const(inner_hash_limb_a),
+            const(inner_hash_limb_b),
+            const(inner_hash_limb_c),
+            const(inner_hash_limb_d),
+            inner_init
+        );
+
+        let wrapper_init = call new_ref(1);
+        call ref_push(inner_id, inner_init, 0, 0);
 
         let wrapper_id = call new_coord(
             const(wrapper_hash_limb_a),

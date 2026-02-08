@@ -6,11 +6,12 @@ use starstream_interleaving_spec::{
     Value, WasmModule, WitEffectOutput, WitLedgerEffect, builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use wasmi::{
     Caller, Config, Engine, Linker, Memory, Store, TypedResumableCall, TypedResumableCallHostTrap,
     Val, errors::HostError,
 };
+
+mod trace_mermaid;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -89,6 +90,7 @@ pub struct UnprovenTransaction {
 
 pub struct RuntimeState {
     pub traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
+    pub interleaving: Vec<(ProcessId, WitLedgerEffect)>,
     pub current_process: ProcessId,
     pub memories: HashMap<ProcessId, Memory>,
 
@@ -105,7 +107,7 @@ pub struct RuntimeState {
     pub process_hashes: HashMap<ProcessId, Hash<WasmModule>>,
     pub is_utxo: HashMap<ProcessId, bool>,
     pub allocated_processes: HashSet<ProcessId>,
-    pub parent_of: HashMap<ProcessId, ProcessId>,
+    pub yield_to: HashMap<ProcessId, ProcessId>,
     pub on_yield: HashMap<ProcessId, bool>,
 
     pub must_burn: HashSet<ProcessId>,
@@ -127,6 +129,7 @@ impl Runtime {
 
         let state = RuntimeState {
             traces: HashMap::new(),
+            interleaving: Vec::new(),
             current_process: ProcessId(0),
             memories: HashMap::new(),
             handler_stack: HashMap::new(),
@@ -140,7 +143,7 @@ impl Runtime {
             process_hashes: HashMap::new(),
             is_utxo: HashMap::new(),
             allocated_processes: HashSet::new(),
-            parent_of: HashMap::new(),
+            yield_to: HashMap::new(),
             on_yield: HashMap::new(),
             must_burn: HashSet::new(),
             n_new: 0,
@@ -167,14 +170,9 @@ impl Runtime {
                         .pending_activation
                         .insert(target, (val, current_pid));
 
-                    let was_on_yield = caller
-                        .data()
-                        .on_yield
-                        .get(&target)
-                        .copied()
-                        .unwrap_or(true);
+                    let was_on_yield = caller.data().on_yield.get(&target).copied().unwrap_or(true);
                     if was_on_yield {
-                        caller.data_mut().parent_of.insert(target, current_pid);
+                        caller.data_mut().yield_to.insert(target, current_pid);
                         caller.data_mut().on_yield.insert(target, false);
                     }
 
@@ -199,14 +197,13 @@ impl Runtime {
                  val: u64|
                  -> Result<(u64, u64), wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let parent = caller.data().parent_of.get(&current_pid).copied();
                     caller.data_mut().on_yield.insert(current_pid, true);
                     suspend_with_effect(
                         &mut caller,
                         WitLedgerEffect::Yield {
                             val: Ref(val),
                             ret: WitEffectOutput::Thunk,
-                            caller: WitEffectOutput::Resolved(parent),
+                            caller: WitEffectOutput::Thunk,
                         },
                     )
                 },
@@ -715,6 +712,8 @@ impl UnprovenTransaction {
         let proof = starstream_interleaving_proof::prove(instance.clone(), witness.clone())
             .map_err(|e| Error::RuntimeError(e.to_string()))?;
 
+        trace_mermaid::emit_trace_mermaid(&instance, &state);
+
         let mut builder = TransactionBuilder::new();
         builder = builder.with_entrypoint(self.entrypoint);
 
@@ -909,8 +908,11 @@ impl UnprovenTransaction {
                                     next_args[1] as usize,
                                 )));
                             }
-                            WitLedgerEffect::Yield { ret, .. } => {
+                            WitLedgerEffect::Yield { ret, caller, .. } => {
                                 *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
+                                *caller = WitEffectOutput::Resolved(Some(ProcessId(
+                                    next_args[1] as usize,
+                                )));
                             }
                             _ => {}
                         }
@@ -950,6 +952,12 @@ impl UnprovenTransaction {
                         trace.last().expect("trace not empty after suspend").clone()
                     };
 
+                    runtime
+                        .store
+                        .data_mut()
+                        .interleaving
+                        .push((current_pid, last_effect.clone()));
+
                     resumables.insert(current_pid, invocation);
 
                     match last_effect {
@@ -961,9 +969,9 @@ impl UnprovenTransaction {
                             let caller = *runtime
                                 .store
                                 .data()
-                                .parent_of
+                                .yield_to
                                 .get(&current_pid)
-                                .expect("yield on missing parent");
+                                .expect("yield on missing yield_to");
                             next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = caller;
                         }
@@ -971,9 +979,9 @@ impl UnprovenTransaction {
                             let caller = *runtime
                                 .store
                                 .data()
-                                .parent_of
+                                .yield_to
                                 .get(&current_pid)
-                                .expect("burn on missing parent");
+                                .expect("burn on missing yield_to");
                             next_args = [0; 5];
                             current_pid = caller;
                         }

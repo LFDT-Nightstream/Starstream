@@ -29,6 +29,7 @@ pub enum MemoryTag {
     ExpectedResumer = 19,
     OnYield = 20,
     YieldTo = 21,
+    InitCaller = 22,
 }
 
 impl From<MemoryTag> for u64 {
@@ -57,6 +58,7 @@ pub enum ProgramStateTag {
     YieldTo,
     Activation,
     Init,
+    InitCaller,
     Counters,
     Initialized,
     Finalized,
@@ -73,6 +75,7 @@ impl From<ProgramStateTag> for MemoryTag {
             ProgramStateTag::YieldTo => MemoryTag::YieldTo,
             ProgramStateTag::Activation => MemoryTag::Activation,
             ProgramStateTag::Init => MemoryTag::Init,
+            ProgramStateTag::InitCaller => MemoryTag::InitCaller,
             ProgramStateTag::Counters => MemoryTag::Counters,
             ProgramStateTag::Initialized => MemoryTag::Initialized,
             ProgramStateTag::Finalized => MemoryTag::Finalized,

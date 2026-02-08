@@ -515,6 +515,7 @@ impl LedgerOperation<crate::F> {
 
                 config.mem_switches_target.initialized = true;
                 config.mem_switches_target.init = true;
+                config.mem_switches_target.init_caller = true;
                 config.mem_switches_target.counters = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
@@ -530,6 +531,7 @@ impl LedgerOperation<crate::F> {
 
                 config.mem_switches_target.initialized = true;
                 config.mem_switches_target.init = true;
+                config.mem_switches_target.init_caller = true;
                 config.mem_switches_target.counters = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
@@ -549,6 +551,7 @@ impl LedgerOperation<crate::F> {
                 config.execution_switches.init = true;
 
                 config.mem_switches_curr.init = true;
+                config.mem_switches_curr.init_caller = true;
             }
             LedgerOperation::Bind { .. } => {
                 config.execution_switches.bind = true;
@@ -697,6 +700,7 @@ impl LedgerOperation<crate::F> {
                 // The new process (target) is initialized.
                 target_write.initialized = true;
                 target_write.init = *val;
+                target_write.init_caller = curr_id;
                 target_write.counters = F::ZERO;
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
@@ -909,6 +913,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         tag: MemoryTag::Init.into(),
                     },
                     vec![F::from(0u64)], // None
+                );
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: MemoryTag::InitCaller.into(),
+                    },
+                    vec![F::from(0u64)],
                 );
 
                 for offset in 0..4 {
@@ -1608,7 +1619,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             switch,
             &wires.curr_read_wires.init,
             &wires.arg(ArgName::Val),
-            &wires.id_prev_value()?,
+            &wires.curr_read_wires.init_caller,
             &wires.arg(ArgName::Caller),
         )?;
 
@@ -1886,6 +1897,12 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         "RAM_ACTIVATION",
     );
     mb.register_mem(MemoryTag::Init.into(), 1, MemType::Ram, "RAM_INIT");
+    mb.register_mem(
+        MemoryTag::InitCaller.into(),
+        1,
+        MemType::Ram,
+        "RAM_INIT_CALLER",
+    );
     mb.register_mem(MemoryTag::Counters.into(), 1, MemType::Ram, "RAM_COUNTERS");
     mb.register_mem(
         MemoryTag::Initialized.into(),
