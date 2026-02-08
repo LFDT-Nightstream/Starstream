@@ -1,0 +1,96 @@
+use ark_ff::PrimeField;
+use ark_r1cs_std::{
+    GR1CSVar,
+    boolean::Boolean,
+    eq::EqGadget as _,
+    fields::{FieldVar, fp::FpVar},
+};
+use ark_relations::gr1cs::SynthesisError;
+
+#[derive(Copy, Clone, Debug, Default)]
+pub struct OptionalF<F: PrimeField>(F);
+
+impl<F: PrimeField> OptionalF<F> {
+    pub fn none() -> Self {
+        Self(F::ZERO)
+    }
+
+    pub fn new(value: F) -> Self {
+        Self(value + F::ONE)
+    }
+
+    pub fn from_option(value: Option<F>) -> Self {
+        value.map(Self::new).unwrap_or_else(Self::none)
+    }
+
+    pub fn encoded(self) -> F {
+        self.0
+    }
+
+    pub fn from_encoded(value: F) -> Self {
+        Self(value)
+    }
+
+    pub fn to_option(self) -> Option<F> {
+        if self.0 == F::ZERO {
+            None
+        } else {
+            Some(self.0 - F::ONE)
+        }
+    }
+
+    pub fn decode_or_zero(self) -> F {
+        self.to_option().unwrap_or(F::ZERO)
+    }
+}
+
+#[derive(Clone)]
+pub struct OptionalFpVar<F: PrimeField>(FpVar<F>);
+
+impl<F: PrimeField> OptionalFpVar<F> {
+    pub fn new(value: FpVar<F>) -> Self {
+        Self(value)
+    }
+
+    pub fn from_pid(value: &FpVar<F>) -> Self {
+        Self(value + FpVar::one())
+    }
+
+    pub fn encoded(&self) -> FpVar<F> {
+        self.0.clone()
+    }
+
+    pub fn is_some(&self) -> Result<Boolean<F>, SynthesisError> {
+        Ok(!self.0.is_zero()?)
+    }
+
+    pub fn decode_or_zero(&self) -> Result<FpVar<F>, SynthesisError> {
+        let is_zero = self.0.is_zero()?;
+        let value = &self.0 - FpVar::one();
+        is_zero.select(&FpVar::zero(), &value)
+    }
+
+    pub fn conditional_enforce_eq_if_some(
+        &self,
+        switch: &Boolean<F>,
+        value: &FpVar<F>,
+    ) -> Result<(), SynthesisError> {
+        let is_some = self.is_some()?;
+        let decoded = self.decode_or_zero()?;
+        decoded.conditional_enforce_equal(value, &(switch & is_some))?;
+        Ok(())
+    }
+
+    pub fn select_encoded(
+        switch: &Boolean<F>,
+        when_true: &OptionalFpVar<F>,
+        when_false: &OptionalFpVar<F>,
+    ) -> Result<OptionalFpVar<F>, SynthesisError> {
+        let selected = switch.select(&when_true.encoded(), &when_false.encoded())?;
+        Ok(OptionalFpVar::new(selected))
+    }
+
+    pub fn value(&self) -> Result<F, SynthesisError> {
+        self.0.value()
+    }
+}
