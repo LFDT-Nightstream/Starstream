@@ -2,29 +2,85 @@
 pub mod wasm_dsl;
 
 use sha2::{Digest, Sha256};
-use starstream_interleaving_spec::Ledger;
-use starstream_runtime::UnprovenTransaction;
+use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
+use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder};
+use std::marker::PhantomData;
+
+// this tests tries to encode something like a coordination script that provides a Cell interface
+//
+// we have the Cell implementation
+//
+// fn wrapper(inner: Coroutine<Cell>) {
+//   let cells = [];
+//
+//   try {
+//     resume(inner, ());
+//   }
+//   with Cell {
+//     fn new(): CellId {
+//       cells.push(F::ZERO); // note however that the test is simplified to a single cell to avoid needing an array
+//       resume cells.len();
+//     }
+//
+//     fn write(cell: CellId, val: Val) {
+//       cells[cell] = val;
+//
+//       resume ();
+//     }
+//
+//     fn read(cell: CellId): Val {
+//       resume cells[cell];
+//     }
+//   }
+// }
+//
+// fn inner(utxo1: Utxo1, utxo2: Utxo2) {
+//   let cell = raise Cell::new();
+//
+//   utxo1.foo(cell);
+//   utxo2.bar(cell);
+// }
+//
+// utxo Utxo1 {
+//   fn foo(cell: CellId) / { Cell } {
+//     raise Cell::write(cell, 42);
+//   }
+// }
+//
+// utxo Utxo2 {
+//   fn bar(cell: CellId) / { Cell } {
+//     let v = raise Cell::read(cell);
+//   }
+// }
+//
+// fn main() {
+//   let utxo1 = Utxo1::new();
+//   let utxo2 = Utxo2::new();
+//
+//   wrapper {
+//     inner(utxo1, utxo2)
+//   }
+// }
 
 #[test]
 fn test_runtime_wrapper_coord_newcoord_handlers() {
-    // Interface id = (1,2,3,4)
-    //
-    // Protocol (request ref, size=1):
-    //   word0 = disc
-    //   word1 = arg1 (cell_ref)
-    //   word2 = arg2 (value)
-    //
-    // request discs:
-    //   1 = new_cell
-    //   2 = write(cell_ref, value)
-    //   3 = read(cell_ref)
-    //   4 = end
-    //
-    // response discs:
-    //   10 = ack
-    //   11 = new_cell_resp(cell_ref)
-    //   12 = read_resp(value)
-    //   13 = end_ack
+    register_mermaid_decoder(interface_id(1, 2, 3, 4), |values| {
+        let disc = values.get(0)?.0;
+        let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
+        let v2 = values.get(2).map(|v| v.0).unwrap_or(0);
+        let label = match disc {
+            1 => "disc=new_cell".to_string(),
+            2 => format!("disc=write cell={v1} value={v2}"),
+            3 => format!("disc=read cell={v1}"),
+            4 => "disc=end".to_string(),
+            10 => "disc=ack".to_string(),
+            11 => format!("disc=new_cell_resp cell={v1}"),
+            12 => format!("disc=read_resp value={v1}"),
+            13 => "disc=end_ack".to_string(),
+            _ => return None,
+        };
+        Some(label)
+    });
 
     let utxo1_bin = wasm_module!({
         let (init_ref, _caller) = call activation();
@@ -37,7 +93,9 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
         let (_resp, _caller2) = call resume(handler_id, req);
 
-        let (_req2, _caller3) = call yield_(init_ref);
+        let done = call new_ref(1);
+        call ref_push(0, 0, 0, 0);
+        let (_req2, _caller3) = call yield_(done);
     });
 
     let utxo2_bin = wasm_module!({
@@ -53,7 +111,9 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
         assert_eq val, 42;
 
-        let (_req2, _caller3) = call yield_(init_ref);
+        let done = call new_ref(1);
+        call ref_push(0, 0, 0, 0);
+        let (_req2, _caller3) = call yield_(done);
     });
 
     let (utxo1_hash_limb_a, utxo1_hash_limb_b, utxo1_hash_limb_c, utxo1_hash_limb_d) =
@@ -262,4 +322,13 @@ fn print_wat(name: &str, wasm: &[u8]) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
     }
+}
+
+fn interface_id(a: u64, b: u64, c: u64, d: u64) -> InterfaceId {
+    let mut buffer = [0u8; 32];
+    buffer[0..8].copy_from_slice(&a.to_le_bytes());
+    buffer[8..16].copy_from_slice(&b.to_le_bytes());
+    buffer[16..24].copy_from_slice(&c.to_le_bytes());
+    buffer[24..32].copy_from_slice(&d.to_le_bytes());
+    Hash(buffer, PhantomData)
 }

@@ -12,6 +12,7 @@ use wasmi::{
 };
 
 mod trace_mermaid;
+pub use trace_mermaid::register_mermaid_decoder;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
