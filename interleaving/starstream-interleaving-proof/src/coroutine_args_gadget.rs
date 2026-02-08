@@ -31,10 +31,10 @@ pub fn check_init(
     switch: &Boolean<F>,
     init: &FpVar<F>,
     arg_val: &FpVar<F>,
-    expected_caller: &FpVar<F>,
+    init_caller: &FpVar<F>,
     arg_caller: &FpVar<F>,
 ) -> Result<(), SynthesisError> {
     init.conditional_enforce_equal(arg_val, switch)?;
-    expected_caller.conditional_enforce_equal(arg_caller, switch)?;
+    init_caller.conditional_enforce_equal(arg_caller, switch)?;
     Ok(())
 }

@@ -19,6 +19,7 @@ pub struct ProgramState {
     pub yield_to: OptionalF<F>,
     pub activation: F,
     pub init: F,
+    pub init_caller: F,
     pub counters: F,
     pub initialized: bool,
     pub finalized: bool,
@@ -35,6 +36,7 @@ pub struct ProgramStateWires {
     pub yield_to: OptionalFpVar<F>,
     pub activation: FpVar<F>,
     pub init: FpVar<F>,
+    pub init_caller: FpVar<F>,
     pub counters: FpVar<F>,
     pub initialized: Boolean<F>,
     pub finalized: Boolean<F>,
@@ -49,6 +51,7 @@ struct RawProgramState<V> {
     yield_to: V,
     activation: V,
     init: V,
+    init_caller: V,
     counters: V,
     initialized: V,
     finalized: V,
@@ -67,6 +70,7 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     let on_yield = dsl.read(&switches.on_yield, MemoryTag::OnYield, addr)?;
     let yield_to = dsl.read(&switches.yield_to, MemoryTag::YieldTo, addr)?;
     let (activation, init) = coroutine_args_ops(dsl, &switches.activation, &switches.init, addr)?;
+    let init_caller = dsl.read(&switches.init_caller, MemoryTag::InitCaller, addr)?;
     let counters = dsl.read(&switches.counters, MemoryTag::Counters, addr)?;
     let initialized = dsl.read(&switches.initialized, MemoryTag::Initialized, addr)?;
     let finalized = dsl.read(&switches.finalized, MemoryTag::Finalized, addr)?;
@@ -80,6 +84,7 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
         yield_to,
         activation,
         init,
+        init_caller,
         counters,
         initialized,
         finalized,
@@ -126,6 +131,12 @@ fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
     )?;
     dsl.write(&switches.init, MemoryTag::Init, addr, &state.init)?;
     dsl.write(
+        &switches.init_caller,
+        MemoryTag::InitCaller,
+        addr,
+        &state.init_caller,
+    )?;
+    dsl.write(
         &switches.counters,
         MemoryTag::Counters,
         addr,
@@ -166,6 +177,7 @@ fn raw_from_state(state: &ProgramState) -> RawProgramState<F> {
         yield_to: state.yield_to.encoded(),
         activation: state.activation,
         init: state.init,
+        init_caller: state.init_caller,
         counters: state.counters,
         initialized: F::from(state.initialized),
         finalized: F::from(state.finalized),
@@ -182,6 +194,7 @@ fn raw_from_wires(state: &ProgramStateWires) -> RawProgramState<FpVar<F>> {
         yield_to: state.yield_to.encoded(),
         activation: state.activation.clone(),
         init: state.init.clone(),
+        init_caller: state.init_caller.clone(),
         counters: state.counters.clone(),
         initialized: state.initialized.clone().into(),
         finalized: state.finalized.clone().into(),
@@ -208,6 +221,7 @@ impl ProgramStateWires {
             })?),
             activation: FpVar::new_witness(cs.clone(), || Ok(write_values.activation))?,
             init: FpVar::new_witness(cs.clone(), || Ok(write_values.init))?,
+            init_caller: FpVar::new_witness(cs.clone(), || Ok(write_values.init_caller))?,
             counters: FpVar::new_witness(cs.clone(), || Ok(write_values.counters))?,
             initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
             finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
@@ -263,6 +277,7 @@ pub fn trace_program_state_reads<M: IVCMemory<F>>(
         yield_to: OptionalF::from_encoded(raw.yield_to),
         activation: raw.activation,
         init: raw.init,
+        init_caller: raw.init_caller,
         counters: raw.counters,
         initialized: raw.initialized == F::ONE,
         finalized: raw.finalized == F::ONE,
@@ -287,6 +302,7 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
         yield_to: OptionalFpVar::new(raw.yield_to),
         activation: raw.activation,
         init: raw.init,
+        init_caller: raw.init_caller,
         counters: raw.counters,
         initialized: raw.initialized.is_one()?,
         finalized: raw.finalized.is_one()?,
@@ -305,6 +321,7 @@ impl ProgramState {
             yield_to: OptionalF::none(),
             activation: F::ZERO,
             init: F::ZERO,
+            init_caller: F::ZERO,
             counters: F::ZERO,
             initialized: false,
             did_burn: false,

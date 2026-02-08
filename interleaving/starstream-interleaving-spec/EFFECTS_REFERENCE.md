@@ -153,13 +153,18 @@ Rule: Activation
 
 ## Init
 
+TODO: init should probably only be callable in the tx that creates the utxo
+(otherwise we'd need to explicitly store the input in the ledger, even if it's
+never used again).
+
 Rule: Init
 ===========
     op = Init() -> (val, caller)
 
     1. init[id_curr] == Some(val, caller)
+    2. caller is the creator (the process that executed NewUtxo/NewCoord for this id)
 
-    2. let t = CC[id_curr] in
+    3. let t = CC[id_curr] in
        let c = counters[id_curr] in
            t[c] == <Init, val, caller>
 
