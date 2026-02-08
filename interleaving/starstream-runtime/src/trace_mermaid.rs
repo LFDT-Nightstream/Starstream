@@ -1,11 +1,12 @@
 use crate::RuntimeState;
 use starstream_interleaving_spec::{
-    InterleavingInstance, ProcessId, REF_PUSH_WIDTH, REF_WRITE_WIDTH, Ref, Value, WitEffectOutput,
-    WitLedgerEffect,
+    InterfaceId, InterleavingInstance, ProcessId, REF_PUSH_WIDTH, REF_WRITE_WIDTH, Ref, Value,
+    WitEffectOutput, WitLedgerEffect,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::{env, fs, time};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -13,6 +14,19 @@ enum DecodeMode {
     None,
     ResponseOnly,
     RequestAndResponse,
+}
+
+type MermaidDecoder = Arc<dyn Fn(&[Value]) -> Option<String> + Send + Sync + 'static>;
+
+static MERMAID_DECODERS: OnceLock<Mutex<HashMap<InterfaceId, MermaidDecoder>>> = OnceLock::new();
+
+pub fn register_mermaid_decoder(
+    interface_id: InterfaceId,
+    decoder: impl Fn(&[Value]) -> Option<String> + Send + Sync + 'static,
+) {
+    let map = MERMAID_DECODERS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = map.lock().expect("mermaid decoder lock poisoned");
+    map.insert(interface_id, Arc::new(decoder));
 }
 
 pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState) {
@@ -38,6 +52,7 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
     let mut ref_store: HashMap<Ref, Vec<Value>> = HashMap::new();
     let mut ref_state: HashMap<ProcessId, (Ref, usize, usize)> = HashMap::new();
     let mut handler_targets: HashMap<ProcessId, ProcessId> = HashMap::new();
+    let mut handler_interfaces: HashMap<ProcessId, InterfaceId> = HashMap::new();
 
     for (idx, (pid, effect)) in state.interleaving.iter().enumerate() {
         if let Some(line) = format_edge_line(
@@ -48,6 +63,7 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
             effect,
             &ref_store,
             &handler_targets,
+            &handler_interfaces,
             &state.interleaving,
         ) {
             out.push_str("    ");
@@ -56,7 +72,7 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
         }
 
         apply_ref_mutations(*pid, effect, &mut ref_store, &mut ref_state);
-        update_handler_targets(*pid, effect, &mut handler_targets);
+        update_handler_targets(*pid, effect, &mut handler_targets, &mut handler_interfaces);
     }
 
     let ts = time::SystemTime::now()
@@ -137,11 +153,15 @@ fn format_edge_line(
     effect: &WitLedgerEffect,
     ref_store: &HashMap<Ref, Vec<Value>>,
     handler_targets: &HashMap<ProcessId, ProcessId>,
+    handler_interfaces: &HashMap<ProcessId, InterfaceId>,
     interleaving: &[(ProcessId, WitLedgerEffect)],
 ) -> Option<String> {
     let from = labels.get(pid.0)?;
     match effect {
         WitLedgerEffect::Resume { target, val, .. } => {
+            let interface_id = handler_interfaces
+                .get(target)
+                .or_else(|| handler_interfaces.get(&pid));
             let decode_mode = if handler_targets.get(&pid) == Some(target) {
                 DecodeMode::RequestAndResponse
             } else if handler_targets.get(target) == Some(&pid) {
@@ -153,7 +173,7 @@ fn format_edge_line(
             };
             let label = format!(
                 "resume<br/>{}",
-                format_ref_with_value(ref_store, *val, decode_mode)
+                format_ref_with_value(ref_store, *val, interface_id, decode_mode)
             );
             let to = labels.get(target.0)?;
             Some(format!("{from} ->> {to}: {label}"))
@@ -162,7 +182,7 @@ fn format_edge_line(
             let next_pid = interleaving.get(idx + 1).map(|(p, _)| *p)?;
             let label = format!(
                 "yield<br/>{}",
-                format_ref_with_value(ref_store, *val, DecodeMode::None)
+                format_ref_with_value(ref_store, *val, None, DecodeMode::None)
             );
             let to = labels.get(next_pid.0)?;
             Some(format!("{from} -->> {to}: {label}"))
@@ -190,19 +210,18 @@ fn format_edge_line(
 fn format_ref_with_value(
     ref_store: &HashMap<Ref, Vec<Value>>,
     reff: Ref,
+    interface_id: Option<&InterfaceId>,
     decode_mode: DecodeMode,
 ) -> String {
     let mut out = format!("ref={}", reff.0);
-    if decode_mode == DecodeMode::None {
-        return out;
-    }
     if let Some(values) = ref_store.get(&reff) {
-        if let Some(extra) = decode_cell_protocol(values, decode_mode) {
-            out.push(' ');
-            out.push('[');
-            out.push_str(&extra);
-            out.push(']');
-        }
+        let extra = interface_id
+            .and_then(|id| decode_with_registry(id, values, decode_mode))
+            .unwrap_or_else(|| format_raw_values(values));
+        out.push(' ');
+        out.push('[');
+        out.push_str(&extra);
+        out.push(']');
     }
     out
 }
@@ -210,44 +229,34 @@ fn format_ref_with_value(
 fn format_ref_with_values(ref_store: &HashMap<Ref, Vec<Value>>, reff: Ref) -> String {
     let mut out = format!("ref={}", reff.0);
     if let Some(values) = ref_store.get(&reff) {
-        let v0 = values.get(0).map(|v| v.0).unwrap_or(0);
-        let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
-        let v2 = values.get(2).map(|v| v.0).unwrap_or(0);
-        let v3 = values.get(3).map(|v| v.0).unwrap_or(0);
         out.push(' ');
         out.push('[');
-        out.push_str(&format!("vals={v0},{v1},{v2},{v3}"));
+        out.push_str(&format_raw_values(values));
         out.push(']');
     }
     out
 }
 
-fn decode_cell_protocol(values: &[Value], decode_mode: DecodeMode) -> Option<String> {
-    let disc = values.get(0)?.0;
+fn format_raw_values(values: &[Value]) -> String {
+    let v0 = values.get(0).map(|v| v.0).unwrap_or(0);
     let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
     let v2 = values.get(2).map(|v| v.0).unwrap_or(0);
-    let is_request = matches!(disc, 1 | 2 | 3 | 4);
-    let is_response = matches!(disc, 10 | 11 | 12 | 13);
-    if is_request && decode_mode == DecodeMode::ResponseOnly {
+    let v3 = values.get(3).map(|v| v.0).unwrap_or(0);
+    format!("vals={v0},{v1},{v2},{v3}")
+}
+
+fn decode_with_registry(
+    interface_id: &InterfaceId,
+    values: &[Value],
+    decode_mode: DecodeMode,
+) -> Option<String> {
+    if decode_mode == DecodeMode::None {
         return None;
     }
-    if decode_mode == DecodeMode::RequestAndResponse
-        || (decode_mode == DecodeMode::ResponseOnly && is_response)
-    {
-        let label = match disc {
-            1 => "disc=new_cell".to_string(),
-            2 => format!("disc=write cell={v1} value={v2}"),
-            3 => format!("disc=read cell={v1}"),
-            4 => "disc=end".to_string(),
-            10 => "disc=ack".to_string(),
-            11 => format!("disc=new_cell_resp cell={v1}"),
-            12 => format!("disc=read_resp value={v1}"),
-            13 => "disc=end_ack".to_string(),
-            _ => return None,
-        };
-        return Some(label);
-    }
-    None
+    let map = MERMAID_DECODERS.get_or_init(|| Mutex::new(HashMap::new()));
+    let map = map.lock().ok()?;
+    let decoder = map.get(interface_id)?.clone();
+    decoder(values)
 }
 
 fn apply_ref_mutations(
@@ -296,10 +305,16 @@ fn update_handler_targets(
     pid: ProcessId,
     effect: &WitLedgerEffect,
     handler_targets: &mut HashMap<ProcessId, ProcessId>,
+    handler_interfaces: &mut HashMap<ProcessId, InterfaceId>,
 ) {
-    if let WitLedgerEffect::GetHandlerFor { handler_id, .. } = effect {
+    if let WitLedgerEffect::GetHandlerFor {
+        handler_id,
+        interface_id,
+    } = effect
+    {
         if let WitEffectOutput::Resolved(handler_id) = handler_id {
             handler_targets.insert(pid, *handler_id);
+            handler_interfaces.insert(*handler_id, interface_id.clone());
         }
     }
 }

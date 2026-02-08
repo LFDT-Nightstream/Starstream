@@ -2,11 +2,25 @@
 pub mod wasm_dsl;
 
 use sha2::{Digest, Sha256};
-use starstream_interleaving_spec::Ledger;
-use starstream_runtime::UnprovenTransaction;
+use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
+use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder};
+use std::marker::PhantomData;
+
+fn interface_id(a: u64, b: u64, c: u64, d: u64) -> InterfaceId {
+    let mut buffer = [0u8; 32];
+    buffer[0..8].copy_from_slice(&a.to_le_bytes());
+    buffer[8..16].copy_from_slice(&b.to_le_bytes());
+    buffer[16..24].copy_from_slice(&c.to_le_bytes());
+    buffer[24..32].copy_from_slice(&d.to_le_bytes());
+    Hash(buffer, PhantomData)
+}
 
 #[test]
 fn test_runtime_simple_effect_handlers() {
+    register_mermaid_decoder(interface_id(1, 0, 0, 0), |values| {
+        let v0 = values.get(0)?.0;
+        Some(format!("val={v0}"))
+    });
     let utxo_bin = wasm_module!({
         let (_init_ref, caller) = call activation();
 
@@ -83,6 +97,16 @@ fn test_runtime_simple_effect_handlers() {
 
 #[test]
 fn test_runtime_effect_handlers_cross_calls() {
+    register_mermaid_decoder(interface_id(1, 2, 3, 4), |values| {
+        let disc = values.get(0)?.0;
+        let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
+        let label = match disc {
+            1 => format!("disc=forward num_ref={v1}"),
+            2 => format!("disc=stop num_ref={v1}"),
+            _ => return None,
+        };
+        Some(label)
+    });
     // this test emulates a coordination script acting as a middle-man for a channel-like flow
     //
     // utxo1 sends numbers, by encoding the request as (1, arg)
