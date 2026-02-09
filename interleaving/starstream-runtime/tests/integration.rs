@@ -18,7 +18,7 @@ fn interface_id(a: u64, b: u64, c: u64, d: u64) -> InterfaceId {
 #[test]
 fn test_runtime_simple_effect_handlers() {
     register_mermaid_decoder(interface_id(1, 0, 0, 0), |values| {
-        let v0 = values.get(0)?.0;
+        let v0 = values.first()?.0;
         Some(format!("val={v0}"))
     });
     let utxo_bin = wasm_module!({
@@ -98,7 +98,7 @@ fn test_runtime_simple_effect_handlers() {
 #[test]
 fn test_runtime_effect_handlers_cross_calls() {
     register_mermaid_decoder(interface_id(1, 2, 3, 4), |values| {
-        let disc = values.get(0)?.0;
+        let disc = values.first()?.0;
         let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
         let label = match disc {
             1 => format!("disc=forward num_ref={v1}"),
