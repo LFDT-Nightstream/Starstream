@@ -24,6 +24,12 @@ impl RefGenerator {
     }
 }
 
+impl Default for RefGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn h<T>(n: u8) -> Hash<T> {
     // TODO: actual hashing
     let mut bytes = [0u8; 32];
@@ -150,5 +156,11 @@ impl TransactionBuilder {
             body: self.body,
             witness,
         }
+    }
+}
+
+impl Default for TransactionBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }

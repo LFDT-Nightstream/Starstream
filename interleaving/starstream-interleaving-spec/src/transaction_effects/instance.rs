@@ -53,6 +53,7 @@ pub struct InterleavingInstance {
 }
 
 impl InterleavingInstance {
+    #[allow(clippy::result_large_err)]
     pub fn check_shape(&self) -> Result<(), InterleavingError> {
         // ---------- shape checks ----------
         // TODO: a few of these may be redundant
@@ -104,8 +105,6 @@ impl InterleavingInstance {
         //
         // TODO: de-harcode the 13
         // it's supposed to be the twist index of the TraceCommitments memory
-        let output_binding_config = OutputBindingConfig::new(num_bits, program_io).with_mem_idx(13);
-
-        output_binding_config
+        OutputBindingConfig::new(num_bits, program_io).with_mem_idx(13)
     }
 }

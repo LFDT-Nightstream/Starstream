@@ -30,6 +30,7 @@ fn ref_sizes_access_ops<D: OpcodeDsl>(
     dsl.read(read_cond, MemoryTag::RefSizes, read_addr)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ref_arena_access_ops<D: OpcodeDsl>(
     dsl: &mut D,
     read_cond: &D::Bool,
@@ -201,6 +202,7 @@ pub(crate) fn ref_arena_read_size<M: IVCMemoryAllocated<F>>(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn ref_arena_access_wires<M: IVCMemoryAllocated<F>>(
     cs: ConstraintSystemRef<F>,
     rm: &mut M,

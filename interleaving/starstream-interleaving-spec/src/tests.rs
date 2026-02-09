@@ -14,11 +14,11 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
 
     // Create input UTXO IDs
     let input_utxo_1 = UtxoId {
-        contract_hash: input_hash_1.clone(),
+        contract_hash: input_hash_1,
         nonce: 0,
     };
     let input_utxo_2 = UtxoId {
-        contract_hash: input_hash_2.clone(),
+        contract_hash: input_hash_2,
         nonce: 0,
     };
 
@@ -46,7 +46,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
                 pc: 0,
                 last_yield: v(b"yield_1"),
             },
-            contract_hash: input_hash_1.clone(),
+            contract_hash: input_hash_1,
         },
     );
     ledger.utxos.insert(
@@ -56,7 +56,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
                 pc: 0,
                 last_yield: v(b"yield_2"),
             },
-            contract_hash: input_hash_2.clone(),
+            contract_hash: input_hash_2,
         },
     );
 
@@ -68,8 +68,8 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
         .insert(input_utxo_2.clone(), input_2_coroutine.clone());
 
     // Set up contract counters
-    ledger.contract_counters.insert(input_hash_1.clone(), 1);
-    ledger.contract_counters.insert(input_hash_2.clone(), 1);
+    ledger.contract_counters.insert(input_hash_1, 1);
+    ledger.contract_counters.insert(input_hash_2, 1);
     ledger.contract_counters.insert(h(1), 0); // coord_hash
     ledger.contract_counters.insert(h(2), 0); // utxo_hash_a
     ledger.contract_counters.insert(h(3), 0); // utxo_hash_b
@@ -83,6 +83,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
     )
 }
 
+#[allow(clippy::result_large_err)]
 fn mock_genesis_and_apply_tx(proven_tx: ProvenTransaction) -> Result<Ledger, VerificationError> {
     let (ledger, _, _, _, _) = mock_genesis();
     ledger.apply_transaction(&proven_tx)
@@ -204,7 +205,7 @@ fn test_transaction_with_coord_and_utxos() {
             vals: v7(b"init_a"),
         },
         WitLedgerEffect::NewUtxo {
-            program_hash: utxo_hash_a.clone(),
+            program_hash: utxo_hash_a,
             val: init_a_ref,
             id: ProcessId(2).into(),
         },
@@ -216,7 +217,7 @@ fn test_transaction_with_coord_and_utxos() {
             vals: v7(b"init_b"),
         },
         WitLedgerEffect::NewUtxo {
-            program_hash: utxo_hash_b.clone(),
+            program_hash: utxo_hash_b,
             val: init_b_ref,
             id: ProcessId(3).into(),
         },
@@ -304,7 +305,7 @@ fn test_transaction_with_coord_and_utxos() {
                     pc: 0,
                     last_yield: v(b"done_a"),
                 },
-                contract_hash: utxo_hash_a.clone(),
+                contract_hash: utxo_hash_a,
             },
             utxo_a_trace,
         )
@@ -314,7 +315,7 @@ fn test_transaction_with_coord_and_utxos() {
                     pc: 0,
                     last_yield: v(b"done_b"),
                 },
-                contract_hash: utxo_hash_b.clone(),
+                contract_hash: utxo_hash_b,
             },
             utxo_b_trace,
         )
@@ -344,10 +345,10 @@ fn test_effect_handlers() {
         },
         WitLedgerEffect::ProgramHash {
             target: ProcessId(1),
-            program_hash: coord_hash.clone().into(),
+            program_hash: coord_hash.into(),
         },
         WitLedgerEffect::GetHandlerFor {
-            interface_id: interface_id.clone(),
+            interface_id,
             handler_id: ProcessId(1).into(),
         },
         WitLedgerEffect::NewRef {
@@ -371,9 +372,7 @@ fn test_effect_handlers() {
     ];
 
     let coord_trace = vec![
-        WitLedgerEffect::InstallHandler {
-            interface_id: interface_id.clone(),
-        },
+        WitLedgerEffect::InstallHandler { interface_id },
         WitLedgerEffect::NewRef {
             size: 1,
             ret: ref_gen.get("init_utxo").into(),
@@ -422,7 +421,7 @@ fn test_effect_handlers() {
                     pc: 0,
                     last_yield: v(b"utxo_final"),
                 },
-                contract_hash: utxo_hash.clone(),
+                contract_hash: utxo_hash,
             },
             utxo_trace,
         )
