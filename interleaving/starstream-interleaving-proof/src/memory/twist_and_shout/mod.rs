@@ -1,7 +1,6 @@
 use super::Address;
 use super::IVCMemory;
 use super::IVCMemoryAllocated;
-use crate::circuit::MemoryTag;
 use crate::memory::AllocatedAddress;
 use crate::memory::MemType;
 use ark_ff::PrimeField;
@@ -16,26 +15,6 @@ use ark_relations::gr1cs::SynthesisError;
 use neo_vm_trace::{Shout, Twist, TwistId, TwistOpKind};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
-
-pub const TWIST_DEBUG_FILTER: &[u32] = &[
-    MemoryTag::ExpectedInput as u32,
-    MemoryTag::ExpectedResumer as u32,
-    MemoryTag::OnYield as u32,
-    MemoryTag::YieldTo as u32,
-    MemoryTag::Activation as u32,
-    MemoryTag::Counters as u32,
-    MemoryTag::Initialized as u32,
-    MemoryTag::Finalized as u32,
-    MemoryTag::DidBurn as u32,
-    MemoryTag::Ownership as u32,
-    MemoryTag::Init as u32,
-    MemoryTag::RefArena as u32,
-    MemoryTag::RefSizes as u32,
-    MemoryTag::HandlerStackArenaProcess as u32,
-    MemoryTag::HandlerStackArenaNextPtr as u32,
-    MemoryTag::HandlerStackHeads as u32,
-    MemoryTag::TraceCommitments as u32,
-];
 
 #[derive(Debug, Clone)]
 pub struct ShoutCpuBinding {
@@ -322,19 +301,13 @@ impl<F: PrimeField> TSMemory<F> {
         let mut init = BTreeMap::<u64, BTreeMap<u64, F>>::new();
 
         for (address, val) in &self.init {
-            let is_rom = if let Some((_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
+            if let Some((_, _, MemType::Rom, _)) = self.mems.get(&address.tag) {
                 *rom_sizes.entry(address.tag).or_insert(0) += 1;
-
-                true
-            } else {
-                false
-            };
-
-            if is_rom || TWIST_DEBUG_FILTER.contains(&(address.tag as u32)) {
-                init.entry(address.tag)
-                    .or_default()
-                    .insert(address.addr, val[0]);
             }
+
+            init.entry(address.tag)
+                .or_default()
+                .insert(address.addr, val[0]);
         }
 
         TSMemInitTables {
@@ -461,9 +434,7 @@ impl<F: PrimeField> TSMemoryConstraints<F> {
                 complete.push(p.to_complete());
             }
 
-            if TWIST_DEBUG_FILTER.contains(&(*tag as u32)) {
-                twist_bindings.insert(*tag, complete);
-            }
+            twist_bindings.insert(*tag, complete);
         }
 
         TSMemLayouts {
@@ -516,9 +487,7 @@ impl<F: PrimeField> TSMemoryConstraints<F> {
 
             assert_eq!(event.op, kind);
 
-            if TWIST_DEBUG_FILTER.contains(&event.twist_id) {
-                self.step_events_twist.push(event.clone());
-            }
+            self.step_events_twist.push(event.clone());
 
             (F::from(event.addr), F::from(event.val))
         };
@@ -636,16 +605,14 @@ impl<F: PrimeField> TSMemoryConstraints<F> {
         let (has_read_val, ra_val, rv_val) = if cond_val {
             self.get_twist_traced_values(&address_val, lane, TwistOpKind::Read)?
         } else {
-            if TWIST_DEBUG_FILTER.contains(&(twist_id as u32)) {
-                self.step_events_twist.push(TwistEvent {
-                    twist_id: twist_id as u32,
-                    addr: 0,
-                    val: 0,
-                    op: TwistOpKind::Write,
-                    cond: cond_val,
-                    lane: Some(lane),
-                });
-            }
+            self.step_events_twist.push(TwistEvent {
+                twist_id: twist_id as u32,
+                addr: 0,
+                val: 0,
+                op: TwistOpKind::Write,
+                cond: cond_val,
+                lane: Some(lane),
+            });
 
             (F::ZERO, F::ZERO, F::ZERO)
         };
@@ -660,7 +627,6 @@ impl<F: PrimeField> TSMemoryConstraints<F> {
 
         if let Some(&(_, _lanes, MemType::Ram, _)) = self.mems.get(&tag)
             && self.is_first_step
-            && TWIST_DEBUG_FILTER.contains(&(tag as u32))
         {
             self.update_partial_twist_bindings_read(tag, base_index, lane as usize);
         }
@@ -765,16 +731,14 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for TSMemoryConstraints<F> {
         let (has_write_val, wa_val, wv_val) = if cond_val {
             self.get_twist_traced_values(&address_cpu, lane, TwistOpKind::Write)?
         } else {
-            if TWIST_DEBUG_FILTER.contains(&(twist_id as u32)) {
-                self.step_events_twist.push(TwistEvent {
-                    twist_id: twist_id as u32,
-                    addr: 0,
-                    val: 0,
-                    op: TwistOpKind::Write,
-                    cond: cond_val,
-                    lane: Some(lane),
-                });
-            }
+            self.step_events_twist.push(TwistEvent {
+                twist_id: twist_id as u32,
+                addr: 0,
+                val: 0,
+                op: TwistOpKind::Write,
+                cond: cond_val,
+                lane: Some(lane),
+            });
 
             (
                 F::ZERO,
@@ -787,7 +751,7 @@ impl<F: PrimeField> IVCMemoryAllocated<F> for TSMemoryConstraints<F> {
         let wa = FpVar::new_witness(cs.clone(), || Ok(wa_val))?;
         let wv = FpVar::new_witness(cs.clone(), || Ok(wv_val))?;
 
-        if self.is_first_step && TWIST_DEBUG_FILTER.contains(&(address_cpu.tag as u32)) {
+        if self.is_first_step {
             self.update_partial_twist_bindings_write(mem_tag, base_index, lane as usize);
         }
 
