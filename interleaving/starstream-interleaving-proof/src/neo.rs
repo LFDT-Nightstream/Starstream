@@ -1,9 +1,7 @@
 use crate::{
     ccs_step_shape,
     circuit::{InterRoundWires, IvcWireLayout, StepCircuitBuilder},
-    memory::twist_and_shout::{
-        TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints, TWIST_DEBUG_FILTER,
-    },
+    memory::twist_and_shout::{TSMemInitTables, TSMemLayouts, TSMemory, TSMemoryConstraints},
 };
 use ark_ff::PrimeField;
 use ark_goldilocks::FpGoldilocks;
@@ -134,10 +132,6 @@ impl NeoCircuit for StepCircuitNeo {
                         .padded_binary_table(dense_content);
                 }
                 crate::memory::MemType::Ram => {
-                    if !TWIST_DEBUG_FILTER.iter().any(|f| *tag == *f as u64) {
-                        continue;
-                    }
-
                     let twist_id = *tag as u32;
                     let k = 256usize; // TODO: hardcoded number
                     assert!(k > 0, "set_binary_mem_layout: k must be > 0");
