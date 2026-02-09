@@ -47,6 +47,7 @@ struct OpcodeConfig {
 
 pub struct StepCircuitBuilder<M> {
     pub instance: InterleavingInstance,
+    #[allow(dead_code)]
     pub last_yield: Vec<F>,
     pub ops: Vec<LedgerOperation<crate::F>>,
     write_ops: Vec<(ProgramState, ProgramState)>,
@@ -58,6 +59,15 @@ pub struct StepCircuitBuilder<M> {
 
     mem: PhantomData<M>,
 }
+
+type StepCircuitResult<M> = Result<
+    (
+        InterRoundWires,
+        <<M as IVCMemory<F>>::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
+        Option<IvcWireLayout>,
+    ),
+    SynthesisError,
+>;
 
 // OptionalF/OptionalFpVar live in optional.rs
 
@@ -726,7 +736,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let last_yield = instance
             .input_states
             .iter()
-            .map(|v| abi::value_to_field(v.last_yield.clone()))
+            .map(|v| abi::value_to_field(v.last_yield))
             .collect();
 
         let interface_resolver = InterfaceResolver::new(&ops);
@@ -752,14 +762,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         cs: ConstraintSystemRef<F>,
         mut irw: InterRoundWires,
         compute_ivc_layout: bool,
-    ) -> Result<
-        (
-            InterRoundWires,
-            <M::Allocator as IVCMemoryAllocated<F>>::FinishStepPayload,
-            Option<IvcWireLayout>,
-        ),
-        SynthesisError,
-    > {
+    ) -> StepCircuitResult<M> {
         rm.start_step(cs.clone()).unwrap();
 
         let _guard =
@@ -1749,8 +1752,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             wires.opcode_args[ArgName::PackedRef5.idx()].clone(),
         ];
 
-        for i in 0..REF_GET_BATCH_SIZE {
-            expected[i].conditional_enforce_equal(&wires.ref_arena_read[i], switch)?;
+        for (expected_val, read_val) in expected.iter().zip(wires.ref_arena_read.iter()) {
+            expected_val.conditional_enforce_equal(read_val, switch)?;
         }
 
         Ok(wires)
@@ -1997,6 +2000,7 @@ fn fpvar_witness_index(
 }
 
 impl PreWires {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         irw: InterRoundWires,
         curr_mem_switches: MemSwitchboardBool,
@@ -2043,10 +2047,10 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
 
     let mut concat_data = [F::ZERO; 12];
 
-    for i in 0..4 {
+    for (i, slot) in concat_data.iter_mut().take(4).enumerate() {
         let addr = (curr_pid * 4) + i;
 
-        concat_data[i] = mb.conditional_read(
+        *slot = mb.conditional_read(
             true,
             Address {
                 tag: MemoryTag::TraceCommitments.into(),
@@ -2056,13 +2060,11 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
     }
 
     concat_data[4] = config.opcode_discriminant;
-    for i in 0..OPCODE_ARG_COUNT {
-        concat_data[i + 5] = config.opcode_args[i];
-    }
+    concat_data[5..(OPCODE_ARG_COUNT + 5)].copy_from_slice(&config.opcode_args[..]);
 
     let new_commitment = ark_poseidon2::compress_12_trace(&concat_data).unwrap();
 
-    for i in 0..4 {
+    for (i, elem) in new_commitment.iter().enumerate() {
         let addr = (curr_pid * 4) + i;
 
         mb.conditional_write(
@@ -2071,7 +2073,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
                 addr: addr as u64,
                 tag: MemoryTag::TraceCommitments.into(),
             },
-            vec![new_commitment[i]],
+            vec![*elem],
         );
     }
 }

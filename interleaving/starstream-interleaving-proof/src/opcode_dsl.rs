@@ -190,7 +190,7 @@ impl<'a, M: IVCMemoryAllocated<F>> OpcodeDsl for OpcodeSynthDsl<'a, M> {
                 tag: tag.allocate(self.cs.clone())?,
                 addr: addr.clone(),
             },
-            &[val.clone()],
+            std::slice::from_ref(val),
         )
     }
 }

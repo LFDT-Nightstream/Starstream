@@ -18,7 +18,6 @@ use crate::{
 use ark_ff::Zero;
 use ark_goldilocks::FpGoldilocks;
 use std::collections::HashMap;
-use thiserror;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LedgerEffectsCommitment(pub [FpGoldilocks; 4]);
@@ -215,7 +214,7 @@ pub enum InterleavingError {
 
 // ---------------------------- verifier ----------------------------
 
-pub struct ROM {
+pub struct Rom {
     process_table: Vec<Hash<WasmModule>>,
     must_burn: Vec<bool>,
     is_utxo: Vec<bool>,
@@ -259,6 +258,7 @@ pub struct InterleavingState {
     handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
 }
 
+#[allow(clippy::result_large_err)]
 pub fn verify_interleaving_semantics(
     inst: &InterleavingInstance,
     wit: &InterleavingWitness,
@@ -277,7 +277,7 @@ pub fn verify_interleaving_semantics(
     // explicitly in the instance.
     let claims_memory = vec![None; n];
 
-    let rom = ROM {
+    let rom = Rom {
         process_table: inst.process_table.clone(),
         must_burn: inst.must_burn.clone(),
         is_utxo: inst.is_utxo.clone(),
@@ -407,9 +407,10 @@ pub fn verify_interleaving_semantics(
     Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 pub fn state_transition(
     mut state: InterleavingState,
-    rom: &ROM,
+    rom: &Rom,
     op: WitLedgerEffect,
 ) -> Result<InterleavingState, InterleavingError> {
     let id_curr = state.id_curr;
@@ -439,10 +440,8 @@ pub fn state_transition(
         });
     }
 
-    if state.ref_building.contains_key(&id_curr) {
-        if !matches!(op, WitLedgerEffect::RefPush { .. }) {
-            return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
-        }
+    if state.ref_building.contains_key(&id_curr) && !matches!(op, WitLedgerEffect::RefPush { .. }) {
+        return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
     }
 
     state.counters[id_curr.0] += 1;
@@ -475,24 +474,24 @@ pub fn state_transition(
 
             state.activation[id_curr.0] = None;
 
-            if let Some(expected) = state.expected_input[target.0] {
-                if expected != val {
-                    return Err(InterleavingError::ResumeClaimMismatch {
-                        target,
-                        expected: expected.clone(),
-                        got: val.clone(),
-                    });
-                }
+            if let Some(expected) = state.expected_input[target.0]
+                && expected != val
+            {
+                return Err(InterleavingError::ResumeClaimMismatch {
+                    target,
+                    expected,
+                    got: val,
+                });
             }
 
-            if let Some(expected) = state.expected_resumer[target.0] {
-                if expected != id_curr {
-                    return Err(InterleavingError::ResumerMismatch {
-                        target,
-                        expected,
-                        got: id_curr,
-                    });
-                }
+            if let Some(expected) = state.expected_resumer[target.0]
+                && expected != id_curr
+            {
+                return Err(InterleavingError::ResumerMismatch {
+                    target,
+                    expected,
+                    got: id_curr,
+                });
             }
 
             state.activation[target.0] = Some((val, id_curr));
@@ -524,14 +523,14 @@ pub fn state_transition(
                 .get(&val)
                 .ok_or(InterleavingError::RefNotFound(val))?;
 
-            if let Some(expected) = state.expected_resumer[parent.0] {
-                if expected != id_curr {
-                    return Err(InterleavingError::ResumerMismatch {
-                        target: parent,
-                        expected,
-                        got: id_curr,
-                    });
-                }
+            if let Some(expected) = state.expected_resumer[parent.0]
+                && expected != id_curr
+            {
+                return Err(InterleavingError::ResumerMismatch {
+                    target: parent,
+                    expected,
+                    got: id_curr,
+                });
             }
 
             match ret.to_option() {
@@ -571,7 +570,7 @@ pub fn state_transition(
             program_hash,
         } => {
             // check lookup against process_table
-            let expected = rom.process_table[target.0].clone();
+            let expected = rom.process_table[target.0];
             if expected != program_hash.unwrap() {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target,
@@ -596,7 +595,7 @@ pub fn state_transition(
             if rom.process_table[id.0] != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target: id,
-                    expected: rom.process_table[id.0].clone(),
+                    expected: rom.process_table[id.0],
                     got: program_hash,
                 });
             }
@@ -609,7 +608,7 @@ pub fn state_transition(
                 ));
             }
             state.initialized[id.0] = true;
-            state.init[id.0] = Some((val.clone(), id_curr));
+            state.init[id.0] = Some((val, id_curr));
             state.expected_input[id.0] = None;
             state.expected_resumer[id.0] = None;
             state.on_yield[id.0] = true;
@@ -631,7 +630,7 @@ pub fn state_transition(
             if rom.process_table[id.0] != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target: id,
-                    expected: rom.process_table[id.0].clone(),
+                    expected: rom.process_table[id.0],
                     got: program_hash,
                 });
             }
@@ -647,7 +646,7 @@ pub fn state_transition(
             }
 
             state.initialized[id.0] = true;
-            state.init[id.0] = Some((val.clone(), id_curr));
+            state.init[id.0] = Some((val, id_curr));
             state.expected_input[id.0] = None;
             state.expected_resumer[id.0] = None;
             state.on_yield[id.0] = true;
@@ -669,7 +668,7 @@ pub fn state_transition(
             if rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::CoordOnly(id_curr));
             }
-            let stack = state.handler_stack.entry(interface_id.clone()).or_default();
+            let stack = state.handler_stack.entry(interface_id).or_default();
             let Some(top) = stack.last().copied() else {
                 return Err(InterleavingError::HandlerNotFound {
                     interface_id,
@@ -694,7 +693,7 @@ pub fn state_transition(
             interface_id,
             handler_id,
         } => {
-            let stack = state.handler_stack.entry(interface_id.clone()).or_default();
+            let stack = state.handler_stack.entry(interface_id).or_default();
             let expected = stack.last().copied();
             if expected != Some(handler_id.unwrap()) {
                 return Err(InterleavingError::HandlerGetMismatch {

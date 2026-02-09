@@ -93,7 +93,7 @@ fn compress_trace_generic<
 
     let compressed = poseidon2_compress::<WIDTH, 4, F, ExtLinear, IntLinear>(
         inputs[..].try_into().unwrap(),
-        &constants,
+        constants,
     )?;
 
     Ok(std::array::from_fn(|i| compressed[i].value().unwrap()))

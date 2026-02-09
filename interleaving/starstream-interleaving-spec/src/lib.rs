@@ -29,7 +29,7 @@ impl<T> Copy for Hash<T> {}
 
 impl<T> Clone for Hash<T> {
     fn clone(&self) -> Self {
-        Self(self.0.clone(), self.1.clone())
+        *self
     }
 }
 
@@ -81,6 +81,7 @@ pub struct CoroutineState {
 
 // pub struct ZkTransactionProof {}
 
+#[allow(clippy::large_enum_variant)]
 pub enum ZkTransactionProof {
     NeoProof {
         // does the verifier need this?
@@ -96,6 +97,7 @@ pub enum ZkTransactionProof {
 }
 
 impl ZkTransactionProof {
+    #[allow(clippy::result_large_err)]
     pub fn verify(
         &self,
         inst: &InterleavingInstance,
@@ -113,9 +115,9 @@ impl ZkTransactionProof {
 
                 let ok = session
                     .verify_with_output_binding_simple(
-                        &ccs,
-                        &mcss_public,
-                        &proof,
+                        ccs,
+                        mcss_public,
+                        proof,
                         &output_binding_config,
                     )
                     .expect("verify should run");
@@ -190,6 +192,7 @@ impl ZkWasmProof {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn verify(
         &self,
         _input: Option<CoroutineState>,
@@ -367,6 +370,7 @@ impl Ledger {
         }
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn apply_transaction(&self, tx: &ProvenTransaction) -> Result<Ledger, VerificationError> {
         let mut new_ledger = self.clone();
 
@@ -419,7 +423,7 @@ impl Ledger {
             let parent_utxo_id = &tx.body.inputs[i];
 
             // A continuation has the same contract hash as the input it resumes
-            let contract_hash = self.utxos[parent_utxo_id].contract_hash.clone();
+            let contract_hash = self.utxos[parent_utxo_id].contract_hash;
 
             let parent_state = self.utxos[parent_utxo_id].state.clone();
 
@@ -433,11 +437,11 @@ impl Ledger {
                 // Allocate new UtxoId for the continued output
                 let counter = new_ledger
                     .contract_counters
-                    .entry(contract_hash.clone())
+                    .entry(contract_hash)
                     .or_insert(0);
 
                 let utxo_id = UtxoId {
-                    contract_hash: contract_hash.clone(),
+                    contract_hash,
                     nonce: *counter,
                 };
                 *counter += 1;
@@ -471,16 +475,16 @@ impl Ledger {
             // code, not just resumptions of the same coroutine
             let counter = new_ledger
                 .contract_counters
-                .entry(out.contract_hash.clone())
+                .entry(out.contract_hash)
                 .or_insert(0);
             let utxo_id = UtxoId {
-                contract_hash: out.contract_hash.clone(),
+                contract_hash: out.contract_hash,
                 nonce: *counter,
             };
             *counter += 1;
 
             let coroutine_id = CoroutineId {
-                creation_tx_hash: tx_hash.clone(),
+                creation_tx_hash: tx_hash,
                 // creation_output_index is relative to new_outputs (as before)
                 creation_output_index: j as u64,
             };
@@ -496,7 +500,7 @@ impl Ledger {
                 utxo_id,
                 UtxoEntry {
                     state: out.state.clone(),
-                    contract_hash: out.contract_hash.clone(),
+                    contract_hash: out.contract_hash,
                 },
             );
         }
@@ -531,7 +535,7 @@ impl Ledger {
 
             dbg!(&input_id);
 
-            if let None = new_ledger.utxos.remove(input_id) {
+            if new_ledger.utxos.remove(input_id).is_none() {
                 return Err(VerificationError::InputNotFound);
             }
 
@@ -541,6 +545,7 @@ impl Ledger {
         Ok(new_ledger)
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn verify_witness(
         &self,
         body: &TransactionBody,
@@ -608,8 +613,8 @@ impl Ledger {
         let process_table = body
             .inputs
             .iter()
-            .map(|input| self.utxos[input].contract_hash.clone())
-            .chain(body.new_outputs.iter().map(|o| o.contract_hash.clone()))
+            .map(|input| self.utxos[input].contract_hash)
+            .chain(body.new_outputs.iter().map(|o| o.contract_hash))
             .chain(body.coordination_scripts_keys.iter().cloned())
             .collect::<Vec<_>>();
 
@@ -719,6 +724,13 @@ impl Ledger {
     }
 }
 
+impl Default for Ledger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[allow(clippy::result_large_err)]
 pub fn build_wasm_instances_in_canonical_order(
     spending: &[ZkWasmProof],
     new_outputs: &[ZkWasmProof],
@@ -752,6 +764,6 @@ impl<T> std::hash::Hash for Hash<T> {
 
 impl<T> std::fmt::Debug for Hash<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Hash({})", hex::encode(&self.0))
+        write!(f, "Hash({})", hex::encode(self.0))
     }
 }
