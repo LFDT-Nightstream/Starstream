@@ -122,6 +122,12 @@ pub struct Runtime {
     pub store: Store<RuntimeState>,
 }
 
+impl Default for Runtime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Runtime {
     pub fn new() -> Self {
         let config = Config::default();
@@ -230,17 +236,14 @@ impl Runtime {
                     let limit = caller.data().process_hashes.len();
                     for i in 0..limit {
                         let pid = ProcessId(i);
-                        if !caller.data().allocated_processes.contains(&pid) {
-                            if let Some(ph) = caller.data().process_hashes.get(&pid) {
-                                if *ph == h {
-                                    if let Some(&is_u) = caller.data().is_utxo.get(&pid) {
-                                        if is_u {
-                                            found_id = Some(pid);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
+                        if !caller.data().allocated_processes.contains(&pid)
+                            && let Some(ph) = caller.data().process_hashes.get(&pid)
+                            && *ph == h
+                            && let Some(&is_u) = caller.data().is_utxo.get(&pid)
+                            && is_u
+                        {
+                            found_id = Some(pid);
+                            break;
                         }
                     }
                     let id = found_id.ok_or(wasmi::Error::new("no matching utxo process found"))?;
@@ -283,17 +286,14 @@ impl Runtime {
                     let limit = caller.data().process_hashes.len();
                     for i in 0..limit {
                         let pid = ProcessId(i);
-                        if !caller.data().allocated_processes.contains(&pid) {
-                            if let Some(ph) = caller.data().process_hashes.get(&pid) {
-                                if *ph == h {
-                                    if let Some(&is_u) = caller.data().is_utxo.get(&pid) {
-                                        if !is_u {
-                                            found_id = Some(pid);
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
+                        if !caller.data().allocated_processes.contains(&pid)
+                            && let Some(ph) = caller.data().process_hashes.get(&pid)
+                            && *ph == h
+                            && let Some(&is_u) = caller.data().is_utxo.get(&pid)
+                            && !is_u
+                        {
+                            found_id = Some(pid);
+                            break;
                         }
                     }
                     let id =
@@ -333,7 +333,7 @@ impl Runtime {
                     caller
                         .data_mut()
                         .handler_stack
-                        .entry(interface_id.clone())
+                        .entry(interface_id)
                         .or_default()
                         .push(current_pid);
                     suspend_with_effect(
@@ -653,7 +653,12 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>, token_id: u64| -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     let token_id = ProcessId(token_id as usize);
-                    if caller.data().ownership.get(&token_id) != Some(&Some(current_pid)) {}
+                    if caller.data().ownership.get(&token_id) != Some(&Some(current_pid)) {
+                        eprintln!(
+                            "unbind called by non-owner: token_id={}, current_pid={}",
+                            token_id.0, current_pid.0
+                        );
+                    }
                     caller.data_mut().ownership.insert(token_id, None);
                     suspend_with_effect(&mut caller, WitLedgerEffect::Unbind { token_id })
                 },
@@ -680,12 +685,11 @@ impl Runtime {
                  target_pid: u64|
                  -> Result<(u64, u64, u64, u64), wasmi::Error> {
                     let target = ProcessId(target_pid as usize);
-                    let program_hash = caller
+                    let program_hash = *caller
                         .data()
                         .process_hashes
                         .get(&target)
-                        .ok_or(wasmi::Error::new("process hash not found"))?
-                        .clone();
+                        .ok_or(wasmi::Error::new("process hash not found"))?;
 
                     suspend_with_effect(
                         &mut caller,
@@ -730,8 +734,8 @@ impl UnprovenTransaction {
         let traces = &witness.traces;
 
         // Inputs
-        for i in 0..n_inputs {
-            let trace = traces[i].clone();
+        for (i, trace) in traces.iter().enumerate().take(n_inputs) {
+            let trace = trace.clone();
             let utxo_id = self.inputs[i].clone();
             let host_calls_root = instance.host_calls_roots[i].clone();
 
@@ -751,10 +755,15 @@ impl UnprovenTransaction {
         }
 
         // New Outputs
-        for i in n_inputs..(n_inputs + instance.n_new) {
-            let trace = traces[i].clone();
+        for (i, trace) in traces
+            .iter()
+            .enumerate()
+            .skip(n_inputs)
+            .take(instance.n_new)
+        {
+            let trace = trace.clone();
             let last_yield = self.get_last_yield(i, &state)?;
-            let contract_hash = state.process_hashes[&ProcessId(i)].clone();
+            let contract_hash = state.process_hashes[&ProcessId(i)];
             let host_calls_root = instance.host_calls_roots[i].clone();
 
             builder = builder.with_fresh_output_and_trace_commitment(
@@ -768,9 +777,14 @@ impl UnprovenTransaction {
         }
 
         // Coords
-        for i in (n_inputs + instance.n_new)..(n_inputs + instance.n_new + instance.n_coords) {
-            let trace = traces[i].clone();
-            let contract_hash = state.process_hashes[&ProcessId(i)].clone();
+        for (i, trace) in traces
+            .iter()
+            .enumerate()
+            .skip(n_inputs + instance.n_new)
+            .take(instance.n_coords)
+        {
+            let trace = trace.clone();
+            let contract_hash = state.process_hashes[&ProcessId(i)];
             let host_calls_root = instance.host_calls_roots[i].clone();
             builder = builder.with_coord_script_and_trace_commitment(
                 contract_hash,
@@ -842,7 +856,7 @@ impl UnprovenTransaction {
                 .store
                 .data_mut()
                 .process_hashes
-                .insert(ProcessId(pid), hash.clone());
+                .insert(ProcessId(pid), hash);
 
             // Populate is_utxo map
             runtime
@@ -859,14 +873,14 @@ impl UnprovenTransaction {
                 .instantiate_and_start(&mut runtime.store, &module)?;
 
             // Store memory in RuntimeState for hash reading
-            if let Some(extern_) = instance.get_export(&runtime.store, "memory") {
-                if let Some(memory) = extern_.into_memory() {
-                    runtime
-                        .store
-                        .data_mut()
-                        .memories
-                        .insert(ProcessId(pid), memory);
-                }
+            if let Some(extern_) = instance.get_export(&runtime.store, "memory")
+                && let Some(memory) = extern_.into_memory()
+            {
+                runtime
+                    .store
+                    .data_mut()
+                    .memories
+                    .insert(ProcessId(pid), memory);
             }
 
             instances.push(instance);
@@ -900,23 +914,21 @@ impl UnprovenTransaction {
 
                 // Update previous effect with return value
                 let traces = &mut runtime.store.data_mut().traces;
-                if let Some(trace) = traces.get_mut(&current_pid) {
-                    if let Some(last) = trace.last_mut() {
-                        match last {
-                            WitLedgerEffect::Resume { ret, caller, .. } => {
-                                *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                                *caller = WitEffectOutput::Resolved(Some(ProcessId(
-                                    next_args[1] as usize,
-                                )));
-                            }
-                            WitLedgerEffect::Yield { ret, caller, .. } => {
-                                *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                                *caller = WitEffectOutput::Resolved(Some(ProcessId(
-                                    next_args[1] as usize,
-                                )));
-                            }
-                            _ => {}
+                if let Some(trace) = traces.get_mut(&current_pid)
+                    && let Some(last) = trace.last_mut()
+                {
+                    match last {
+                        WitLedgerEffect::Resume { ret, caller, .. } => {
+                            *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
+                            *caller =
+                                WitEffectOutput::Resolved(Some(ProcessId(next_args[1] as usize)));
                         }
+                        WitLedgerEffect::Yield { ret, caller, .. } => {
+                            *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
+                            *caller =
+                                WitEffectOutput::Resolved(Some(ProcessId(next_args[1] as usize)));
+                        }
+                        _ => {}
                     }
                 }
 

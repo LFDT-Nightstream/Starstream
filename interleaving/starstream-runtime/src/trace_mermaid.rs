@@ -4,7 +4,6 @@ use starstream_interleaving_spec::{
     WitEffectOutput, WitLedgerEffect,
 };
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::{env, fs, time};
@@ -55,17 +54,16 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
     let mut handler_interfaces: HashMap<ProcessId, InterfaceId> = HashMap::new();
 
     for (idx, (pid, effect)) in state.interleaving.iter().enumerate() {
-        if let Some(line) = format_edge_line(
-            idx,
-            &labels,
-            &instance.is_utxo,
-            *pid,
-            effect,
-            &ref_store,
-            &handler_targets,
-            &handler_interfaces,
-            &state.interleaving,
-        ) {
+        let ctx = EdgeContext {
+            labels: &labels,
+            is_utxo: &instance.is_utxo,
+            ref_store: &ref_store,
+            handler_targets: &handler_targets,
+            handler_interfaces: &handler_interfaces,
+            interleaving: &state.interleaving,
+        };
+
+        if let Some(line) = format_edge_line(idx, &ctx, *pid, effect) {
             out.push_str("    ");
             out.push_str(&line);
             out.push('\n');
@@ -85,7 +83,7 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
         return;
     }
 
-    let svg_path = PathBuf::from(mmd_path.with_extension("svg"));
+    let svg_path = mmd_path.with_extension("svg");
     if mmdc_available() {
         let puppeteer_config_path = env::temp_dir().join(format!("starstream_mmdc_{ts}.json"));
         let puppeteer_config = r#"{"args":["--no-sandbox","--disable-setuid-sandbox"]}"#;
@@ -133,7 +131,7 @@ fn build_process_labels(is_utxo: &[bool]) -> Vec<String> {
     let mut labels = Vec::with_capacity(is_utxo.len());
     let mut utxo_idx = 0usize;
     let mut coord_idx = 0usize;
-    for (_pid, is_u) in is_utxo.iter().enumerate() {
+    for is_u in is_utxo.iter() {
         if *is_u {
             labels.push(format!("utxo{utxo_idx}"));
             utxo_idx += 1;
@@ -145,62 +143,73 @@ fn build_process_labels(is_utxo: &[bool]) -> Vec<String> {
     labels
 }
 
+struct EdgeContext<'a> {
+    labels: &'a [String],
+    is_utxo: &'a [bool],
+    ref_store: &'a HashMap<Ref, Vec<Value>>,
+    handler_targets: &'a HashMap<ProcessId, ProcessId>,
+    handler_interfaces: &'a HashMap<ProcessId, InterfaceId>,
+    interleaving: &'a [(ProcessId, WitLedgerEffect)],
+}
+
 fn format_edge_line(
     idx: usize,
-    labels: &[String],
-    is_utxo: &[bool],
+    ctx: &EdgeContext<'_>,
     pid: ProcessId,
     effect: &WitLedgerEffect,
-    ref_store: &HashMap<Ref, Vec<Value>>,
-    handler_targets: &HashMap<ProcessId, ProcessId>,
-    handler_interfaces: &HashMap<ProcessId, InterfaceId>,
-    interleaving: &[(ProcessId, WitLedgerEffect)],
 ) -> Option<String> {
-    let from = labels.get(pid.0)?;
+    let from = ctx.labels.get(pid.0)?;
     match effect {
         WitLedgerEffect::Resume { target, val, .. } => {
-            let interface_id = handler_interfaces
+            let interface_id = ctx
+                .handler_interfaces
                 .get(target)
-                .or_else(|| handler_interfaces.get(&pid));
-            let decode_mode = if handler_targets.get(&pid) == Some(target) {
+                .or_else(|| ctx.handler_interfaces.get(&pid));
+            let decode_mode = if ctx.handler_targets.get(&pid) == Some(target) {
                 DecodeMode::RequestAndResponse
-            } else if handler_targets.get(target) == Some(&pid) {
-                DecodeMode::ResponseOnly
-            } else if is_utxo.get(target.0).copied().unwrap_or(false) {
+            } else if ctx.handler_targets.get(target) == Some(&pid)
+                || ctx.is_utxo.get(target.0).copied().unwrap_or(false)
+            {
                 DecodeMode::ResponseOnly
             } else {
                 DecodeMode::None
             };
             let label = format!(
                 "resume<br/>{}",
-                format_ref_with_value(ref_store, *val, interface_id, decode_mode)
+                format_ref_with_value(ctx.ref_store, *val, interface_id, decode_mode)
             );
-            let to = labels.get(target.0)?;
+            let to = ctx.labels.get(target.0)?;
             Some(format!("{from} ->> {to}: {label}"))
         }
         WitLedgerEffect::Yield { val, .. } => {
-            let next_pid = interleaving.get(idx + 1).map(|(p, _)| *p)?;
+            let next_pid = ctx.interleaving.get(idx + 1).map(|(p, _)| *p)?;
             let label = format!(
                 "yield<br/>{}",
-                format_ref_with_value(ref_store, *val, None, DecodeMode::None)
+                format_ref_with_value(ctx.ref_store, *val, None, DecodeMode::None)
             );
-            let to = labels.get(next_pid.0)?;
+            let to = ctx.labels.get(next_pid.0)?;
             Some(format!("{from} -->> {to}: {label}"))
         }
         WitLedgerEffect::NewUtxo { val, id, .. } => {
             let WitEffectOutput::Resolved(pid) = id else {
                 return None;
             };
-            let created = labels.get(pid.0)?;
-            let label = format!("new_utxo<br/>{}", format_ref_with_values(ref_store, *val));
+            let created = ctx.labels.get(pid.0)?;
+            let label = format!(
+                "new_utxo<br/>{}",
+                format_ref_with_values(ctx.ref_store, *val)
+            );
             Some(format!("{from} ->> {created}: {label}"))
         }
         WitLedgerEffect::NewCoord { val, id, .. } => {
             let WitEffectOutput::Resolved(pid) = id else {
                 return None;
             };
-            let created = labels.get(pid.0)?;
-            let label = format!("new_coord<br/>{}", format_ref_with_values(ref_store, *val));
+            let created = ctx.labels.get(pid.0)?;
+            let label = format!(
+                "new_coord<br/>{}",
+                format_ref_with_values(ctx.ref_store, *val)
+            );
             Some(format!("{from} ->> {created}: {label}"))
         }
         _ => None,
@@ -238,7 +247,7 @@ fn format_ref_with_values(ref_store: &HashMap<Ref, Vec<Value>>, reff: Ref) -> St
 }
 
 fn format_raw_values(values: &[Value]) -> String {
-    let v0 = values.get(0).map(|v| v.0).unwrap_or(0);
+    let v0 = values.first().map(|v| v.0).unwrap_or(0);
     let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
     let v2 = values.get(2).map(|v| v.0).unwrap_or(0);
     let v3 = values.get(3).map(|v| v.0).unwrap_or(0);
@@ -266,25 +275,26 @@ fn apply_ref_mutations(
     ref_state: &mut HashMap<ProcessId, (Ref, usize, usize)>,
 ) {
     match effect {
-        WitLedgerEffect::NewRef { size, ret } => {
-            if let WitEffectOutput::Resolved(ref_id) = ret {
-                let size_words = *size;
-                let size_elems = size_words * REF_PUSH_WIDTH;
-                ref_store.insert(*ref_id, vec![Value(0); size_elems]);
-                ref_state.insert(pid, (*ref_id, 0, size_words));
-            }
+        WitLedgerEffect::NewRef {
+            size,
+            ret: WitEffectOutput::Resolved(ref_id),
+        } => {
+            let size_words = *size;
+            let size_elems = size_words * REF_PUSH_WIDTH;
+            ref_store.insert(*ref_id, vec![Value(0); size_elems]);
+            ref_state.insert(pid, (*ref_id, 0, size_words));
         }
         WitLedgerEffect::RefPush { vals } => {
-            if let Some((ref_id, offset, _size_words)) = ref_state.get_mut(&pid) {
-                if let Some(store) = ref_store.get_mut(ref_id) {
-                    let elem_offset = *offset;
-                    for (i, val) in vals.iter().enumerate() {
-                        if let Some(pos) = store.get_mut(elem_offset + i) {
-                            *pos = *val;
-                        }
+            if let Some((ref_id, offset, _size_words)) = ref_state.get_mut(&pid)
+                && let Some(store) = ref_store.get_mut(ref_id)
+            {
+                let elem_offset = *offset;
+                for (i, val) in vals.iter().enumerate() {
+                    if let Some(pos) = store.get_mut(elem_offset + i) {
+                        *pos = *val;
                     }
-                    *offset = elem_offset + REF_PUSH_WIDTH;
                 }
+                *offset = elem_offset + REF_PUSH_WIDTH;
             }
         }
         WitLedgerEffect::RefWrite { reff, offset, vals } => {
@@ -311,10 +321,9 @@ fn update_handler_targets(
         handler_id,
         interface_id,
     } = effect
+        && let WitEffectOutput::Resolved(handler_id) = handler_id
     {
-        if let WitEffectOutput::Resolved(handler_id) = handler_id {
-            handler_targets.insert(pid, *handler_id);
-            handler_interfaces.insert(*handler_id, interface_id.clone());
-        }
+        handler_targets.insert(pid, *handler_id);
+        handler_interfaces.insert(*handler_id, *interface_id);
     }
 }

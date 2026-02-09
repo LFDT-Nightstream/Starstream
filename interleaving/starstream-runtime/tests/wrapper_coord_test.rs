@@ -65,7 +65,7 @@ use std::marker::PhantomData;
 #[test]
 fn test_runtime_wrapper_coord_newcoord_handlers() {
     register_mermaid_decoder(interface_id(1, 2, 3, 4), |values| {
-        let disc = values.get(0)?.0;
+        let disc = values.first()?.0;
         let v1 = values.get(1).map(|v| v.0).unwrap_or(0);
         let v2 = values.get(2).map(|v| v.0).unwrap_or(0);
         let label = match disc {

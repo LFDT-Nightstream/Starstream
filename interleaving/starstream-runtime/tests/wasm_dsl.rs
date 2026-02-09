@@ -128,11 +128,11 @@ impl FuncBuilder {
     fn finish(self) -> Function {
         let mut groups: Vec<(u32, ValType)> = Vec::new();
         for ty in self.locals {
-            if let Some((count, last_ty)) = groups.last_mut() {
-                if *last_ty == ty {
-                    *count += 1;
-                    continue;
-                }
+            if let Some((count, last_ty)) = groups.last_mut()
+                && *last_ty == ty
+            {
+                *count += 1;
+                continue;
             }
             groups.push((1, ty));
         }
@@ -142,6 +142,12 @@ impl FuncBuilder {
         }
         func.instruction(&Instruction::End);
         func
+    }
+}
+
+impl Default for FuncBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -364,6 +370,12 @@ impl ModuleBuilder {
         module.section(&self.exports);
         module.section(&self.codes);
         module.finish()
+    }
+}
+
+impl Default for ModuleBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
