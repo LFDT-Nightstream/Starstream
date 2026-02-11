@@ -44,7 +44,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
         UtxoEntry {
             state: CoroutineState {
                 pc: 0,
-                last_yield: v(b"yield_1"),
+                globals: vec![],
             },
             contract_hash: input_hash_1,
         },
@@ -54,7 +54,7 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
         UtxoEntry {
             state: CoroutineState {
                 pc: 0,
-                last_yield: v(b"yield_2"),
+                globals: vec![],
             },
             contract_hash: input_hash_2,
         },
@@ -294,7 +294,7 @@ fn test_transaction_with_coord_and_utxos() {
             input_utxo_1,
             Some(CoroutineState {
                 pc: 1,
-                last_yield: v(b"continued_1"),
+                globals: vec![],
             }),
             input_1_trace,
         )
@@ -303,7 +303,7 @@ fn test_transaction_with_coord_and_utxos() {
             NewOutput {
                 state: CoroutineState {
                     pc: 0,
-                    last_yield: v(b"done_a"),
+                    globals: vec![],
                 },
                 contract_hash: utxo_hash_a,
             },
@@ -313,7 +313,7 @@ fn test_transaction_with_coord_and_utxos() {
             NewOutput {
                 state: CoroutineState {
                     pc: 0,
-                    last_yield: v(b"done_b"),
+                    globals: vec![],
                 },
                 contract_hash: utxo_hash_b,
             },
@@ -419,7 +419,7 @@ fn test_effect_handlers() {
             NewOutput {
                 state: CoroutineState {
                     pc: 0,
-                    last_yield: v(b"utxo_final"),
+                    globals: vec![],
                 },
                 contract_hash: utxo_hash,
             },
@@ -450,7 +450,7 @@ fn test_burn_with_continuation_fails() {
             input_utxo_1,
             Some(CoroutineState {
                 pc: 1,
-                last_yield: v(b"burned"),
+                globals: vec![],
             }),
             vec![
                 WitLedgerEffect::NewRef {
@@ -515,7 +515,7 @@ fn test_continuation_without_yield_fails() {
             input_utxo_1,
             Some(CoroutineState {
                 pc: 1,
-                last_yield: v(b""),
+                globals: vec![],
             }),
             vec![],
         )
@@ -567,7 +567,7 @@ fn test_duplicate_input_utxo_fails() {
         UtxoEntry {
             state: CoroutineState {
                 pc: 0,
-                last_yield: Value::nil(),
+                globals: vec![],
             },
             contract_hash: h(1),
         },

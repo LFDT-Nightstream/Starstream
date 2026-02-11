@@ -70,13 +70,8 @@ pub struct CoroutineState {
     // not what it is. A simple program counter is sufficient to check if a
     // coroutine continued execution in the tests.
     //
-    // It's still TBD whether the module would yield its own continuation
-    // state (making last_yield just the state), and always executed from the
-    // entry-point, or whether those should actually be different things (in
-    // which case last_yield could be used to persist the storage, and pc could
-    // be instead the call stack).
     pub pc: u64,
-    pub last_yield: Value,
+    pub globals: Vec<Value>,
 }
 
 // pub struct ZkTransactionProof {}
@@ -240,7 +235,7 @@ pub struct UtxoId {
 ///
 /// But utxos just refer to each other through relative indexing in the
 /// transaction input/outputs.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct CoroutineId {
     pub creation_tx_hash: Hash<TransactionBody>,
     pub creation_output_index: u64,
@@ -429,8 +424,7 @@ impl Ledger {
 
             // same state we don't change the nonce
             //
-            // note that this doesn't include the last_yield claim
-            let utxo_id = if cont.pc == parent_state.pc {
+            let utxo_id = if cont.pc == parent_state.pc && cont.globals == parent_state.globals {
                 is_reference_input.insert(i);
                 parent_utxo_id.clone()
             } else {
@@ -532,8 +526,6 @@ impl Ledger {
             if is_reference_input.contains(&i) {
                 continue;
             }
-
-            dbg!(&input_id);
 
             if new_ledger.utxos.remove(input_id).is_none() {
                 return Err(VerificationError::InputNotFound);

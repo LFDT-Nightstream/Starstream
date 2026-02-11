@@ -1,9 +1,6 @@
-#[macro_use]
-pub mod wasm_dsl;
-
 use sha2::{Digest, Sha256};
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
-use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder};
+use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder, wasm_module};
 use std::marker::PhantomData;
 
 // this tests tries to encode something like a coordination script that provides a Cell interface
@@ -276,6 +273,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
     let tx = UnprovenTransaction {
         inputs: vec![],
+        input_states: vec![],
         programs,
         is_utxo: vec![true, true, false, false, false],
         entrypoint: 4,

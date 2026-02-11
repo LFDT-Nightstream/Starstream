@@ -1,9 +1,6 @@
-#[macro_use]
-pub mod wasm_dsl;
-
 use sha2::{Digest, Sha256};
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
-use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder};
+use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder, wasm_module};
 use std::marker::PhantomData;
 
 fn interface_id(a: u64, b: u64, c: u64, d: u64) -> InterfaceId {
@@ -81,6 +78,7 @@ fn test_runtime_simple_effect_handlers() {
 
     let tx = UnprovenTransaction {
         inputs: vec![],
+        input_states: vec![],
         programs,
         is_utxo: vec![true, false],
         entrypoint: 1,
@@ -238,6 +236,7 @@ fn test_runtime_effect_handlers_cross_calls() {
 
     let tx = UnprovenTransaction {
         inputs: vec![],
+        input_states: vec![],
         programs,
         is_utxo: vec![true, true, false],
         entrypoint: 2,

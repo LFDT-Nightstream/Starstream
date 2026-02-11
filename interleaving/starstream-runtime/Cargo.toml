@@ -13,9 +13,9 @@ starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 thiserror = "2.0.17"
 wasmi = "1.0.7"
 sha2 = "0.10"
+wasm-encoder = { workspace = true }
 
 [dev-dependencies]
 imbl = "6.1.0"
 wat = "1.0"
-wasm-encoder = { workspace = true }
 wasmprinter = "0.2"

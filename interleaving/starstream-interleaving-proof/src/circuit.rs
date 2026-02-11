@@ -47,8 +47,6 @@ struct OpcodeConfig {
 
 pub struct StepCircuitBuilder<M> {
     pub instance: InterleavingInstance,
-    #[allow(dead_code)]
-    pub last_yield: Vec<F>,
     pub ops: Vec<LedgerOperation<crate::F>>,
     write_ops: Vec<(ProgramState, ProgramState)>,
     mem_switches: Vec<(MemSwitchboardBool, MemSwitchboardBool)>,
@@ -733,12 +731,6 @@ impl LedgerOperation<crate::F> {
 
 impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     pub fn new(instance: InterleavingInstance, ops: Vec<LedgerOperation<crate::F>>) -> Self {
-        let last_yield = instance
-            .input_states
-            .iter()
-            .map(|v| abi::value_to_field(v.last_yield))
-            .collect();
-
         let interface_resolver = InterfaceResolver::new(&ops);
 
         Self {
@@ -751,7 +743,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             interface_resolver,
             mem: PhantomData,
             instance,
-            last_yield,
         }
     }
 
