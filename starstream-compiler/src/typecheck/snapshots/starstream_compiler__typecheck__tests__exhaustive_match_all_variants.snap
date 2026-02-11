@@ -1,6 +1,6 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-description: "Source:\n\nenum Result {\n    Ok(i64),\n    Err(i64),\n}\n\nfn test(r: Result) -> i64 {\n    match r {\n        Result::Ok(value) => {\n            value\n        },\n        Result::Err(code) => {\n            0 - code\n        },\n    }\n}\n"
+description: "Source:\n\nfn test(r: Result<i64, i64>) -> i64 {\n    match r {\n        Result::Ok(value) => {\n            value\n        },\n        Result::Err(code) => {\n            0 - code\n        },\n    }\n}\n"
 ---
 T-Fn: test => i64
   T-ReturnTail: match r {
@@ -11,7 +11,7 @@ T-Fn: test => i64
         0 - code
     },
 } => i64
-    T-Match: {r: enum Result {
+    T-Match: {r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
 }} ⊢ match r {
@@ -22,34 +22,34 @@ T-Fn: test => i64
         0 - code
     },
 } ⇒ i64
-      T-Var: {r: enum Result {
+      T-Var: {r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
-}} ⊢ r ⇒ Result
-      Unify-Enum: Result ~ Result => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Const: i64 ~ i64 => {}
-      T-Tail: value => i64
-        T-Var: {r: enum Result {
+}} ⊢ r ⇒ Result<i64, i64>
+      Unify-Enum: Result<i64, i64> ~ Result<t3, t4> => {i64/t3, i64/t4}
+        Unify-Var: i64 ~ t4 => {i64/t4}
+        Unify-Var: i64 ~ t3 => {i64/t3}
+      T-Tail: value => t3
+        T-Var: {r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
-}, value: i64} ⊢ value ⇒ i64
-      Unify-Enum: Result ~ Result => {}
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Const: i64 ~ i64 => {}
+}, value: t3} ⊢ value ⇒ t3
+      Unify-Enum: Result<i64, i64> ~ Result<t5, t6> => {i64/t5, i64/t6}
+        Unify-Var: i64 ~ t6 => {i64/t6}
+        Unify-Var: i64 ~ t5 => {i64/t5}
       T-Tail: 0 - code => i64
-        T-Bin-Sub: {code: i64, r: enum Result {
+        T-Bin-Sub: {code: t6, r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
 }} ⊢ 0 - code ⇒ i64
-          T-Int: {code: i64, r: enum Result {
+          T-Int: {code: t6, r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
 }} ⊢ 0 ⇒ i64
-          T-Var: {code: i64, r: enum Result {
+          T-Var: {code: t6, r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
-}} ⊢ code ⇒ i64
+}} ⊢ code ⇒ t6
           Unify-Const: i64 ~ i64 => {}
           Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => i64
