@@ -41,9 +41,13 @@ pub enum ComponentAbiType {
     Variant {
         cases: Vec<(String, Option<Rc<ComponentAbiType>>)>,
     },
-    // TODO: Enum
-    // TODO: Option
-    // TODO: Result
+    Option {
+        inner: Rc<ComponentAbiType>,
+    },
+    Result {
+        ok: Option<Rc<ComponentAbiType>>,
+        err: Option<Rc<ComponentAbiType>>,
+    },
     Flags {
         labels: Vec<String>,
     },
@@ -79,6 +83,14 @@ impl ComponentAbiType {
                 Self::alignment_record(fields.iter().map(|f| &**f))
             }
             ComponentAbiType::Variant { cases } => Self::alignment_variant(cases),
+            ComponentAbiType::Option { inner } => Self::alignment_variant(&[
+                ("none".to_string(), None),
+                ("some".to_string(), Some(inner.clone())),
+            ]),
+            ComponentAbiType::Result { ok, err } => Self::alignment_variant(&[
+                ("ok".to_string(), ok.clone()),
+                ("error".to_string(), err.clone()),
+            ]),
             ComponentAbiType::Flags { labels } => todo!(),
             ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
@@ -113,7 +125,7 @@ impl ComponentAbiType {
         }
     }
 
-    fn max_case_alignment<'a>(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
+    fn max_case_alignment(cases: &[(String, Option<Rc<ComponentAbiType>>)]) -> u32 {
         let mut a = 1;
         for c in cases {
             if let Some(t) = &c.1 {
@@ -144,6 +156,14 @@ impl ComponentAbiType {
                 Self::elem_size_record(fields.iter().map(|f| &**f))
             }
             ComponentAbiType::Variant { cases } => Self::elem_size_variant(cases),
+            ComponentAbiType::Option { inner } => Self::elem_size_variant(&[
+                ("none".to_string(), None),
+                ("some".to_string(), Some(inner.clone())),
+            ]),
+            ComponentAbiType::Result { ok, err } => Self::elem_size_variant(&[
+                ("ok".to_string(), ok.clone()),
+                ("error".to_string(), err.clone()),
+            ]),
             ComponentAbiType::Flags { labels } => todo!(),
             ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
@@ -226,6 +246,8 @@ impl ComponentAbiType {
                 }
             }
             ComponentAbiType::Variant { .. } => todo!(),
+            ComponentAbiType::Option { .. } => todo!(),
+            ComponentAbiType::Result { .. } => todo!(),
             ComponentAbiType::Flags { .. } => todo!(),
             ComponentAbiType::Own => todo!(),
             ComponentAbiType::Borrow => todo!(),
@@ -327,6 +349,19 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                     .collect();
                 let (idx, ty) = self.inner.ty();
                 ty.defined_type().variant(cases);
+                ComponentValType::Type(idx)
+            }
+            ComponentAbiType::Option { inner } => {
+                let inner_val = self.encode_value(inner);
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().option(inner_val);
+                ComponentValType::Type(idx)
+            }
+            ComponentAbiType::Result { ok, err } => {
+                let ok_val = ok.as_ref().map(|t| self.encode_value(t));
+                let err_val = err.as_ref().map(|t| self.encode_value(t));
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().result(ok_val, err_val);
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Flags { .. } => todo!(),
