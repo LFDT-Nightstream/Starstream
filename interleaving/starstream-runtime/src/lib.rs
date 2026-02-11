@@ -14,6 +14,9 @@ use wasmi::{
 mod trace_mermaid;
 pub use trace_mermaid::register_mermaid_decoder;
 
+#[doc(hidden)]
+pub mod test_support;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("invalid proof: {0}")]
@@ -44,6 +47,61 @@ fn args_to_hash(a: u64, b: u64, c: u64, d: u64) -> [u8; 32] {
     buffer[16..24].copy_from_slice(&c.to_le_bytes());
     buffer[24..32].copy_from_slice(&d.to_le_bytes());
     buffer
+}
+
+fn snapshot_globals(
+    store: &Store<RuntimeState>,
+    globals: &[wasmi::Global],
+) -> Result<Vec<Value>, Error> {
+    let mut values = Vec::with_capacity(globals.len());
+    for global in globals {
+        let val = global.get(store);
+        let value = match val {
+            Val::I64(v) => Value(v as u64),
+            Val::I32(v) => Value(v as u32 as u64),
+            _ => {
+                return Err(Error::RuntimeError(
+                    "unsupported global type (only i32/i64 supported)".into(),
+                ))
+            }
+        };
+        values.push(value);
+    }
+    Ok(values)
+}
+
+fn restore_globals(
+    store: &mut Store<RuntimeState>,
+    globals: &[wasmi::Global],
+    values: &[Value],
+) -> Result<(), Error> {
+    if globals.len() != values.len() {
+        return Err(Error::RuntimeError(format!(
+            "global count mismatch: expected {}, got {}",
+            globals.len(),
+            values.len()
+        )));
+    }
+
+    for (global, value) in globals.iter().zip(values.iter()) {
+        if global.ty(&mut *store).mutability().is_const() {
+            continue;
+        }
+        let val = match global.ty(&mut *store).content() {
+            wasmi::ValType::I64 => Val::I64(value.0 as i64),
+            wasmi::ValType::I32 => Val::I32(value.0 as i32),
+            _ => {
+                return Err(Error::RuntimeError(
+                    "unsupported global type (only i32/i64 supported)".into(),
+                ))
+            }
+        };
+        global
+            .set(&mut *store, val)
+            .map_err(|e| Error::RuntimeError(e.to_string()))?;
+    }
+
+    Ok(())
 }
 
 fn suspend_with_effect<T>(
@@ -84,6 +142,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
 
 pub struct UnprovenTransaction {
     pub inputs: Vec<UtxoId>,
+    pub input_states: Vec<CoroutineState>,
     pub programs: Vec<WasmProgram>,
     pub is_utxo: Vec<bool>,
     pub entrypoint: usize,
@@ -103,6 +162,7 @@ pub struct RuntimeState {
 
     pub pending_activation: HashMap<ProcessId, (Ref, ProcessId)>,
     pub pending_init: HashMap<ProcessId, (Ref, ProcessId)>,
+    pub globals: HashMap<ProcessId, Vec<Value>>,
 
     pub ownership: HashMap<ProcessId, Option<ProcessId>>,
     pub process_hashes: HashMap<ProcessId, Hash<WasmModule>>,
@@ -146,6 +206,7 @@ impl Runtime {
             next_ref: 0,
             pending_activation: HashMap::new(),
             pending_init: HashMap::new(),
+            globals: HashMap::new(),
             ownership: HashMap::new(),
             process_hashes: HashMap::new(),
             is_utxo: HashMap::new(),
@@ -711,6 +772,14 @@ impl Runtime {
 }
 
 impl UnprovenTransaction {
+    fn get_globals(&self, pid: usize, state: &RuntimeState) -> Result<Vec<Value>, Error> {
+        state
+            .globals
+            .get(&ProcessId(pid))
+            .cloned()
+            .ok_or_else(|| Error::RuntimeError(format!("No globals for pid {}", pid)))
+    }
+
     pub fn prove(self) -> Result<ProvenTransaction, Error> {
         let (instance, state, witness) = self.execute()?;
 
@@ -742,8 +811,11 @@ impl UnprovenTransaction {
             let continuation = if instance.must_burn[i] {
                 None
             } else {
-                let last_yield = self.get_last_yield(i, &state)?;
-                Some(CoroutineState { pc: 0, last_yield })
+                let globals = self.get_globals(i, &state)?;
+                Some(CoroutineState {
+                    pc: 0,
+                    globals,
+                })
             };
 
             builder = builder.with_input_and_trace_commitment(
@@ -762,13 +834,16 @@ impl UnprovenTransaction {
             .take(instance.n_new)
         {
             let trace = trace.clone();
-            let last_yield = self.get_last_yield(i, &state)?;
+            let globals = self.get_globals(i, &state)?;
             let contract_hash = state.process_hashes[&ProcessId(i)];
             let host_calls_root = instance.host_calls_roots[i].clone();
 
             builder = builder.with_fresh_output_and_trace_commitment(
                 NewOutput {
-                    state: CoroutineState { pc: 0, last_yield },
+                    state: CoroutineState {
+                        pc: 0,
+                        globals,
+                    },
                     contract_hash,
                 },
                 trace,
@@ -804,34 +879,6 @@ impl UnprovenTransaction {
         Ok(builder.build(proof))
     }
 
-    fn get_last_yield(&self, pid: usize, state: &RuntimeState) -> Result<Value, Error> {
-        let trace = state
-            .traces
-            .get(&ProcessId(pid))
-            .ok_or(Error::RuntimeError(format!("No trace for pid {}", pid)))?;
-        let last_op = trace
-            .last()
-            .ok_or(Error::RuntimeError(format!("Empty trace for pid {}", pid)))?;
-        let val_ref = match last_op {
-            WitLedgerEffect::Yield { val, .. } => *val,
-            _ => {
-                return Err(Error::RuntimeError(format!(
-                    "Process {} did not yield (last op: {:?})",
-                    pid, last_op
-                )));
-            }
-        };
-
-        let values = state
-            .ref_store
-            .get(&val_ref)
-            .ok_or(Error::RuntimeError(format!("Ref {:?} not found", val_ref)))?;
-        values
-            .first()
-            .cloned()
-            .ok_or(Error::RuntimeError("Empty ref content".into()))
-    }
-
     pub fn to_instance(&self) -> InterleavingInstance {
         self.execute().unwrap().0
     }
@@ -841,8 +888,18 @@ impl UnprovenTransaction {
     ) -> Result<(InterleavingInstance, RuntimeState, InterleavingWitness), Error> {
         let mut runtime = Runtime::new();
 
+        let n_inputs = self.inputs.len();
+        if !self.input_states.is_empty() && self.input_states.len() != n_inputs {
+            return Err(Error::RuntimeError(format!(
+                "Input state count mismatch: expected {}, got {}",
+                n_inputs,
+                self.input_states.len()
+            )));
+        }
+
         let mut instances = Vec::new();
         let mut process_table = Vec::new();
+        let mut globals_by_pid: Vec<Vec<wasmi::Global>> = Vec::new();
 
         for (pid, program_bytes) in self.programs.iter().enumerate() {
             let mut hasher = Sha256::new();
@@ -883,6 +940,22 @@ impl UnprovenTransaction {
                     .insert(ProcessId(pid), memory);
             }
 
+            let mut globals = Vec::new();
+            for export in instance.exports(&runtime.store) {
+                let name = export.name().to_string();
+                if let Some(global) = export.into_global() {
+                    globals.push((name, global));
+                }
+            }
+            globals.sort_by(|a, b| a.0.cmp(&b.0));
+            let globals: Vec<wasmi::Global> = globals.into_iter().map(|(_, g)| g).collect();
+
+            if pid < n_inputs && !self.input_states.is_empty() {
+                let values = &self.input_states[pid].globals;
+                restore_globals(&mut runtime.store, &globals, values)?;
+            }
+
+            globals_by_pid.push(globals);
             instances.push(instance);
         }
 
@@ -1081,6 +1154,15 @@ impl UnprovenTransaction {
             }
         }
 
+        for (pid, globals) in globals_by_pid.iter().enumerate() {
+            let globals = snapshot_globals(&runtime.store, globals)?;
+            runtime
+                .store
+                .data_mut()
+                .globals
+                .insert(ProcessId(pid), globals);
+        }
+
         let instance = InterleavingInstance {
             host_calls_roots,
             host_calls_lens,
@@ -1093,7 +1175,7 @@ impl UnprovenTransaction {
             ownership_in,
             ownership_out,
             entrypoint: ProcessId(self.entrypoint),
-            input_states: vec![],
+            input_states: self.input_states.clone(),
         };
 
         let witness = starstream_interleaving_spec::InterleavingWitness { traces };

@@ -1,6 +1,9 @@
+#![allow(dead_code)]
+
 use wasm_encoder::{
-    BlockType, CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection,
-    ImportSection, Instruction, Module, TypeSection, ValType,
+    BlockType, CodeSection, ConstExpr, EntityType, ExportKind, ExportSection, Function,
+    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, Module, TypeSection,
+    ValType,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +85,16 @@ impl FuncBuilder {
         self.instrs.push(Instruction::LocalSet(dst.0));
     }
 
+    pub fn global_get(&mut self, global: u32, dst: Local) {
+        self.instrs.push(Instruction::GlobalGet(global));
+        self.instrs.push(Instruction::LocalSet(dst.0));
+    }
+
+    pub fn global_set(&mut self, global: u32, val: Value) {
+        val.emit(&mut self.instrs);
+        self.instrs.push(Instruction::GlobalSet(global));
+    }
+
     pub fn emit_eq_i64(&mut self, a: Value, b: Value) {
         a.emit(&mut self.instrs);
         b.emit(&mut self.instrs);
@@ -157,6 +170,7 @@ pub struct ModuleBuilder {
     functions: FunctionSection,
     codes: CodeSection,
     exports: ExportSection,
+    globals: GlobalSection,
     type_count: u32,
     import_count: u32,
     starstream: Option<Imports>,
@@ -191,6 +205,7 @@ impl ModuleBuilder {
             functions: FunctionSection::new(),
             codes: CodeSection::new(),
             exports: ExportSection::new(),
+            globals: GlobalSection::new(),
             type_count: 0,
             import_count: 0,
             starstream: None,
@@ -354,6 +369,19 @@ impl ModuleBuilder {
         FuncBuilder::new()
     }
 
+    pub fn add_global_i64(&mut self, initial: i64, mutable: bool) -> u32 {
+        let global_type = GlobalType {
+            val_type: ValType::I64,
+            mutable,
+            shared: false,
+        };
+        self.globals.global(global_type, &ConstExpr::i64_const(initial));
+        let idx = self.globals.len() - 1;
+        let name = format!("__global_{}", idx);
+        self.exports.export(&name, ExportKind::Global, idx);
+        idx
+    }
+
     pub fn finish(mut self, func: FuncBuilder) -> Vec<u8> {
         let type_idx = self.type_count;
         self.type_count += 1;
@@ -367,6 +395,9 @@ impl ModuleBuilder {
         module.section(&self.types);
         module.section(&self.imports);
         module.section(&self.functions);
+        if !self.globals.is_empty() {
+            module.section(&self.globals);
+        }
         module.section(&self.exports);
         module.section(&self.codes);
         module.finish()
@@ -382,7 +413,7 @@ impl Default for ModuleBuilder {
 #[macro_export]
 macro_rules! wasm_module {
     ({ $($body:tt)* }) => {{
-        let mut __builder = $crate::wasm_dsl::ModuleBuilder::new();
+        let mut __builder = $crate::test_support::wasm_dsl::ModuleBuilder::new();
         let __imports = __builder.starstream();
         let mut __func = __builder.func();
         $crate::wasm!(__func, __imports, { $($body)* });
@@ -399,23 +430,23 @@ macro_rules! wasm_module {
 #[macro_export]
 macro_rules! wasm_value {
     (const($expr:expr)) => {
-        $crate::wasm_dsl::Value::Const($expr as i64)
+        $crate::test_support::wasm_dsl::Value::Const($expr as i64)
     };
     ($lit:literal) => {
-        $crate::wasm_dsl::Value::Const($lit)
+        $crate::test_support::wasm_dsl::Value::Const($lit)
     };
     ($var:ident) => {
-        $crate::wasm_dsl::Value::Local($var)
+        $crate::test_support::wasm_dsl::Value::Local($var)
     };
 }
 
 #[macro_export]
 macro_rules! wasm_args {
     () => {
-        Vec::<$crate::wasm_dsl::Value>::new()
+        Vec::<$crate::test_support::wasm_dsl::Value>::new()
     };
     ($($arg:tt)+) => {{
-        let mut args = Vec::<$crate::wasm_dsl::Value>::new();
+        let mut args = Vec::<$crate::test_support::wasm_dsl::Value>::new();
         $crate::wasm_args_push!(args, $($arg)+);
         args
     }};
@@ -425,15 +456,15 @@ macro_rules! wasm_args {
 macro_rules! wasm_args_push {
     ($args:ident,) => {};
     ($args:ident, const($expr:expr) $(, $($rest:tt)*)?) => {{
-        $args.push($crate::wasm_dsl::Value::Const($expr as i64));
+        $args.push($crate::test_support::wasm_dsl::Value::Const($expr as i64));
         $( $crate::wasm_args_push!($args, $($rest)*); )?
     }};
     ($args:ident, $lit:literal $(, $($rest:tt)*)?) => {{
-        $args.push($crate::wasm_dsl::Value::Const($lit));
+        $args.push($crate::test_support::wasm_dsl::Value::Const($lit));
         $( $crate::wasm_args_push!($args, $($rest)*); )?
     }};
     ($args:ident, $var:ident $(, $($rest:tt)*)?) => {{
-        $args.push($crate::wasm_dsl::Value::Local($var));
+        $args.push($crate::test_support::wasm_dsl::Value::Local($var));
         $( $crate::wasm_args_push!($args, $($rest)*); )?
     }};
 }
@@ -579,6 +610,17 @@ macro_rules! wasm_stmt {
     ($f:ident, $imports:ident, let $var:ident = add $a:tt, $b:tt; $($rest:tt)*) => {
         let $var = $f.local_i64();
         $f.add_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let $var:ident = global_get $idx:literal; $($rest:tt)*) => {
+        let $var = $f.local_i64();
+        $f.global_get($idx as u32, $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set_global $idx:literal = $val:tt; $($rest:tt)*) => {
+        $f.global_set($idx as u32, $crate::wasm_value!($val));
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
