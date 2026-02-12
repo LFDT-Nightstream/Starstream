@@ -386,6 +386,59 @@ impl Compiler {
         self.exports.export(name, ExportKind::Func, idx);
     }
 
+    /// Get or create the `__starstream_i64_add_checked` function for overflow-checked addition.
+    /// Returns the function index.
+    fn get_or_create_i64_add_checked(&mut self) -> u32 {
+        if let Some(&checked_sum) = self.callables.get("__starstream_i64_add_checked") {
+            return checked_sum;
+        }
+
+        let params = [ValType::I64, ValType::I64];
+        let result = [ValType::I64];
+        let mut code = Function::from_params(&params);
+
+        let sum_local = code.add_locals([ValType::I64]);
+
+        code.instructions().local_get(0); //  [x]
+        code.instructions().local_get(1); //  [x, y]
+        code.instructions().i64_add();
+        code.instructions().local_tee(sum_local); //  [sum]
+
+        // Check for overflow.
+
+        // (x^y)>=0
+        code.instructions().local_get(0); //  [sum, x]
+        code.instructions().local_get(1); //  [sum, x, y]
+        code.instructions().i64_xor(); //  [sum, x^y]
+        code.instructions().i64_const(0); //  [sum, x^y, 0]  
+        code.instructions().i64_ge_s(); //  [sum, (x^y)>=0]
+
+        // (sum^x)<0
+        code.instructions().local_get(sum_local); //  [sum, (x^y)>=0, sum]
+        code.instructions().local_get(0); //  [sum, (x^y)>=0, sum, x]
+        code.instructions().i64_xor(); //  [sum, (x^y)>=0, sum^x]
+        code.instructions().i64_const(0); //  [sum, (x^y)>=0, sum^x, 0]
+        code.instructions().i64_lt_s(); //  [sum, (x^y)>=0, (sum^x)<0]
+        code.instructions().i32_and(); //  [sum, overflow_flag]
+
+        // If overflow_flag != 0, trap.
+        code.instructions().i32_const(0); //  [sum, overflow_flag, 0]
+        code.instructions().i32_ne(); //  [sum, overflowed?]
+        code.instructions().if_(BlockType::Empty); //  [sum]
+        code.instructions().unreachable();
+        code.instructions().end();
+
+        // Sum is already on stack, add function body end
+        code.instructions().end();
+
+        let idx = self.add_function(FuncType::new(params, result), code);
+
+        self.callables
+            .insert("__starstream_i64_add_checked".to_string(), idx);
+
+        idx
+    }
+
     // ------------------------------------------------------------------------
     // Component table management
 
@@ -1135,56 +1188,8 @@ impl Compiler {
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int, Type::Int) => {
                         if self.options.check_overflows {
-                            if let Some(checked_sum) =
-                                self.callables.get("__starstream_i64_add_checked").copied()
-                            {
-                                func.instructions().call(checked_sum);
-                            } else {
-                                let params = [ValType::I64, ValType::I64];
-                                let result = [ValType::I64];
-                                let mut code = Function::from_params(&params);
-
-                                let sum_local = code.add_locals([ValType::I64]);
-
-                                code.instructions().local_get(0); //  [x]
-                                code.instructions().local_get(1); //  [x, y]
-                                code.instructions().i64_add();
-                                code.instructions().local_tee(sum_local); //  [sum]
-
-                                // Check for overflow.
-
-                                // (x^y)>=0
-                                code.instructions().local_get(0); //  [sum, x]
-                                code.instructions().local_get(1); //  [sum, x, y]
-                                code.instructions().i64_xor(); //  [sum, x^y]
-                                code.instructions().i64_const(0); //  [sum, x^y, 0]  
-                                code.instructions().i64_ge_s(); //  [sum, (x^y)>=0]
-
-                                // (sum^x)<0
-                                code.instructions().local_get(sum_local); //  [sum, (x^y)>=0, sum]
-                                code.instructions().local_get(0); //  [sum, (x^y)>=0, sum, x]
-                                code.instructions().i64_xor(); //  [sum, (x^y)>=0, sum^x]
-                                code.instructions().i64_const(0); //  [sum, (x^y)>=0, sum^x, 0]
-                                code.instructions().i64_lt_s(); //  [sum, (x^y)>=0, (sum^x)<0]
-                                code.instructions().i32_and(); //  [sum, overflow_flag]
-
-                                // If overflow_flag != 0, trap.
-                                code.instructions().i32_const(0); //  [sum, overflow_flag, 0]
-                                code.instructions().i32_ne(); //  [sum, overflowed?]
-                                code.instructions().if_(BlockType::Empty); //  [sum]
-                                code.instructions().unreachable();
-                                code.instructions().end();
-
-                                // Sum is already on stack, add function body end
-                                code.instructions().end();
-
-                                let idx = self.add_function(FuncType::new(params, result), code);
-
-                                self.callables
-                                    .insert("__starstream_i64_add_checked".to_string(), idx);
-
-                                func.instructions().call(idx);
-                            }
+                            let checked_sum = self.get_or_create_i64_add_checked();
+                            func.instructions().call(checked_sum);
                         } else {
                             func.instructions().i64_add();
                         }
@@ -1659,6 +1664,7 @@ impl Compiler {
         func.instructions().call(core_fn_idx);
         Ok(())
     }
+
 }
 
 // Probably inefficient, but fun. Fix later?
