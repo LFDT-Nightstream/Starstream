@@ -410,3 +410,335 @@ script fn test(x: i64, y: i64) -> i64 {
     let result = execute_wasm(&wasm, "test", &[i64::MAX, i64::MIN]);
     assert!(result.is_ok(), "Different signs should not overflow");
 }
+
+// ============================================================================
+// Tests for checked SUBTRACTION - overflow cases
+// ============================================================================
+
+#[test]
+fn test_overflow_sub_i64_min_minus_one() {
+    let source = r#"
+script fn overflow_sub_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min - 1
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[]);
+    assert!(result.is_err(), "Should trap on MIN - 1");
+}
+
+#[test]
+fn test_overflow_sub_i64_min_minus_positive() {
+    let source = r#"
+script fn overflow_sub_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min - 1000
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[]);
+    assert!(result.is_err(), "Should trap on MIN - positive");
+}
+
+#[test]
+fn test_overflow_sub_i64_max_minus_negative() {
+    let source = r#"
+script fn overflow_sub_test() -> i64 {
+    9223372036854775807 - (-1)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[]);
+    assert!(result.is_err(), "Should trap on MAX - (-1)");
+}
+
+#[test]
+fn test_overflow_sub_positive_minus_large_negative() {
+    let source = r#"
+script fn overflow_sub_test() -> i64 {
+    5000000000000000000 - (-5000000000000000000)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[]);
+    assert!(result.is_err(), "Should trap on positive - large negative");
+}
+
+#[test]
+fn test_overflow_sub_negative_minus_positive() {
+    let source = r#"
+script fn overflow_sub_test() -> i64 {
+    -5000000000000000000 - 5000000000000000000
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[]);
+    assert!(result.is_err(), "Should trap on negative - positive");
+}
+
+#[test]
+fn test_overflow_sub_with_parameters() {
+    let source = r#"
+script fn overflow_sub_test(x: i64, y: i64) -> i64 {
+    x - y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // MIN - 1 should overflow
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[i64::MIN, 1]);
+    assert!(result.is_err(), "Should trap on MIN - 1");
+
+    // MAX - (-1) should overflow
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[i64::MAX, -1]);
+    assert!(result.is_err(), "Should trap on MAX - (-1)");
+
+    // 0 - MIN should overflow (MIN is -2^63, negating it overflows)
+    let result = execute_wasm(&wasm, "overflow-sub-test", &[0, i64::MIN]);
+    assert!(result.is_err(), "Should trap on 0 - MIN");
+}
+
+// ============================================================================
+// Tests for checked SUBTRACTION - non-overflow cases
+// ============================================================================
+
+#[test]
+fn test_no_overflow_sub_max_minus_zero() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    9223372036854775807 - 0
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MAX);
+}
+
+#[test]
+fn test_no_overflow_sub_min_minus_zero() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min - 0
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MIN);
+}
+
+#[test]
+fn test_no_overflow_sub_zero_minus_zero() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    0 - 0
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+#[test]
+fn test_no_overflow_sub_positive_minus_positive() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    500 - 200
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 300);
+}
+
+#[test]
+fn test_no_overflow_sub_negative_minus_negative() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    -200 - (-500)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 300);
+}
+
+#[test]
+fn test_no_overflow_sub_max_minus_positive() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    9223372036854775807 - 1
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MAX - 1);
+}
+
+#[test]
+fn test_no_overflow_sub_min_minus_negative() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min - (-1)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MIN + 1);
+}
+
+#[test]
+fn test_no_overflow_sub_max_minus_max() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    9223372036854775807 - 9223372036854775807
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap when subtracting equal values");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+#[test]
+fn test_no_overflow_sub_min_minus_min() {
+    let source = r#"
+script fn no_overflow_sub_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min - min
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
+    assert!(result.is_ok(), "Should not trap when subtracting equal values");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+#[test]
+fn test_no_overflow_sub_with_parameters() {
+    let source = r#"
+script fn no_overflow_sub_test(x: i64, y: i64) -> i64 {
+    x - y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // Test with values that don't overflow
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[300, 100]);
+    assert!(result.is_ok(), "Should not trap with small values");
+    assert_eq!(result.unwrap()[0], 200);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[i64::MAX, 0]);
+    assert!(result.is_ok(), "Should not trap with MAX - 0");
+    assert_eq!(result.unwrap()[0], i64::MAX);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[i64::MAX, i64::MAX]);
+    assert!(result.is_ok(), "Should not trap with equal values");
+    assert_eq!(result.unwrap()[0], 0);
+
+    let result = execute_wasm(&wasm, "no-overflow-sub-test", &[0, 100]);
+    assert!(result.is_ok(), "Should not trap with 0 - positive");
+    assert_eq!(result.unwrap()[0], -100);
+}
+
+// ============================================================================
+// Tests for the subtraction overflow detection formula
+// ============================================================================
+
+#[test]
+fn test_overflow_sub_formula_positive_minus_negative() {
+    // Tests the formula: (x ^ y) < 0 && (diff ^ x) < 0
+    // Positive - Negative can overflow to negative
+    let source = r#"
+script fn test_sub(x: i64, y: i64) -> i64 {
+    x - y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // Positive minus large negative wraps to negative
+    let result = execute_wasm(&wasm, "test-sub", &[i64::MAX, -1]);
+    assert!(result.is_err(), "Overflow not detected: MAX - (-1)");
+}
+
+#[test]
+fn test_overflow_sub_formula_negative_minus_positive() {
+    // Negative - Positive can overflow to positive
+    let source = r#"
+script fn test_sub(x: i64, y: i64) -> i64 {
+    x - y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // Negative minus positive wraps to positive
+    let result = execute_wasm(&wasm, "test-sub", &[i64::MIN, 1]);
+    assert!(result.is_err(), "Overflow not detected: MIN - 1");
+}
+
+#[test]
+fn test_overflow_sub_formula_same_signs_never_overflow() {
+    // When both operands have same sign, subtraction cannot overflow
+    let source = r#"
+script fn test_sub(x: i64, y: i64) -> i64 {
+    x - y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // Both positive - should never overflow
+    let result = execute_wasm(&wasm, "test-sub", &[i64::MAX, 1]);
+    assert!(result.is_ok(), "Same signs should not overflow");
+    assert_eq!(result.unwrap()[0], i64::MAX - 1);
+
+    // Both negative - should never overflow
+    let result = execute_wasm(&wasm, "test-sub", &[i64::MIN, -1]);
+    assert!(result.is_ok(), "Same signs should not overflow");
+    assert_eq!(result.unwrap()[0], i64::MIN + 1);
+
+    let result = execute_wasm(&wasm, "test-sub", &[i64::MAX, i64::MAX]);
+    assert!(result.is_ok(), "Same signs should not overflow");
+    assert_eq!(result.unwrap()[0], 0);
+}

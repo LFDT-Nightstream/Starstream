@@ -439,6 +439,62 @@ impl Compiler {
         idx
     }
 
+    /// Get or create the `__starstream_i64_sub_checked` function for overflow-checked subtraction.
+    /// Returns the function index.
+    fn get_or_create_i64_sub_checked(&mut self) -> u32 {
+        if let Some(&checked_sub) = self.callables.get("__starstream_i64_sub_checked") {
+            return checked_sub;
+        }
+
+        let params = [ValType::I64, ValType::I64];
+        let result = [ValType::I64];
+        let mut code = Function::from_params(&params);
+
+        let diff_local = code.add_locals([ValType::I64]);
+
+        code.instructions().local_get(0); //  [x]
+        code.instructions().local_get(1); //  [x, y]
+        code.instructions().i64_sub();
+        code.instructions().local_tee(diff_local); //  [diff]
+
+        // Check for overflow.
+        // Overflow occurs when subtracting a negative from a positive yields negative,
+        // or subtracting a positive from a negative yields positive.
+        // In other words: (x^y)<0 && (diff^x)<0
+
+        // (x^y)<0
+        code.instructions().local_get(0); //  [diff, x]
+        code.instructions().local_get(1); //  [diff, x, y]
+        code.instructions().i64_xor(); //  [diff, x^y]
+        code.instructions().i64_const(0); //  [diff, x^y, 0]
+        code.instructions().i64_lt_s(); //  [diff, (x^y)<0]
+
+        // (diff^x)<0
+        code.instructions().local_get(diff_local); //  [diff, (x^y)<0, diff]
+        code.instructions().local_get(0); //  [diff, (x^y)<0, diff, x]
+        code.instructions().i64_xor(); //  [diff, (x^y)<0, diff^x]
+        code.instructions().i64_const(0); //  [diff, (x^y)<0, diff^x, 0]
+        code.instructions().i64_lt_s(); //  [diff, (x^y)<0, (diff^x)<0]
+        code.instructions().i32_and(); //  [diff, overflow_flag]
+
+        // If overflow_flag != 0, trap.
+        code.instructions().i32_const(0); //  [diff, overflow_flag, 0]
+        code.instructions().i32_ne(); //  [diff, overflowed?]
+        code.instructions().if_(BlockType::Empty); //  [diff]
+        code.instructions().unreachable();
+        code.instructions().end();
+
+        // Diff is already on stack, add function body end
+        code.instructions().end();
+
+        let idx = self.add_function(FuncType::new(params, result), code);
+
+        self.callables
+            .insert("__starstream_i64_sub_checked".to_string(), idx);
+
+        idx
+    }
+
     // ------------------------------------------------------------------------
     // Component table management
 
@@ -1210,7 +1266,13 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int, Type::Int) => {
-                        func.instructions().i64_sub();
+                        if self.options.check_overflows {
+                            let checked_sub = self.get_or_create_i64_sub_checked();
+                            func.instructions().call(checked_sub);
+                        } else {
+                            func.instructions().i64_sub();
+                        }
+
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
