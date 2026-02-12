@@ -632,7 +632,10 @@ script fn no_overflow_sub_test() -> i64 {
     let wasm = compile_program(source);
 
     let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
-    assert!(result.is_ok(), "Should not trap when subtracting equal values");
+    assert!(
+        result.is_ok(),
+        "Should not trap when subtracting equal values"
+    );
     assert_eq!(result.unwrap()[0], 0);
 }
 
@@ -648,7 +651,10 @@ script fn no_overflow_sub_test() -> i64 {
     let wasm = compile_program(source);
 
     let result = execute_wasm(&wasm, "no-overflow-sub-test", &[]);
-    assert!(result.is_ok(), "Should not trap when subtracting equal values");
+    assert!(
+        result.is_ok(),
+        "Should not trap when subtracting equal values"
+    );
     assert_eq!(result.unwrap()[0], 0);
 }
 
@@ -740,5 +746,407 @@ script fn test_sub(x: i64, y: i64) -> i64 {
 
     let result = execute_wasm(&wasm, "test-sub", &[i64::MAX, i64::MAX]);
     assert!(result.is_ok(), "Same signs should not overflow");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+// ============================================================================
+// Tests for checked MULTIPLICATION - overflow cases
+// ============================================================================
+
+#[test]
+fn test_overflow_mul_i64_max_times_two() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    9223372036854775807 * 2
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(result.is_err(), "Should trap on MAX * 2");
+}
+
+#[test]
+fn test_overflow_mul_i64_min_times_neg_one() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min * (-1)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(result.is_err(), "Should trap on MIN * -1");
+}
+
+#[test]
+fn test_overflow_mul_neg_one_times_i64_min() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    (-1) * min
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(result.is_err(), "Should trap on -1 * MIN");
+}
+
+#[test]
+fn test_overflow_mul_large_positive_values() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    4611686018427387904 * 2
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(
+        result.is_err(),
+        "Should trap on large positive multiplication"
+    );
+}
+
+#[test]
+fn test_overflow_mul_large_negative_values() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    (-4611686018427387904) * 3
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(
+        result.is_err(),
+        "Should trap on large negative multiplication"
+    );
+}
+
+#[test]
+fn test_overflow_mul_positive_negative_large() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    4611686018427387904 * (-3)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(
+        result.is_err(),
+        "Should trap on large mixed sign multiplication"
+    );
+}
+
+#[test]
+fn test_overflow_mul_max_times_max() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    9223372036854775807 * 9223372036854775807
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(result.is_err(), "Should trap on MAX * MAX");
+}
+
+#[test]
+fn test_overflow_mul_min_times_two() {
+    let source = r#"
+script fn overflow_mul_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min * 2
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[]);
+    assert!(result.is_err(), "Should trap on MIN * 2");
+}
+
+#[test]
+fn test_overflow_mul_with_parameters() {
+    let source = r#"
+script fn overflow_mul_test(x: i64, y: i64) -> i64 {
+    x * y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // MAX * 2 should overflow
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[i64::MAX, 2]);
+    assert!(result.is_err(), "Should trap on MAX * 2");
+
+    // MIN * -1 should overflow
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[i64::MIN, -1]);
+    assert!(result.is_err(), "Should trap on MIN * -1");
+
+    // MIN * 2 should overflow
+    let result = execute_wasm(&wasm, "overflow-mul-test", &[i64::MIN, 2]);
+    assert!(result.is_err(), "Should trap on MIN * 2");
+}
+
+// ============================================================================
+// Tests for checked MULTIPLICATION - non-overflow cases
+// ============================================================================
+
+#[test]
+fn test_no_overflow_mul_small_values() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    123 * 456
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 56088);
+}
+
+#[test]
+fn test_no_overflow_mul_zero_times_max() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    0 * 9223372036854775807
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+#[test]
+fn test_no_overflow_mul_max_times_zero() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    9223372036854775807 * 0
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+#[test]
+fn test_no_overflow_mul_one_times_max() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    1 * 9223372036854775807
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MAX);
+}
+
+#[test]
+fn test_no_overflow_mul_max_times_one() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    9223372036854775807 * 1
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MAX);
+}
+
+#[test]
+fn test_no_overflow_mul_min_times_zero() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min * 0
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 0);
+}
+
+#[test]
+fn test_no_overflow_mul_min_times_one() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    let min = -9223372036854775807 - 1;
+    min * 1
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], i64::MIN);
+}
+
+#[test]
+fn test_no_overflow_mul_negative_one_times_positive() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    (-1) * 1000
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], -1000);
+}
+
+#[test]
+fn test_no_overflow_mul_boundary_sqrt_max() {
+    // Use a value slightly under the overflow threshold
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    3037000499 * 3037000499
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap at boundary");
+    // 3037000499 * 3037000499 = 9223372030926249001
+    assert_eq!(result.unwrap()[0], 9223372030926249001);
+}
+
+#[test]
+fn test_no_overflow_mul_negative_times_negative() {
+    let source = r#"
+script fn no_overflow_mul_test() -> i64 {
+    (-50) * (-100)
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[]);
+    assert!(result.is_ok(), "Should not trap");
+    assert_eq!(result.unwrap()[0], 5000);
+}
+
+#[test]
+fn test_no_overflow_mul_with_parameters() {
+    let source = r#"
+script fn no_overflow_mul_test(x: i64, y: i64) -> i64 {
+    x * y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // Test with values that don't overflow
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[10, 20]);
+    assert!(result.is_ok(), "Should not trap with small values");
+    assert_eq!(result.unwrap()[0], 200);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[i64::MAX, 0]);
+    assert!(result.is_ok(), "Should not trap with MAX * 0");
+    assert_eq!(result.unwrap()[0], 0);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[i64::MAX, 1]);
+    assert!(result.is_ok(), "Should not trap with MAX * 1");
+    assert_eq!(result.unwrap()[0], i64::MAX);
+
+    let result = execute_wasm(&wasm, "no-overflow-mul-test", &[i64::MIN, 1]);
+    assert!(result.is_ok(), "Should not trap with MIN * 1");
+    assert_eq!(result.unwrap()[0], i64::MIN);
+}
+
+// ============================================================================
+// Tests for the multiplication overflow detection
+// ============================================================================
+
+#[test]
+fn test_overflow_mul_formula_product_division_check() {
+    // Tests that if product / y != x, then overflow occurred
+    let source = r#"
+script fn test_mul(x: i64, y: i64) -> i64 {
+    x * y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    // Large values where product overflows
+    let result = execute_wasm(&wasm, "test-mul", &[i64::MAX, 2]);
+    assert!(result.is_err(), "Should detect overflow via division check");
+
+    let result = execute_wasm(&wasm, "test-mul", &[i64::MAX / 2 + 1, 3]);
+    assert!(result.is_err(), "Should detect overflow via division check");
+}
+
+#[test]
+fn test_overflow_mul_special_case_min_times_neg_one() {
+    // Special case: MIN * -1 must trap
+    let source = r#"
+script fn test_mul(x: i64, y: i64) -> i64 {
+    x * y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "test-mul", &[i64::MIN, -1]);
+    assert!(result.is_err(), "MIN * -1 should trap");
+
+    let result = execute_wasm(&wasm, "test-mul", &[-1, i64::MIN]);
+    assert!(result.is_err(), "-1 * MIN should trap");
+}
+
+#[test]
+fn test_no_overflow_mul_zero_multiplicand() {
+    // When multiplying by zero, never overflow
+    let source = r#"
+script fn test_mul(x: i64, y: i64) -> i64 {
+    x * y
+}
+"#;
+
+    let wasm = compile_program(source);
+
+    let result = execute_wasm(&wasm, "test-mul", &[i64::MAX, 0]);
+    assert!(result.is_ok(), "Should not overflow with zero");
+    assert_eq!(result.unwrap()[0], 0);
+
+    let result = execute_wasm(&wasm, "test-mul", &[0, i64::MAX]);
+    assert!(result.is_ok(), "Should not overflow with zero");
+    assert_eq!(result.unwrap()[0], 0);
+
+    let result = execute_wasm(&wasm, "test-mul", &[i64::MIN, 0]);
+    assert!(result.is_ok(), "Should not overflow with zero");
     assert_eq!(result.unwrap()[0], 0);
 }

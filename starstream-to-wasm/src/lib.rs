@@ -495,6 +495,85 @@ impl Compiler {
         idx
     }
 
+    /// Get or create the `__starstream_i64_mul_checked` function for overflow-checked multiplication.
+    /// Returns the function index.
+    fn get_or_create_i64_mul_checked(&mut self) -> u32 {
+        if let Some(&checked_mul) = self.callables.get("__starstream_i64_mul_checked") {
+            return checked_mul;
+        }
+
+        let params = [ValType::I64, ValType::I64];
+        let result = [ValType::I64];
+        let mut code = Function::from_params(&params);
+
+        let product_local = code.add_locals([ValType::I64]);
+        let x_local = code.add_locals([ValType::I64]);
+        let y_local = code.add_locals([ValType::I64]);
+
+        // Store parameters in locals for reuse
+        code.instructions().local_get(0); //  [x]
+        code.instructions().local_tee(x_local); //  [x]
+        code.instructions().local_get(1); //  [x, y]
+        code.instructions().local_tee(y_local); //  [x, y]
+        code.instructions().i64_mul();
+        code.instructions().local_tee(product_local); //  [product]
+
+        // Check for overflow.
+        // For multiplication overflow detection, we check:
+        // 1. If y == 0, no overflow
+        // 2. If product / y != x, then overflow occurred
+        // Special case: MIN * -1 overflows (since -MIN doesn't fit in i64)
+
+        // Special case: check if x == MIN && y == -1
+        code.instructions().local_get(x_local); //  [product, x]
+        code.instructions().i64_const(i64::MIN); //  [product, x, MIN]
+        code.instructions().i64_eq(); //  [product, x==MIN]
+        code.instructions().local_get(y_local); //  [product, x==MIN, y]
+        code.instructions().i64_const(-1); //  [product, x==MIN, y, -1]
+        code.instructions().i64_eq(); //  [product, x==MIN, y==-1]
+        code.instructions().i32_and(); //  [product, (x==MIN && y==-1)]
+
+        // Also check y == MIN && x == -1
+        code.instructions().local_get(y_local); //  [product, (x==MIN && y==-1), y]
+        code.instructions().i64_const(i64::MIN); //  [product, (x==MIN && y==-1), y, MIN]
+        code.instructions().i64_eq(); //  [product, (x==MIN && y==-1), y==MIN]
+        code.instructions().local_get(x_local); //  [product, (x==MIN && y==-1), y==MIN, x]
+        code.instructions().i64_const(-1); //  [product, (x==MIN && y==-1), y==MIN, x, -1]
+        code.instructions().i64_eq(); //  [product, (x==MIN && y==-1), y==MIN, x==-1]
+        code.instructions().i32_and(); //  [product, (x==MIN && y==-1), (y==MIN && x==-1)]
+        code.instructions().i32_or(); //  [product, overflow_special]
+
+        code.instructions().if_(BlockType::Empty); //  [product]
+        code.instructions().unreachable();
+        code.instructions().end();
+
+        // Check regular overflow: if y != 0 and product / y != x
+        code.instructions().local_get(y_local); //  [product, y]
+        code.instructions().i64_const(0); //  [product, y, 0]
+        code.instructions().i64_ne(); //  [product, y!=0]
+        code.instructions().if_(BlockType::Empty); //  [product]
+        // y != 0, so check if product / y == x
+        code.instructions().local_get(product_local); //  [product, product]
+        code.instructions().local_get(y_local); //  [product, product, y]
+        code.instructions().i64_div_s(); //  [product, product/y]
+        code.instructions().local_get(x_local); //  [product, product/y, x]
+        code.instructions().i64_ne(); //  [product, (product/y)!=x]
+        code.instructions().if_(BlockType::Empty); //  [product]
+        code.instructions().unreachable();
+        code.instructions().end();
+        code.instructions().end();
+
+        // Product is already on stack, add function body end
+        code.instructions().end();
+
+        let idx = self.add_function(FuncType::new(params, result), code);
+
+        self.callables
+            .insert("__starstream_i64_mul_checked".to_string(), idx);
+
+        idx
+    }
+
     // ------------------------------------------------------------------------
     // Component table management
 
@@ -1289,7 +1368,13 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int, Type::Int) => {
-                        func.instructions().i64_mul();
+                        if self.options.check_overflows {
+                            let checked_mul = self.get_or_create_i64_mul_checked();
+                            func.instructions().call(checked_mul);
+                        } else {
+                            func.instructions().i64_mul();
+                        }
+
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),
