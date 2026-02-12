@@ -17,7 +17,7 @@ use starstream_compiler::{
     typecheck::{TypeError, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    CommentMap, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef, TypedUtxoPart,
+    CommentMap, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef, TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
@@ -679,7 +679,7 @@ impl DocumentState {
         }
     }
 
-    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut [HashMap<String, Span>]) {
+    fn collect_utxo(&mut self, definition: &TypedUtxoDef, scopes: &mut Vec<HashMap<String, Span>>) {
         for part in &definition.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
@@ -694,6 +694,9 @@ impl DocumentState {
                             self.add_hover_span(span, &var.ty);
                         }
                     }
+                }
+                TypedUtxoPart::MainFn(function) => {
+                    self.collect_function(function, scopes, None);
                 }
             }
         }
@@ -1381,13 +1384,7 @@ impl DocumentState {
         for definition in &program.definitions {
             match &definition.node {
                 untyped_ast::Definition::Function(function) => {
-                    for param in &function.params {
-                        self.collect_type_annotation_node(&param.ty);
-                    }
-                    if let Some(ret) = &function.return_type {
-                        self.collect_type_annotation_node(ret);
-                    }
-                    self.collect_block_annotations_from_ast(&function.body);
+                    self.collect_type_annotation_function(function);
                 }
                 untyped_ast::Definition::Struct(definition) => {
                     for field in &definition.fields {
@@ -1419,6 +1416,9 @@ impl DocumentState {
                                     self.collect_type_annotation_node(&var.ty);
                                 }
                             }
+                            untyped_ast::UtxoPart::MainFn(function) => {
+                                self.collect_type_annotation_function(function);
+                            }
                         }
                     }
                 }
@@ -1438,6 +1438,16 @@ impl DocumentState {
                 }
             }
         }
+    }
+
+    fn collect_type_annotation_function(&mut self, function: &FunctionDef) {
+        for param in &function.params {
+            self.collect_type_annotation_node(&param.ty);
+        }
+        if let Some(ret) = &function.return_type {
+            self.collect_type_annotation_node(ret);
+        }
+        self.collect_block_annotations_from_ast(&function.body);
     }
 
     fn collect_block_annotations_from_ast(&mut self, block: &untyped_ast::Block) {
@@ -1854,6 +1864,9 @@ impl DocumentState {
                             children.push(child);
                         }
                     }
+                }
+                TypedUtxoPart::MainFn(function) => {
+                    children.extend(self.function_symbol(function));
                 }
             }
         }

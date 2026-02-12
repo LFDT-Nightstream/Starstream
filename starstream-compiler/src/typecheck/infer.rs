@@ -1008,27 +1008,36 @@ impl Inferencer {
         env: &mut TypeEnv,
         def: &UtxoDef,
     ) -> Result<(TypedUtxoDef, InferenceTree), TypeError> {
-        let parts = def
-            .parts
-            .iter()
-            .map(|part| -> Result<TypedUtxoPart, TypeError> {
-                Ok(match part {
-                    UtxoPart::Storage(vars) => TypedUtxoPart::Storage(
-                        vars.iter()
-                            .map(|var| self.infer_utxo_global(env, var))
-                            .collect::<Result<Vec<_>, _>>()?,
-                    ),
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut parts = Vec::with_capacity(def.parts.len());
+        let mut traces = Vec::with_capacity(def.parts.len());
+
+        for part in &def.parts {
+            parts.push(match part {
+                UtxoPart::Storage(vars) => TypedUtxoPart::Storage(
+                    vars.iter()
+                        .map(|var| self.infer_utxo_global(env, var))
+                        .collect::<Result<Vec<_>, _>>()?,
+                ),
+                UtxoPart::MainFn(function) => {
+                    if function.return_type.is_some() {
+                        return Err(TypeError::new(
+                            TypeErrorKind::ReturnTypeNotAllowed,
+                            function.name.span.unwrap_or_else(dummy_span),
+                        ));
+                    }
+                    let (func, trace) = self.infer_function(env, function)?;
+                    traces.push(trace);
+                    TypedUtxoPart::MainFn(func)
+                }
+            });
+        }
 
         Ok((
             TypedUtxoDef {
                 name: def.name.clone(),
                 parts,
             },
-            // ... is this needed?
-            InferenceTree::default(),
+            self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))
     }
 
@@ -3448,6 +3457,9 @@ impl Inferencer {
                     for var in vars {
                         var.ty = self.apply(&var.ty);
                     }
+                }
+                TypedUtxoPart::MainFn(func) => {
+                    self.apply_function(func);
                 }
             }
         }

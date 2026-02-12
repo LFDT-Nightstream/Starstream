@@ -40,7 +40,9 @@ module.exports = grammar({
     import_named_items: ($) =>
       seq(
         "{",
-        optional(seq($.import_named_item, repeat(seq(",", $.import_named_item)))),
+        optional(
+          seq($.import_named_item, repeat(seq(",", $.import_named_item))),
+        ),
         optional(","),
         "}",
       ),
@@ -61,9 +63,12 @@ module.exports = grammar({
         optional(seq("/", field("interface", $.identifier))),
       ),
 
-    function_definition: ($) =>
+    function_definition: ($) => seq(optional($.function_export), $._function),
+
+    function_export: ($) => choice("script"),
+
+    _function: ($) =>
       seq(
-        optional($.function_export),
         "fn",
         $.identifier,
         "(",
@@ -72,8 +77,6 @@ module.exports = grammar({
         optional(seq("->", $.type_annotation)),
         $.block,
       ),
-
-    function_export: ($) => choice("script"),
 
     parameter: ($) => seq($.identifier, ":", $.type_annotation),
 
@@ -126,12 +129,14 @@ module.exports = grammar({
     utxo_definition: ($) =>
       seq("utxo", $.identifier, "{", repeat($._utxo_part), "}"),
 
-    _utxo_part: ($) => choice($.storage_utxo_part),
+    _utxo_part: ($) => choice($.storage_utxo_part, $.main_fn_utxo_part),
 
     storage_utxo_part: ($) => seq("storage", "{", repeat($.utxo_global), "}"),
 
     utxo_global: ($) =>
       seq("let", "mut", $.identifier, ":", $.type_annotation, ";"),
+
+    main_fn_utxo_part: ($) => seq("main", $._function),
 
     abi_definition: ($) =>
       seq("abi", $.identifier, "{", repeat($._abi_part), "}"),
@@ -232,13 +237,18 @@ module.exports = grammar({
     arguments: ($) =>
       seq(
         "(",
-        optional(seq($.expression, repeat(seq(",", $.expression)), optional(","))),
+        optional(
+          seq($.expression, repeat(seq(",", $.expression)), optional(",")),
+        ),
         ")",
       ),
 
     field_expression: ($) =>
       seq(
-        field("operand", choice($._primary_expression, $.call_expression, $.field_expression)),
+        field(
+          "operand",
+          choice($._primary_expression, $.call_expression, $.field_expression),
+        ),
         ".",
         field("field", $.identifier),
       ),
@@ -279,11 +289,9 @@ module.exports = grammar({
         $.match_expression,
       ),
 
-    raise_expression: ($) =>
-      seq("raise", field("call", $.call_expression)),
+    raise_expression: ($) => seq("raise", field("call", $.call_expression)),
 
-    runtime_expression: ($) =>
-      seq("runtime", field("call", $.call_expression)),
+    runtime_expression: ($) => seq("runtime", field("call", $.call_expression)),
 
     emit_expression: ($) =>
       seq(
@@ -430,10 +438,7 @@ module.exports = grammar({
     doc_comment: ($) => token(seq("///", /.*/)),
     comment: ($) =>
       token(
-        choice(
-          seq("//", /.*/),
-          seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/"),
-        ),
+        choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
       ),
   },
   conflicts: ($) => [

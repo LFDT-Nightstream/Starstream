@@ -48,15 +48,16 @@ import_named_item ::= identifier ( "as" identifier )?
 
 import_source ::= identifier ":" identifier "/" identifier
 
-function_definition ::=
-  ( function_export )?
+function_definition ::= ( function_export )? function
+
+function_export ::=
+  | "script"
+
+function ::=
   "fn" identifier
   "(" ( parameter ( "," parameter )* )? ")"
   ( "->" type_annotation )?
   block
-
-function_export ::=
-  | "script"
 
 parameter ::= identifier ":" type_annotation
 
@@ -79,10 +80,13 @@ utxo_definition ::=
 
 utxo_part ::=
   | storage_utxo_part
+  | main_fn_utxo_part
 
 storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
 utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
+
+main_fn_utxo_part ::= "main" function
 
 abi_definition ::=
   "abi" identifier "{" abi_part* "}"

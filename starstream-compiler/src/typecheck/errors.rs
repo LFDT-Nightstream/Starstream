@@ -311,6 +311,8 @@ pub enum TypeErrorKind {
         expected: usize,
         found: usize,
     },
+    /// A function was declared with a return type in a position where it shouldn't have one.
+    ReturnTypeNotAllowed,
 }
 
 impl TypeErrorKind {
@@ -359,6 +361,7 @@ impl TypeErrorKind {
             TypeErrorKind::RuntimeRequiresRuntime => "E0040",
             TypeErrorKind::RuntimeWithoutKeyword { .. } => "E0041",
             TypeErrorKind::WrongGenericArity { .. } => "E0042",
+            TypeErrorKind::ReturnTypeNotAllowed { .. } => "E0043",
         }
     }
 }
@@ -679,6 +682,9 @@ impl fmt::Display for TypeErrorKind {
                     f,
                     "type `{type_name}` expects {expected} generic argument(s) but {found} were provided"
                 )
+            }
+            TypeErrorKind::ReturnTypeNotAllowed => {
+                write!(f, "return type not allowed on this function")
             }
         }
     }

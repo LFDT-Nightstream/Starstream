@@ -1,7 +1,9 @@
 use chumsky::prelude::*;
-use starstream_types::{UtxoDef, UtxoGlobal, UtxoPart};
+use starstream_types::{FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart};
 
-use crate::parser::{context::Extra, primitives, type_annotation};
+use crate::parser::{
+    context::Extra, definition::function::function_with_body, primitives, type_annotation,
+};
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
     let utxo_global = just("let")
@@ -13,7 +15,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
         .then_ignore(just(';').padded())
         .map(|(name, ty)| UtxoGlobal { name, ty });
 
-    let part = utxo_global
+    let storage_part = utxo_global
         .repeated()
         .collect::<Vec<_>>()
         .delimited_by(
@@ -21,6 +23,18 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
             just('}').padded(),
         )
         .map(UtxoPart::Storage);
+
+    let main_fn_part = just("main")
+        .padded()
+        .ignore_then(function_with_body())
+        .map(|def| {
+            UtxoPart::MainFn(FunctionDef {
+                export: Some(FunctionExport::UtxoMain),
+                ..def
+            })
+        });
+
+    let part = choice((storage_part, main_fn_part));
 
     just("utxo")
         .padded()

@@ -60,6 +60,7 @@
 
 ; Actual syntax forms
 (function_definition (identifier) @function.definition)
+(main_fn_utxo_part (identifier) @function.definition)
 (function_export "script" @keyword)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
@@ -92,6 +93,7 @@
 (match_arm "=>" @operator)
 (utxo_definition "utxo" @keyword)
 (storage_utxo_part "storage" @keyword)
+(main_fn_utxo_part "main" @keyword)
 ; ABI and events
 (abi_definition (identifier) @type.definition)
 (event_definition (identifier) @function.definition)
