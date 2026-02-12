@@ -6,8 +6,9 @@ use std::{
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, EffectKind, EventDef, GenericTypeDef, Scheme, Span, Spanned, Type, TypeParam,
-    TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, Scheme, Span, Spanned, Type,
+    TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal,
+    UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, Literal,
@@ -420,7 +421,7 @@ impl Inferencer {
                 kind: TypeEntryKind::Enum {
                     variants: info_variants,
                 },
-                span: dummy_span(),
+                span: DUMMY_SPAN,
                 type_params,
                 doc: Some(doc.into()),
                 variant_docs: variant_docs
@@ -479,7 +480,7 @@ impl Inferencer {
 
     fn register_function(&mut self, def: &FunctionDef) -> Result<(), TypeError> {
         let name = def.name.name.clone();
-        let name_span = def.name.span.unwrap_or_else(dummy_span);
+        let name_span = def.name.span();
 
         if let Some(existing) = self.functions.get(&name) {
             return Err(
@@ -493,7 +494,7 @@ impl Inferencer {
         for param in &def.params {
             let ty = self.type_from_annotation(&param.ty)?;
             param_types.push(ty);
-            param_spans.push(param.ty.name.span.unwrap_or_else(dummy_span));
+            param_spans.push(param.ty.name.span());
         }
         let return_type = match &def.return_type {
             Some(annotation) => self.type_from_annotation(annotation)?,
@@ -524,7 +525,7 @@ impl Inferencer {
                     namespace: namespace.clone(),
                     package: package.clone(),
                 },
-                import.from.namespace.span.unwrap_or_else(dummy_span),
+                import.from.namespace.span(),
             ));
         }
 
@@ -538,7 +539,7 @@ impl Inferencer {
                             package: package.clone(),
                             interface: "".to_string(),
                         },
-                        import.from.package.span.unwrap_or_else(dummy_span),
+                        import.from.package.span(),
                     )
                     .with_help("named imports require an interface, e.g., `starstream:std/cardano`")
                 })?;
@@ -553,7 +554,7 @@ impl Inferencer {
                                 package: package.clone(),
                                 interface: interface.name.clone(),
                             },
-                            interface.span.unwrap_or_else(dummy_span),
+                            interface.span(),
                         )
                     })?;
 
@@ -564,7 +565,7 @@ impl Inferencer {
                                 path: format!("{namespace}:{package}/{}", interface.name),
                                 name: item.imported.name.clone(),
                             },
-                            item.imported.span.unwrap_or_else(dummy_span),
+                            item.imported.span(),
                         )
                     })?;
 
@@ -576,7 +577,7 @@ impl Inferencer {
                             param_spans: vec![], // No source spans for builtins
                             return_type: builtin.return_type.clone(),
                             effect: builtin.effect,
-                            name_span: item.local.span.unwrap_or_else(dummy_span),
+                            name_span: item.local.span(),
                         },
                     );
 
@@ -584,7 +585,7 @@ impl Inferencer {
                     env.insert(
                         item.local.name.clone(),
                         Binding {
-                            decl_span: item.local.span.unwrap_or_else(dummy_span),
+                            decl_span: item.local.span(),
                             mutable: false,
                             scheme: Scheme::monomorphic(builtin.to_function_type()),
                         },
@@ -600,7 +601,7 @@ impl Inferencer {
                             package: package.clone(),
                             interface: "".to_string(),
                         },
-                        import.from.package.span.unwrap_or_else(dummy_span),
+                        import.from.package.span(),
                     )
                     .with_help("namespace imports require an interface, e.g., `import cardano from starstream:std/cardano;`")
                 })?;
@@ -615,7 +616,7 @@ impl Inferencer {
                                 package: package.clone(),
                                 interface: interface.name.clone(),
                             },
-                            interface.span.unwrap_or_else(dummy_span),
+                            interface.span(),
                         )
                     })?;
 
@@ -629,7 +630,7 @@ impl Inferencer {
                             param_spans: vec![],
                             return_type: builtin.return_type.clone(),
                             effect: builtin.effect,
-                            name_span: alias.span.unwrap_or_else(dummy_span),
+                            name_span: alias.span(),
                         },
                     );
                 }
@@ -652,14 +653,14 @@ impl Inferencer {
 
     fn register_event(&mut self, event: &EventDef) -> Result<(), TypeError> {
         let name = event.name.name.clone();
-        let name_span = event.name.span.unwrap_or_else(dummy_span);
+        let name_span = event.name.span();
 
         let mut param_types = Vec::with_capacity(event.params.len());
         let mut param_spans = Vec::with_capacity(event.params.len());
         for param in &event.params {
             let ty = self.type_from_annotation(&param.ty)?;
             param_types.push(ty);
-            param_spans.push(param.ty.name.span.unwrap_or_else(dummy_span));
+            param_spans.push(param.ty.name.span());
         }
         self.events.insert(
             name,
@@ -677,7 +678,7 @@ impl Inferencer {
         if let Some(existing) = self.types.get(&name) {
             return Err(TypeError::new(
                 TypeErrorKind::TypeAlreadyDefined { name },
-                def.name.span.unwrap_or_else(dummy_span),
+                def.name.span(),
             )
             .with_secondary(existing.span, "previously defined here"));
         }
@@ -691,20 +692,17 @@ impl Inferencer {
                         struct_name: def.name.name.clone(),
                         field_name: field.name.name.clone(),
                     },
-                    field.name.span.unwrap_or_else(dummy_span),
+                    field.name.span(),
                 )
                 .with_primary_message("duplicate")
                 .with_secondary(*previous_span, "first defined here"));
             }
-            seen.insert(
-                field.name.name.clone(),
-                field.name.span.unwrap_or_else(dummy_span),
-            );
+            seen.insert(field.name.name.clone(), field.name.span());
             let ty = self.type_from_annotation(&field.ty)?;
             fields.push(StructFieldInfo {
                 name: field.name.clone(),
                 ty,
-                span: field.name.span.unwrap_or_else(dummy_span),
+                span: field.name.span(),
             });
         }
 
@@ -718,7 +716,7 @@ impl Inferencer {
             TypeEntry {
                 ty,
                 kind: TypeEntryKind::Struct { fields },
-                span: def.name.span.unwrap_or_else(dummy_span),
+                span: def.name.span(),
                 type_params: vec![],
                 doc: None,
                 variant_docs: HashMap::new(),
@@ -732,7 +730,7 @@ impl Inferencer {
         if let Some(existing) = self.types.get(&name) {
             return Err(TypeError::new(
                 TypeErrorKind::TypeAlreadyDefined { name },
-                def.name.span.unwrap_or_else(dummy_span),
+                def.name.span(),
             )
             .with_secondary(existing.span, "previously defined here"));
         }
@@ -746,15 +744,12 @@ impl Inferencer {
                         enum_name: def.name.name.clone(),
                         variant_name: variant.name.name.clone(),
                     },
-                    variant.name.span.unwrap_or_else(dummy_span),
+                    variant.name.span(),
                 )
                 .with_primary_message("duplicate")
                 .with_secondary(*previous_span, "first defined here"));
             }
-            seen.insert(
-                variant.name.name.clone(),
-                variant.name.span.unwrap_or_else(dummy_span),
-            );
+            seen.insert(variant.name.name.clone(), variant.name.span());
             let kind = match &variant.payload {
                 EnumVariantPayload::Unit => EnumVariantInfoKind::Unit,
                 EnumVariantPayload::Tuple(items) => {
@@ -777,20 +772,17 @@ impl Inferencer {
                                     ),
                                     field_name: field.name.name.clone(),
                                 },
-                                field.name.span.unwrap_or_else(dummy_span),
+                                field.name.span(),
                             )
                             .with_primary_message("duplicate")
                             .with_secondary(*previous_span, "first defined here"));
                         }
-                        seen_fields.insert(
-                            field.name.name.clone(),
-                            field.name.span.unwrap_or_else(dummy_span),
-                        );
+                        seen_fields.insert(field.name.name.clone(), field.name.span());
                         let ty = self.type_from_annotation(&field.ty)?;
                         payload.push(StructFieldInfo {
                             name: field.name.clone(),
                             ty,
-                            span: field.name.span.unwrap_or_else(dummy_span),
+                            span: field.name.span(),
                         });
                     }
                     EnumVariantInfoKind::Struct(payload)
@@ -827,7 +819,7 @@ impl Inferencer {
             TypeEntry {
                 ty,
                 kind: TypeEntryKind::Enum { variants },
-                span: def.name.span.unwrap_or_else(dummy_span),
+                span: def.name.span(),
                 type_params: vec![],
                 doc: None,
                 variant_docs: HashMap::new(),
@@ -842,7 +834,7 @@ impl Inferencer {
                 TypeErrorKind::UnknownStruct {
                     name: def.name.name.clone(),
                 },
-                def.name.span.unwrap_or_else(dummy_span),
+                def.name.span(),
             )
         })?;
 
@@ -868,7 +860,7 @@ impl Inferencer {
                 TypeErrorKind::UnknownEnum {
                     name: def.name.name.clone(),
                 },
-                def.name.span.unwrap_or_else(dummy_span),
+                def.name.span(),
             )
         })?;
 
@@ -975,7 +967,7 @@ impl Inferencer {
                             TypeErrorKind::UnknownEvent {
                                 name: event.name.name.clone(),
                             },
-                            event.name.span.unwrap_or_else(dummy_span),
+                            event.name.span(),
                         )
                     })?;
 
@@ -1022,7 +1014,7 @@ impl Inferencer {
                     if function.return_type.is_some() {
                         return Err(TypeError::new(
                             TypeErrorKind::ReturnTypeNotAllowed,
-                            function.name.span.unwrap_or_else(dummy_span),
+                            function.name.span(),
                         ));
                     }
                     let (func, trace) = self.infer_function(env, function)?;
@@ -1050,7 +1042,7 @@ impl Inferencer {
         env.insert(
             var.name.name.clone(),
             Binding {
-                decl_span: var.name.span.unwrap_or_else(dummy_span),
+                decl_span: var.name.span(),
                 mutable: true,
                 scheme: Scheme::monomorphic(ty.clone()),
             },
@@ -1067,7 +1059,7 @@ impl Inferencer {
                 TypeErrorKind::UnknownStruct {
                     name: name.name.clone(),
                 },
-                name.span.unwrap_or_else(dummy_span),
+                name.span(),
             )
         })
     }
@@ -1078,7 +1070,7 @@ impl Inferencer {
                 TypeErrorKind::UnknownEnum {
                     name: name.name.clone(),
                 },
-                name.span.unwrap_or_else(dummy_span),
+                name.span(),
             )
         })
     }
@@ -1184,14 +1176,14 @@ impl Inferencer {
                 TypeErrorKind::Redeclaration {
                     name: ident.name.clone(),
                 },
-                ident.span.unwrap_or_else(dummy_span),
+                ident.span(),
             ));
         }
 
         env.insert(
             ident.name.clone(),
             Binding {
-                decl_span: ident.span.unwrap_or_else(dummy_span),
+                decl_span: ident.span(),
                 mutable: false,
                 scheme: Scheme::monomorphic(ty),
             },
@@ -1244,7 +1236,7 @@ impl Inferencer {
                     expected_ty.clone(),
                     info.ty.clone(),
                     value_span,
-                    enum_name.span.unwrap_or_else(dummy_span),
+                    enum_name.span(),
                     TypeErrorKind::PatternEnumMismatch {
                         enum_name: enum_name.name.clone(),
                         found: self.apply(&expected_ty),
@@ -1262,7 +1254,7 @@ impl Inferencer {
                                 enum_name: enum_name.name.clone(),
                                 variant_name: variant.name.clone(),
                             },
-                            variant.span.unwrap_or_else(dummy_span),
+                            variant.span(),
                         )
                     })?;
 
@@ -1279,7 +1271,7 @@ impl Inferencer {
                                     expected: EnumPayloadKind::tuple(expected.len()),
                                     found: EnumPayloadKind::tuple(patterns.len()),
                                 },
-                                variant.span.unwrap_or_else(dummy_span),
+                                variant.span(),
                             ));
                         }
 
@@ -1308,15 +1300,12 @@ impl Inferencer {
                                     TypeErrorKind::DuplicateStructLiteralField {
                                         field_name: field.name.name.clone(),
                                     },
-                                    field.name.span.unwrap_or_else(dummy_span),
+                                    field.name.span(),
                                 )
                                 .with_primary_message("duplicate")
                                 .with_secondary(*previous_span, "first used here"));
                             }
-                            seen.insert(
-                                field.name.name.clone(),
-                                field.name.span.unwrap_or_else(dummy_span),
-                            );
+                            seen.insert(field.name.name.clone(), field.name.span());
 
                             let expected_field =
                                 expected_fields.remove(&field.name.name).ok_or_else(|| {
@@ -1325,7 +1314,7 @@ impl Inferencer {
                                             struct_name: struct_name.clone(),
                                             field_name: field.name.name.clone(),
                                         },
-                                        field.name.span.unwrap_or_else(dummy_span),
+                                        field.name.span(),
                                     )
                                 })?;
 
@@ -1348,7 +1337,7 @@ impl Inferencer {
                                     struct_name,
                                     field_name: missing_field,
                                 },
-                                variant.span.unwrap_or_else(dummy_span),
+                                variant.span(),
                             ));
                         }
 
@@ -1362,7 +1351,7 @@ impl Inferencer {
                                 expected: enum_payload_kind_from_variant(expected_kind),
                                 found: enum_payload_kind_from_pattern(found_payload),
                             },
-                            variant.span.unwrap_or_else(dummy_span),
+                            variant.span(),
                         ));
                     }
                 };
@@ -1382,7 +1371,7 @@ impl Inferencer {
                     expected_ty.clone(),
                     info.ty.clone(),
                     value_span,
-                    name.span.unwrap_or_else(dummy_span),
+                    name.span(),
                     TypeErrorKind::GeneralMismatch {
                         expected: info.ty.clone(),
                         found: expected_ty.clone(),
@@ -1404,15 +1393,12 @@ impl Inferencer {
                             TypeErrorKind::DuplicateStructLiteralField {
                                 field_name: field.name.name.clone(),
                             },
-                            field.name.span.unwrap_or_else(dummy_span),
+                            field.name.span(),
                         )
                         .with_primary_message("duplicate")
                         .with_secondary(*previous_span, "first used here"));
                     }
-                    seen.insert(
-                        field.name.name.clone(),
-                        field.name.span.unwrap_or_else(dummy_span),
-                    );
+                    seen.insert(field.name.name.clone(), field.name.span());
 
                     let expected_field =
                         expected_fields.remove(&field.name.name).ok_or_else(|| {
@@ -1421,7 +1407,7 @@ impl Inferencer {
                                     struct_name: name.name.clone(),
                                     field_name: field.name.name.clone(),
                                 },
-                                field.name.span.unwrap_or_else(dummy_span),
+                                field.name.span(),
                             )
                         })?;
 
@@ -1444,7 +1430,7 @@ impl Inferencer {
                             struct_name: name.name.clone(),
                             field_name,
                         },
-                        name.span.unwrap_or_else(dummy_span),
+                        name.span(),
                     ));
                 }
 
@@ -1511,11 +1497,7 @@ impl Inferencer {
             env.insert(
                 param.name.name.clone(),
                 Binding {
-                    decl_span: param
-                        .name
-                        .span
-                        .or(function.name.span)
-                        .unwrap_or_else(dummy_span),
+                    decl_span: param.name.span.or(function.name.span).unwrap_or(DUMMY_SPAN),
                     mutable: false,
                     scheme: Scheme::monomorphic(ty.clone()),
                 },
@@ -1533,9 +1515,9 @@ impl Inferencer {
                     .name
                     .span
                     .or(function.name.span)
-                    .unwrap_or_else(dummy_span),
+                    .unwrap_or(DUMMY_SPAN),
             ),
-            None => (Type::unit(), function.name.span.unwrap_or_else(dummy_span)),
+            None => (Type::unit(), function.name.span()),
         };
 
         let mut ctx = FunctionCtx {
@@ -1558,7 +1540,7 @@ impl Inferencer {
                 TypeErrorKind::MissingReturn {
                     expected: expected_return,
                 },
-                function.name.span.unwrap_or(return_span),
+                function.name.span_or(return_span),
             )
             .with_help("add a `return` or tail expression to satisfy the signature"));
         }
@@ -1601,7 +1583,7 @@ impl Inferencer {
                         TypeErrorKind::Redeclaration {
                             name: name.name.clone(),
                         },
-                        name.span.unwrap_or(value.span),
+                        name.span_or(value.span),
                     )
                     .with_secondary(previous_decl.decl_span, "previously defined here"));
                 }
@@ -1616,7 +1598,7 @@ impl Inferencer {
                     let (new_value_type, unify_trace) = self.unify(
                         expected_type.clone(),
                         value_type.clone(),
-                        name.span.unwrap_or(value.span),
+                        name.span_or(value.span),
                         value.span,
                         TypeErrorKind::AssignmentMismatch {
                             name: name.name.clone(),
@@ -1632,7 +1614,7 @@ impl Inferencer {
                 env.insert(
                     name.name.clone(),
                     Binding {
-                        decl_span: name.span.unwrap_or(value.span),
+                        decl_span: name.span_or(value.span),
                         mutable: *mutable,
                         scheme,
                     },
@@ -1662,7 +1644,7 @@ impl Inferencer {
                         TypeErrorKind::UnknownVariable {
                             name: target.name.clone(),
                         },
-                        target.span.unwrap_or(value.span),
+                        target.span_or(value.span),
                     )
                 })?;
 
@@ -1671,7 +1653,7 @@ impl Inferencer {
                         TypeErrorKind::AssignmentToImmutable {
                             name: target.name.clone(),
                         },
-                        target.span.unwrap_or(value.span),
+                        target.span_or(value.span),
                     )
                     .with_primary_message("assigned here")
                     .with_secondary(binding.decl_span, "declared without `mut` here")
@@ -1686,7 +1668,7 @@ impl Inferencer {
                     actual_type.clone(),
                     expected_type.clone(),
                     value.span,
-                    target.span.unwrap_or(value.span),
+                    target.span_or(value.span),
                     TypeErrorKind::AssignmentMismatch {
                         name: target.name.clone(),
                         expected: self.apply(&expected_type),
@@ -2177,15 +2159,12 @@ impl Inferencer {
                             TypeErrorKind::DuplicateStructLiteralField {
                                 field_name: field.name.name.clone(),
                             },
-                            field.name.span.unwrap_or_else(dummy_span),
+                            field.name.span(),
                         )
                         .with_primary_message("duplicate")
                         .with_secondary(*previous_span, "first used here"));
                     }
-                    seen.insert(
-                        field.name.name.clone(),
-                        field.name.span.unwrap_or_else(dummy_span),
-                    );
+                    seen.insert(field.name.name.clone(), field.name.span());
 
                     let (expected_ty, _) = expected.remove(&field.name.name).ok_or_else(|| {
                         TypeError::new(
@@ -2193,7 +2172,7 @@ impl Inferencer {
                                 struct_name: name.name.clone(),
                                 field_name: field.name.name.clone(),
                             },
-                            field.name.span.unwrap_or_else(dummy_span),
+                            field.name.span(),
                         )
                     })?;
 
@@ -2203,7 +2182,7 @@ impl Inferencer {
                         actual_ty.clone(),
                         expected_ty.clone(),
                         field.value.span,
-                        field.name.span.unwrap_or(field.value.span),
+                        field.name.span_or(field.value.span),
                         TypeErrorKind::GeneralMismatch {
                             expected: expected_ty,
                             found: self.apply(&actual_ty),
@@ -2224,7 +2203,7 @@ impl Inferencer {
                             struct_name: name.name.clone(),
                             field_name,
                         },
-                        name.span.unwrap_or_else(dummy_span),
+                        name.span(),
                     ));
                 }
 
@@ -2263,7 +2242,7 @@ impl Inferencer {
                                     field_name: field.name.clone(),
                                     ty: target_ty.clone(),
                                 },
-                                field.span.unwrap_or_else(dummy_span),
+                                field.span(),
                             )
                         })?,
                     _ => {
@@ -2343,7 +2322,7 @@ impl Inferencer {
                             TypeErrorKind::RuntimeWithoutKeyword {
                                 function_name: variant.name.clone(),
                             },
-                            variant.span.unwrap_or(expr.span),
+                            variant.span_or(expr.span),
                         )
                         .with_help(format!(
                             "use `runtime` to call runtime functions, e.g., `runtime {}::{}()`",
@@ -2357,7 +2336,7 @@ impl Inferencer {
                             TypeErrorKind::EffectfulWithoutRaise {
                                 function_name: variant.name.clone(),
                             },
-                            variant.span.unwrap_or(expr.span),
+                            variant.span_or(expr.span),
                         )
                         .with_help(format!(
                             "use `raise` to call effectful functions, e.g., `raise {}::{}()`",
@@ -2418,7 +2397,7 @@ impl Inferencer {
 
                     let typed_callee = Spanned::new(
                         TypedExpr::new(callee_ty, TypedExprKind::Identifier(callee_ident)),
-                        variant.span.unwrap_or(expr.span),
+                        variant.span_or(expr.span),
                     );
 
                     let typed = Spanned::new(
@@ -2449,7 +2428,7 @@ impl Inferencer {
                             path: enum_name.name.clone(),
                             name: variant.name.clone(),
                         },
-                        variant.span.unwrap_or_else(dummy_span),
+                        variant.span(),
                     ));
                 }
 
@@ -2469,7 +2448,7 @@ impl Inferencer {
                                 namespace: enum_name.name.clone(),
                                 package: "".to_string(),
                             },
-                            enum_name.span.unwrap_or_else(dummy_span),
+                            enum_name.span(),
                         )
                         .with_primary_message(format!("unknown namespace `{}`", enum_name.name))
                         .with_help(format!(
@@ -2481,7 +2460,7 @@ impl Inferencer {
                             TypeErrorKind::UnknownEnum {
                                 name: enum_name.name.clone(),
                             },
-                            enum_name.span.unwrap_or_else(dummy_span),
+                            enum_name.span(),
                         )
                     }
                 })?;
@@ -2495,7 +2474,7 @@ impl Inferencer {
                                 enum_name: enum_name.name.clone(),
                                 variant_name: variant.name.clone(),
                             },
-                            variant.span.unwrap_or_else(dummy_span),
+                            variant.span(),
                         )
                     })?;
 
@@ -2516,7 +2495,7 @@ impl Inferencer {
                                     expected: EnumPayloadKind::tuple(expected.len()),
                                     found: EnumPayloadKind::tuple(values.len()),
                                 },
-                                variant.span.unwrap_or_else(dummy_span),
+                                variant.span(),
                             ));
                         }
 
@@ -2528,7 +2507,7 @@ impl Inferencer {
                                 actual_ty.clone(),
                                 expected_ty.clone(),
                                 expr.span,
-                                variant.span.unwrap_or(expr.span),
+                                variant.span_or(expr.span),
                                 TypeErrorKind::GeneralMismatch {
                                     expected: expected_ty.clone(),
                                     found: self.apply(&actual_ty),
@@ -2559,15 +2538,12 @@ impl Inferencer {
                                     TypeErrorKind::DuplicateStructLiteralField {
                                         field_name: field.name.name.clone(),
                                     },
-                                    field.name.span.unwrap_or_else(dummy_span),
+                                    field.name.span(),
                                 )
                                 .with_primary_message("duplicate")
                                 .with_secondary(*previous_span, "first used here"));
                             }
-                            seen.insert(
-                                field.name.name.clone(),
-                                field.name.span.unwrap_or_else(dummy_span),
-                            );
+                            seen.insert(field.name.name.clone(), field.name.span());
 
                             let expected_field =
                                 expected_fields.remove(&field.name.name).ok_or_else(|| {
@@ -2576,7 +2552,7 @@ impl Inferencer {
                                             struct_name: struct_name.clone(),
                                             field_name: field.name.name.clone(),
                                         },
-                                        field.name.span.unwrap_or_else(dummy_span),
+                                        field.name.span(),
                                     )
                                 })?;
 
@@ -2587,7 +2563,7 @@ impl Inferencer {
                                 actual_ty.clone(),
                                 expected_field.ty.clone(),
                                 field.value.span,
-                                field.name.span.unwrap_or(field.value.span),
+                                field.name.span_or(field.value.span),
                                 TypeErrorKind::GeneralMismatch {
                                     expected: expected_field.ty.clone(),
                                     found: self.apply(&actual_ty),
@@ -2608,7 +2584,7 @@ impl Inferencer {
                                     struct_name,
                                     field_name: missing_field,
                                 },
-                                variant.span.unwrap_or_else(dummy_span),
+                                variant.span(),
                             ));
                         }
 
@@ -2622,7 +2598,7 @@ impl Inferencer {
                                 expected: enum_payload_kind_from_variant(expected_kind),
                                 found: enum_payload_kind_from_constructor(found_payload),
                             },
-                            variant.span.unwrap_or_else(dummy_span),
+                            variant.span(),
                         ));
                     }
                 };
@@ -2993,7 +2969,7 @@ impl Inferencer {
                         TypeErrorKind::UnknownEvent {
                             name: event.name.clone(),
                         },
-                        event.span.unwrap_or(expr.span),
+                        event.span_or(expr.span),
                     )
                 })?;
 
@@ -3182,7 +3158,7 @@ impl Inferencer {
                     TypeErrorKind::UnsupportedTypeFeature {
                         description: "generic type parameters are not supported yet".to_string(),
                     },
-                    annotation.name.span.unwrap_or_else(dummy_span),
+                    annotation.name.span(),
                 )
                 .with_help("remove `<...>` until generics are implemented"));
             }
@@ -3195,7 +3171,7 @@ impl Inferencer {
                         expected: param_count,
                         found: annotation.generics.len(),
                     },
-                    annotation.name.span.unwrap_or_else(dummy_span),
+                    annotation.name.span(),
                 ));
             }
 
@@ -3222,14 +3198,14 @@ impl Inferencer {
                         expected: entry.type_params.len(),
                         found: 0,
                     },
-                    annotation.name.span.unwrap_or_else(dummy_span),
+                    annotation.name.span(),
                 )),
                 Some(entry) => Ok(entry.ty.clone()),
                 None => Err(TypeError::new(
                     TypeErrorKind::UnknownTypeAnnotation {
                         name: other.to_string(),
                     },
-                    annotation.name.span.unwrap_or_else(dummy_span),
+                    annotation.name.span(),
                 )),
             },
         }
@@ -4116,14 +4092,6 @@ impl Inferencer {
 
         self.subst.insert(var, ty);
         Ok(())
-    }
-}
-
-fn dummy_span() -> Span {
-    Span {
-        start: 0,
-        end: 0,
-        context: (),
     }
 }
 

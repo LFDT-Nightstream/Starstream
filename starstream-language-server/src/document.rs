@@ -871,7 +871,7 @@ impl DocumentState {
 
         match &expr.node.kind {
             TypedExprKind::Identifier(identifier) => {
-                let usage_span = identifier.span.unwrap_or(expr.span);
+                let usage_span = identifier.span_or(expr.span);
 
                 self.add_usage(Some(usage_span), &identifier.name, scopes);
             }
@@ -993,7 +993,7 @@ impl DocumentState {
                     if let Some((signature, doc)) =
                         self.function_docs.get(&identifier.name).cloned()
                     {
-                        let usage_span = identifier.span.unwrap_or(callee.span);
+                        let usage_span = identifier.span_or(callee.span);
                         self.add_hover_label_with_doc(usage_span, signature, Some(doc));
                         self.add_usage(Some(usage_span), &identifier.name, scopes);
                     } else {

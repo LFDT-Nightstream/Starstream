@@ -239,7 +239,7 @@ impl Compiler {
 
     fn todo(&mut self, why: String) -> ErrorToken {
         // TODO: better span
-        self.push_error(Span::from(0..0), format!("TODO: {why}"))
+        self.push_error(DUMMY_SPAN, format!("TODO: {why}"))
     }
 
     fn generate_storage_exports(&mut self) {
@@ -421,12 +421,7 @@ impl Compiler {
             }
             wrapper_func.instructions().call(func_idx);
             // Write to our return slot.
-            self.component_store(
-                function.name.span.unwrap_or(Span::from(0..0)),
-                &mut wrapper_func,
-                &result,
-                0,
-            );
+            self.component_store(function.name.span(), &mut wrapper_func, &result, 0);
             // Return our return slot.
             wrapper_func.instructions().i32_const(return_slot as i32);
             wrapper_func.instructions().end();
@@ -443,7 +438,7 @@ impl Compiler {
                 .export(&name, ComponentTypeRef::Func(type_idx));
         } else {
             self.push_error(
-                function.name.span.unwrap_or(Span::from(0..0)),
+                function.name.span(),
                 "TODO: Component ABI for function with too many params",
             );
         }
@@ -846,7 +841,7 @@ impl Compiler {
                 } => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
-                    let span = item.local.span.unwrap_or(Span::from(0..0));
+                    let span = item.local.span();
                     for p in params {
                         _ = self.star_to_core_types(span, &mut core_params, p);
                     }
@@ -893,7 +888,7 @@ impl Compiler {
             match part {
                 TypedAbiPart::Event(event) => {
                     let mut core_params = Vec::with_capacity(16);
-                    let span = event.name.span.unwrap_or(Span::from(0..0));
+                    let span = event.name.span();
                     for p in &event.params {
                         _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                     }
@@ -935,10 +930,7 @@ impl Compiler {
         for p in &function.params {
             locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
             _ = self.star_to_core_types(
-                p.name
-                    .span
-                    .or(function.name.span)
-                    .unwrap_or(Span::from(0..0)),
+                p.name.span.or(function.name.span).unwrap_or(DUMMY_SPAN),
                 &mut params,
                 &p.ty,
             );
@@ -947,11 +939,7 @@ impl Compiler {
         let mut func = Function::from_params(&params);
 
         let mut results = Vec::with_capacity(1);
-        _ = self.star_to_core_types(
-            function.name.span.unwrap_or(Span::from(0..0)),
-            &mut results,
-            &function.return_type,
-        );
+        _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
         let _ = self.visit_block_stack(&mut func, &(&() as &dyn Locals, &locals), &function.body);
         func.instructions().end();
@@ -989,11 +977,7 @@ impl Compiler {
                 TypedUtxoPart::Storage(vars) => {
                     for var in vars {
                         let mut types = Vec::new();
-                        _ = self.star_to_core_types(
-                            utxo.name.span.unwrap_or(Span::from(0..0)),
-                            &mut types,
-                            &var.ty,
-                        );
+                        _ = self.star_to_core_types(utxo.name.span(), &mut types, &var.ty);
                         let idx = self.add_globals(types.iter().copied());
                         // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
                         self.global_vars.insert(var.name.name.clone(), idx);
@@ -1079,7 +1063,7 @@ impl Compiler {
                         }
                     } else {
                         self.push_error(
-                            target.span.unwrap_or(value.span),
+                            target.span_or(value.span),
                             format!("unknown name {:?}", target.name),
                         );
                     }
@@ -1289,7 +1273,7 @@ impl Compiler {
                     Ok(())
                 } else {
                     Err(self.push_error(
-                        ident.span.unwrap_or(span),
+                        ident.span_or(span),
                         format!("unknown name {:?}", &ident.name),
                     ))
                 }
@@ -1648,7 +1632,7 @@ impl Compiler {
                             Ok(())
                         } else {
                             Err(self.push_error(
-                                field.span.unwrap_or(target.span),
+                                field.span_or(target.span),
                                 format!(
                                     "no field {:?} on type {:?}",
                                     field.as_str(),
@@ -1658,7 +1642,7 @@ impl Compiler {
                         }
                     }
                     other => Err(self.push_error(
-                        field.span.unwrap_or(target.span),
+                        field.span_or(target.span),
                         format!("field access is only valid on structs, not {:?}", other),
                     )),
                 }

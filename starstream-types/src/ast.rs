@@ -9,6 +9,12 @@ use serde::Serialize;
 
 pub type Span = SimpleSpan;
 
+pub const DUMMY_SPAN: Span = Span {
+    start: 0,
+    end: 0,
+    context: (),
+};
+
 /// Create a span from start and end offsets.
 ///
 /// This is a convenience function that avoids needing to import the chumsky Span trait.
@@ -74,8 +80,19 @@ impl Identifier {
         }
     }
 
+    /// Get the identifier's text.
     pub fn as_str(&self) -> &str {
         &self.name
+    }
+
+    /// Get the identifier's source span if available, or DUMMY_SPAN if the identifier was hardcoded.
+    pub fn span(&self) -> Span {
+        self.span.unwrap_or(DUMMY_SPAN)
+    }
+
+    /// Get the identifier's source span if available, or `default` if the identifier was hardcoded.
+    pub fn span_or(&self, default: Span) -> Span {
+        self.span.unwrap_or(default)
     }
 }
 

@@ -800,15 +800,15 @@ fn pattern_span(pattern: &TypedPattern) -> Option<Span> {
             let start = enum_name.span?;
             // Find the end span: payload fields/patterns, or variant name
             let end = match payload {
-                TypedEnumPatternPayload::Unit => variant.span.unwrap_or(start),
+                TypedEnumPatternPayload::Unit => variant.span_or(start),
                 TypedEnumPatternPayload::Tuple(patterns) => patterns
                     .last()
                     .and_then(pattern_span)
-                    .unwrap_or_else(|| variant.span.unwrap_or(start)),
+                    .unwrap_or_else(|| variant.span_or(start)),
                 TypedEnumPatternPayload::Struct(fields) => fields
                     .last()
                     .and_then(|f| pattern_span(&f.pattern))
-                    .unwrap_or_else(|| variant.span.unwrap_or(start)),
+                    .unwrap_or_else(|| variant.span_or(start)),
             };
             Some(merge_spans(start, end))
         }
