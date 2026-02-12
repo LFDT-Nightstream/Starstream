@@ -1,0 +1,2892 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/match_expression.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Struct(
+                StructDef {
+                    name: Identifier {
+                        name: "Ctx",
+                        span: Some(
+                            7..10,
+                        ),
+                    },
+                    fields: [
+                        StructField {
+                            name: Identifier {
+                                name: "x",
+                                span: Some(
+                                    17..18,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        20..23,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                            span: 17..23,
+                        },
+                    ],
+                },
+            ),
+            span: 0..28,
+        },
+        Spanned {
+            node: Enum(
+                EnumDef {
+                    name: Identifier {
+                        name: "Thing",
+                        span: Some(
+                            33..38,
+                        ),
+                    },
+                    variants: [
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Wow",
+                                span: Some(
+                                    45..48,
+                                ),
+                            },
+                            payload: Tuple(
+                                [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "Ctx",
+                                            span: Some(
+                                                49..52,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            ),
+                            span: 45..53,
+                        },
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Who",
+                                span: Some(
+                                    59..62,
+                                ),
+                            },
+                            payload: Unit,
+                            span: 59..62,
+                        },
+                    ],
+                },
+            ),
+            span: 28..67,
+        },
+        Spanned {
+            node: Enum(
+                EnumDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: Some(
+                            72..75,
+                        ),
+                    },
+                    variants: [
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Bar",
+                                span: Some(
+                                    82..85,
+                                ),
+                            },
+                            payload: Tuple(
+                                [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "bool",
+                                            span: Some(
+                                                86..90,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            ),
+                            span: 82..91,
+                        },
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Baz",
+                                span: Some(
+                                    97..100,
+                                ),
+                            },
+                            payload: Tuple(
+                                [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                101..104,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            ),
+                            span: 97..105,
+                        },
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Thing",
+                                span: Some(
+                                    111..116,
+                                ),
+                            },
+                            payload: Tuple(
+                                [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "Thing",
+                                            span: Some(
+                                                117..122,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            ),
+                            span: 111..123,
+                        },
+                    ],
+                },
+            ),
+            span: 67..128,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "match_foo",
+                        span: Some(
+                            131..140,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "foo",
+                                span: Some(
+                                    141..144,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: Some(
+                                        146..149,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    154..157,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "foo",
+                                                span: Some(
+                                                    170..173,
+                                                ),
+                                            },
+                                        ),
+                                        span: 170..174,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        184..187,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Thing",
+                                                    span: Some(
+                                                        189..194,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        EnumVariant {
+                                                            enum_name: Identifier {
+                                                                name: "Thing",
+                                                                span: Some(
+                                                                    195..200,
+                                                                ),
+                                                            },
+                                                            variant: Identifier {
+                                                                name: "Wow",
+                                                                span: Some(
+                                                                    202..205,
+                                                                ),
+                                                            },
+                                                            payload: Tuple(
+                                                                [
+                                                                    Binding(
+                                                                        Identifier {
+                                                                            name: "ctx",
+                                                                            span: Some(
+                                                                                206..209,
+                                                                            ),
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                        },
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: FieldAccess {
+                                                            target: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "ctx",
+                                                                        span: Some(
+                                                                            229..232,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                span: 229..232,
+                                                            },
+                                                            field: Identifier {
+                                                                name: "x",
+                                                                span: Some(
+                                                                    233..234,
+                                                                ),
+                                                            },
+                                                        },
+                                                        span: 229..243,
+                                                    },
+                                                ),
+                                                span: 215..244,
+                                            },
+                                            span: 184..244,
+                                        },
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        254..257,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Bar",
+                                                    span: Some(
+                                                        259..262,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "b",
+                                                                span: Some(
+                                                                    263..264,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                0,
+                                                            ),
+                                                        ),
+                                                        span: 283..284,
+                                                    },
+                                                ),
+                                                span: 269..294,
+                                            },
+                                            span: 254..294,
+                                        },
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        304..307,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Baz",
+                                                    span: Some(
+                                                        309..312,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "n",
+                                                                span: Some(
+                                                                    313..314,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Identifier(
+                                                            Identifier {
+                                                                name: "n",
+                                                                span: Some(
+                                                                    333..334,
+                                                                ),
+                                                            },
+                                                        ),
+                                                        span: 333..343,
+                                                    },
+                                                ),
+                                                span: 319..344,
+                                            },
+                                            span: 304..344,
+                                        },
+                                        MatchArm {
+                                            pattern: Wildcard {
+                                                span: 354..355,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                2,
+                                                            ),
+                                                        ),
+                                                        span: 373..374,
+                                                    },
+                                                ),
+                                                span: 359..384,
+                                            },
+                                            span: 354..384,
+                                        },
+                                    ],
+                                },
+                                span: 164..392,
+                            },
+                        ),
+                        span: 158..395,
+                    },
+                },
+            ),
+            span: 128..395,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "match_with_wildcard",
+                        span: Some(
+                            398..417,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "foo",
+                                span: Some(
+                                    418..421,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: Some(
+                                        423..426,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    431..434,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "foo",
+                                                span: Some(
+                                                    447..450,
+                                                ),
+                                            },
+                                        ),
+                                        span: 447..451,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        461..464,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Bar",
+                                                    span: Some(
+                                                        466..469,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "b",
+                                                                span: Some(
+                                                                    470..471,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                1,
+                                                            ),
+                                                        ),
+                                                        span: 490..491,
+                                                    },
+                                                ),
+                                                span: 476..501,
+                                            },
+                                            span: 461..501,
+                                        },
+                                        MatchArm {
+                                            pattern: Wildcard {
+                                                span: 511..512,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                0,
+                                                            ),
+                                                        ),
+                                                        span: 530..531,
+                                                    },
+                                                ),
+                                                span: 516..541,
+                                            },
+                                            span: 511..541,
+                                        },
+                                    ],
+                                },
+                                span: 441..549,
+                            },
+                        ),
+                        span: 435..552,
+                    },
+                },
+            ),
+            span: 395..552,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "match_literal",
+                        span: Some(
+                            555..568,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "x",
+                                span: Some(
+                                    569..570,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "i64",
+                                    span: Some(
+                                        572..575,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    580..583,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "x",
+                                                span: Some(
+                                                    596..597,
+                                                ),
+                                            },
+                                        ),
+                                        span: 596..598,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: Literal {
+                                                value: Integer(
+                                                    42,
+                                                ),
+                                                span: 608..610,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                1,
+                                                            ),
+                                                        ),
+                                                        span: 628..629,
+                                                    },
+                                                ),
+                                                span: 614..639,
+                                            },
+                                            span: 608..639,
+                                        },
+                                        MatchArm {
+                                            pattern: Wildcard {
+                                                span: 649..650,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                0,
+                                                            ),
+                                                        ),
+                                                        span: 668..669,
+                                                    },
+                                                ),
+                                                span: 654..679,
+                                            },
+                                            span: 649..679,
+                                        },
+                                    ],
+                                },
+                                span: 590..687,
+                            },
+                        ),
+                        span: 584..690,
+                    },
+                },
+            ),
+            span: 552..690,
+        },
+        Spanned {
+            node: Enum(
+                EnumDef {
+                    name: Identifier {
+                        name: "Message",
+                        span: Some(
+                            695..702,
+                        ),
+                    },
+                    variants: [
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Ping",
+                                span: Some(
+                                    709..713,
+                                ),
+                            },
+                            payload: Unit,
+                            span: 709..713,
+                        },
+                        EnumVariant {
+                            name: Identifier {
+                                name: "Point",
+                                span: Some(
+                                    719..724,
+                                ),
+                            },
+                            payload: Struct(
+                                [
+                                    StructField {
+                                        name: Identifier {
+                                            name: "x",
+                                            span: Some(
+                                                727..728,
+                                            ),
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: Identifier {
+                                                name: "i64",
+                                                span: Some(
+                                                    730..733,
+                                                ),
+                                            },
+                                            generics: [],
+                                        },
+                                        span: 727..733,
+                                    },
+                                    StructField {
+                                        name: Identifier {
+                                            name: "y",
+                                            span: Some(
+                                                735..736,
+                                            ),
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: Identifier {
+                                                name: "i64",
+                                                span: Some(
+                                                    738..741,
+                                                ),
+                                            },
+                                            generics: [],
+                                        },
+                                        span: 735..742,
+                                    },
+                                ],
+                            ),
+                            span: 719..743,
+                        },
+                    ],
+                },
+            ),
+            span: 690..748,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "match_point",
+                        span: Some(
+                            751..762,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "msg",
+                                span: Some(
+                                    763..766,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Message",
+                                    span: Some(
+                                        768..775,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    780..783,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "msg",
+                                                span: Some(
+                                                    796..799,
+                                                ),
+                                            },
+                                        ),
+                                        span: 796..800,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Message",
+                                                    span: Some(
+                                                        810..817,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Point",
+                                                    span: Some(
+                                                        819..824,
+                                                    ),
+                                                },
+                                                payload: Struct(
+                                                    [
+                                                        StructPatternField {
+                                                            name: Identifier {
+                                                                name: "x",
+                                                                span: Some(
+                                                                    827..828,
+                                                                ),
+                                                            },
+                                                            pattern: Binding(
+                                                                Identifier {
+                                                                    name: "x",
+                                                                    span: Some(
+                                                                        827..828,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        StructPatternField {
+                                                            name: Identifier {
+                                                                name: "y",
+                                                                span: Some(
+                                                                    830..831,
+                                                                ),
+                                                            },
+                                                            pattern: Binding(
+                                                                Identifier {
+                                                                    name: "y",
+                                                                    span: Some(
+                                                                        830..831,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "x",
+                                                                        span: Some(
+                                                                            851..852,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                span: 851..853,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "y",
+                                                                        span: Some(
+                                                                            855..856,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                                span: 855..865,
+                                                            },
+                                                        },
+                                                        span: 851..865,
+                                                    },
+                                                ),
+                                                span: 837..866,
+                                            },
+                                            span: 810..866,
+                                        },
+                                        MatchArm {
+                                            pattern: Wildcard {
+                                                span: 876..877,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                0,
+                                                            ),
+                                                        ),
+                                                        span: 895..896,
+                                                    },
+                                                ),
+                                                span: 881..906,
+                                            },
+                                            span: 876..906,
+                                        },
+                                    ],
+                                },
+                                span: 790..914,
+                            },
+                        ),
+                        span: 784..917,
+                    },
+                },
+            ),
+            span: 748..917,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "get_bar",
+                        span: Some(
+                            927..934,
+                        ),
+                    },
+                    params: [],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "match_foo",
+                                                        span: Some(
+                                                            943..952,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 943..952,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: EnumConstructor {
+                                                        enum_name: Identifier {
+                                                            name: "Foo",
+                                                            span: Some(
+                                                                953..956,
+                                                            ),
+                                                        },
+                                                        variant: Identifier {
+                                                            name: "Bar",
+                                                            span: Some(
+                                                                958..961,
+                                                            ),
+                                                        },
+                                                        payload: Tuple(
+                                                            [
+                                                                Spanned {
+                                                                    node: Literal(
+                                                                        Boolean(
+                                                                            true,
+                                                                        ),
+                                                                    ),
+                                                                    span: 962..966,
+                                                                },
+                                                            ],
+                                                        ),
+                                                    },
+                                                    span: 953..967,
+                                                },
+                                            ],
+                                        },
+                                        span: 943..968,
+                                    },
+                                ),
+                                span: 943..970,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 937..972,
+                    },
+                },
+            ),
+            span: 917..972,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+
+
+T-Fn: match_foo => i64
+  T-ReturnTail: match foo {
+    Foo::Thing(Thing::Wow(ctx)) => {
+        ctx.x
+    },
+    Foo::Bar(b) => {
+        0
+    },
+    Foo::Baz(n) => {
+        n
+    },
+    _ => {
+        2
+    },
+} => i64
+    T-Match: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ match foo {
+    Foo::Thing(Thing::Wow(ctx)) => {
+        ctx.x
+    },
+    Foo::Bar(b) => {
+        0
+    },
+    Foo::Baz(n) => {
+        n
+    },
+    _ => {
+        2
+    },
+} ⇒ i64
+      T-Var: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ foo ⇒ Foo
+      Unify-Enum: Foo ~ Foo => {}
+        Unify-Const: bool ~ bool => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Enum: Thing ~ Thing => {}
+          Unify-Record: Ctx ~ Ctx => {}
+            Unify-Const: i64 ~ i64 => {}
+      Unify-Enum: Thing ~ Thing => {}
+        Unify-Record: Ctx ~ Ctx => {}
+          Unify-Const: i64 ~ i64 => {}
+      T-Tail: ctx.x => i64
+        T-FieldAccess: {ctx: struct Ctx {
+    x: i64,
+}, foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ ctx.x ⇒ i64
+          T-Var: {ctx: struct Ctx {
+    x: i64,
+}, foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ ctx ⇒ Ctx
+      Unify-Enum: Foo ~ Foo => {}
+        Unify-Const: bool ~ bool => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Enum: Thing ~ Thing => {}
+          Unify-Record: Ctx ~ Ctx => {}
+            Unify-Const: i64 ~ i64 => {}
+      T-Tail: 0 => i64
+        T-Int: {b: bool, foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+      Unify-Enum: Foo ~ Foo => {}
+        Unify-Const: bool ~ bool => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Enum: Thing ~ Thing => {}
+          Unify-Record: Ctx ~ Ctx => {}
+            Unify-Const: i64 ~ i64 => {}
+      T-Tail: n => i64
+        T-Var: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}, n: i64} ⊢ n ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+      T-Tail: 2 => i64
+        T-Int: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ 2 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: match_with_wildcard => i64
+  T-ReturnTail: match foo {
+    Foo::Bar(b) => {
+        1
+    },
+    _ => {
+        0
+    },
+} => i64
+    T-Match: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ match foo {
+    Foo::Bar(b) => {
+        1
+    },
+    _ => {
+        0
+    },
+} ⇒ i64
+      T-Var: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ foo ⇒ Foo
+      Unify-Enum: Foo ~ Foo => {}
+        Unify-Const: bool ~ bool => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Enum: Thing ~ Thing => {}
+          Unify-Record: Ctx ~ Ctx => {}
+            Unify-Const: i64 ~ i64 => {}
+      T-Tail: 1 => i64
+        T-Int: {b: bool, foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ 1 ⇒ i64
+      T-Tail: 0 => i64
+        T-Int: {foo: enum Foo {
+    Bar(bool),
+    Baz(i64),
+    Thing(Thing),
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: match_literal => i64
+  T-ReturnTail: match x {
+    42 => {
+        1
+    },
+    _ => {
+        0
+    },
+} => i64
+    T-Match: {x: i64} ⊢ match x {
+    42 => {
+        1
+    },
+    _ => {
+        0
+    },
+} ⇒ i64
+      T-Var: {x: i64} ⊢ x ⇒ i64
+      Unify-Const: i64 ~ i64 => {}
+      T-Tail: 1 => i64
+        T-Int: {x: i64} ⊢ 1 ⇒ i64
+      T-Tail: 0 => i64
+        T-Int: {x: i64} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+
+T-Fn: match_point => i64
+  T-ReturnTail: match msg {
+    Message::Point { x, y } => {
+        x + y
+    },
+    _ => {
+        0
+    },
+} => i64
+    T-Match: {msg: enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}} ⊢ match msg {
+    Message::Point { x, y } => {
+        x + y
+    },
+    _ => {
+        0
+    },
+} ⇒ i64
+      T-Var: {msg: enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}} ⊢ msg ⇒ Message
+      Unify-Enum: Message ~ Message => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Const: i64 ~ i64 => {}
+      T-Tail: x + y => i64
+        T-Bin-Add: {msg: enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}, x: i64, y: i64} ⊢ x + y ⇒ i64
+          T-Var: {msg: enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}, x: i64, y: i64} ⊢ x ⇒ i64
+          T-Var: {msg: enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}, x: i64, y: i64} ⊢ y ⇒ i64
+          Unify-Const: i64 ~ i64 => {}
+          Unify-Const: i64 ~ i64 => {}
+      T-Tail: 0 => i64
+        T-Int: {msg: enum Message {
+    Ping,
+    Point { x: i64, y: i64 },
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: get_bar => ()
+  T-Expr: {} ⊢ match_foo(Foo::Bar(true)); ⇒ ()
+    T-Call: {} ⊢ match_foo(Foo::Bar(true)) ⇒ i64
+      T-Var: {} ⊢ match_foo ⇒ fn(Foo) -> i64
+      T-EnumCtor: {} ⊢ Foo::Bar(true) ⇒ Foo
+        T-Bool: {} ⊢ true ⇒ bool
+        Unify-Const: bool ~ bool => {}
+      Unify-Enum: Foo ~ Foo => {}
+        Unify-Const: bool ~ bool => {}
+        Unify-Const: i64 ~ i64 => {}
+        Unify-Enum: Thing ~ Thing => {}
+          Unify-Record: Ctx ~ Ctx => {}
+            Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Struct(
+            TypedStructDef {
+                name: Identifier {
+                    name: "Ctx",
+                    span: Some(
+                        7..10,
+                    ),
+                },
+                fields: [
+                    TypedStructField {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                17..18,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                ],
+                ty: Record(
+                    RecordType {
+                        name: "Ctx",
+                        fields: [
+                            RecordFieldType {
+                                name: "x",
+                                ty: Int,
+                            },
+                        ],
+                    },
+                ),
+            },
+        ),
+        Enum(
+            TypedEnumDef {
+                name: Identifier {
+                    name: "Thing",
+                    span: Some(
+                        33..38,
+                    ),
+                },
+                variants: [
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Wow",
+                            span: Some(
+                                45..48,
+                            ),
+                        },
+                        payload: Tuple(
+                            [
+                                Record(
+                                    RecordType {
+                                        name: "Ctx",
+                                        fields: [
+                                            RecordFieldType {
+                                                name: "x",
+                                                ty: Int,
+                                            },
+                                        ],
+                                    },
+                                ),
+                            ],
+                        ),
+                    },
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Who",
+                            span: Some(
+                                59..62,
+                            ),
+                        },
+                        payload: Unit,
+                    },
+                ],
+                ty: Enum(
+                    EnumType {
+                        name: "Thing",
+                        variants: [
+                            EnumVariantType {
+                                name: "Wow",
+                                kind: Tuple(
+                                    [
+                                        Record(
+                                            RecordType {
+                                                name: "Ctx",
+                                                fields: [
+                                                    RecordFieldType {
+                                                        name: "x",
+                                                        ty: Int,
+                                                    },
+                                                ],
+                                            },
+                                        ),
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Who",
+                                kind: Unit,
+                            },
+                        ],
+                        type_args: [],
+                    },
+                ),
+            },
+        ),
+        Enum(
+            TypedEnumDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: Some(
+                        72..75,
+                    ),
+                },
+                variants: [
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Bar",
+                            span: Some(
+                                82..85,
+                            ),
+                        },
+                        payload: Tuple(
+                            [
+                                Bool,
+                            ],
+                        ),
+                    },
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Baz",
+                            span: Some(
+                                97..100,
+                            ),
+                        },
+                        payload: Tuple(
+                            [
+                                Int,
+                            ],
+                        ),
+                    },
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Thing",
+                            span: Some(
+                                111..116,
+                            ),
+                        },
+                        payload: Tuple(
+                            [
+                                Enum(
+                                    EnumType {
+                                        name: "Thing",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Wow",
+                                                kind: Tuple(
+                                                    [
+                                                        Record(
+                                                            RecordType {
+                                                                name: "Ctx",
+                                                                fields: [
+                                                                    RecordFieldType {
+                                                                        name: "x",
+                                                                        ty: Int,
+                                                                    },
+                                                                ],
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "Who",
+                                                kind: Unit,
+                                            },
+                                        ],
+                                        type_args: [],
+                                    },
+                                ),
+                            ],
+                        ),
+                    },
+                ],
+                ty: Enum(
+                    EnumType {
+                        name: "Foo",
+                        variants: [
+                            EnumVariantType {
+                                name: "Bar",
+                                kind: Tuple(
+                                    [
+                                        Bool,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Baz",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Thing",
+                                kind: Tuple(
+                                    [
+                                        Enum(
+                                            EnumType {
+                                                name: "Thing",
+                                                variants: [
+                                                    EnumVariantType {
+                                                        name: "Wow",
+                                                        kind: Tuple(
+                                                            [
+                                                                Record(
+                                                                    RecordType {
+                                                                        name: "Ctx",
+                                                                        fields: [
+                                                                            RecordFieldType {
+                                                                                name: "x",
+                                                                                ty: Int,
+                                                                            },
+                                                                        ],
+                                                                    },
+                                                                ),
+                                                            ],
+                                                        ),
+                                                    },
+                                                    EnumVariantType {
+                                                        name: "Who",
+                                                        kind: Unit,
+                                                    },
+                                                ],
+                                                type_args: [],
+                                            },
+                                        ),
+                                    ],
+                                ),
+                            },
+                        ],
+                        type_args: [],
+                    },
+                ),
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "match_foo",
+                    span: Some(
+                        131..140,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "foo",
+                            span: Some(
+                                141..144,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Foo",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Bar",
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "Baz",
+                                        kind: Tuple(
+                                            [
+                                                Int,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "Thing",
+                                        kind: Tuple(
+                                            [
+                                                Enum(
+                                                    EnumType {
+                                                        name: "Thing",
+                                                        variants: [
+                                                            EnumVariantType {
+                                                                name: "Wow",
+                                                                kind: Tuple(
+                                                                    [
+                                                                        Record(
+                                                                            RecordType {
+                                                                                name: "Ctx",
+                                                                                fields: [
+                                                                                    RecordFieldType {
+                                                                                        name: "x",
+                                                                                        ty: Int,
+                                                                                    },
+                                                                                ],
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            EnumVariantType {
+                                                                name: "Who",
+                                                                kind: Unit,
+                                                            },
+                                                        ],
+                                                        type_args: [],
+                                                    },
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Enum(
+                                                EnumType {
+                                                    name: "Foo",
+                                                    variants: [
+                                                        EnumVariantType {
+                                                            name: "Bar",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Bool,
+                                                                ],
+                                                            ),
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "Baz",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Int,
+                                                                ],
+                                                            ),
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "Thing",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Enum(
+                                                                        EnumType {
+                                                                            name: "Thing",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Wow",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Record(
+                                                                                                RecordType {
+                                                                                                    name: "Ctx",
+                                                                                                    fields: [
+                                                                                                        RecordFieldType {
+                                                                                                            name: "x",
+                                                                                                            ty: Int,
+                                                                                                        },
+                                                                                                    ],
+                                                                                                },
+                                                                                            ),
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Who",
+                                                                                    kind: Unit,
+                                                                                },
+                                                                            ],
+                                                                            type_args: [],
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                        },
+                                                    ],
+                                                    type_args: [],
+                                                },
+                                            ),
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "foo",
+                                                    span: Some(
+                                                        170..173,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 170..174,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        184..187,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Thing",
+                                                    span: Some(
+                                                        189..194,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        EnumVariant {
+                                                            enum_name: Identifier {
+                                                                name: "Thing",
+                                                                span: Some(
+                                                                    195..200,
+                                                                ),
+                                                            },
+                                                            variant: Identifier {
+                                                                name: "Wow",
+                                                                span: Some(
+                                                                    202..205,
+                                                                ),
+                                                            },
+                                                            payload: Tuple(
+                                                                [
+                                                                    Binding(
+                                                                        Identifier {
+                                                                            name: "ctx",
+                                                                            span: Some(
+                                                                                206..209,
+                                                                            ),
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                        },
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: FieldAccess {
+                                                                target: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Record(
+                                                                            RecordType {
+                                                                                name: "Ctx",
+                                                                                fields: [
+                                                                                    RecordFieldType {
+                                                                                        name: "x",
+                                                                                        ty: Int,
+                                                                                    },
+                                                                                ],
+                                                                            },
+                                                                        ),
+                                                                        kind: Identifier(
+                                                                            Identifier {
+                                                                                name: "ctx",
+                                                                                span: Some(
+                                                                                    229..232,
+                                                                                ),
+                                                                            },
+                                                                        ),
+                                                                    },
+                                                                    span: 229..232,
+                                                                },
+                                                                field: Identifier {
+                                                                    name: "x",
+                                                                    span: Some(
+                                                                        233..234,
+                                                                    ),
+                                                                },
+                                                            },
+                                                        },
+                                                        span: 229..243,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        254..257,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Bar",
+                                                    span: Some(
+                                                        259..262,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "b",
+                                                                span: Some(
+                                                                    263..264,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    0,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 283..284,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        304..307,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Baz",
+                                                    span: Some(
+                                                        309..312,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "n",
+                                                                span: Some(
+                                                                    313..314,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "n",
+                                                                    span: Some(
+                                                                        333..334,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 333..343,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: Wildcard,
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    2,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 373..374,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 164..392,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "match_with_wildcard",
+                    span: Some(
+                        398..417,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "foo",
+                            span: Some(
+                                418..421,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Foo",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Bar",
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "Baz",
+                                        kind: Tuple(
+                                            [
+                                                Int,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "Thing",
+                                        kind: Tuple(
+                                            [
+                                                Enum(
+                                                    EnumType {
+                                                        name: "Thing",
+                                                        variants: [
+                                                            EnumVariantType {
+                                                                name: "Wow",
+                                                                kind: Tuple(
+                                                                    [
+                                                                        Record(
+                                                                            RecordType {
+                                                                                name: "Ctx",
+                                                                                fields: [
+                                                                                    RecordFieldType {
+                                                                                        name: "x",
+                                                                                        ty: Int,
+                                                                                    },
+                                                                                ],
+                                                                            },
+                                                                        ),
+                                                                    ],
+                                                                ),
+                                                            },
+                                                            EnumVariantType {
+                                                                name: "Who",
+                                                                kind: Unit,
+                                                            },
+                                                        ],
+                                                        type_args: [],
+                                                    },
+                                                ),
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Enum(
+                                                EnumType {
+                                                    name: "Foo",
+                                                    variants: [
+                                                        EnumVariantType {
+                                                            name: "Bar",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Bool,
+                                                                ],
+                                                            ),
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "Baz",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Int,
+                                                                ],
+                                                            ),
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "Thing",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Enum(
+                                                                        EnumType {
+                                                                            name: "Thing",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Wow",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Record(
+                                                                                                RecordType {
+                                                                                                    name: "Ctx",
+                                                                                                    fields: [
+                                                                                                        RecordFieldType {
+                                                                                                            name: "x",
+                                                                                                            ty: Int,
+                                                                                                        },
+                                                                                                    ],
+                                                                                                },
+                                                                                            ),
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Who",
+                                                                                    kind: Unit,
+                                                                                },
+                                                                            ],
+                                                                            type_args: [],
+                                                                        },
+                                                                    ),
+                                                                ],
+                                                            ),
+                                                        },
+                                                    ],
+                                                    type_args: [],
+                                                },
+                                            ),
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "foo",
+                                                    span: Some(
+                                                        447..450,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 447..451,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Foo",
+                                                    span: Some(
+                                                        461..464,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Bar",
+                                                    span: Some(
+                                                        466..469,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "b",
+                                                                span: Some(
+                                                                    470..471,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 490..491,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: Wildcard,
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    0,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 530..531,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 441..549,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "match_literal",
+                    span: Some(
+                        555..568,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                569..570,
+                            ),
+                        },
+                        ty: Int,
+                    },
+                ],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Int,
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "x",
+                                                    span: Some(
+                                                        596..597,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 596..598,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: Literal(
+                                                Integer(
+                                                    42,
+                                                ),
+                                            ),
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    1,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 628..629,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: Wildcard,
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    0,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 668..669,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 590..687,
+                        },
+                    ),
+                },
+            },
+        ),
+        Enum(
+            TypedEnumDef {
+                name: Identifier {
+                    name: "Message",
+                    span: Some(
+                        695..702,
+                    ),
+                },
+                variants: [
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Ping",
+                            span: Some(
+                                709..713,
+                            ),
+                        },
+                        payload: Unit,
+                    },
+                    TypedEnumVariant {
+                        name: Identifier {
+                            name: "Point",
+                            span: Some(
+                                719..724,
+                            ),
+                        },
+                        payload: Struct(
+                            [
+                                TypedStructField {
+                                    name: Identifier {
+                                        name: "x",
+                                        span: Some(
+                                            727..728,
+                                        ),
+                                    },
+                                    ty: Int,
+                                },
+                                TypedStructField {
+                                    name: Identifier {
+                                        name: "y",
+                                        span: Some(
+                                            735..736,
+                                        ),
+                                    },
+                                    ty: Int,
+                                },
+                            ],
+                        ),
+                    },
+                ],
+                ty: Enum(
+                    EnumType {
+                        name: "Message",
+                        variants: [
+                            EnumVariantType {
+                                name: "Ping",
+                                kind: Unit,
+                            },
+                            EnumVariantType {
+                                name: "Point",
+                                kind: Struct(
+                                    [
+                                        RecordFieldType {
+                                            name: "x",
+                                            ty: Int,
+                                        },
+                                        RecordFieldType {
+                                            name: "y",
+                                            ty: Int,
+                                        },
+                                    ],
+                                ),
+                            },
+                        ],
+                        type_args: [],
+                    },
+                ),
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "match_point",
+                    span: Some(
+                        751..762,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "msg",
+                            span: Some(
+                                763..766,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Message",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Ping",
+                                        kind: Unit,
+                                    },
+                                    EnumVariantType {
+                                        name: "Point",
+                                        kind: Struct(
+                                            [
+                                                RecordFieldType {
+                                                    name: "x",
+                                                    ty: Int,
+                                                },
+                                                RecordFieldType {
+                                                    name: "y",
+                                                    ty: Int,
+                                                },
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Enum(
+                                                EnumType {
+                                                    name: "Message",
+                                                    variants: [
+                                                        EnumVariantType {
+                                                            name: "Ping",
+                                                            kind: Unit,
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "Point",
+                                                            kind: Struct(
+                                                                [
+                                                                    RecordFieldType {
+                                                                        name: "x",
+                                                                        ty: Int,
+                                                                    },
+                                                                    RecordFieldType {
+                                                                        name: "y",
+                                                                        ty: Int,
+                                                                    },
+                                                                ],
+                                                            ),
+                                                        },
+                                                    ],
+                                                    type_args: [],
+                                                },
+                                            ),
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "msg",
+                                                    span: Some(
+                                                        796..799,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 796..800,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Message",
+                                                    span: Some(
+                                                        810..817,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Point",
+                                                    span: Some(
+                                                        819..824,
+                                                    ),
+                                                },
+                                                payload: Struct(
+                                                    [
+                                                        TypedStructPatternField {
+                                                            name: Identifier {
+                                                                name: "x",
+                                                                span: Some(
+                                                                    827..828,
+                                                                ),
+                                                            },
+                                                            pattern: Binding(
+                                                                Identifier {
+                                                                    name: "x",
+                                                                    span: Some(
+                                                                        827..828,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        TypedStructPatternField {
+                                                            name: Identifier {
+                                                                name: "y",
+                                                                span: Some(
+                                                                    830..831,
+                                                                ),
+                                                            },
+                                                            pattern: Binding(
+                                                                Identifier {
+                                                                    name: "y",
+                                                                    span: Some(
+                                                                        830..831,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Binary {
+                                                                op: Add,
+                                                                left: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Int,
+                                                                        kind: Identifier(
+                                                                            Identifier {
+                                                                                name: "x",
+                                                                                span: Some(
+                                                                                    851..852,
+                                                                                ),
+                                                                            },
+                                                                        ),
+                                                                    },
+                                                                    span: 851..853,
+                                                                },
+                                                                right: Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Int,
+                                                                        kind: Identifier(
+                                                                            Identifier {
+                                                                                name: "y",
+                                                                                span: Some(
+                                                                                    855..856,
+                                                                                ),
+                                                                            },
+                                                                        ),
+                                                                    },
+                                                                    span: 855..865,
+                                                                },
+                                                            },
+                                                        },
+                                                        span: 851..865,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: Wildcard,
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    0,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 895..896,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 790..914,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "get_bar",
+                    span: Some(
+                        927..934,
+                    ),
+                },
+                params: [],
+                return_type: Unit,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function {
+                                                    params: [
+                                                        Enum(
+                                                            EnumType {
+                                                                name: "Foo",
+                                                                variants: [
+                                                                    EnumVariantType {
+                                                                        name: "Bar",
+                                                                        kind: Tuple(
+                                                                            [
+                                                                                Bool,
+                                                                            ],
+                                                                        ),
+                                                                    },
+                                                                    EnumVariantType {
+                                                                        name: "Baz",
+                                                                        kind: Tuple(
+                                                                            [
+                                                                                Int,
+                                                                            ],
+                                                                        ),
+                                                                    },
+                                                                    EnumVariantType {
+                                                                        name: "Thing",
+                                                                        kind: Tuple(
+                                                                            [
+                                                                                Enum(
+                                                                                    EnumType {
+                                                                                        name: "Thing",
+                                                                                        variants: [
+                                                                                            EnumVariantType {
+                                                                                                name: "Wow",
+                                                                                                kind: Tuple(
+                                                                                                    [
+                                                                                                        Record(
+                                                                                                            RecordType {
+                                                                                                                name: "Ctx",
+                                                                                                                fields: [
+                                                                                                                    RecordFieldType {
+                                                                                                                        name: "x",
+                                                                                                                        ty: Int,
+                                                                                                                    },
+                                                                                                                ],
+                                                                                                            },
+                                                                                                        ),
+                                                                                                    ],
+                                                                                                ),
+                                                                                            },
+                                                                                            EnumVariantType {
+                                                                                                name: "Who",
+                                                                                                kind: Unit,
+                                                                                            },
+                                                                                        ],
+                                                                                        type_args: [],
+                                                                                    },
+                                                                                ),
+                                                                            ],
+                                                                        ),
+                                                                    },
+                                                                ],
+                                                                type_args: [],
+                                                            },
+                                                        ),
+                                                    ],
+                                                    result: Int,
+                                                    effect: Pure,
+                                                },
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "match_foo",
+                                                        span: Some(
+                                                            943..952,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 943..952,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Enum(
+                                                        EnumType {
+                                                            name: "Foo",
+                                                            variants: [
+                                                                EnumVariantType {
+                                                                    name: "Bar",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Bool,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "Baz",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Int,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "Thing",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Enum(
+                                                                                EnumType {
+                                                                                    name: "Thing",
+                                                                                    variants: [
+                                                                                        EnumVariantType {
+                                                                                            name: "Wow",
+                                                                                            kind: Tuple(
+                                                                                                [
+                                                                                                    Record(
+                                                                                                        RecordType {
+                                                                                                            name: "Ctx",
+                                                                                                            fields: [
+                                                                                                                RecordFieldType {
+                                                                                                                    name: "x",
+                                                                                                                    ty: Int,
+                                                                                                                },
+                                                                                                            ],
+                                                                                                        },
+                                                                                                    ),
+                                                                                                ],
+                                                                                            ),
+                                                                                        },
+                                                                                        EnumVariantType {
+                                                                                            name: "Who",
+                                                                                            kind: Unit,
+                                                                                        },
+                                                                                    ],
+                                                                                    type_args: [],
+                                                                                },
+                                                                            ),
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                            ],
+                                                            type_args: [],
+                                                        },
+                                                    ),
+                                                    kind: EnumConstructor {
+                                                        enum_name: Identifier {
+                                                            name: "Foo",
+                                                            span: Some(
+                                                                953..956,
+                                                            ),
+                                                        },
+                                                        variant: Identifier {
+                                                            name: "Bar",
+                                                            span: Some(
+                                                                958..961,
+                                                            ),
+                                                        },
+                                                        payload: Tuple(
+                                                            [
+                                                                Spanned {
+                                                                    node: TypedExpr {
+                                                                        ty: Bool,
+                                                                        kind: Literal(
+                                                                            Boolean(
+                                                                                true,
+                                                                            ),
+                                                                        ),
+                                                                    },
+                                                                    span: 962..966,
+                                                                },
+                                                            ],
+                                                        ),
+                                                    },
+                                                },
+                                                span: 953..967,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 943..968,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32 i64 i64) (result i64)))
+  (type (;1;) (func (param i64) (result i64)))
+  (type (;2;) (func))
+  (export "get-bar" (func 4))
+  (func (;0;) (type 0) (param i32 i64 i64) (result i64)
+    (local i32 i64 i64 i64 i32 i64 i64 i32 i64)
+    (local.set 3
+      (local.get 0)
+      (local.set 4
+        (local.get 1)
+        (local.set 5
+          (local.get 2))))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 3)
+            (i32.const 2)))
+        (local.set 7
+          (i32.wrap_i64
+            (local.get 4)))
+        (local.set 8
+          (local.get 5))
+        (block ;; label = @3
+          (br_if 0 (;@3;)
+            (i32.ne
+              (local.get 7)
+              (i32.const 0)))
+          (local.set 9
+            (local.get 8))
+          (local.set 6
+            (local.get 9))
+          (br 2 (;@1;)))
+        (local.set 6
+          (i64.const 2))
+        (br 1 (;@1;)))
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 3)
+            (i32.const 0)))
+        (local.set 10
+          (i32.wrap_i64
+            (local.get 4)))
+        (local.set 6
+          (i64.const 0))
+        (br 1 (;@1;)))
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 3)
+            (i32.const 1)))
+        (local.set 11
+          (local.get 4))
+        (local.set 6
+          (local.get 11))
+        (br 1 (;@1;)))
+      (unreachable))
+    (local.get 6)
+  )
+  (func (;1;) (type 0) (param i32 i64 i64) (result i64)
+    (local i32 i64 i64 i64 i32)
+    (local.set 3
+      (local.get 0)
+      (local.set 4
+        (local.get 1)
+        (local.set 5
+          (local.get 2))))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 3)
+            (i32.const 0)))
+        (local.set 7
+          (i32.wrap_i64
+            (local.get 4)))
+        (local.set 6
+          (i64.const 1))
+        (br 1 (;@1;)))
+      (local.set 6
+        (i64.const 0))
+      (br 0 (;@1;)))
+    (local.get 6)
+  )
+  (func (;2;) (type 1) (param i64) (result i64)
+    (local i64 i64)
+    (local.set 1
+      (local.get 0))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i64.ne
+            (local.get 1)
+            (i64.const 42)))
+        (local.set 2
+          (i64.const 1))
+        (br 1 (;@1;)))
+      (local.set 2
+        (i64.const 0))
+      (br 0 (;@1;)))
+    (local.get 2)
+  )
+  (func (;3;) (type 0) (param i32 i64 i64) (result i64)
+    (local i32 i64 i64 i64 i64 i64)
+    (local.set 3
+      (local.get 0)
+      (local.set 4
+        (local.get 1)
+        (local.set 5
+          (local.get 2))))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 3)
+            (i32.const 1)))
+        (local.set 7
+          (local.get 4))
+        (local.set 8
+          (local.get 5))
+        (local.set 6
+          (i64.add
+            (local.get 7)
+            (local.get 8)))
+        (br 1 (;@1;)))
+      (local.set 6
+        (i64.const 0))
+      (br 0 (;@1;)))
+    (local.get 6)
+  )
+  (func (;4;) (type 2)
+    (local i64)
+    (drop
+      (call 0
+        (i32.const 0)
+        (local.set 0
+          (i64.extend_i32_u
+            (i32.const 1)))
+        (local.get 0)
+        (i64.const 0)))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (record (field "x" s64)))
+              (import "ctx" (type (;1;) (eq 0)))
+              (type (;2;) (tuple 1))
+              (type (;3;) (variant (case "wow" 2) (case "who")))
+              (import "thing" (type (;4;) (eq 3)))
+              (type (;5;) (tuple bool))
+              (type (;6;) (tuple s64))
+              (type (;7;) (tuple 4))
+              (type (;8;) (variant (case "bar" 5) (case "baz" 6) (case "thing" 7)))
+              (import "foo" (type (;9;) (eq 8)))
+              (type (;10;) (tuple s64 s64))
+              (type (;11;) (variant (case "ping") (case "point" 10)))
+              (import "message" (type (;12;) (eq 11)))
+              (type (;13;) (func))
+              (export (;0;) "get-bar" (func (type 13)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  record ctx {
+    x: s64,
+  }
+
+  variant thing {
+    wow(tuple<ctx>),
+    who,
+  }
+
+  variant foo {
+    bar(tuple<bool>),
+    baz(tuple<s64>),
+    thing(tuple<thing>),
+  }
+
+  variant message {
+    ping,
+    point(tuple<s64, s64>),
+  }
+
+  export get-bar: func();
+}

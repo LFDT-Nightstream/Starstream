@@ -110,6 +110,7 @@ TypedProgram {
                                 ),
                             },
                         ],
+                        type_args: [],
                     },
                 ),
             },
@@ -118,10 +119,32 @@ TypedProgram {
 }
 
 ==== Core WebAssembly ====
-  x TODO: enums are not supported in Wasm yet
-   ,-[1:1]
- 1 | enum Message {
-   : ^
-   : `-- TODO: enums are not supported in Wasm yet
- 2 |     Ping,
-   `----
+(module
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (tuple s64))
+              (type (;1;) (variant (case "ping") (case "pong" 0)))
+              (import "message" (type (;2;) (eq 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  ))
+
+==== WIT ====
+package root:component;
+
+world root {
+  variant message {
+    ping,
+    pong(tuple<s64>),
+  }
+}

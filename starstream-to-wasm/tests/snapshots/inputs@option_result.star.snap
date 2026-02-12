@@ -1,0 +1,2343 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/option_result.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "make_some",
+                        span: Some(
+                            3..12,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "Option",
+                                span: Some(
+                                    18..24,
+                                ),
+                            },
+                            generics: [
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            25..28,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                            ],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Option",
+                                        span: Some(
+                                            36..42,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Some",
+                                        span: Some(
+                                            44..48,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        42,
+                                                    ),
+                                                ),
+                                                span: 49..51,
+                                            },
+                                        ],
+                                    ),
+                                },
+                                span: 36..53,
+                            },
+                        ),
+                        span: 30..56,
+                    },
+                },
+            ),
+            span: 0..56,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "make_none",
+                        span: Some(
+                            59..68,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "Option",
+                                span: Some(
+                                    74..80,
+                                ),
+                            },
+                            generics: [
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            81..84,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                            ],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Option",
+                                        span: Some(
+                                            92..98,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "None",
+                                        span: Some(
+                                            100..104,
+                                        ),
+                                    },
+                                    payload: Unit,
+                                },
+                                span: 92..105,
+                            },
+                        ),
+                        span: 86..108,
+                    },
+                },
+            ),
+            span: 56..108,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "unwrap_option",
+                        span: Some(
+                            111..124,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "opt",
+                                span: Some(
+                                    125..128,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Option",
+                                    span: Some(
+                                        130..136,
+                                    ),
+                                },
+                                generics: [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                137..140,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    146..149,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "opt",
+                                                span: Some(
+                                                    162..165,
+                                                ),
+                                            },
+                                        ),
+                                        span: 162..166,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Option",
+                                                    span: Some(
+                                                        176..182,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Some",
+                                                    span: Some(
+                                                        184..188,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "v",
+                                                                span: Some(
+                                                                    189..190,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Identifier(
+                                                            Identifier {
+                                                                name: "v",
+                                                                span: Some(
+                                                                    209..210,
+                                                                ),
+                                                            },
+                                                        ),
+                                                        span: 209..219,
+                                                    },
+                                                ),
+                                                span: 195..220,
+                                            },
+                                            span: 176..220,
+                                        },
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Option",
+                                                    span: Some(
+                                                        230..236,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "None",
+                                                    span: Some(
+                                                        238..242,
+                                                    ),
+                                                },
+                                                payload: Unit,
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                0,
+                                                            ),
+                                                        ),
+                                                        span: 260..261,
+                                                    },
+                                                ),
+                                                span: 246..271,
+                                            },
+                                            span: 230..271,
+                                        },
+                                    ],
+                                },
+                                span: 156..279,
+                            },
+                        ),
+                        span: 150..282,
+                    },
+                },
+            ),
+            span: 108..282,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "make_ok",
+                        span: Some(
+                            285..292,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "Result",
+                                span: Some(
+                                    298..304,
+                                ),
+                            },
+                            generics: [
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            305..308,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "bool",
+                                        span: Some(
+                                            310..314,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                            ],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Result",
+                                        span: Some(
+                                            322..328,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Ok",
+                                        span: Some(
+                                            330..332,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        42,
+                                                    ),
+                                                ),
+                                                span: 333..335,
+                                            },
+                                        ],
+                                    ),
+                                },
+                                span: 322..337,
+                            },
+                        ),
+                        span: 316..340,
+                    },
+                },
+            ),
+            span: 282..340,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "make_err",
+                        span: Some(
+                            343..351,
+                        ),
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "Result",
+                                span: Some(
+                                    357..363,
+                                ),
+                            },
+                            generics: [
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "i64",
+                                        span: Some(
+                                            364..367,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                                TypeAnnotation {
+                                    name: Identifier {
+                                        name: "bool",
+                                        span: Some(
+                                            369..373,
+                                        ),
+                                    },
+                                    generics: [],
+                                },
+                            ],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Result",
+                                        span: Some(
+                                            381..387,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Err",
+                                        span: Some(
+                                            389..392,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: Literal(
+                                                    Boolean(
+                                                        false,
+                                                    ),
+                                                ),
+                                                span: 393..398,
+                                            },
+                                        ],
+                                    ),
+                                },
+                                span: 381..400,
+                            },
+                        ),
+                        span: 375..403,
+                    },
+                },
+            ),
+            span: 340..403,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "unwrap_result",
+                        span: Some(
+                            406..419,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "res",
+                                span: Some(
+                                    420..423,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Result",
+                                    span: Some(
+                                        425..431,
+                                    ),
+                                },
+                                generics: [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                432..435,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "bool",
+                                            span: Some(
+                                                437..441,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: Some(
+                                    447..450,
+                                ),
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Match {
+                                    scrutinee: Spanned {
+                                        node: Identifier(
+                                            Identifier {
+                                                name: "res",
+                                                span: Some(
+                                                    463..466,
+                                                ),
+                                            },
+                                        ),
+                                        span: 463..467,
+                                    },
+                                    arms: [
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Result",
+                                                    span: Some(
+                                                        477..483,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Ok",
+                                                    span: Some(
+                                                        485..487,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "v",
+                                                                span: Some(
+                                                                    488..489,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Identifier(
+                                                            Identifier {
+                                                                name: "v",
+                                                                span: Some(
+                                                                    508..509,
+                                                                ),
+                                                            },
+                                                        ),
+                                                        span: 508..518,
+                                                    },
+                                                ),
+                                                span: 494..519,
+                                            },
+                                            span: 477..519,
+                                        },
+                                        MatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Result",
+                                                    span: Some(
+                                                        529..535,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Err",
+                                                    span: Some(
+                                                        537..540,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "e",
+                                                                span: Some(
+                                                                    541..542,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: Block {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: Literal(
+                                                            Integer(
+                                                                0,
+                                                            ),
+                                                        ),
+                                                        span: 561..562,
+                                                    },
+                                                ),
+                                                span: 547..572,
+                                            },
+                                            span: 529..572,
+                                        },
+                                    ],
+                                },
+                                span: 457..580,
+                            },
+                        ),
+                        span: 451..583,
+                    },
+                },
+            ),
+            span: 403..583,
+        },
+        Spanned {
+            node: Struct(
+                StructDef {
+                    name: Identifier {
+                        name: "Thing",
+                        span: Some(
+                            590..595,
+                        ),
+                    },
+                    fields: [
+                        StructField {
+                            name: Identifier {
+                                name: "x",
+                                span: Some(
+                                    602..603,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Option",
+                                    span: Some(
+                                        605..611,
+                                    ),
+                                },
+                                generics: [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                612..615,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            },
+                            span: 602..616,
+                        },
+                    ],
+                },
+            ),
+            span: 583..621,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "run",
+                        span: Some(
+                            631..634,
+                        ),
+                    },
+                    params: [
+                        FunctionParam {
+                            name: Identifier {
+                                name: "x",
+                                span: Some(
+                                    635..636,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Thing",
+                                    span: Some(
+                                        638..643,
+                                    ),
+                                },
+                                generics: [],
+                            },
+                        },
+                        FunctionParam {
+                            name: Identifier {
+                                name: "y",
+                                span: Some(
+                                    645..646,
+                                ),
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Result",
+                                    span: Some(
+                                        648..654,
+                                    ),
+                                },
+                                generics: [
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: Some(
+                                                655..658,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "bool",
+                                            span: Some(
+                                                660..664,
+                                            ),
+                                        },
+                                        generics: [],
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "unwrap_option",
+                                                        span: Some(
+                                                            673..686,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 673..686,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: Identifier(
+                                                                Identifier {
+                                                                    name: "make_some",
+                                                                    span: Some(
+                                                                        687..696,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                            span: 687..696,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 687..698,
+                                                },
+                                            ],
+                                        },
+                                        span: 673..699,
+                                    },
+                                ),
+                                span: 673..705,
+                            },
+                            Spanned {
+                                node: Expression(
+                                    Spanned {
+                                        node: Call {
+                                            callee: Spanned {
+                                                node: Identifier(
+                                                    Identifier {
+                                                        name: "unwrap_result",
+                                                        span: Some(
+                                                            705..718,
+                                                        ),
+                                                    },
+                                                ),
+                                                span: 705..718,
+                                            },
+                                            args: [
+                                                Spanned {
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: Identifier(
+                                                                Identifier {
+                                                                    name: "make_ok",
+                                                                    span: Some(
+                                                                        719..726,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                            span: 719..726,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 719..728,
+                                                },
+                                            ],
+                                        },
+                                        span: 705..729,
+                                    },
+                                ),
+                                span: 705..731,
+                            },
+                        ],
+                        tail_expression: None,
+                        span: 667..733,
+                    },
+                },
+            ),
+            span: 621..733,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Fn: make_some => Option<i64>
+  T-ReturnTail: Option::Some(42) => Option<t3>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t3}
+    Unify-Enum: Option<i64> ~ Option<i64> => {}
+      Unify-Const: i64 ~ i64 => {}
+
+T-Fn: make_none => Option<i64>
+  T-ReturnTail: Option::None => Option<t4>
+    T-EnumCtor: {} ⊢ Option::None ⇒ Option<t4>
+    Unify-Enum: Option<t4> ~ Option<i64> => {i64/t4}
+      Unify-Var: t4 ~ i64 => {i64/t4}
+
+T-Fn: unwrap_option => i64
+  T-ReturnTail: match opt {
+    Option::Some(v) => {
+        v
+    },
+    Option::None => {
+        0
+    },
+} => i64
+    T-Match: {opt: enum Option<i64> {
+    Some(i64),
+    None,
+}} ⊢ match opt {
+    Option::Some(v) => {
+        v
+    },
+    Option::None => {
+        0
+    },
+} ⇒ i64
+      T-Var: {opt: enum Option<i64> {
+    Some(i64),
+    None,
+}} ⊢ opt ⇒ Option<i64>
+      Unify-Enum: Option<i64> ~ Option<t5> => {i64/t5}
+        Unify-Var: i64 ~ t5 => {i64/t5}
+      T-Tail: v => t5
+        T-Var: {opt: enum Option<i64> {
+    Some(i64),
+    None,
+}, v: t5} ⊢ v ⇒ t5
+      Unify-Enum: Option<i64> ~ Option<t6> => {i64/t6}
+        Unify-Var: i64 ~ t6 => {i64/t6}
+      T-Tail: 0 => i64
+        T-Int: {opt: enum Option<i64> {
+    Some(i64),
+    None,
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+T-Fn: make_ok => Result<i64, bool>
+  T-ReturnTail: Result::Ok(42) => Result<t7, t8>
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<t7, t8>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t7 => {i64/t7}
+    Unify-Enum: Result<i64, t8> ~ Result<i64, bool> => {bool/t8}
+      Unify-Var: t8 ~ bool => {bool/t8}
+      Unify-Const: i64 ~ i64 => {}
+
+T-Fn: make_err => Result<i64, bool>
+  T-ReturnTail: Result::Err(false) => Result<t9, t10>
+    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t9, t10>
+      T-Bool: {} ⊢ false ⇒ bool
+      Unify-Var: bool ~ t10 => {bool/t10}
+    Unify-Enum: Result<t9, bool> ~ Result<i64, bool> => {i64/t9}
+      Unify-Const: bool ~ bool => {}
+      Unify-Var: t9 ~ i64 => {i64/t9}
+
+T-Fn: unwrap_result => i64
+  T-ReturnTail: match res {
+    Result::Ok(v) => {
+        v
+    },
+    Result::Err(e) => {
+        0
+    },
+} => i64
+    T-Match: {res: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ match res {
+    Result::Ok(v) => {
+        v
+    },
+    Result::Err(e) => {
+        0
+    },
+} ⇒ i64
+      T-Var: {res: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ res ⇒ Result<i64, bool>
+      Unify-Enum: Result<i64, bool> ~ Result<t11, t12> => {bool/t12, i64/t11}
+        Unify-Var: bool ~ t12 => {bool/t12}
+        Unify-Var: i64 ~ t11 => {i64/t11}
+      T-Tail: v => t11
+        T-Var: {res: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}, v: t11} ⊢ v ⇒ t11
+      Unify-Enum: Result<i64, bool> ~ Result<t13, t14> => {bool/t14, i64/t13}
+        Unify-Var: bool ~ t14 => {bool/t14}
+        Unify-Var: i64 ~ t13 => {i64/t13}
+      T-Tail: 0 => i64
+        T-Int: {e: t14, res: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ 0 ⇒ i64
+      Unify-Const: i64 ~ i64 => i64
+    Unify-Const: i64 ~ i64 => {}
+
+
+T-Fn: run => ()
+  T-Expr: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ unwrap_option(make_some()); ⇒ ()
+    T-Call: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ unwrap_option(make_some()) ⇒ i64
+      T-Var: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
+      T-Call: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ make_some() ⇒ Option<i64>
+        T-Var: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ make_some ⇒ fn() -> Option<i64>
+      Unify-Enum: Option<i64> ~ Option<i64> => {}
+        Unify-Const: i64 ~ i64 => {}
+  T-Expr: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ unwrap_result(make_ok()); ⇒ ()
+    T-Call: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ unwrap_result(make_ok()) ⇒ i64
+      T-Var: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
+      T-Call: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ make_ok() ⇒ Result<i64, bool>
+        T-Var: {x: struct Thing {
+    x: Option<i64>,
+}, y: enum Result<i64, bool> {
+    Ok(i64),
+    Err(bool),
+}} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
+      Unify-Enum: Result<i64, bool> ~ Result<i64, bool> => {}
+        Unify-Const: bool ~ bool => {}
+        Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "make_some",
+                    span: Some(
+                        3..12,
+                    ),
+                },
+                params: [],
+                return_type: Enum(
+                    EnumType {
+                        name: "Option",
+                        variants: [
+                            EnumVariantType {
+                                name: "Some",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "None",
+                                kind: Unit,
+                            },
+                        ],
+                        type_args: [
+                            Int,
+                        ],
+                    },
+                ),
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Option",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Some",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "None",
+                                                kind: Unit,
+                                            },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                        ],
+                                    },
+                                ),
+                                kind: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Option",
+                                        span: Some(
+                                            36..42,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Some",
+                                        span: Some(
+                                            44..48,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int,
+                                                    kind: Literal(
+                                                        Integer(
+                                                            42,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 49..51,
+                                            },
+                                        ],
+                                    ),
+                                },
+                            },
+                            span: 36..53,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "make_none",
+                    span: Some(
+                        59..68,
+                    ),
+                },
+                params: [],
+                return_type: Enum(
+                    EnumType {
+                        name: "Option",
+                        variants: [
+                            EnumVariantType {
+                                name: "Some",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "None",
+                                kind: Unit,
+                            },
+                        ],
+                        type_args: [
+                            Int,
+                        ],
+                    },
+                ),
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Option",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Some",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "None",
+                                                kind: Unit,
+                                            },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                        ],
+                                    },
+                                ),
+                                kind: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Option",
+                                        span: Some(
+                                            92..98,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "None",
+                                        span: Some(
+                                            100..104,
+                                        ),
+                                    },
+                                    payload: Unit,
+                                },
+                            },
+                            span: 92..105,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "unwrap_option",
+                    span: Some(
+                        111..124,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "opt",
+                            span: Some(
+                                125..128,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Option",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Some",
+                                        kind: Tuple(
+                                            [
+                                                Int,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "None",
+                                        kind: Unit,
+                                    },
+                                ],
+                                type_args: [
+                                    Int,
+                                ],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Enum(
+                                                EnumType {
+                                                    name: "Option",
+                                                    variants: [
+                                                        EnumVariantType {
+                                                            name: "Some",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Int,
+                                                                ],
+                                                            ),
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "None",
+                                                            kind: Unit,
+                                                        },
+                                                    ],
+                                                    type_args: [
+                                                        Int,
+                                                    ],
+                                                },
+                                            ),
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "opt",
+                                                    span: Some(
+                                                        162..165,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 162..166,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Option",
+                                                    span: Some(
+                                                        176..182,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Some",
+                                                    span: Some(
+                                                        184..188,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "v",
+                                                                span: Some(
+                                                                    189..190,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "v",
+                                                                    span: Some(
+                                                                        209..210,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 209..219,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Option",
+                                                    span: Some(
+                                                        230..236,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "None",
+                                                    span: Some(
+                                                        238..242,
+                                                    ),
+                                                },
+                                                payload: Unit,
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    0,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 260..261,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 156..279,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "make_ok",
+                    span: Some(
+                        285..292,
+                    ),
+                },
+                params: [],
+                return_type: Enum(
+                    EnumType {
+                        name: "Result",
+                        variants: [
+                            EnumVariantType {
+                                name: "Ok",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Err",
+                                kind: Tuple(
+                                    [
+                                        Bool,
+                                    ],
+                                ),
+                            },
+                        ],
+                        type_args: [
+                            Int,
+                            Bool,
+                        ],
+                    },
+                ),
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Result",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Ok",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "Err",
+                                                kind: Tuple(
+                                                    [
+                                                        Bool,
+                                                    ],
+                                                ),
+                                            },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                            Bool,
+                                        ],
+                                    },
+                                ),
+                                kind: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Result",
+                                        span: Some(
+                                            322..328,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Ok",
+                                        span: Some(
+                                            330..332,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int,
+                                                    kind: Literal(
+                                                        Integer(
+                                                            42,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 333..335,
+                                            },
+                                        ],
+                                    ),
+                                },
+                            },
+                            span: 322..337,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "make_err",
+                    span: Some(
+                        343..351,
+                    ),
+                },
+                params: [],
+                return_type: Enum(
+                    EnumType {
+                        name: "Result",
+                        variants: [
+                            EnumVariantType {
+                                name: "Ok",
+                                kind: Tuple(
+                                    [
+                                        Int,
+                                    ],
+                                ),
+                            },
+                            EnumVariantType {
+                                name: "Err",
+                                kind: Tuple(
+                                    [
+                                        Bool,
+                                    ],
+                                ),
+                            },
+                        ],
+                        type_args: [
+                            Int,
+                            Bool,
+                        ],
+                    },
+                ),
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Result",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Ok",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "Err",
+                                                kind: Tuple(
+                                                    [
+                                                        Bool,
+                                                    ],
+                                                ),
+                                            },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                            Bool,
+                                        ],
+                                    },
+                                ),
+                                kind: EnumConstructor {
+                                    enum_name: Identifier {
+                                        name: "Result",
+                                        span: Some(
+                                            381..387,
+                                        ),
+                                    },
+                                    variant: Identifier {
+                                        name: "Err",
+                                        span: Some(
+                                            389..392,
+                                        ),
+                                    },
+                                    payload: Tuple(
+                                        [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Bool,
+                                                    kind: Literal(
+                                                        Boolean(
+                                                            false,
+                                                        ),
+                                                    ),
+                                                },
+                                                span: 393..398,
+                                            },
+                                        ],
+                                    ),
+                                },
+                            },
+                            span: 381..400,
+                        },
+                    ),
+                },
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "unwrap_result",
+                    span: Some(
+                        406..419,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "res",
+                            span: Some(
+                                420..423,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Result",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Ok",
+                                        kind: Tuple(
+                                            [
+                                                Int,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "Err",
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [
+                                    Int,
+                                    Bool,
+                                ],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Match {
+                                    scrutinee: Spanned {
+                                        node: TypedExpr {
+                                            ty: Enum(
+                                                EnumType {
+                                                    name: "Result",
+                                                    variants: [
+                                                        EnumVariantType {
+                                                            name: "Ok",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Int,
+                                                                ],
+                                                            ),
+                                                        },
+                                                        EnumVariantType {
+                                                            name: "Err",
+                                                            kind: Tuple(
+                                                                [
+                                                                    Bool,
+                                                                ],
+                                                            ),
+                                                        },
+                                                    ],
+                                                    type_args: [
+                                                        Int,
+                                                        Bool,
+                                                    ],
+                                                },
+                                            ),
+                                            kind: Identifier(
+                                                Identifier {
+                                                    name: "res",
+                                                    span: Some(
+                                                        463..466,
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        span: 463..467,
+                                    },
+                                    arms: [
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Result",
+                                                    span: Some(
+                                                        477..483,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Ok",
+                                                    span: Some(
+                                                        485..487,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "v",
+                                                                span: Some(
+                                                                    488..489,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "v",
+                                                                    span: Some(
+                                                                        508..509,
+                                                                    ),
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 508..518,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                        TypedMatchArm {
+                                            pattern: EnumVariant {
+                                                enum_name: Identifier {
+                                                    name: "Result",
+                                                    span: Some(
+                                                        529..535,
+                                                    ),
+                                                },
+                                                variant: Identifier {
+                                                    name: "Err",
+                                                    span: Some(
+                                                        537..540,
+                                                    ),
+                                                },
+                                                payload: Tuple(
+                                                    [
+                                                        Binding(
+                                                            Identifier {
+                                                                name: "e",
+                                                                span: Some(
+                                                                    541..542,
+                                                                ),
+                                                            },
+                                                        ),
+                                                    ],
+                                                ),
+                                            },
+                                            body: TypedBlock {
+                                                statements: [],
+                                                tail_expression: Some(
+                                                    Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Int,
+                                                            kind: Literal(
+                                                                Integer(
+                                                                    0,
+                                                                ),
+                                                            ),
+                                                        },
+                                                        span: 561..562,
+                                                    },
+                                                ),
+                                            },
+                                        },
+                                    ],
+                                },
+                            },
+                            span: 457..580,
+                        },
+                    ),
+                },
+            },
+        ),
+        Struct(
+            TypedStructDef {
+                name: Identifier {
+                    name: "Thing",
+                    span: Some(
+                        590..595,
+                    ),
+                },
+                fields: [
+                    TypedStructField {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                602..603,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Option",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Some",
+                                        kind: Tuple(
+                                            [
+                                                Int,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "None",
+                                        kind: Unit,
+                                    },
+                                ],
+                                type_args: [
+                                    Int,
+                                ],
+                            },
+                        ),
+                    },
+                ],
+                ty: Record(
+                    RecordType {
+                        name: "Thing",
+                        fields: [
+                            RecordFieldType {
+                                name: "x",
+                                ty: Enum(
+                                    EnumType {
+                                        name: "Option",
+                                        variants: [
+                                            EnumVariantType {
+                                                name: "Some",
+                                                kind: Tuple(
+                                                    [
+                                                        Int,
+                                                    ],
+                                                ),
+                                            },
+                                            EnumVariantType {
+                                                name: "None",
+                                                kind: Unit,
+                                            },
+                                        ],
+                                        type_args: [
+                                            Int,
+                                        ],
+                                    },
+                                ),
+                            },
+                        ],
+                    },
+                ),
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "run",
+                    span: Some(
+                        631..634,
+                    ),
+                },
+                params: [
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "x",
+                            span: Some(
+                                635..636,
+                            ),
+                        },
+                        ty: Record(
+                            RecordType {
+                                name: "Thing",
+                                fields: [
+                                    RecordFieldType {
+                                        name: "x",
+                                        ty: Enum(
+                                            EnumType {
+                                                name: "Option",
+                                                variants: [
+                                                    EnumVariantType {
+                                                        name: "Some",
+                                                        kind: Tuple(
+                                                            [
+                                                                Int,
+                                                            ],
+                                                        ),
+                                                    },
+                                                    EnumVariantType {
+                                                        name: "None",
+                                                        kind: Unit,
+                                                    },
+                                                ],
+                                                type_args: [
+                                                    Int,
+                                                ],
+                                            },
+                                        ),
+                                    },
+                                ],
+                            },
+                        ),
+                    },
+                    TypedFunctionParam {
+                        name: Identifier {
+                            name: "y",
+                            span: Some(
+                                645..646,
+                            ),
+                        },
+                        ty: Enum(
+                            EnumType {
+                                name: "Result",
+                                variants: [
+                                    EnumVariantType {
+                                        name: "Ok",
+                                        kind: Tuple(
+                                            [
+                                                Int,
+                                            ],
+                                        ),
+                                    },
+                                    EnumVariantType {
+                                        name: "Err",
+                                        kind: Tuple(
+                                            [
+                                                Bool,
+                                            ],
+                                        ),
+                                    },
+                                ],
+                                type_args: [
+                                    Int,
+                                    Bool,
+                                ],
+                            },
+                        ),
+                    },
+                ],
+                return_type: Unit,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function {
+                                                    params: [
+                                                        Enum(
+                                                            EnumType {
+                                                                name: "Option",
+                                                                variants: [
+                                                                    EnumVariantType {
+                                                                        name: "Some",
+                                                                        kind: Tuple(
+                                                                            [
+                                                                                Int,
+                                                                            ],
+                                                                        ),
+                                                                    },
+                                                                    EnumVariantType {
+                                                                        name: "None",
+                                                                        kind: Unit,
+                                                                    },
+                                                                ],
+                                                                type_args: [
+                                                                    Int,
+                                                                ],
+                                                            },
+                                                        ),
+                                                    ],
+                                                    result: Int,
+                                                    effect: Pure,
+                                                },
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "unwrap_option",
+                                                        span: Some(
+                                                            673..686,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 673..686,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Enum(
+                                                        EnumType {
+                                                            name: "Option",
+                                                            variants: [
+                                                                EnumVariantType {
+                                                                    name: "Some",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Int,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "None",
+                                                                    kind: Unit,
+                                                                },
+                                                            ],
+                                                            type_args: [
+                                                                Int,
+                                                            ],
+                                                        },
+                                                    ),
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function {
+                                                                    params: [],
+                                                                    result: Enum(
+                                                                        EnumType {
+                                                                            name: "Option",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Some",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Int,
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "None",
+                                                                                    kind: Unit,
+                                                                                },
+                                                                            ],
+                                                                            type_args: [
+                                                                                Int,
+                                                                            ],
+                                                                        },
+                                                                    ),
+                                                                    effect: Pure,
+                                                                },
+                                                                kind: Identifier(
+                                                                    Identifier {
+                                                                        name: "make_some",
+                                                                        span: Some(
+                                                                            687..696,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                            },
+                                                            span: 687..696,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                },
+                                                span: 687..698,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 673..699,
+                            },
+                        ),
+                        Expression(
+                            Spanned {
+                                node: TypedExpr {
+                                    ty: Int,
+                                    kind: Call {
+                                        callee: Spanned {
+                                            node: TypedExpr {
+                                                ty: Function {
+                                                    params: [
+                                                        Enum(
+                                                            EnumType {
+                                                                name: "Result",
+                                                                variants: [
+                                                                    EnumVariantType {
+                                                                        name: "Ok",
+                                                                        kind: Tuple(
+                                                                            [
+                                                                                Int,
+                                                                            ],
+                                                                        ),
+                                                                    },
+                                                                    EnumVariantType {
+                                                                        name: "Err",
+                                                                        kind: Tuple(
+                                                                            [
+                                                                                Bool,
+                                                                            ],
+                                                                        ),
+                                                                    },
+                                                                ],
+                                                                type_args: [
+                                                                    Int,
+                                                                    Bool,
+                                                                ],
+                                                            },
+                                                        ),
+                                                    ],
+                                                    result: Int,
+                                                    effect: Pure,
+                                                },
+                                                kind: Identifier(
+                                                    Identifier {
+                                                        name: "unwrap_result",
+                                                        span: Some(
+                                                            705..718,
+                                                        ),
+                                                    },
+                                                ),
+                                            },
+                                            span: 705..718,
+                                        },
+                                        args: [
+                                            Spanned {
+                                                node: TypedExpr {
+                                                    ty: Enum(
+                                                        EnumType {
+                                                            name: "Result",
+                                                            variants: [
+                                                                EnumVariantType {
+                                                                    name: "Ok",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Int,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                                EnumVariantType {
+                                                                    name: "Err",
+                                                                    kind: Tuple(
+                                                                        [
+                                                                            Bool,
+                                                                        ],
+                                                                    ),
+                                                                },
+                                                            ],
+                                                            type_args: [
+                                                                Int,
+                                                                Bool,
+                                                            ],
+                                                        },
+                                                    ),
+                                                    kind: Call {
+                                                        callee: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Function {
+                                                                    params: [],
+                                                                    result: Enum(
+                                                                        EnumType {
+                                                                            name: "Result",
+                                                                            variants: [
+                                                                                EnumVariantType {
+                                                                                    name: "Ok",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Int,
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                                EnumVariantType {
+                                                                                    name: "Err",
+                                                                                    kind: Tuple(
+                                                                                        [
+                                                                                            Bool,
+                                                                                        ],
+                                                                                    ),
+                                                                                },
+                                                                            ],
+                                                                            type_args: [
+                                                                                Int,
+                                                                                Bool,
+                                                                            ],
+                                                                        },
+                                                                    ),
+                                                                    effect: Pure,
+                                                                },
+                                                                kind: Identifier(
+                                                                    Identifier {
+                                                                        name: "make_ok",
+                                                                        span: Some(
+                                                                            719..726,
+                                                                        ),
+                                                                    },
+                                                                ),
+                                                            },
+                                                            span: 719..726,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                },
+                                                span: 719..728,
+                                            },
+                                        ],
+                                    },
+                                },
+                                span: 705..729,
+                            },
+                        ),
+                    ],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (result i32 i64)))
+  (type (;1;) (func (param i32 i64) (result i64)))
+  (type (;2;) (func (param i32 i64 i32 i64)))
+  (export "run" (func 6))
+  (func (;0;) (type 0) (result i32 i64)
+    (i32.const 0)
+    (i64.const 42)
+  )
+  (func (;1;) (type 0) (result i32 i64)
+    (i32.const 1)
+    (i64.const 0)
+  )
+  (func (;2;) (type 1) (param i32 i64) (result i64)
+    (local i32 i64 i64 i64)
+    (local.set 2
+      (local.get 0)
+      (local.set 3
+        (local.get 1)))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 2)
+            (i32.const 0)))
+        (local.set 5
+          (local.get 3))
+        (local.set 4
+          (local.get 5))
+        (br 1 (;@1;)))
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 2)
+            (i32.const 1)))
+        (local.set 4
+          (i64.const 0))
+        (br 1 (;@1;)))
+      (unreachable))
+    (local.get 4)
+  )
+  (func (;3;) (type 0) (result i32 i64)
+    (i32.const 0)
+    (i64.const 42)
+  )
+  (func (;4;) (type 0) (result i32 i64)
+    (local i64)
+    (i32.const 1)
+    (local.set 0
+      (i64.extend_i32_u
+        (i32.const 0)))
+    (local.get 0)
+  )
+  (func (;5;) (type 1) (param i32 i64) (result i64)
+    (local i32 i64 i64 i64 i32)
+    (local.set 2
+      (local.get 0)
+      (local.set 3
+        (local.get 1)))
+    (block ;; label = @1
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 2)
+            (i32.const 0)))
+        (local.set 5
+          (local.get 3))
+        (local.set 4
+          (local.get 5))
+        (br 1 (;@1;)))
+      (block ;; label = @2
+        (br_if 0 (;@2;)
+          (i32.ne
+            (local.get 2)
+            (i32.const 1)))
+        (local.set 6
+          (i32.wrap_i64
+            (local.get 3)))
+        (local.set 4
+          (i64.const 0))
+        (br 1 (;@1;)))
+      (unreachable))
+    (local.get 4)
+  )
+  (func (;6;) (type 2) (param i32 i64 i32 i64)
+    (drop
+      (call 2
+        (call 0)))
+    (drop
+      (call 5
+        (call 3)))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (type (;0;) (option s64))
+              (type (;1;) (record (field "x" 0)))
+              (import "thing" (type (;2;) (eq 1)))
+              (type (;3;) (result s64 (error bool)))
+              (type (;4;) (func (param "x" 2) (param "y" 3)))
+              (export (;0;) "run" (func (type 4)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  record thing {
+    x: option<s64>,
+  }
+
+  export run: func(x: thing, y: result<s64, bool>);
+}

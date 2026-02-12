@@ -9,3 +9,4 @@ papers/
 .claude/settings.local.json
 .nvim.lua
 tree-sitter-starstream/queries/starstream
+wow.star

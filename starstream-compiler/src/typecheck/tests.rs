@@ -650,12 +650,7 @@ fn exhaustive_match_with_wildcard() {
 fn unreachable_pattern_error() {
     assert_typecheck_snapshot!(
         r#"
-        enum Option {
-            None,
-            Some(i64),
-        }
-
-        fn test(o: Option) -> i64 {
+        fn test(o: Option<i64>) -> i64 {
             match o {
                 _ => {
                     0
@@ -673,12 +668,7 @@ fn unreachable_pattern_error() {
 fn exhaustive_match_all_variants() {
     assert_typecheck_snapshot!(
         r#"
-        enum Result {
-            Ok(i64),
-            Err(i64),
-        }
-
-        fn test(r: Result) -> i64 {
+        fn test(r: Result<i64, i64>) -> i64 {
             match r {
                 Result::Ok(value) => {
                     value
@@ -1084,6 +1074,146 @@ fn unknown_namespace_lowercase_error() {
         r#"
         fn main() {
             let x = cardano::blockHeight();
+        }
+        "#
+    );
+}
+
+// ========== Option<T> and Result<T, E> prelude types ==========
+
+#[test]
+fn option_some_constructor() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x = Option::Some(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn option_none_constructor() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x = Option::None;
+        }
+        "#
+    );
+}
+
+#[test]
+fn option_explicit_annotation() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: Option<i64> = Option::Some(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn option_missing_generic_args_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: Option = Option::Some(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn option_pattern_matching() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x = Option::Some(42);
+            let y = match x {
+                Option::Some(v) => {
+                    v
+                },
+                Option::None => {
+                    0
+                },
+            };
+        }
+        "#
+    );
+}
+
+#[test]
+fn result_ok_constructor() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x = Result::Ok(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn result_err_constructor() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x = Result::Err(false);
+        }
+        "#
+    );
+}
+
+#[test]
+fn result_explicit_annotation() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: Result<i64, bool> = Result::Ok(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn result_pattern_matching() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: Result<i64, bool> = Result::Ok(42);
+            let y = match x {
+                Result::Ok(v) => {
+                    v
+                },
+                Result::Err(e) => {
+                    0
+                },
+            };
+        }
+        "#
+    );
+}
+
+#[test]
+fn option_wrong_arity() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test() {
+            let x: Option<i64, bool> = Option::Some(42);
+        }
+        "#
+    );
+}
+
+#[test]
+fn user_type_cannot_shadow_prelude() {
+    assert_typecheck_snapshot!(
+        r#"
+        enum Option {
+            A,
+            B,
         }
         "#
     );
