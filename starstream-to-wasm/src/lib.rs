@@ -1811,7 +1811,6 @@ impl Compiler {
         func.instructions().call(core_fn_idx);
         Ok(())
     }
-
 }
 
 // Probably inefficient, but fun. Fix later?

@@ -382,10 +382,50 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func (param i64 i64) (result i64)))
-  (export "total-value" (func 0))
+  (export "total-value" (func 1))
   (func (;0;) (type 0) (param i64 i64) (result i64)
+    (local i64 i64 i64)
+    (local.tee 2
+      (i64.mul
+        (local.tee 3
+          (local.get 0))
+        (local.tee 4
+          (local.get 1))))
+    (if ;; label = @1
+      (i32.or
+        (i32.and
+          (i64.eq
+            (local.get 3)
+            (i64.const -9223372036854775808))
+          (i64.eq
+            (local.get 4)
+            (i64.const -1)))
+        (i32.and
+          (i64.eq
+            (local.get 4)
+            (i64.const -9223372036854775808))
+          (i64.eq
+            (local.get 3)
+            (i64.const -1))))
+      (then
+        (unreachable)))
+    (if ;; label = @1
+      (i64.ne
+        (local.get 4)
+        (i64.const 0))
+      (then
+        (if ;; label = @2
+          (i64.ne
+            (i64.div_s
+              (local.get 2)
+              (local.get 4))
+            (local.get 3))
+          (then
+            (unreachable)))))
+  )
+  (func (;1;) (type 0) (param i64 i64) (result i64)
     (local i64)
-    (i64.mul
+    (call 0
       (local.get 0)
       (drop
         (local.get 1))
