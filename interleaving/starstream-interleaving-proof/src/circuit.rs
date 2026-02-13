@@ -1050,6 +1050,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
                 LedgerOperation::ProgramHash { target, .. } => Some(*target),
+                LedgerOperation::Unbind { token_id } => Some(*token_id),
                 _ => None,
             };
 
