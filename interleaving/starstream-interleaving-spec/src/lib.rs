@@ -365,6 +365,36 @@ impl Ledger {
         }
     }
 
+    /// Returns transaction-local input ownership for the given input order.
+    ///
+    /// For each input at process id `pid`, the value is:
+    /// - `Some(owner_pid)` if the input's stable coroutine is currently owned by
+    ///   another input coroutine in this same list.
+    /// - `None` otherwise.
+    pub fn input_ownership_for_inputs(&self, inputs: &[UtxoId]) -> Vec<Option<ProcessId>> {
+        let mut ownership = vec![None; inputs.len()];
+        let mut coroutine_to_pid: HashMap<CoroutineId, ProcessId> = HashMap::new();
+
+        for (pid, utxo_id) in inputs.iter().enumerate() {
+            let Some(cid) = self.utxo_to_coroutine.get(utxo_id) else {
+                continue;
+            };
+            coroutine_to_pid.insert(cid.clone(), ProcessId(pid));
+        }
+
+        for (pid, utxo_id) in inputs.iter().enumerate() {
+            let Some(token_cid) = self.utxo_to_coroutine.get(utxo_id) else {
+                continue;
+            };
+            let Some(owner_cid) = self.ownership_registry.get(token_cid) else {
+                continue;
+            };
+            ownership[pid] = coroutine_to_pid.get(owner_cid).copied();
+        }
+
+        ownership
+    }
+
     #[allow(clippy::result_large_err)]
     pub fn apply_transaction(&self, tx: &ProvenTransaction) -> Result<Ledger, VerificationError> {
         let mut new_ledger = self.clone();
@@ -617,37 +647,8 @@ impl Ledger {
         // the transaction-local processes that correspond to stable ids.
         //
         // (The circuit enforces that ownership_out is derived legally from this.)
-        let mut ownership_in: Vec<Option<ProcessId>> = vec![None; n_inputs + n_new];
-
-        // Build ProcessId -> stable CoroutineId map for inputs/new_outputs.
-        // - Inputs: stable ids from ledger
-        // - New outputs: have no prior stable id, so they start as unowned in ownership_in
-        // - Coord scripts: None
-        let mut process_to_coroutine: Vec<Option<CoroutineId>> = vec![None; n_processes];
-        for (i, utxo_id) in body.inputs.iter().enumerate() {
-            process_to_coroutine[i] = Some(self.utxo_to_coroutine[utxo_id].clone());
-        }
-        // new_outputs and coord scripts remain None here, which encodes "no prior ownership relation"
-
-        // Invert for the subset of stable ids that appear in inputs (so we can express owner as ProcessId).
-        let mut coroutine_to_process: HashMap<CoroutineId, ProcessId> = HashMap::new();
-        for (pid, cid_opt) in process_to_coroutine.iter().enumerate() {
-            if let Some(cid) = cid_opt {
-                coroutine_to_process.insert(cid.clone(), ProcessId(pid));
-            }
-        }
-
-        // Fill ownership_in only for tokens that are inputs (the only ones that existed before the tx).
-        // New outputs are necessarily unowned at start, and coord scripts are None.
-        for (token_cid, owner_cid) in self.ownership_registry.iter() {
-            let Some(&token_pid) = coroutine_to_process.get(token_cid) else {
-                continue;
-            };
-            let Some(&owner_pid) = coroutine_to_process.get(owner_cid) else {
-                continue;
-            };
-            ownership_in[token_pid.0] = Some(owner_pid);
-        }
+        let mut ownership_in = self.input_ownership_for_inputs(&body.inputs);
+        ownership_in.extend(std::iter::repeat(None).take(n_new));
 
         // Build wasm instances in the same canonical order as process_table:
         // inputs ++ new_outputs ++ coord scripts

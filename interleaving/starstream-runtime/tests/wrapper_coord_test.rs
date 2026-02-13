@@ -274,6 +274,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let tx = UnprovenTransaction {
         inputs: vec![],
         input_states: vec![],
+        input_ownership: vec![],
         programs,
         is_utxo: vec![true, true, false, false, false],
         entrypoint: 4,

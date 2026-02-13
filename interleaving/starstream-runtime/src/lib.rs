@@ -12,7 +12,9 @@ use wasmi::{
 };
 
 mod trace_mermaid;
-pub use trace_mermaid::register_mermaid_decoder;
+pub use trace_mermaid::{
+    register_mermaid_decoder, register_mermaid_default_decoder, register_mermaid_process_labels,
+};
 
 #[doc(hidden)]
 pub mod test_support;
@@ -62,7 +64,7 @@ fn snapshot_globals(
             _ => {
                 return Err(Error::RuntimeError(
                     "unsupported global type (only i32/i64 supported)".into(),
-                ))
+                ));
             }
         };
         values.push(value);
@@ -93,7 +95,7 @@ fn restore_globals(
             _ => {
                 return Err(Error::RuntimeError(
                     "unsupported global type (only i32/i64 supported)".into(),
-                ))
+                ));
             }
         };
         global
@@ -143,6 +145,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
 pub struct UnprovenTransaction {
     pub inputs: Vec<UtxoId>,
     pub input_states: Vec<CoroutineState>,
+    pub input_ownership: Vec<Option<ProcessId>>,
     pub programs: Vec<WasmProgram>,
     pub is_utxo: Vec<bool>,
     pub entrypoint: usize,
@@ -812,10 +815,7 @@ impl UnprovenTransaction {
                 None
             } else {
                 let globals = self.get_globals(i, &state)?;
-                Some(CoroutineState {
-                    pc: 0,
-                    globals,
-                })
+                Some(CoroutineState { pc: 0, globals })
             };
 
             builder = builder.with_input_and_trace_commitment(
@@ -840,10 +840,7 @@ impl UnprovenTransaction {
 
             builder = builder.with_fresh_output_and_trace_commitment(
                 NewOutput {
-                    state: CoroutineState {
-                        pc: 0,
-                        globals,
-                    },
+                    state: CoroutineState { pc: 0, globals },
                     contract_hash,
                 },
                 trace,
@@ -894,6 +891,13 @@ impl UnprovenTransaction {
                 "Input state count mismatch: expected {}, got {}",
                 n_inputs,
                 self.input_states.len()
+            )));
+        }
+        if !self.input_ownership.is_empty() && self.input_ownership.len() != n_inputs {
+            return Err(Error::RuntimeError(format!(
+                "Input ownership count mismatch: expected {}, got {}",
+                n_inputs,
+                self.input_ownership.len()
             )));
         }
 
@@ -959,6 +963,16 @@ impl UnprovenTransaction {
             instances.push(instance);
         }
 
+        if !self.input_ownership.is_empty() {
+            for (pid, owner_opt) in self.input_ownership.iter().enumerate().take(n_inputs) {
+                runtime
+                    .store
+                    .data_mut()
+                    .ownership
+                    .insert(ProcessId(pid), *owner_opt);
+            }
+        }
+
         // Map of suspended processes
         let mut resumables: HashMap<ProcessId, TypedResumableCallHostTrap<()>> = HashMap::new();
 
@@ -982,7 +996,8 @@ impl UnprovenTransaction {
                 let n_results = {
                     let traces = &runtime.store.data().traces;
                     let trace = traces.get(&current_pid).expect("trace exists");
-                    effect_result_arity(trace.last().expect("trace not empty"))
+                    let last = trace.last().expect("trace not empty");
+                    effect_result_arity(last)
                 };
 
                 // Update previous effect with return value
@@ -1147,11 +1162,23 @@ impl UnprovenTransaction {
             if pid < n_inputs {
                 must_burn.push(data.must_burn.contains(&ProcessId(pid)));
             }
+        }
 
-            if self.is_utxo[pid] {
-                ownership_in.push(None);
-                ownership_out.push(None);
+        let utxo_count = n_inputs + n_new;
+        ownership_in.resize(utxo_count, None);
+        ownership_out.resize(utxo_count, None);
+        for pid in 0..utxo_count {
+            let proc_id = ProcessId(pid);
+            if pid < n_inputs && !self.input_ownership.is_empty() {
+                ownership_in[pid] = self.input_ownership[pid];
             }
+            ownership_out[pid] = runtime
+                .store
+                .data()
+                .ownership
+                .get(&proc_id)
+                .copied()
+                .flatten();
         }
 
         for (pid, globals) in globals_by_pid.iter().enumerate() {

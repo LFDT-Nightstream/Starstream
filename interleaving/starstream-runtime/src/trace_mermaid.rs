@@ -18,6 +18,10 @@ enum DecodeMode {
 type MermaidDecoder = Arc<dyn Fn(&[Value]) -> Option<String> + Send + Sync + 'static>;
 
 static MERMAID_DECODERS: OnceLock<Mutex<HashMap<InterfaceId, MermaidDecoder>>> = OnceLock::new();
+static MERMAID_DEFAULT_DECODER: OnceLock<Mutex<Option<MermaidDecoder>>> = OnceLock::new();
+
+static MERMAID_LABELS_OVERRIDES: OnceLock<Vec<String>> = OnceLock::new();
+static MERMAID_COMBINED: OnceLock<Mutex<Option<CombinedTrace>>> = OnceLock::new();
 
 pub fn register_mermaid_decoder(
     interface_id: InterfaceId,
@@ -26,6 +30,18 @@ pub fn register_mermaid_decoder(
     let map = MERMAID_DECODERS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = map.lock().expect("mermaid decoder lock poisoned");
     map.insert(interface_id, Arc::new(decoder));
+}
+
+pub fn register_mermaid_default_decoder(
+    decoder: impl Fn(&[Value]) -> Option<String> + Send + Sync + 'static,
+) {
+    let slot = MERMAID_DEFAULT_DECODER.get_or_init(|| Mutex::new(None));
+    let mut slot = slot.lock().expect("mermaid default decoder lock poisoned");
+    *slot = Some(Arc::new(decoder));
+}
+
+pub fn register_mermaid_process_labels(labels: Vec<String>) {
+    MERMAID_LABELS_OVERRIDES.get_or_init(|| labels);
 }
 
 pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState) {
@@ -41,7 +57,10 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
         return;
     }
 
-    let labels = build_process_labels(&instance.is_utxo);
+    let labels = MERMAID_LABELS_OVERRIDES
+        .get()
+        .cloned()
+        .unwrap_or_else(|| build_process_labels(&instance.is_utxo));
     let mut out = String::new();
     out.push_str("sequenceDiagram\n");
     for label in &labels {
@@ -73,16 +92,69 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
         update_handler_targets(*pid, effect, &mut handler_targets, &mut handler_interfaces);
     }
 
-    let ts = time::SystemTime::now()
-        .duration_since(time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let mmd_path = env::temp_dir().join(format!("starstream_trace_{ts}.mmd"));
-    if let Err(err) = fs::write(&mmd_path, out) {
+    emit_trace_mermaid_combined(labels, out);
+}
+
+#[derive(Clone)]
+struct CombinedTrace {
+    labels: Vec<String>,
+    next_tx: usize,
+    edges: String,
+    mmd_path: std::path::PathBuf,
+}
+
+fn emit_trace_mermaid_combined(labels: Vec<String>, per_tx_diagram: String) {
+    let slot = MERMAID_COMBINED.get_or_init(|| Mutex::new(None));
+    let mut guard = slot.lock().expect("mermaid combined trace lock poisoned");
+    let needs_reset = guard.as_ref().map(|s| s.labels != labels).unwrap_or(true);
+    if needs_reset {
+        *guard = Some(CombinedTrace {
+            labels: labels.clone(),
+            next_tx: 1,
+            edges: String::new(),
+            mmd_path: env::temp_dir()
+                .join(format!("starstream_trace_combined_{}.mmd", std::process::id())),
+        });
+    }
+    let state = guard.as_mut().expect("combined state must exist");
+
+    if !state.edges.is_empty() {
+        state.edges.push('\n');
+    }
+    let first = state.labels.first().cloned().unwrap_or_else(|| "p0".to_string());
+    let last = state.labels.last().cloned().unwrap_or_else(|| first.clone());
+    state
+        .edges
+        .push_str(&format!("    Note over {first},{last}: tx {}\n", state.next_tx));
+    for line in per_tx_diagram.lines().skip_while(|line| *line != "sequenceDiagram").skip(1) {
+        if line.trim_start().starts_with("participant ") {
+            continue;
+        }
+        state.edges.push_str(line);
+        state.edges.push('\n');
+    }
+    state.next_tx += 1;
+
+    let mut merged = String::new();
+    merged.push_str("sequenceDiagram\n");
+    for label in &state.labels {
+        merged.push_str(&format!("    participant {label}\n"));
+    }
+    merged.push_str(&state.edges);
+
+    write_mermaid_artifacts(&state.mmd_path, &merged);
+}
+
+fn write_mermaid_artifacts(mmd_path: &std::path::Path, mmd: &str) {
+    if let Err(err) = fs::write(mmd_path, mmd) {
         eprintln!("mermaid: failed to write {}: {err}", mmd_path.display());
         return;
     }
 
+    let ts = time::SystemTime::now()
+        .duration_since(time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
     let svg_path = mmd_path.with_extension("svg");
     if mmdc_available() {
         let puppeteer_config_path = env::temp_dir().join(format!("starstream_mmdc_{ts}.json"));
@@ -93,7 +165,7 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
             .arg("-p")
             .arg(&puppeteer_config_path)
             .arg("-i")
-            .arg(&mmd_path)
+            .arg(mmd_path)
             .arg("-o")
             .arg(&svg_path)
             .stdout(Stdio::null())
@@ -212,6 +284,14 @@ fn format_edge_line(
             );
             Some(format!("{from} ->> {created}: {label}"))
         }
+        WitLedgerEffect::Bind { owner_id } => {
+            let to = ctx.labels.get(owner_id.0)?;
+            Some(format!("{from} ->> {to}: bind"))
+        }
+        WitLedgerEffect::Unbind { token_id } => {
+            let to = ctx.labels.get(token_id.0)?;
+            Some(format!("{from} ->> {to}: unbind"))
+        }
         _ => None,
     }
 }
@@ -224,9 +304,11 @@ fn format_ref_with_value(
 ) -> String {
     let mut out = format!("ref={}", reff.0);
     if let Some(values) = ref_store.get(&reff) {
-        let extra = interface_id
-            .and_then(|id| decode_with_registry(id, values, decode_mode))
-            .unwrap_or_else(|| format_raw_values(values));
+        let extra = match interface_id {
+            Some(id) => decode_with_registry(id, values, decode_mode),
+            None => decode_with_default(values, decode_mode),
+        }
+        .unwrap_or_else(|| format_raw_values(values));
         out.push(' ');
         out.push('[');
         out.push_str(&extra);
@@ -265,6 +347,16 @@ fn decode_with_registry(
     let map = MERMAID_DECODERS.get_or_init(|| Mutex::new(HashMap::new()));
     let map = map.lock().ok()?;
     let decoder = map.get(interface_id)?.clone();
+    decoder(values)
+}
+
+fn decode_with_default(values: &[Value], decode_mode: DecodeMode) -> Option<String> {
+    if decode_mode == DecodeMode::None {
+        return None;
+    }
+    let slot = MERMAID_DEFAULT_DECODER.get_or_init(|| Mutex::new(None));
+    let slot = slot.lock().ok()?;
+    let decoder = slot.as_ref()?.clone();
     decoder(values)
 }
 

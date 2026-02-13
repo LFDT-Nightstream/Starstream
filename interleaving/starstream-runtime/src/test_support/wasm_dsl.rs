@@ -85,6 +85,27 @@ impl FuncBuilder {
         self.instrs.push(Instruction::LocalSet(dst.0));
     }
 
+    pub fn sub_i64(&mut self, a: Value, b: Value, dst: Local) {
+        a.emit(&mut self.instrs);
+        b.emit(&mut self.instrs);
+        self.instrs.push(Instruction::I64Sub);
+        self.instrs.push(Instruction::LocalSet(dst.0));
+    }
+
+    pub fn mul_i64(&mut self, a: Value, b: Value, dst: Local) {
+        a.emit(&mut self.instrs);
+        b.emit(&mut self.instrs);
+        self.instrs.push(Instruction::I64Mul);
+        self.instrs.push(Instruction::LocalSet(dst.0));
+    }
+
+    pub fn div_i64(&mut self, a: Value, b: Value, dst: Local) {
+        a.emit(&mut self.instrs);
+        b.emit(&mut self.instrs);
+        self.instrs.push(Instruction::I64DivS);
+        self.instrs.push(Instruction::LocalSet(dst.0));
+    }
+
     pub fn global_get(&mut self, global: u32, dst: Local) {
         self.instrs.push(Instruction::GlobalGet(global));
         self.instrs.push(Instruction::LocalSet(dst.0));
@@ -579,6 +600,21 @@ macro_rules! wasm_stmt {
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
+    ($f:ident, $imports:ident, set $var:ident = sub $a:tt, $b:tt; $($rest:tt)*) => {
+        $f.sub_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set $var:ident = mul $a:tt, $b:tt; $($rest:tt)*) => {
+        $f.mul_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set $var:ident = div $a:tt, $b:tt; $($rest:tt)*) => {
+        $f.div_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
     ($f:ident, $imports:ident, set ($($var:ident),+ $(,)?) = call $func:ident ( $($arg:tt)* ); $($rest:tt)*) => {
         $f.call($imports.$func, $crate::wasm_args!($($arg)*), &[$($var),+]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
@@ -610,6 +646,24 @@ macro_rules! wasm_stmt {
     ($f:ident, $imports:ident, let $var:ident = add $a:tt, $b:tt; $($rest:tt)*) => {
         let $var = $f.local_i64();
         $f.add_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let $var:ident = sub $a:tt, $b:tt; $($rest:tt)*) => {
+        let $var = $f.local_i64();
+        $f.sub_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let $var:ident = mul $a:tt, $b:tt; $($rest:tt)*) => {
+        let $var = $f.local_i64();
+        $f.mul_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let $var:ident = div $a:tt, $b:tt; $($rest:tt)*) => {
+        let $var = $f.local_i64();
+        $f.div_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
