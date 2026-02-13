@@ -60,7 +60,7 @@ impl<T> Spanned<T> {
 pub struct Identifier {
     pub name: String,
     #[serde(skip)]
-    pub span: Option<Span>,
+    pub span: Span,
 }
 
 impl Identifier {
@@ -68,7 +68,7 @@ impl Identifier {
     pub fn anon(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            span: None,
+            span: DUMMY_SPAN,
         }
     }
 
@@ -76,7 +76,7 @@ impl Identifier {
     pub fn new(name: impl Into<String>, span: Span) -> Self {
         Self {
             name: name.into(),
-            span: Some(span),
+            span,
         }
     }
 
@@ -87,12 +87,25 @@ impl Identifier {
 
     /// Get the identifier's source span if available, or DUMMY_SPAN if the identifier was hardcoded.
     pub fn span(&self) -> Span {
-        self.span.unwrap_or(DUMMY_SPAN)
+        self.span
     }
 
     /// Get the identifier's source span if available, or `default` if the identifier was hardcoded.
     pub fn span_or(&self, default: Span) -> Span {
-        self.span.unwrap_or(default)
+        if self.span == DUMMY_SPAN {
+            default
+        } else {
+            self.span
+        }
+    }
+
+    /// Get the identifier's source span if available, or `None` if the identifier was hardcoded.
+    pub fn opt_span(&self) -> Option<Span> {
+        if self.span == DUMMY_SPAN {
+            None
+        } else {
+            Some(self.span)
+        }
     }
 }
 

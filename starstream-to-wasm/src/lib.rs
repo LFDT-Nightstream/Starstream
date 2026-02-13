@@ -929,11 +929,7 @@ impl Compiler {
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
             locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
-            _ = self.star_to_core_types(
-                p.name.span.or(function.name.span).unwrap_or(DUMMY_SPAN),
-                &mut params,
-                &p.ty,
-            );
+            _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
         }
 
         let mut func = Function::from_params(&params);

@@ -406,10 +406,7 @@ impl Inferencer {
         let info_variants: Vec<EnumVariantInfo> = variants
             .into_iter()
             .map(|(vname, kind)| EnumVariantInfo {
-                name: Identifier {
-                    name: vname.to_string(),
-                    span: None,
-                },
+                name: Identifier::anon(vname),
                 kind,
             })
             .collect();
@@ -1497,7 +1494,7 @@ impl Inferencer {
             env.insert(
                 param.name.name.clone(),
                 Binding {
-                    decl_span: param.name.span.or(function.name.span).unwrap_or(DUMMY_SPAN),
+                    decl_span: param.name.span_or(function.name.span()),
                     mutable: false,
                     scheme: Scheme::monomorphic(ty.clone()),
                 },
@@ -1511,11 +1508,7 @@ impl Inferencer {
         let (expected_return, return_span) = match &function.return_type {
             Some(annotation) => (
                 self.type_from_annotation(annotation)?,
-                annotation
-                    .name
-                    .span
-                    .or(function.name.span)
-                    .unwrap_or(DUMMY_SPAN),
+                annotation.name.span_or(function.name.span()),
             ),
             None => (Type::unit(), function.name.span()),
         };
@@ -1876,26 +1869,22 @@ impl Inferencer {
                 );
                 Ok((typed, tree))
             }
-            Expr::Identifier(Identifier { name, span }) => {
-                let ty = if let Some(binding) = env.get(name).cloned() {
+            Expr::Identifier(ident) => {
+                let ty = if let Some(binding) = env.get(ident.as_str()).cloned() {
                     self.instantiate(&binding.scheme)
-                } else if let Some(func_info) = self.functions.get(name) {
+                } else if let Some(func_info) = self.functions.get(ident.as_str()) {
                     Type::function(func_info.param_types.clone(), func_info.return_type.clone())
                 } else {
-                    let span = span.unwrap_or(expr.span);
+                    let span = ident.span_or(expr.span);
                     return Err(TypeError::new(
-                        TypeErrorKind::UnknownVariable { name: name.clone() },
+                        TypeErrorKind::UnknownVariable {
+                            name: ident.name.clone(),
+                        },
                         span,
                     ));
                 };
                 let typed = Spanned::new(
-                    TypedExpr::new(
-                        ty.clone(),
-                        TypedExprKind::Identifier(Identifier {
-                            name: name.clone(),
-                            span: *span,
-                        }),
-                    ),
+                    TypedExpr::new(ty.clone(), TypedExprKind::Identifier(ident.clone())),
                     expr.span,
                 );
                 let result_repr = self.maybe_string(|| self.format_type(&ty));
@@ -2390,10 +2379,10 @@ impl Inferencer {
                         effect,
                     };
 
-                    let callee_ident = Identifier {
-                        name: format!("{}::{}", enum_name.name, variant.name),
-                        span: variant.span,
-                    };
+                    let callee_ident = Identifier::new(
+                        format!("{}::{}", enum_name.name, variant.name),
+                        variant.span(),
+                    );
 
                     let typed_callee = Spanned::new(
                         TypedExpr::new(callee_ty, TypedExprKind::Identifier(callee_ident)),
