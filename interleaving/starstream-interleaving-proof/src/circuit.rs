@@ -794,9 +794,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             None
         };
 
-        // Enforce global invariant: If building ref, must be RefPush
-        let is_building = wires_in.ref_building_remaining.is_zero()?.not();
-        is_building.enforce_equal(&wires_in.switches.ref_push)?;
+        {
+            let _guard = debug_span!(target: "gr1cs", "ref_building_mode").entered();
+            // Enforce global invariant: If building ref, must be RefPush
+            let is_building = wires_in.ref_building_remaining.is_zero()?.not();
+            is_building.enforce_equal(&wires_in.switches.ref_push)?;
+        }
 
         irw.update(next_wires);
 
@@ -1098,6 +1101,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &curr_write,
                 &curr_switches,
             );
+
             trace_program_state_writes(&mut mb, target_pid_value, &target_write, &target_switches);
 
             // update pids for next iteration
@@ -1643,6 +1647,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_equal(&wires.constant_false, switch)?;
 
         let owner_id_encoded = &wires.arg(ArgName::OwnerId) + FpVar::one();
+
         wires
             .curr_write_wires
             .ownership
