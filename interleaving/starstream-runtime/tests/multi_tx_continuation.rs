@@ -112,6 +112,7 @@ fn test_multi_tx_accumulator_global() {
     let tx1 = UnprovenTransaction {
         inputs: vec![],
         input_states: vec![],
+        input_ownership: vec![],
         programs: vec![utxo_bin.clone(), coord_bin.clone()],
         is_utxo: vec![true, false],
         entrypoint: 1,
@@ -129,6 +130,7 @@ fn test_multi_tx_accumulator_global() {
     let tx2 = UnprovenTransaction {
         inputs: vec![input_id.clone()],
         input_states: vec![ledger.utxos[&input_id].state.clone()],
+        input_ownership: vec![None],
         programs: vec![utxo_bin.clone(), coord2_bin],
         is_utxo: vec![true, false],
         entrypoint: 1,
@@ -146,6 +148,7 @@ fn test_multi_tx_accumulator_global() {
     let tx3 = UnprovenTransaction {
         inputs: vec![output_id.clone()],
         input_states: vec![ledger.utxos[&output_id].state.clone()],
+        input_ownership: vec![None],
         programs: vec![utxo_bin, coord3_bin],
         is_utxo: vec![true, false],
         entrypoint: 1,

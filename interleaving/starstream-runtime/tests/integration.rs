@@ -79,6 +79,7 @@ fn test_runtime_simple_effect_handlers() {
     let tx = UnprovenTransaction {
         inputs: vec![],
         input_states: vec![],
+        input_ownership: vec![],
         programs,
         is_utxo: vec![true, false],
         entrypoint: 1,
@@ -237,6 +238,7 @@ fn test_runtime_effect_handlers_cross_calls() {
     let tx = UnprovenTransaction {
         inputs: vec![],
         input_states: vec![],
+        input_ownership: vec![],
         programs,
         is_utxo: vec![true, true, false],
         entrypoint: 2,
