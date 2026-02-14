@@ -54,9 +54,6 @@ pub enum WitLedgerEffect {
     Yield {
         // in
         val: Ref,
-        // out
-        ret: WitEffectOutput<Ref>,
-        caller: WitEffectOutput<Option<ProcessId>>,
     },
     ProgramHash {
         // in

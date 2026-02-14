@@ -494,6 +494,10 @@ pub fn state_transition(
                 });
             }
 
+            // Expectations are consumed by the resume.
+            state.expected_input[target.0] = None;
+            state.expected_resumer[target.0] = None;
+
             state.activation[target.0] = Some((val, id_curr));
 
             state.expected_input[id_curr.0] = ret.to_option();
@@ -511,7 +515,7 @@ pub fn state_transition(
             state.finalized[target.0] = false;
         }
 
-        WitLedgerEffect::Yield { val, ret, caller } => {
+        WitLedgerEffect::Yield { val } => {
             let parent = state
                 .yield_to
                 .get(id_curr.0)
@@ -533,16 +537,7 @@ pub fn state_transition(
                 });
             }
 
-            match ret.to_option() {
-                Some(retv) => {
-                    state.expected_input[id_curr.0] = Some(retv);
-                    state.finalized[id_curr.0] = false;
-                }
-                None => {
-                    state.expected_input[id_curr.0] = None;
-                    state.finalized[id_curr.0] = true;
-                }
-            }
+            state.finalized[id_curr.0] = true;
 
             if let Some(expected_ref) = state.expected_input[parent.0] {
                 let expected = state
@@ -558,7 +553,6 @@ pub fn state_transition(
                 }
             }
 
-            state.expected_resumer[id_curr.0] = caller.to_option().flatten();
             state.on_yield[id_curr.0] = true;
             state.id_prev = Some(id_curr);
             state.activation[id_curr.0] = None;

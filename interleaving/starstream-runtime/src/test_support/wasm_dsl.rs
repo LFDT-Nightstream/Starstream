@@ -308,12 +308,7 @@ impl ModuleBuilder {
             &[ValType::I64, ValType::I64],
             &[ValType::I64, ValType::I64],
         );
-        let yield_ = self.import_func(
-            "env",
-            "starstream_yield",
-            &[ValType::I64],
-            &[ValType::I64, ValType::I64],
-        );
+        let yield_ = self.import_func("env", "starstream_yield", &[ValType::I64], &[]);
         let new_utxo = self.import_func(
             "env",
             "starstream_new_utxo",

@@ -87,12 +87,8 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
                 caller.to_option().flatten().map(|p| F::from(p.0 as u64)),
             ),
         },
-        WitLedgerEffect::Yield { val, ret, caller } => LedgerOperation::Yield {
+        WitLedgerEffect::Yield { val } => LedgerOperation::Yield {
             val: F::from(val.0),
-            ret: ret.to_option().map(|r| F::from(r.0)),
-            caller: OptionalF::from_option(
-                caller.to_option().flatten().map(|p| F::from(p.0 as u64)),
-            ),
         },
         WitLedgerEffect::Burn { ret } => LedgerOperation::Burn {
             ret: F::from(ret.0),
@@ -211,10 +207,8 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::Caller.idx()] = caller.encoded();
         }
-        LedgerOperation::Yield { val, ret, caller } => {
+        LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;
-            args[ArgName::Ret.idx()] = ret.unwrap_or_default();
-            args[ArgName::Caller.idx()] = caller.encoded();
         }
         LedgerOperation::Burn { ret } => {
             args[ArgName::Target.idx()] = F::zero();

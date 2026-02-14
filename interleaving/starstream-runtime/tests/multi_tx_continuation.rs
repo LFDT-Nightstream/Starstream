@@ -65,7 +65,7 @@ fn test_multi_tx_accumulator_global() {
         let resp = call new_ref(1);
         let acc = global_get 1;
         call ref_push(acc, 0, 0, 0);
-        let (_ret, _caller2) = call yield_(resp);
+        call yield_(resp);
     });
 
     let (utxo_hash_a, utxo_hash_b, utxo_hash_c, utxo_hash_d) = hash_program(&utxo_bin);

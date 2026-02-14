@@ -84,9 +84,7 @@ fn test_circuit_many_steps() {
             handler_id: p2.into(),
         },
         WitLedgerEffect::Yield {
-            val: ref_1,                  // Yielding nothing
-            ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
-            caller: Some(p2).into(),
+            val: ref_1, // Yielding nothing
         },
     ];
 
@@ -106,9 +104,7 @@ fn test_circuit_many_steps() {
         },
         WitLedgerEffect::Bind { owner_id: p0 },
         WitLedgerEffect::Yield {
-            val: ref_1,                  // Yielding nothing
-            ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
-            caller: Some(p2).into(),
+            val: ref_1, // Yielding nothing
         },
     ];
 
@@ -200,9 +196,7 @@ fn test_circuit_small() {
     let ref_0 = Ref(0);
 
     let utxo_trace = vec![WitLedgerEffect::Yield {
-        val: ref_0,                  // Yielding nothing
-        ret: WitEffectOutput::Thunk, // Not expecting to be resumed again
-        caller: Some(p1).into(),     // This should be None actually?
+        val: ref_0, // Yielding nothing
     }];
 
     let coord_trace = vec![
@@ -268,11 +262,7 @@ fn test_circuit_resumer_mismatch() {
 
     let ref_0 = Ref(0);
 
-    let utxo_trace = vec![WitLedgerEffect::Yield {
-        val: ref_0,
-        ret: WitEffectOutput::Thunk,
-        caller: Some(p1).into(),
-    }];
+    let utxo_trace = vec![WitLedgerEffect::Yield { val: ref_0 }];
 
     let coord_a_trace = vec![
         WitLedgerEffect::NewRef {
@@ -473,11 +463,7 @@ fn test_yield_parent_resumer_mismatch_trace() {
 
     // Coord A resumes UTXO but sets its own expected_resumer to Coord B.
     // Then UTXO yields back to Coord A. Spec says this should fail.
-    let utxo_trace = vec![WitLedgerEffect::Yield {
-        val: ref_1,
-        ret: WitEffectOutput::Thunk,
-        caller: Some(p1).into(),
-    }];
+    let utxo_trace = vec![WitLedgerEffect::Yield { val: ref_1 }];
 
     let coord_a_trace = vec![WitLedgerEffect::Resume {
         target: p0,
