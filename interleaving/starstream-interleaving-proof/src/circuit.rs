@@ -84,7 +84,6 @@ pub struct Wires {
     switches: ExecutionSwitches<Boolean<F>>,
 
     opcode_args: [FpVar<F>; OPCODE_ARG_COUNT],
-    ret_is_some: Boolean<F>,
 
     curr_read_wires: ProgramStateWires,
     curr_write_wires: ProgramStateWires,
@@ -121,7 +120,6 @@ pub struct PreWires {
     ref_arena_switches: RefArenaSwitchboard,
 
     irw: InterRoundWires,
-    ret_is_some: bool,
 }
 
 /// IVC wires (state between steps)
@@ -239,8 +237,6 @@ impl Wires {
         let target = opcode_args[ArgName::Target.idx()].clone();
         let val = opcode_args[ArgName::Val.idx()].clone();
         let offset = opcode_args[ArgName::Offset.idx()].clone();
-
-        let ret_is_some = Boolean::new_witness(cs.clone(), || Ok(vals.ret_is_some))?;
 
         let curr_mem_switches = MemSwitchboardWires::allocate(cs.clone(), &vals.curr_mem_switches)?;
         let target_mem_switches =
@@ -377,7 +373,6 @@ impl Wires {
 
             // wit_wires
             opcode_args,
-            ret_is_some,
 
             curr_read_wires,
             curr_write_wires,
@@ -488,12 +483,10 @@ impl LedgerOperation<crate::F> {
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
             }
-            LedgerOperation::Yield { ret: _ret, .. } => {
+            LedgerOperation::Yield { .. } => {
                 config.execution_switches.yield_op = true;
 
                 config.mem_switches_curr.activation = true;
-                config.mem_switches_curr.expected_input = true;
-                config.mem_switches_curr.expected_resumer = true;
                 config.mem_switches_curr.on_yield = true;
                 config.mem_switches_curr.yield_to = true;
                 config.mem_switches_curr.finalized = true;
@@ -663,6 +656,8 @@ impl LedgerOperation<crate::F> {
 
                 // Target process receives control.
                 // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
+                target_write.expected_input = OptionalF::none();
+                target_write.expected_resumer = OptionalF::none();
                 target_write.activation = *val;
                 target_write.finalized = false;
 
@@ -672,27 +667,11 @@ impl LedgerOperation<crate::F> {
                 }
                 target_write.on_yield = false;
             }
-            LedgerOperation::Yield {
-                // The yielded value `val` is checked against the parent's `expected_input`,
-                // but this doesn't change the parent's state itself.
-                val: _,
-                ret,
-                caller,
-                ..
-            } => {
+            LedgerOperation::Yield { val: _, .. } => {
                 // Current process yields control back to its parent (the target of this operation).
                 // Its `arg` is cleared.
                 curr_write.activation = F::ZERO; // Represents None
-                if let Some(r) = ret {
-                    // If Yield returns a value, it expects a new input `r` for the next resume.
-                    curr_write.expected_input = OptionalF::new(*r);
-                    curr_write.finalized = false;
-                } else {
-                    // If Yield does not return a value, it's a final yield for this UTXO.
-                    curr_write.expected_input = OptionalF::none();
-                    curr_write.finalized = true;
-                }
-                curr_write.expected_resumer = *caller;
+                curr_write.finalized = true;
                 curr_write.on_yield = true;
             }
             LedgerOperation::Burn { ret } => {
@@ -1237,9 +1216,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switches: ExecutionSwitches::resume(),
                 ..default
             },
-            LedgerOperation::Yield { ret, .. } => PreWires {
+            LedgerOperation::Yield { .. } => PreWires {
                 switches: ExecutionSwitches::yield_op(),
-                ret_is_some: ret.is_some(),
                 ..default
             },
             LedgerOperation::Burn { .. } => PreWires {
@@ -1364,6 +1342,18 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .on_yield
             .conditional_enforce_equal(&Boolean::FALSE, switch)?;
 
+        // Expectations are consumed by resume.
+        wires
+            .target_write_wires
+            .expected_input
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+        wires
+            .target_write_wires
+            .expected_resumer
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+
         // 8. Store expected resumer for the current process.
         wires
             .curr_write_wires
@@ -1470,11 +1460,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .conditional_enforce_eq_if_some(&(switch & &yield_to_is_some), &wires.id_curr)?;
 
         // Target state should be preserved on yield.
+        // TODO: make the switches more narrow in scope (only read, only write,
+        // or read write)
         wires
             .target_write_wires
             .expected_input
             .encoded()
             .conditional_enforce_equal(&wires.target_read_wires.expected_input.encoded(), switch)?;
+
         wires
             .target_write_wires
             .expected_resumer
@@ -1487,37 +1480,19 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // ---
         // State update enforcement
         // ---
-        // The state of the current process is updated by `write_values`.
-        // The `finalized` state depends on whether this is the last yield.
-        // `finalized` is true IFF `ret` is None.
         wires
             .curr_write_wires
             .finalized
-            .conditional_enforce_equal(&wires.ret_is_some.clone().not(), switch)?;
-
-        // The next `expected_input` is `ret_value` if `ret` is Some, and None otherwise.
-        let new_expected_input_encoded = wires
-            .ret_is_some
-            .select(&(&wires.arg(ArgName::Ret) + FpVar::one()), &FpVar::zero())?;
-
-        wires
-            .curr_write_wires
-            .expected_input
-            .encoded()
-            .conditional_enforce_equal(&new_expected_input_encoded, switch)?;
-
-        // The next expected resumer is the provided id_prev.
-        wires
-            .curr_write_wires
-            .expected_resumer
-            .encoded()
-            .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         // Mark the current process as in-yield and preserve yield_to.
+        //
+        // The next 2 checks form a pair.
         wires
             .curr_write_wires
             .on_yield
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
         wires
             .curr_write_wires
             .yield_to
@@ -2012,7 +1987,6 @@ impl PreWires {
             switches: ExecutionSwitches::default(),
             irw,
             interface_index,
-            ret_is_some: false,
             opcode_args: [F::ZERO; OPCODE_ARG_COUNT],
             opcode_discriminant,
             curr_mem_switches,

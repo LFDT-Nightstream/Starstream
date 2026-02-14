@@ -123,7 +123,6 @@ fn suspend_with_effect<T>(
 fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
     match effect {
         WitLedgerEffect::Resume { .. }
-        | WitLedgerEffect::Yield { .. }
         | WitLedgerEffect::Activation { .. }
         | WitLedgerEffect::Init { .. } => 2,
         WitLedgerEffect::ProgramHash { .. } => 4,
@@ -135,6 +134,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         WitLedgerEffect::InstallHandler { .. }
         | WitLedgerEffect::UninstallHandler { .. }
         | WitLedgerEffect::Burn { .. }
+        | WitLedgerEffect::Yield { .. }
         | WitLedgerEffect::Bind { .. }
         | WitLedgerEffect::Unbind { .. }
         | WitLedgerEffect::RefPush { .. }
@@ -264,19 +264,10 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_yield",
-                |mut caller: Caller<'_, RuntimeState>,
-                 val: u64|
-                 -> Result<(u64, u64), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().on_yield.insert(current_pid, true);
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::Yield {
-                            val: Ref(val),
-                            ret: WitEffectOutput::Thunk,
-                            caller: WitEffectOutput::Thunk,
-                        },
-                    )
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Yield { val: Ref(val) })
                 },
             )
             .unwrap();
@@ -1007,11 +998,6 @@ impl UnprovenTransaction {
                 {
                     match last {
                         WitLedgerEffect::Resume { ret, caller, .. } => {
-                            *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                            *caller =
-                                WitEffectOutput::Resolved(Some(ProcessId(next_args[1] as usize)));
-                        }
-                        WitLedgerEffect::Yield { ret, caller, .. } => {
                             *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
                             *caller =
                                 WitEffectOutput::Resolved(Some(ProcessId(next_args[1] as usize)));

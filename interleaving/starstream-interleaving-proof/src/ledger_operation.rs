@@ -24,8 +24,6 @@ pub enum LedgerOperation<F: PrimeField> {
     ///
     Yield {
         val: F,
-        ret: Option<F>,
-        caller: OptionalF<F>,
     },
     ProgramHash {
         target: F,

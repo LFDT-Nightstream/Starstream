@@ -37,7 +37,7 @@ fn test_runtime_simple_effect_handlers() {
         let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
 
         assert_eq resp_val, 1;
-        let (_req2, _caller2) = call yield_(resp);
+        call yield_(resp);
     });
 
     let (utxo_hash_limb_a, utxo_hash_limb_b, utxo_hash_limb_c, utxo_hash_limb_d) =
@@ -158,7 +158,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         call ref_push(2, stop_num_ref, 0, 0);
         let (_resp_stop, _caller_stop) = call resume(handler_id, stop);
 
-        let (_req3, _caller3) = call yield_(stop);
+        call yield_(stop);
     });
 
     let utxo2_bin = wasm_module!({
@@ -170,7 +170,8 @@ fn test_runtime_effect_handlers_cross_calls() {
             let (x, _b, _c, _d) = call ref_get(req, 0);
             let y = add x, 1;
             call ref_write(req, 0, y, 0, 0, 0);
-            let (next_req, _caller2) = call yield_(req);
+            call yield_(req);
+            let (next_req, _caller2) = call activation();
             set req = next_req;
             continue;
         }

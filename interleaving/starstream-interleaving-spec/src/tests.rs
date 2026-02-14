@@ -148,8 +148,6 @@ fn test_transaction_with_coord_and_utxos() {
         },
         WitLedgerEffect::Yield {
             val: continued_1_ref,
-            ret: None.into(),
-            caller: Some(ProcessId(4)).into(),
         },
     ];
 
@@ -173,11 +171,7 @@ fn test_transaction_with_coord_and_utxos() {
         WitLedgerEffect::Bind {
             owner_id: ProcessId(3),
         },
-        WitLedgerEffect::Yield {
-            val: done_a_ref,
-            ret: None.into(),
-            caller: Some(ProcessId(4)).into(),
-        },
+        WitLedgerEffect::Yield { val: done_a_ref },
     ];
 
     let utxo_b_trace = vec![
@@ -189,11 +183,7 @@ fn test_transaction_with_coord_and_utxos() {
             val: init_b_ref.into(),
             caller: ProcessId(4).into(),
         },
-        WitLedgerEffect::Yield {
-            val: done_b_ref,
-            ret: None.into(),
-            caller: Some(ProcessId(4)).into(),
-        },
+        WitLedgerEffect::Yield { val: done_b_ref },
     ];
 
     let coord_trace = vec![
@@ -366,8 +356,6 @@ fn test_effect_handlers() {
         },
         WitLedgerEffect::Yield {
             val: ref_gen.get("utxo_final"),
-            ret: None.into(),
-            caller: Some(ProcessId(1)).into(),
         },
     ];
 

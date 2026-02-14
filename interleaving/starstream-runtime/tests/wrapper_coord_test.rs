@@ -92,7 +92,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
         let done = call new_ref(1);
         call ref_push(0, 0, 0, 0);
-        let (_req2, _caller3) = call yield_(done);
+        call yield_(done);
     });
 
     let utxo2_bin = wasm_module!({
@@ -110,7 +110,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
         let done = call new_ref(1);
         call ref_push(0, 0, 0, 0);
-        let (_req2, _caller3) = call yield_(done);
+        call yield_(done);
     });
 
     let (utxo1_hash_limb_a, utxo1_hash_limb_b, utxo1_hash_limb_c, utxo1_hash_limb_d) =
@@ -144,7 +144,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         call ref_push(4, 0, 0, 0);
         let (_resp_end, _caller5) = call resume(handler_id, req_end);
 
-        let (_ret_end, _caller_end) = call yield_(init_ref);
+        call yield_(init_ref);
     });
 
     let (inner_hash_limb_a, inner_hash_limb_b, inner_hash_limb_c, inner_hash_limb_d) =

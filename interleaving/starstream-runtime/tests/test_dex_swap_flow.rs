@@ -82,7 +82,8 @@ fn test_dex_swap_flow() {
                 call ref_push(0, 0, 0, 0);
             }
 
-            let (next_req, _caller2) = call yield_(resp);
+            call yield_(resp);
+            let (next_req, _caller2) = call activation();
             set req = next_req;
             continue;
         }
@@ -212,7 +213,8 @@ fn test_dex_swap_flow() {
                 set_global 3 = 0;
             }
 
-            let (next_req, _caller_next) = call yield_(resp);
+            call yield_(resp);
+            let (next_req, _caller_next) = call activation();
             set req = next_req;
             continue;
         }

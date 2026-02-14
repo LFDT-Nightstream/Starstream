@@ -81,9 +81,9 @@ new_state (assignments)
 
 ## Resume (Call)
 
-The primary control flow operation. Transfers control to `target`. It records a
-"claim" that this process can only be resumed by passing `ret` as an argument
-(since it is what actually happpened).
+The primary control flow operation. Transfers control to `target`. It records
+claims for the current process and consumes the target's pending claims after
+validation.
 
 Since we are also resuming a currently suspended process, we can only do it if
 our value matches its claim.
@@ -127,13 +127,15 @@ Rule: Resume
 --------------------------------------------------------------------------------------------
     1. expected_input[id_curr]   <- ret_ref   (Claim, needs to be checked later by future resumer)
     2. expected_resumer[id_curr] <- caller   (Claim, needs to be checked later by future resumer)
-    3. counters'[id_curr]        += 1         (Keep track of host call index per process)
-    4. id_prev'                  <- id_curr   (Trace-local previous id)
-    5. id_curr'                  <- target    (Switch)
-    6. if on_yield[target] then
+    3. expected_input[target]    <- None      (Target claim consumed by this resume)
+    4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
+    5. counters'[id_curr]        += 1         (Keep track of host call index per process)
+    6. id_prev'                  <- id_curr   (Trace-local previous id)
+    7. id_curr'                  <- target    (Switch)
+    8. if on_yield[target] then
            yield_to'[target]     <- Some(id_curr)
            on_yield'[target]     <- False
-    7. activation'[target]       <- Some(val_ref, id_curr)
+    9. activation'[target]       <- Some(val_ref, id_curr)
 ```
 
 ## Activation
@@ -174,20 +176,16 @@ Rule: Init
 
 ## Yield
 
-Suspend the current continuation and optionally transfer control to the previous
-coordination script (since utxos can't call utxos, that's the only possible
-parent).
+Suspend the current continuation and transfer control to the saved parent
+(`yield_to[id_curr]`).
 
-This also marks the utxo as **safe** to persist in the ledger.
-
-If the utxo is not iterated again in the transaction, the return value is null
-for this execution (next transaction will have to execute `yield` again, but
-with an actual result).
+After a resume, programs must call `Activation()` to read the `(val, caller)`
+tuple.
 
 ```text
-Rule: Yield (resumed)
-============
-    op = Yield(val_ref) -> (ret_ref, caller)
+Rule: Yield
+===========
+    op = Yield(val_ref)
 
     1. yield_to[id_curr] is set
 
@@ -203,44 +201,16 @@ Rule: Yield (resumed)
     4. let
         t = CC[id_curr] in
         c = counters[id_curr] in
-            t[c] == <Yield, val_ref, ret_ref, caller>
+            t[c] == <Yield, val_ref>
 
     (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
-
-    1. expected_input[id_curr]   <- ret_ref       (Claim, needs to be checked later by future resumer)
-    2. expected_resumer[id_curr] <- caller      (Claim, needs to be checked later by future resumer)
-    3. counters'[id_curr]        += 1         (Keep track of host call index per process)
-    4. on_yield'[id_curr]        <- True      (The next resumer sets yield_to)
-    5. id_curr'                  <- yield_to[id_curr]   (Switch to parent)
-    6. id_prev'                  <- id_curr   (Trace-local previous id)
-    7. finalized'[id_curr]       <- False
-    8. activation'[id_curr]      <- None
-```
-
-```text
-Rule: Yield (end transaction)
-=============================
-    op = Yield(val_ref)
-
-    1. yield_to[id_curr] is set
-
-    2. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <Yield, val_ref, null, caller>
-
-    (Remember, there is no ret value since that won't be known until the next transaction)
-
-    (The opcode matches the host call lookup table used in the wasm proof at the current index)
---------------------------------------------------------------------------------------------
-    1. expected_resumer[id_curr] <- caller (Claim, needs to be checked later by future resumer)
-    2. counters'[id_curr]        += 1        (Keep track of host call index per process)
-    3. on_yield'[id_curr]        <- True     (The next resumer sets yield_to)
-    4. id_curr'                  <- yield_to[id_curr]  (Switch to parent)
-    5. id_prev'                  <- id_curr  (Trace-local previous id)
-    6. finalized'[id_curr]       <- True     (This utxo creates a transaction output)
-    7. activation'[id_curr]      <- None
+    1. counters'[id_curr]        += 1
+    2. on_yield'[id_curr]        <- True
+    3. id_curr'                  <- yield_to[id_curr]
+    4. id_prev'                  <- id_curr
+    5. finalized'[id_curr]       <- True
+    6. activation'[id_curr]      <- None
 ```
 
 ## Program Hash
