@@ -125,7 +125,10 @@ fn test_multi_tx_accumulator_global() {
 
     let input_id: UtxoId = ledger.utxos.keys().next().cloned().unwrap();
     assert_eq!(input_id.nonce, 0);
-    assert_eq!(ledger.utxos[&input_id].state.globals, vec![Value(1), Value(5)]);
+    assert_eq!(
+        ledger.utxos[&input_id].state.globals,
+        vec![Value(1), Value(5)]
+    );
 
     let tx2 = UnprovenTransaction {
         inputs: vec![input_id.clone()],

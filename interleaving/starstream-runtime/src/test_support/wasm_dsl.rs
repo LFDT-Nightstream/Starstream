@@ -396,7 +396,8 @@ impl ModuleBuilder {
             mutable,
             shared: false,
         };
-        self.globals.global(global_type, &ConstExpr::i64_const(initial));
+        self.globals
+            .global(global_type, &ConstExpr::i64_const(initial));
         let idx = self.globals.len() - 1;
         let name = format!("__global_{}", idx);
         self.exports.export(&name, ExportKind::Global, idx);
