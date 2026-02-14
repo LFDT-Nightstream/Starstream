@@ -112,8 +112,10 @@ fn emit_trace_mermaid_combined(labels: Vec<String>, per_tx_diagram: String) {
             labels: labels.clone(),
             next_tx: 1,
             edges: String::new(),
-            mmd_path: env::temp_dir()
-                .join(format!("starstream_trace_combined_{}.mmd", std::process::id())),
+            mmd_path: env::temp_dir().join(format!(
+                "starstream_trace_combined_{}.mmd",
+                std::process::id()
+            )),
         });
     }
     let state = guard.as_mut().expect("combined state must exist");
@@ -121,12 +123,25 @@ fn emit_trace_mermaid_combined(labels: Vec<String>, per_tx_diagram: String) {
     if !state.edges.is_empty() {
         state.edges.push('\n');
     }
-    let first = state.labels.first().cloned().unwrap_or_else(|| "p0".to_string());
-    let last = state.labels.last().cloned().unwrap_or_else(|| first.clone());
-    state
-        .edges
-        .push_str(&format!("    Note over {first},{last}: tx {}\n", state.next_tx));
-    for line in per_tx_diagram.lines().skip_while(|line| *line != "sequenceDiagram").skip(1) {
+    let first = state
+        .labels
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "p0".to_string());
+    let last = state
+        .labels
+        .last()
+        .cloned()
+        .unwrap_or_else(|| first.clone());
+    state.edges.push_str(&format!(
+        "    Note over {first},{last}: tx {}\n",
+        state.next_tx
+    ));
+    for line in per_tx_diagram
+        .lines()
+        .skip_while(|line| *line != "sequenceDiagram")
+        .skip(1)
+    {
         if line.trim_start().starts_with("participant ") {
             continue;
         }
