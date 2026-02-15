@@ -456,9 +456,6 @@ impl LedgerOperation<crate::F> {
             opcode_discriminant: F::ZERO,
         };
 
-        // All ops increment counter of the current process, except Nop
-        config.mem_switches_curr.counters = !matches!(self, LedgerOperation::Nop {});
-
         config.opcode_discriminant = abi::opcode_discriminant(self);
 
         match self {
@@ -517,7 +514,6 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.initialized = true;
                 config.mem_switches_target.init = true;
                 config.mem_switches_target.init_caller = true;
-                config.mem_switches_target.counters = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
                 config.mem_switches_target.on_yield = true;
@@ -533,7 +529,6 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.initialized = true;
                 config.mem_switches_target.init = true;
                 config.mem_switches_target.init_caller = true;
-                config.mem_switches_target.counters = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
                 config.mem_switches_target.on_yield = true;
@@ -637,13 +632,9 @@ impl LedgerOperation<crate::F> {
         let mut curr_write = curr_read.clone();
         let mut target_write = target_read.clone();
 
-        // All operations increment the counter of the current process
-        curr_write.counters += F::ONE;
-
         match self {
             LedgerOperation::Nop {} => {
                 // Nop does nothing to the state
-                curr_write.counters -= F::ONE; // revert counter increment
             }
             LedgerOperation::Resume {
                 val, ret, caller, ..
@@ -688,7 +679,6 @@ impl LedgerOperation<crate::F> {
                 target_write.initialized = true;
                 target_write.init = *val;
                 target_write.init_caller = curr_id;
-                target_write.counters = F::ZERO;
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
                 target_write.on_yield = true;
@@ -700,9 +690,7 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::Unbind { .. } => {
                 target_write.ownership = OptionalF::none();
             }
-            _ => {
-                // For other opcodes, we just increment the counter.
-            }
+            _ => {}
         }
         (curr_write, target_write)
     }
@@ -817,14 +805,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                             0
                         },
                     )],
-                );
-
-                mb.init(
-                    Address {
-                        addr: pid as u64,
-                        tag: MemoryTag::Counters.into(),
-                    },
-                    vec![F::from(0u64)],
                 );
 
                 mb.init(
@@ -1548,13 +1528,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             wires.rom_program_hash[i].conditional_enforce_equal(&wires.arg(*arg), &switch)?;
         }
 
-        // 4. Target counter must be 0.
-        wires
-            .target_read_wires
-            .counters
-            .conditional_enforce_equal(&FpVar::zero(), &switch)?;
-
-        // 5. Target must not be initialized.
+        // 4. Target must not be initialized.
         wires
             .target_read_wires
             .initialized
@@ -1879,7 +1853,6 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Ram,
         "RAM_INIT_CALLER",
     );
-    mb.register_mem(MemoryTag::Counters.into(), 1, MemType::Ram, "RAM_COUNTERS");
     mb.register_mem(
         MemoryTag::Initialized.into(),
         1,

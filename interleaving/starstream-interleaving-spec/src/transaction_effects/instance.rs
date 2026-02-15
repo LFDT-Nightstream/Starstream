@@ -14,8 +14,6 @@ pub struct InterleavingInstance {
     /// Digest of all per-process host call tables the circuit is wired to.
     /// One per wasm proof.
     pub host_calls_roots: Vec<LedgerEffectsCommitment>,
-    #[allow(dead_code)]
-    pub host_calls_lens: Vec<u32>,
 
     /// Process table in canonical order: inputs, new_outputs, coord scripts.
     pub process_table: Vec<Hash<WasmModule>>,
@@ -103,8 +101,8 @@ impl InterleavingInstance {
 
         // TraceCommitments RAM index in the sorted twist_id list (see proof MemoryTag ordering).
         //
-        // TODO: de-harcode the 13
+        // TODO: de-harcode the 12
         // it's supposed to be the twist index of the TraceCommitments memory
-        OutputBindingConfig::new(num_bits, program_io).with_mem_idx(13)
+        OutputBindingConfig::new(num_bits, program_io).with_mem_idx(12)
     }
 }

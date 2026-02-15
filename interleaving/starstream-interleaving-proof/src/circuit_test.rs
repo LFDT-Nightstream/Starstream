@@ -156,8 +156,6 @@ fn test_circuit_many_steps() {
 
     let traces = vec![utxo_trace, token_trace, coord_trace];
 
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
-
     let host_calls_roots = host_calls_roots(&traces);
 
     let instance = InterleavingInstance {
@@ -171,7 +169,6 @@ fn test_circuit_many_steps() {
         ownership_in: vec![None, None, None],
         ownership_out: vec![None, Some(ProcessId(0)), None],
         host_calls_roots,
-        host_calls_lens: trace_lens,
         input_states: vec![],
     };
 
@@ -220,8 +217,6 @@ fn test_circuit_small() {
 
     let traces = vec![utxo_trace, coord_trace];
 
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
-
     let host_calls_roots = host_calls_roots(&traces);
 
     let instance = InterleavingInstance {
@@ -235,7 +230,6 @@ fn test_circuit_small() {
         ownership_in: vec![None, None],
         ownership_out: vec![None, None],
         host_calls_roots,
-        host_calls_lens: trace_lens,
         input_states: vec![],
     };
 
@@ -303,8 +297,6 @@ fn test_circuit_resumer_mismatch() {
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
 
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
-
     let host_calls_roots = host_calls_roots(&traces);
 
     let instance = InterleavingInstance {
@@ -318,7 +310,6 @@ fn test_circuit_resumer_mismatch() {
         ownership_in: vec![None, None, None],
         ownership_out: vec![None, None, None],
         host_calls_roots,
-        host_calls_lens: trace_lens,
         input_states: vec![],
     };
 
@@ -368,7 +359,6 @@ fn test_ref_write_basic_sat() {
     ];
 
     let traces = vec![coord_trace];
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
     let host_calls_roots = host_calls_roots(&traces);
 
     let instance = InterleavingInstance {
@@ -382,7 +372,6 @@ fn test_ref_write_basic_sat() {
         ownership_in: vec![None],
         ownership_out: vec![None],
         host_calls_roots,
-        host_calls_lens: trace_lens,
         input_states: vec![],
     };
 
@@ -422,7 +411,6 @@ fn test_install_handler_get(exp: ProcessId) {
     ];
 
     let traces = vec![coord_trace];
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
     let host_calls_roots = host_calls_roots(&traces);
 
     let instance = InterleavingInstance {
@@ -436,7 +424,6 @@ fn test_install_handler_get(exp: ProcessId) {
         ownership_in: vec![None],
         ownership_out: vec![None],
         host_calls_roots,
-        host_calls_lens: trace_lens,
         input_states: vec![],
     };
 
@@ -475,8 +462,6 @@ fn test_yield_parent_resumer_mismatch_trace() {
     let coord_b_trace = vec![];
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
-
-    let trace_lens = traces.iter().map(|t| t.len() as u32).collect::<Vec<_>>();
     let host_calls_roots = host_calls_roots(&traces);
 
     let instance = InterleavingInstance {
@@ -490,7 +475,6 @@ fn test_yield_parent_resumer_mismatch_trace() {
         ownership_in: vec![None, None, None],
         ownership_out: vec![None, None, None],
         host_calls_roots,
-        host_calls_lens: trace_lens,
         input_states: vec![],
     };
 

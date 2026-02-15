@@ -14,7 +14,6 @@ pub enum MemoryTag {
     // RAM tags
     ExpectedInput = 5,
     Activation = 6,
-    Counters = 7,
     Initialized = 8,
     Finalized = 9,
     DidBurn = 10,
@@ -59,7 +58,6 @@ pub enum ProgramStateTag {
     Activation,
     Init,
     InitCaller,
-    Counters,
     Initialized,
     Finalized,
     DidBurn,
@@ -76,7 +74,6 @@ impl From<ProgramStateTag> for MemoryTag {
             ProgramStateTag::Activation => MemoryTag::Activation,
             ProgramStateTag::Init => MemoryTag::Init,
             ProgramStateTag::InitCaller => MemoryTag::InitCaller,
-            ProgramStateTag::Counters => MemoryTag::Counters,
             ProgramStateTag::Initialized => MemoryTag::Initialized,
             ProgramStateTag::Finalized => MemoryTag::Finalized,
             ProgramStateTag::DidBurn => MemoryTag::DidBurn,

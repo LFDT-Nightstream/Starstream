@@ -1119,7 +1119,6 @@ impl UnprovenTransaction {
         }
 
         let mut host_calls_roots = Vec::new();
-        let mut host_calls_lens = Vec::new();
         let mut must_burn = Vec::new();
         let mut ownership_in = Vec::new();
         let mut ownership_out = Vec::new();
@@ -1137,7 +1136,6 @@ impl UnprovenTransaction {
                 .get(&ProcessId(pid))
                 .cloned()
                 .unwrap_or_default();
-            host_calls_lens.push(trace.len() as u32);
             let mut commitment = LedgerEffectsCommitment::iv();
             for op in &trace {
                 commitment = commit(commitment, op.clone());
@@ -1178,7 +1176,6 @@ impl UnprovenTransaction {
 
         let instance = InterleavingInstance {
             host_calls_roots,
-            host_calls_lens,
             process_table,
             is_utxo,
             must_burn,

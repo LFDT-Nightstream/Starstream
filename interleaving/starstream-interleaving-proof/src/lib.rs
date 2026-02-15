@@ -35,7 +35,6 @@ use rand::SeedableRng as _;
 use starstream_interleaving_spec::{
     InterleavingInstance, InterleavingWitness, ProcessId, ZkTransactionProof,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -163,14 +162,14 @@ fn make_interleaved_trace(
     let mut ops = vec![];
     let mut id_curr = inst.entrypoint.0;
     let mut id_prev: Option<usize> = None;
-    let mut counters: HashMap<usize, usize> = HashMap::new();
+    let mut next_op_idx = vec![0usize; inst.process_table.len()];
     let mut on_yield = vec![true; inst.process_table.len()];
     let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
 
     let expected_len: usize = wit.traces.iter().map(|t| t.len()).sum();
 
     loop {
-        let c = counters.entry(id_curr).or_insert(0);
+        let c = next_op_idx[id_curr];
 
         let Some(trace) = wit.traces.get(id_curr) else {
             // No trace for this process, this indicates the end of the transaction
@@ -178,13 +177,13 @@ fn make_interleaved_trace(
             break;
         };
 
-        if *c >= trace.len() {
+        if c >= trace.len() {
             // We've reached the end of the current trace. This is the end.
             break;
         }
 
-        let instr = trace[*c].clone();
-        *c += 1;
+        let instr = trace[c].clone();
+        next_op_idx[id_curr] += 1;
 
         match instr {
             starstream_interleaving_spec::WitLedgerEffect::Resume { target, .. } => {
@@ -240,7 +239,6 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayo
 
     let inst = InterleavingInstance {
         host_calls_roots: vec![],
-        host_calls_lens: vec![],
         process_table: vec![hash],
         is_utxo: vec![false],
         must_burn: vec![false],

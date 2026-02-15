@@ -20,7 +20,6 @@ pub struct ProgramState {
     pub activation: F,
     pub init: F,
     pub init_caller: F,
-    pub counters: F,
     pub initialized: bool,
     pub finalized: bool,
     pub did_burn: bool,
@@ -37,7 +36,6 @@ pub struct ProgramStateWires {
     pub activation: FpVar<F>,
     pub init: FpVar<F>,
     pub init_caller: FpVar<F>,
-    pub counters: FpVar<F>,
     pub initialized: Boolean<F>,
     pub finalized: Boolean<F>,
     pub did_burn: Boolean<F>,
@@ -52,7 +50,6 @@ struct RawProgramState<V> {
     activation: V,
     init: V,
     init_caller: V,
-    counters: V,
     initialized: V,
     finalized: V,
     did_burn: V,
@@ -71,7 +68,6 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     let yield_to = dsl.read(&switches.yield_to, MemoryTag::YieldTo, addr)?;
     let (activation, init) = coroutine_args_ops(dsl, &switches.activation, &switches.init, addr)?;
     let init_caller = dsl.read(&switches.init_caller, MemoryTag::InitCaller, addr)?;
-    let counters = dsl.read(&switches.counters, MemoryTag::Counters, addr)?;
     let initialized = dsl.read(&switches.initialized, MemoryTag::Initialized, addr)?;
     let finalized = dsl.read(&switches.finalized, MemoryTag::Finalized, addr)?;
     let did_burn = dsl.read(&switches.did_burn, MemoryTag::DidBurn, addr)?;
@@ -85,7 +81,6 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
         activation,
         init,
         init_caller,
-        counters,
         initialized,
         finalized,
         did_burn,
@@ -137,12 +132,6 @@ fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
         &state.init_caller,
     )?;
     dsl.write(
-        &switches.counters,
-        MemoryTag::Counters,
-        addr,
-        &state.counters,
-    )?;
-    dsl.write(
         &switches.initialized,
         MemoryTag::Initialized,
         addr,
@@ -178,7 +167,6 @@ fn raw_from_state(state: &ProgramState) -> RawProgramState<F> {
         activation: state.activation,
         init: state.init,
         init_caller: state.init_caller,
-        counters: state.counters,
         initialized: F::from(state.initialized),
         finalized: F::from(state.finalized),
         did_burn: F::from(state.did_burn),
@@ -195,7 +183,6 @@ fn raw_from_wires(state: &ProgramStateWires) -> RawProgramState<FpVar<F>> {
         activation: state.activation.clone(),
         init: state.init.clone(),
         init_caller: state.init_caller.clone(),
-        counters: state.counters.clone(),
         initialized: state.initialized.clone().into(),
         finalized: state.finalized.clone().into(),
         did_burn: state.did_burn.clone().into(),
@@ -222,7 +209,6 @@ impl ProgramStateWires {
             activation: FpVar::new_witness(cs.clone(), || Ok(write_values.activation))?,
             init: FpVar::new_witness(cs.clone(), || Ok(write_values.init))?,
             init_caller: FpVar::new_witness(cs.clone(), || Ok(write_values.init_caller))?,
-            counters: FpVar::new_witness(cs.clone(), || Ok(write_values.counters))?,
             initialized: Boolean::new_witness(cs.clone(), || Ok(write_values.initialized))?,
             finalized: Boolean::new_witness(cs.clone(), || Ok(write_values.finalized))?,
             did_burn: Boolean::new_witness(cs.clone(), || Ok(write_values.did_burn))?,
@@ -278,7 +264,6 @@ pub fn trace_program_state_reads<M: IVCMemory<F>>(
         activation: raw.activation,
         init: raw.init,
         init_caller: raw.init_caller,
-        counters: raw.counters,
         initialized: raw.initialized == F::ONE,
         finalized: raw.finalized == F::ONE,
         did_burn: raw.did_burn == F::ONE,
@@ -303,7 +288,6 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
         activation: raw.activation,
         init: raw.init,
         init_caller: raw.init_caller,
-        counters: raw.counters,
         initialized: raw.initialized.is_one()?,
         finalized: raw.finalized.is_one()?,
         did_burn: raw.did_burn.is_one()?,
@@ -322,7 +306,6 @@ impl ProgramState {
             activation: F::ZERO,
             init: F::ZERO,
             init_caller: F::ZERO,
-            counters: F::ZERO,
             initialized: false,
             did_burn: false,
             ownership: OptionalF::none(),
@@ -336,7 +319,6 @@ impl ProgramState {
         tracing::debug!("yield_to={}", self.yield_to.encoded());
         tracing::debug!("activation={}", self.activation);
         tracing::debug!("init={}", self.init);
-        tracing::debug!("counters={}", self.counters);
         tracing::debug!("finalized={}", self.finalized);
         tracing::debug!("did_burn={}", self.did_burn);
         tracing::debug!("ownership={}", self.ownership.encoded());

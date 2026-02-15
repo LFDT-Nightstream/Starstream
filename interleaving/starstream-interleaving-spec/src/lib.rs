@@ -678,7 +678,6 @@ impl Ledger {
                 .iter()
                 .map(|w| w.host_calls_root.clone())
                 .collect(),
-            host_calls_lens: wasm_instances.iter().map(|w| w.host_calls_len).collect(),
             process_table: process_table.to_vec(),
 
             is_utxo: is_utxo.to_vec(),

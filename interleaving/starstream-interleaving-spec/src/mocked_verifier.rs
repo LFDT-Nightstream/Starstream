@@ -76,23 +76,6 @@ pub enum InterleavingError {
     #[error("unknown process id {0}")]
     BadPid(ProcessId),
 
-    #[error("host call index out of bounds: pid={pid} counter={counter} len={len}")]
-    CounterOutOfBounds {
-        pid: ProcessId,
-        counter: usize,
-        len: usize,
-    },
-
-    #[error(
-        "host call mismatch at pid={pid} counter={counter}: expected {expected:?}, got {got:?}"
-    )]
-    HostCallMismatch {
-        pid: ProcessId,
-        counter: usize,
-        expected: WitLedgerEffect,
-        got: WitLedgerEffect,
-    },
-
     #[error("resume self-resume forbidden (pid={0})")]
     SelfResume(ProcessId),
 
@@ -184,13 +167,6 @@ pub enum InterleavingError {
     #[error("burn called without a parent process (pid={pid})")]
     BurnWithNoParent { pid: ProcessId },
 
-    #[error("verification: counters mismatch for pid={pid}: counter={counter} len={len}")]
-    CounterLenMismatch {
-        pid: ProcessId,
-        counter: usize,
-        len: usize,
-    },
-
     #[error("verification: utxo not finalized (finalized=false) pid={0}")]
     UtxoNotFinalized(ProcessId),
 
@@ -264,7 +240,6 @@ pub struct InterleavingState {
     activation: Vec<Option<(Ref, ProcessId)>>,
     init: Vec<Option<(Ref, ProcessId)>>,
 
-    counters: Vec<usize>,
     ref_counter: u64,
     ref_store: HashMap<Ref, Vec<Value>>,
     ref_sizes: HashMap<Ref, usize>,
@@ -320,7 +295,6 @@ pub fn verify_interleaving_semantics(
         yield_to: vec![None; n],
         activation: vec![None; n],
         init: vec![None; n],
-        counters: vec![0; n],
         ref_counter: 0,
         ref_store: HashMap::new(),
         ref_sizes: HashMap::new(),
@@ -343,11 +317,11 @@ pub fn verify_interleaving_semantics(
     state.initialized[inst.entrypoint.0] = true;
 
     // ---------- run until current trace ends ----------
-    // This is deterministic: at each step, read the next host call of id_curr at counters[id_curr].
     let mut current_state = state;
+    let mut next_op_idx = vec![0usize; n];
     loop {
         let pid = current_state.id_curr;
-        let c = current_state.counters[pid.0];
+        let c = next_op_idx[pid.0];
 
         let trace = &rom.traces[pid.0];
         if c >= trace.len() {
@@ -355,27 +329,12 @@ pub fn verify_interleaving_semantics(
         }
 
         let op = trace[c].clone();
-        current_state = state_transition(current_state, &rom, op)?;
+        current_state = state_transition(current_state, &rom, &mut next_op_idx, op)?;
     }
     let state = current_state;
 
     // ---------- final verification conditions ----------
-    // 1) counters match per-process host call lengths
-    //
-    // (so we didn't just prove a prefix)
-    for pid in 0..n {
-        let counter = state.counters[pid];
-        let len = rom.traces[pid].len();
-        if counter != len {
-            return Err(InterleavingError::CounterLenMismatch {
-                pid: ProcessId(pid),
-                counter,
-                len,
-            });
-        }
-    }
-
-    // 2) process called burn but it has a continuation output in the tx
+    // 1) process called burn but it has a continuation output in the tx
     for i in 0..inst.n_inputs {
         if rom.must_burn[i] {
             let has_burn = rom.traces[i]
@@ -387,26 +346,26 @@ pub fn verify_interleaving_semantics(
         }
     }
 
-    // 3) all utxos finalize
+    // 2) all utxos finalize
     for pid in 0..(inst.n_inputs + inst.n_new) {
         if !state.finalized[pid] {
             return Err(InterleavingError::UtxoNotFinalized(ProcessId(pid)));
         }
     }
 
-    // 4) all utxos without continuation did call Burn
+    // 3) all utxos without continuation did call Burn
     for pid in 0..inst.n_inputs {
         if rom.must_burn[pid] && !state.did_burn[pid] {
             return Err(InterleavingError::UtxoShouldBurn(ProcessId(pid)));
         }
     }
 
-    // 5) finish in a coordination script
+    // 4) finish in a coordination script
     if rom.is_utxo[state.id_curr.0] {
         return Err(InterleavingError::FinishedInUtxo(state.id_curr));
     }
 
-    // 6) ownership_out matches computed end state
+    // 5) ownership_out matches computed end state
     for pid in 0..(inst.n_inputs + inst.n_new) {
         let expected = inst.ownership_out[pid];
         let got = state.ownership[pid];
@@ -438,10 +397,11 @@ pub fn verify_interleaving_semantics(
 pub fn state_transition(
     mut state: InterleavingState,
     rom: &Rom,
+    next_op_idx: &mut [usize],
     op: WitLedgerEffect,
 ) -> Result<InterleavingState, InterleavingError> {
     let id_curr = state.id_curr;
-    let c = state.counters[id_curr.0];
+    let c = next_op_idx[id_curr.0];
     let trace = &rom.traces[id_curr.0];
 
     // For every rule, enforce "host call lookup condition" by checking op ==
@@ -451,27 +411,18 @@ pub fn state_transition(
     // doesn't do any zk, it's just trace, but in the circuit this would be a
     // lookup constraint into the right table.
     if c >= trace.len() {
-        return Err(InterleavingError::CounterOutOfBounds {
-            pid: id_curr,
-            counter: c,
-            len: trace.len(),
-        });
+        return Err(InterleavingError::Shape("host call index out of bounds"));
     }
     let got = trace[c].clone();
     if got != op {
-        return Err(InterleavingError::HostCallMismatch {
-            pid: id_curr,
-            counter: c,
-            expected: op,
-            got,
-        });
+        return Err(InterleavingError::Shape("host call mismatch"));
     }
 
     if state.ref_building.contains_key(&id_curr) && !matches!(op, WitLedgerEffect::RefPush { .. }) {
         return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
     }
 
-    state.counters[id_curr.0] += 1;
+    next_op_idx[id_curr.0] += 1;
 
     match op {
         WitLedgerEffect::Resume {
@@ -620,9 +571,6 @@ pub fn state_transition(
                     got: program_hash,
                 });
             }
-            if state.counters[id.0] != 0 {
-                return Err(InterleavingError::Shape("NewUtxo requires counters[id]==0"));
-            }
             if state.initialized[id.0] {
                 return Err(InterleavingError::Shape(
                     "NewUtxo requires initialized[id]==false",
@@ -654,11 +602,6 @@ pub fn state_transition(
                     expected: rom.process_table[id.0],
                     got: program_hash,
                 });
-            }
-            if state.counters[id.0] != 0 {
-                return Err(InterleavingError::Shape(
-                    "NewCoord requires counters[id]==0",
-                ));
             }
             if state.initialized[id.0] {
                 return Err(InterleavingError::Shape(

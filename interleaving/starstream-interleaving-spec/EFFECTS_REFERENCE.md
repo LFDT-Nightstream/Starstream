@@ -25,11 +25,10 @@ blobs (Value).
 
 The global state of the interleaving machine σ is defined as:
 
-
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, counters, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn)
+σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn)
 
 Where:
   id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
@@ -43,7 +42,6 @@ Where:
   ref_store        : A map {Ref -> Value}
   process_table    : Read-only map {ID -> ProgramHash} for attestation.
   host_calls       : A map {ProcessID -> Host-calls lookup table}
-  counters         : A map {ProcessID -> Counter}
   finalized        : A map {ProcessID -> Bool} (true if the process ends the transaction with a final yield)
   is_utxo          : Read-only map {ProcessID -> Bool}
   initialized      : A map {ProcessID -> Bool}
@@ -110,13 +108,6 @@ Rule: Resume
 
     (Check that the current process matches the expected resumer for the target)
 
-    4. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <Resume, target, val_ref, ret_ref, caller>
-
-    (The opcode matches the host call lookup table used in the wasm proof at the current index)
-
     5. is_utxo(id_curr) => !is_utxo(target)
 
     (Utxo's can't call into utxos)
@@ -129,7 +120,6 @@ Rule: Resume
     2. expected_resumer[id_curr] <- caller   (Claim, needs to be checked later by future resumer)
     3. expected_input[target]    <- None      (Target claim consumed by this resume)
     4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
-    5. counters'[id_curr]        += 1         (Keep track of host call index per process)
     6. id_prev'                  <- id_curr   (Trace-local previous id)
     7. id_curr'                  <- target    (Switch)
     8. if on_yield[target] then
@@ -146,12 +136,7 @@ Rule: Activation
 
     1. activation[id_curr] == Some(val, caller)
 
-    2. let t = CC[id_curr] in
-       let c = counters[id_curr] in
-           t[c] == <Activation, val, caller>
-
 -----------------------------------------------------------------------
-    1. counters'[id_curr] += 1
 
 ## Init
 
@@ -166,13 +151,7 @@ Rule: Init
     1. init[id_curr] == Some(val, caller)
     2. caller is the creator (the process that executed NewUtxo/NewCoord for this id)
 
-    3. let t = CC[id_curr] in
-       let c = counters[id_curr] in
-           t[c] == <Init, val, caller>
-
 -----------------------------------------------------------------------
-    1. counters'[id_curr] += 1
-
 
 ## Yield
 
@@ -198,14 +177,7 @@ Rule: Yield
 
     (Check that the current process matches the expected resumer for the parent)
 
-    4. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <Yield, val_ref>
-
-    (The opcode matches the host call lookup table used in the wasm proof at the current index)
 --------------------------------------------------------------------------------------------
-    1. counters'[id_curr]        += 1
     2. on_yield'[id_curr]        <- True
     3. id_curr'                  <- yield_to[id_curr]
     4. id_prev'                  <- id_curr
@@ -226,14 +198,10 @@ Rule: Program Hash
     hash = process_table[target_id]
 
     let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <ProgramHash, program_hash>
 
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
-    1. counters'[id_curr] += 1
 ```
 
 ---
@@ -254,8 +222,6 @@ Assigns a new (transaction-local) ID for a UTXO program.
     (The hash matches the one in the process table)
     (Remember that this is just verifying, so we already have the full table)
 
-    2. counters[id] == 0
-
     (The trace for this utxo starts fresh)
 
     3. is_utxo[id]
@@ -266,17 +232,11 @@ Assigns a new (transaction-local) ID for a UTXO program.
 
     (A utxo can't crate utxos)
 
-    5. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <NewUtxo, program_hash, val, id>
-
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
     1. initialized[id]     <- True
     2. init'[id]           <- Some(val, id_curr)
-    3. counters'[id_curr]  += 1
 ```
 
 ## New Coordination Script (Spawn)
@@ -296,8 +256,6 @@ handler) instance.
     (The hash matches the one in the process table)
     (Remember that this is just verifying, so we already have the full table)
 
-    2. counters[id] == 0
-
     (The trace for this handler starts fresh)
 
     3. is_utxo[id] == False
@@ -308,17 +266,11 @@ handler) instance.
 
     (A utxo can't spawn coordination scripts)
 
-    5. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <NewCoord, program_hash, val, id>
-
     (Host call lookup condition)
 
 -----------------------------------------------------------------------
     1. initialized[id]     <- True
     2. init'[id]           <- Some(val, id_curr)
-    3. counters'[id_curr]  += 1
 ```
 
 ---
@@ -338,15 +290,9 @@ Rule: Install Handler
 
     (Only coordination scripts can install handlers)
 
-    2. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <InstallHandler, interface_id>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. handler_stack'[interface_id].push(id_curr)
-    2. counters'[id_curr] += 1
 ```
 
 ## Uninstall Handler
@@ -366,15 +312,9 @@ Rule: Uninstall Handler
 
     (Only the installer can uninstall)
 
-    3. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <UninstallHandler, interface_id>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. handler_stack'[interface_id].pop()
-    2. counters[id_curr] += 1
 ```
 
 ## Get Handler For
@@ -390,14 +330,8 @@ Rule: Get Handler For
 
     (The returned handler_id must match the one on top of the stack)
 
-    2. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <GetHandlerFor, interface_id, handler_id>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. counters'[id_curr] += 1
 ```
 
 ---
@@ -423,11 +357,6 @@ Destroys the UTXO state.
 
     (Resume receives ret)
 
-    5. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <Burn, ret>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. finalized'[id_curr]      <- True
@@ -438,8 +367,6 @@ Destroys the UTXO state.
     3. initialized'[id_curr]    <- False
 
     (It's not possible to return to this, maybe it should be a different flag though)
-
-    4. counters'[id_curr]       += 1
 
     5. activation'[id_curr]     <- None
     6. did_burn'[id_curr]       <- True
@@ -469,13 +396,9 @@ Rule: Bind (token calls)
     4. ownership[token_id] == ⊥
        (Token must currently be unbound)
 
-    5. let t = CC[token_id] in
-       let c = counters[token_id] in
-           t[c] == <Bind, owner_id>
        (Host call lookup condition)
 -----------------------------------------------------------------------
     1. ownership'[token_id] <- owner_id
-    2. counters'[token_id]  += 1
 ```
 
 ## Unbind
@@ -496,12 +419,8 @@ Rule: Unbind (owner calls)
     3. ownership[token_id] == owner_id
        (Authorization: only current owner may unbind)
 
-    4. let t = CC[owner_id] in
-       let c = counters[owner_id] in
-           t[c] == <Unbind, token_id>
 -----------------------------------------------------------------------
     1. ownership'[token_id] <- ⊥
-    2. counters'[owner_id]  += 1
 ```
 
 # 7. Data Operations
@@ -515,17 +434,11 @@ Rule: NewRef
 ==============
     op = NewRef(size_words) -> ref
 
-    1. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <NewRef, size, ref>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. size fits in 16 bits
     2. ref_store'[ref] <- [uninitialized; size_words * 4] (conceptually)
     3. ref_sizes'[ref] <- size_words
-    4. counters'[id_curr] += 1
     5. ref_state[id_curr] <- (ref, 0, size_words) // storing the ref being built, current word offset, and total size
 ```
 
@@ -541,17 +454,11 @@ Rule: RefPush
     1. let (ref, offset_words, size_words) = ref_state[id_curr]
     2. offset_words < size_words
 
-    3. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <RefPush, vals[4]>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. for i in 0..3:
             ref_store'[ref][(offset_words * 4) + i] <- vals[i]
     2. ref_state[id_curr] <- (ref, offset_words + 1, size_words)
-    3. counters'[id_curr] += 1
 ```
 
 ## RefGet
@@ -566,14 +473,8 @@ Rule: RefGet
     3. for i in 0..3:
             vals[i] == ref_store[ref][(offset_words * 4) + i]
 
-    2. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <RefGet, ref, offset_words, vals[4]>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. counters'[id_curr] += 1
 ```
 
 ## RefWrite
@@ -586,16 +487,10 @@ Rule: RefWrite
     1. let size_words = ref_sizes[ref]
     2. offset_words < size_words
 
-    3. let
-        t = CC[id_curr] in
-        c = counters[id_curr] in
-            t[c] == <RefWrite, ref, offset_words, vals[4]>
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. for i in 0..3:
             ref_store'[ref][(offset_words * 4) + i] <- vals[i]
-    2. counters'[id_curr] += 1
 ```
 
 # Verification
@@ -606,8 +501,6 @@ To verify the transaction, the following additional conditions need to be met:
 for (process, proof, host_calls) in transaction.proofs:
 
     // we verified all the host calls for each process
-
-    assert(counters[process] == host_calls[process].length)
 
     // every object had a constructor of some sort
     assert(is_initialized[process])
