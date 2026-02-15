@@ -3201,6 +3201,7 @@ version = "0.1.0"
 dependencies = [
  "ark-ff",
  "ark-goldilocks",
+ "ark-poseidon2",
  "hex",
  "imbl",
  "neo-ajtai",
