@@ -29,7 +29,7 @@ use ark_relations::{
     gr1cs::{ConstraintSystemRef, SynthesisError},
     ns,
 };
-use starstream_interleaving_spec::InterleavingInstance;
+use starstream_interleaving_spec::{InterleavingInstance, LedgerEffectsCommitment};
 use std::marker::PhantomData;
 use std::ops::Not;
 use tracing::debug_span;
@@ -898,6 +898,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     vec![F::from(0u64)],
                 );
 
+                let trace_iv = LedgerEffectsCommitment::iv().0;
                 for offset in 0..4 {
                     let addr = (pid * 4) + offset;
                     mb.init(
@@ -905,7 +906,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                             addr: addr as u64,
                             tag: MemoryTag::TraceCommitments.into(),
                         },
-                        vec![F::ZERO],
+                        vec![trace_iv[offset]],
                     );
                 }
             }

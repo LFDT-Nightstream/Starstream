@@ -38,7 +38,7 @@ fn host_calls_roots(traces: &[Vec<WitLedgerEffect>]) -> Vec<LedgerEffectsCommitm
             trace
                 .iter()
                 .cloned()
-                .fold(LedgerEffectsCommitment::zero(), |acc, op| {
+                .fold(LedgerEffectsCommitment::iv(), |acc, op| {
                     crate::commit(acc, op)
                 })
         })

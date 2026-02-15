@@ -18,20 +18,47 @@ use crate::{
 use ark_ff::Zero;
 use ark_goldilocks::FpGoldilocks;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct LedgerEffectsCommitment(pub [FpGoldilocks; 4]);
 
 impl Default for LedgerEffectsCommitment {
     fn default() -> Self {
-        Self([FpGoldilocks::zero(); 4])
+        Self::iv()
     }
 }
 
 impl LedgerEffectsCommitment {
-    pub fn zero() -> Self {
-        Self::default()
+    pub fn iv() -> Self {
+        static TRACE_IV: OnceLock<[FpGoldilocks; 4]> = OnceLock::new();
+        let iv = TRACE_IV.get_or_init(|| {
+            let domain = encode_domain_rate8("starstream/trace_ic/v1/poseidon2");
+            ark_poseidon2::sponge_8_trace(&domain).expect("trace iv sponge should succeed")
+        });
+        Self(*iv)
     }
+}
+
+fn encode_domain_rate8(domain: &str) -> [FpGoldilocks; 8] {
+    let bytes = domain.as_bytes();
+    assert!(
+        bytes.len() <= 49,
+        "domain tag too long for safe 7-byte/limb encoding: {} bytes",
+        bytes.len()
+    );
+
+    let mut out = [FpGoldilocks::zero(); 8];
+    // Goldilocks field elements cannot safely encode arbitrary 8-byte u64 values
+    // without modular wraparound. We pack 7 bytes per limb and store the string
+    // length in limb 0 to avoid ambiguity from trailing zero padding.
+    out[0] = FpGoldilocks::from(bytes.len() as u64);
+    for (i, chunk) in bytes.chunks(7).enumerate() {
+        let mut limb = [0u8; 8];
+        limb[..chunk.len()].copy_from_slice(chunk);
+        out[i + 1] = FpGoldilocks::from(u64::from_le_bytes(limb));
+    }
+    out
 }
 
 /// A “proof input” for tests: provide per-process traces directly.

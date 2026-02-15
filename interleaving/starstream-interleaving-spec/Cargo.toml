@@ -18,3 +18,4 @@ neo-ajtai = { workspace = true }
 neo-memory = { workspace = true }
 
 p3-field = "0.4.1"
+ark-poseidon2 = { path = "../../ark-poseidon2" }

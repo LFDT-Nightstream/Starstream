@@ -1138,7 +1138,7 @@ impl UnprovenTransaction {
                 .cloned()
                 .unwrap_or_default();
             host_calls_lens.push(trace.len() as u32);
-            let mut commitment = LedgerEffectsCommitment::zero();
+            let mut commitment = LedgerEffectsCommitment::iv();
             for op in &trace {
                 commitment = commit(commitment, op.clone());
             }

@@ -78,7 +78,7 @@ impl TransactionBuilder {
             utxo,
             continuation,
             trace,
-            LedgerEffectsCommitment::zero(),
+            LedgerEffectsCommitment::iv(),
         )
     }
 
@@ -99,7 +99,7 @@ impl TransactionBuilder {
     }
 
     pub fn with_fresh_output(self, output: NewOutput, trace: Vec<WitLedgerEffect>) -> Self {
-        self.with_fresh_output_and_trace_commitment(output, trace, LedgerEffectsCommitment::zero())
+        self.with_fresh_output_and_trace_commitment(output, trace, LedgerEffectsCommitment::iv())
     }
 
     pub fn with_fresh_output_and_trace_commitment(
@@ -117,7 +117,7 @@ impl TransactionBuilder {
     }
 
     pub fn with_coord_script(self, key: Hash<WasmModule>, trace: Vec<WitLedgerEffect>) -> Self {
-        self.with_coord_script_and_trace_commitment(key, trace, LedgerEffectsCommitment::zero())
+        self.with_coord_script_and_trace_commitment(key, trace, LedgerEffectsCommitment::iv())
     }
 
     pub fn with_coord_script_and_trace_commitment(
