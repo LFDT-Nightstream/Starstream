@@ -28,7 +28,7 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn)
+σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn)
 
 Where:
   id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
@@ -42,7 +42,8 @@ Where:
   ref_store        : A map {Ref -> Value}
   process_table    : Read-only map {ID -> ProgramHash} for attestation.
   host_calls       : A map {ProcessID -> Host-calls lookup table}
-  finalized        : A map {ProcessID -> Bool} (true if the process ends the transaction with a final yield)
+  must_burn        : Read-only map {ProcessID -> Bool} (inputs without continuation must burn)
+  finalized        : A map {ProcessID -> Bool} (true if the process ended with a terminal op, e.g. yield/burn)
   is_utxo          : Read-only map {ProcessID -> Bool}
   initialized      : A map {ProcessID -> Bool}
   handler_stack    : A map {InterfaceID -> Stack<ProcessID>}
@@ -108,11 +109,11 @@ Rule: Resume
 
     (Check that the current process matches the expected resumer for the target)
 
-    5. is_utxo(id_curr) => !is_utxo(target)
+    4. is_utxo(id_curr) => !is_utxo(target)
 
     (Utxo's can't call into utxos)
 
-    6. initialized[target]
+    5. initialized[target]
 
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
@@ -120,12 +121,12 @@ Rule: Resume
     2. expected_resumer[id_curr] <- caller   (Claim, needs to be checked later by future resumer)
     3. expected_input[target]    <- None      (Target claim consumed by this resume)
     4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
-    6. id_prev'                  <- id_curr   (Trace-local previous id)
-    7. id_curr'                  <- target    (Switch)
-    8. if on_yield[target] then
+    5. id_prev'                  <- id_curr   (Trace-local previous id)
+    6. id_curr'                  <- target    (Switch)
+    7. if on_yield[target] then
            yield_to'[target]     <- Some(id_curr)
            on_yield'[target]     <- False
-    9. activation'[target]       <- Some(val_ref, id_curr)
+    8. activation'[target]       <- Some(val_ref, id_curr)
 ```
 
 ## Activation
@@ -137,6 +138,7 @@ Rule: Activation
     1. activation[id_curr] == Some(val, caller)
 
 -----------------------------------------------------------------------
+    1. (No state changes)
 
 ## Init
 
@@ -152,6 +154,7 @@ Rule: Init
     2. caller is the creator (the process that executed NewUtxo/NewCoord for this id)
 
 -----------------------------------------------------------------------
+    1. (No state changes)
 
 ## Yield
 
@@ -178,11 +181,11 @@ Rule: Yield
     (Check that the current process matches the expected resumer for the parent)
 
 --------------------------------------------------------------------------------------------
-    2. on_yield'[id_curr]        <- True
-    3. id_curr'                  <- yield_to[id_curr]
-    4. id_prev'                  <- id_curr
-    5. finalized'[id_curr]       <- True
-    6. activation'[id_curr]      <- None
+    1. on_yield'[id_curr]        <- True
+    2. id_curr'                  <- yield_to[id_curr]
+    3. id_prev'                  <- id_curr
+    4. finalized'[id_curr]       <- True
+    5. activation'[id_curr]      <- None
 ```
 
 ## Program Hash
@@ -197,11 +200,8 @@ Rule: Program Hash
     op = ProgramHash(target_id)
     hash = process_table[target_id]
 
-    let
-
-    (Host call lookup condition)
-
 -----------------------------------------------------------------------
+    1. (No state changes)
 ```
 
 ---
@@ -328,8 +328,6 @@ Rule: Get Handler For
 
     1. handler_id == handler_stack[interface_id].top()
 
-    (The returned handler_id must match the one on top of the stack)
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
 ```
@@ -350,8 +348,8 @@ Destroys the UTXO state.
     op = Burn(ret)
 
     1. is_utxo[id_curr]
-    2. is_initialized[id_curr]
-    3. did_burn[id_curr]
+    2. initialized[id_curr]
+    3. must_burn[id_curr] == True
 
     4. if expected_input[id_prev] is set, it must equal ret
 
@@ -503,11 +501,16 @@ for (process, proof, host_calls) in transaction.proofs:
     // we verified all the host calls for each process
 
     // every object had a constructor of some sort
-    assert(is_initialized[process])
+    assert(initialized[process])
 
-    // all the utxos either did `yield` at the end, or called `burn`
+    // all utxos in the transaction ended in a terminal state
     if is_utxo[process] {
-        assert(finalized[process] || did_burn[process])
+        assert(finalized[process])
+    }
+
+    // burned inputs (no continuation) must have executed Burn
+    if must_burn[process] {
+        assert(did_burn[process])
     }
 
 assert_not(is_utxo[id_curr])
