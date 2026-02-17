@@ -87,6 +87,7 @@ fn test_multi_tx_accumulator_global() {
         let (resp, _caller) = call resume(utxo_id, req);
         let (val, _b, _c, _d) = call ref_get(resp, 0);
         assert_eq val, 5;
+        call return_();
     });
 
     let coord2_bin = wasm_module!({
@@ -95,6 +96,7 @@ fn test_multi_tx_accumulator_global() {
         let (resp, _caller) = call resume(0, req);
         let (val, _b, _c, _d) = call ref_get(resp, 0);
         assert_eq val, 12;
+        call return_();
     });
 
     let coord3_bin = wasm_module!({
@@ -103,6 +105,7 @@ fn test_multi_tx_accumulator_global() {
         let (resp, _caller) = call resume(0, req);
         let (val, _b, _c, _d) = call ref_get(resp, 0);
         assert_eq val, 12;
+        call return_();
     });
 
     print_wat("globals/utxo", &utxo_bin);

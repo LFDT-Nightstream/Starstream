@@ -69,6 +69,7 @@ fn test_runtime_simple_effect_handlers() {
         let (_ret, _caller2) = call resume(0, resp);
 
         call uninstall_handler(1, 0, 0, 0);
+        call return_();
     });
 
     print_wat("simple/utxo", &utxo_bin);
@@ -228,6 +229,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         }
 
         call uninstall_handler(1, 2, 3, 4);
+        call return_();
     });
 
     print_wat("cross/utxo1", &utxo1_bin);

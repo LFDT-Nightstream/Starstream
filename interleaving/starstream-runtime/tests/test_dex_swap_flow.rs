@@ -131,6 +131,7 @@ fn test_dex_swap_flow() {
         call ref_push(4, 0, 0, 0);
         let (resp_end, _caller_end) = call resume(caller_next, end);
         let (_k_val, _b2, _c2, _d2) = call ref_get(resp_end, 0);
+        call return_();
     });
 
     let (coord_hash_a, coord_hash_b, coord_hash_c, coord_hash_d) = hash_program(&coord_swap_bin);
@@ -279,6 +280,7 @@ fn test_dex_swap_flow() {
         let noop = call new_ref(1);
         call ref_push(0, 0, 0, 0);
         let (_resp_noop, _caller_noop) = call resume(utxo_id, noop);
+        call return_();
     });
 
     print_wat("dex/token", &token_bin);

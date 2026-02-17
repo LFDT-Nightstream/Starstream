@@ -144,7 +144,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         call ref_push(4, 0, 0, 0);
         let (_resp_end, _caller5) = call resume(handler_id, req_end);
 
-        call yield_(init_ref);
+        call return_();
     });
 
     let (inner_hash_limb_a, inner_hash_limb_b, inner_hash_limb_c, inner_hash_limb_d) =
@@ -210,6 +210,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         }
 
         call uninstall_handler(1, 2, 3, 4);
+        call return_();
     });
 
     print_wat("wrapper", &wrapper_coord_bin);
@@ -261,6 +262,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         );
 
         let (_ret, _caller) = call resume(wrapper_id, wrapper_init);
+        call return_();
     });
 
     let programs = vec![
