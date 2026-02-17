@@ -135,6 +135,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         | WitLedgerEffect::UninstallHandler { .. }
         | WitLedgerEffect::Burn { .. }
         | WitLedgerEffect::Yield { .. }
+        | WitLedgerEffect::Return { .. }
         | WitLedgerEffect::Bind { .. }
         | WitLedgerEffect::Unbind { .. }
         | WitLedgerEffect::RefPush { .. }
@@ -241,8 +242,14 @@ impl Runtime {
                         .pending_activation
                         .insert(target, (val, current_pid));
 
+                    let curr_is_utxo = caller
+                        .data()
+                        .is_utxo
+                        .get(&current_pid)
+                        .copied()
+                        .unwrap_or(false);
                     let was_on_yield = caller.data().on_yield.get(&target).copied().unwrap_or(true);
-                    if was_on_yield {
+                    if !curr_is_utxo && was_on_yield {
                         caller.data_mut().yield_to.insert(target, current_pid);
                         caller.data_mut().on_yield.insert(target, false);
                     }
@@ -268,6 +275,16 @@ impl Runtime {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().on_yield.insert(current_pid, true);
                     suspend_with_effect(&mut caller, WitLedgerEffect::Yield { val: Ref(val) })
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_return",
+                |mut caller: Caller<'_, RuntimeState>| -> Result<(), wasmi::Error> {
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Return {})
                 },
             )
             .unwrap();
@@ -1061,6 +1078,18 @@ impl UnprovenTransaction {
                                 .expect("yield on missing yield_to");
                             next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = caller;
+                        }
+                        WitLedgerEffect::Return { .. } => {
+                            if let Some(caller) = runtime.store.data().yield_to.get(&current_pid) {
+                                next_args = [0; 5];
+                                current_pid = *caller;
+                            } else if current_pid == ProcessId(self.entrypoint) {
+                                break;
+                            } else {
+                                return Err(Error::RuntimeError(
+                                    "return on missing yield_to for non-entrypoint".into(),
+                                ));
+                            }
                         }
                         WitLedgerEffect::Burn { .. } => {
                             let caller = *runtime

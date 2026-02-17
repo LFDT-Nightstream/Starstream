@@ -8,6 +8,7 @@ use crate::{
 pub enum EffectDiscriminant {
     Resume = 0,
     Yield = 1,
+    Return = 17,
     NewUtxo = 2,
     NewCoord = 3,
     InstallHandler = 4,
@@ -55,6 +56,7 @@ pub enum WitLedgerEffect {
         // in
         val: Ref,
     },
+    Return {},
     ProgramHash {
         // in
         target: ProcessId,
@@ -198,6 +200,7 @@ impl From<u64> for EffectDiscriminant {
         match value {
             0 => EffectDiscriminant::Resume,
             1 => EffectDiscriminant::Yield,
+            17 => EffectDiscriminant::Return,
             2 => EffectDiscriminant::NewUtxo,
             3 => EffectDiscriminant::NewCoord,
             4 => EffectDiscriminant::InstallHandler,

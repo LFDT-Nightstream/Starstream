@@ -187,7 +187,7 @@ fn make_interleaved_trace(
 
         match instr {
             starstream_interleaving_spec::WitLedgerEffect::Resume { target, .. } => {
-                if on_yield[target.0] {
+                if on_yield[target.0] && !inst.is_utxo[id_curr] {
                     yield_to[target.0] = Some(id_curr);
                     on_yield[target.0] = false;
                 }
@@ -202,6 +202,15 @@ fn make_interleaved_trace(
                 let old_id_curr = id_curr;
                 id_curr = parent;
                 id_prev = Some(old_id_curr);
+            }
+            starstream_interleaving_spec::WitLedgerEffect::Return {} => {
+                if let Some(parent) = yield_to[id_curr] {
+                    let old_id_curr = id_curr;
+                    id_curr = parent;
+                    id_prev = Some(old_id_curr);
+                } else if id_curr != inst.entrypoint.0 {
+                    break;
+                }
             }
             starstream_interleaving_spec::WitLedgerEffect::Burn { .. } => {
                 let parent = id_prev.expect("Burn called without a parent process");

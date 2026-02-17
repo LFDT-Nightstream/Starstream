@@ -277,6 +277,11 @@ fn format_edge_line(
             let to = ctx.labels.get(next_pid.0)?;
             Some(format!("{from} -->> {to}: {label}"))
         }
+        WitLedgerEffect::Return {} => {
+            let next_pid = ctx.interleaving.get(idx + 1).map(|(p, _)| *p)?;
+            let to = ctx.labels.get(next_pid.0)?;
+            Some(format!("{from} -->> {to}: return"))
+        }
         WitLedgerEffect::NewUtxo { val, id, .. } => {
             let WitEffectOutput::Resolved(pid) = id else {
                 return None;

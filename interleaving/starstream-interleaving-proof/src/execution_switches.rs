@@ -13,6 +13,7 @@ use crate::F;
 pub(crate) struct ExecutionSwitches<T> {
     pub(crate) resume: T,
     pub(crate) yield_op: T,
+    pub(crate) return_op: T,
     pub(crate) burn: T,
     pub(crate) program_hash: T,
     pub(crate) new_utxo: T,
@@ -41,6 +42,7 @@ impl ExecutionSwitches<bool> {
         let switches = [
             self.resume,
             self.yield_op,
+            self.return_op,
             self.nop,
             self.burn,
             self.program_hash,
@@ -80,6 +82,7 @@ impl ExecutionSwitches<bool> {
         let [
             resume,
             yield_op,
+            return_op,
             nop,
             burn,
             program_hash,
@@ -104,6 +107,7 @@ impl ExecutionSwitches<bool> {
         let terms = [
             (resume, EffectDiscriminant::Resume as u64),
             (yield_op, EffectDiscriminant::Yield as u64),
+            (return_op, EffectDiscriminant::Return as u64),
             (burn, EffectDiscriminant::Burn as u64),
             (program_hash, EffectDiscriminant::ProgramHash as u64),
             (new_utxo, EffectDiscriminant::NewUtxo as u64),
@@ -133,6 +137,7 @@ impl ExecutionSwitches<bool> {
         Ok(ExecutionSwitches {
             resume: resume.clone(),
             yield_op: yield_op.clone(),
+            return_op: return_op.clone(),
             nop: nop.clone(),
             burn: burn.clone(),
             program_hash: program_hash.clone(),
@@ -169,6 +174,13 @@ impl ExecutionSwitches<bool> {
     pub(crate) fn yield_op() -> Self {
         Self {
             yield_op: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn return_op() -> Self {
+        Self {
+            return_op: true,
             ..Self::default()
         }
     }
@@ -284,6 +296,7 @@ impl Default for ExecutionSwitches<bool> {
         Self {
             resume: false,
             yield_op: false,
+            return_op: false,
             burn: false,
             program_hash: false,
             new_utxo: false,

@@ -25,6 +25,7 @@ pub enum LedgerOperation<F: PrimeField> {
     Yield {
         val: F,
     },
+    Return {},
     ProgramHash {
         target: F,
         program_hash: [F; 4],

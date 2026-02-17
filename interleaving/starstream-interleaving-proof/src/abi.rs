@@ -90,6 +90,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
         WitLedgerEffect::Yield { val } => LedgerOperation::Yield {
             val: F::from(val.0),
         },
+        WitLedgerEffect::Return {} => LedgerOperation::Return {},
         WitLedgerEffect::Burn { ret } => LedgerOperation::Burn {
             ret: F::from(ret.0),
         },
@@ -170,6 +171,7 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
         LedgerOperation::Nop {} => F::zero(),
         LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
         LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
+        LedgerOperation::Return { .. } => F::from(EffectDiscriminant::Return as u64),
         LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
         LedgerOperation::ProgramHash { .. } => F::from(EffectDiscriminant::ProgramHash as u64),
         LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
@@ -210,6 +212,7 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;
         }
+        LedgerOperation::Return {} => {}
         LedgerOperation::Burn { ret } => {
             args[ArgName::Target.idx()] = F::zero();
             args[ArgName::Ret.idx()] = *ret;

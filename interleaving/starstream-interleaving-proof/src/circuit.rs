@@ -247,7 +247,8 @@ impl Wires {
             program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
 
         let yield_to_value = curr_read_wires.yield_to.decode_or_zero()?;
-        let target_address = switches.yield_op.select(&yield_to_value, &target)?;
+        let return_like = &switches.yield_op | &switches.return_op;
+        let target_address = return_like.select(&yield_to_value, &target)?;
         let target_read_wires =
             program_state_read_wires(rm, &cs, target_address.clone(), &target_mem_switches)?;
 
@@ -491,6 +492,16 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
             }
+            LedgerOperation::Return { .. } => {
+                config.execution_switches.return_op = true;
+
+                config.mem_switches_curr.activation = true;
+                config.mem_switches_curr.on_yield = true;
+                config.mem_switches_curr.yield_to = true;
+                config.mem_switches_curr.finalized = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+            }
             LedgerOperation::Burn { .. } => {
                 config.execution_switches.burn = true;
 
@@ -628,6 +639,7 @@ impl LedgerOperation<crate::F> {
         curr_id: F,
         curr_read: ProgramState,
         target_read: ProgramState,
+        curr_is_utxo: bool,
     ) -> (ProgramState, ProgramState) {
         let mut curr_write = curr_read.clone();
         let mut target_write = target_read.clone();
@@ -653,7 +665,7 @@ impl LedgerOperation<crate::F> {
                 target_write.finalized = false;
 
                 // If target was in a yield state, record who resumed it and clear the flag.
-                if target_read.on_yield {
+                if target_read.on_yield && !curr_is_utxo {
                     target_write.yield_to = OptionalF::new(curr_id);
                 }
                 target_write.on_yield = false;
@@ -664,6 +676,11 @@ impl LedgerOperation<crate::F> {
                 curr_write.activation = F::ZERO; // Represents None
                 curr_write.finalized = true;
                 curr_write.on_yield = true;
+            }
+            LedgerOperation::Return {} => {
+                // Coordination script return is terminal for this transaction.
+                curr_write.activation = F::ZERO;
+                curr_write.finalized = true;
             }
             LedgerOperation::Burn { ret } => {
                 // The current UTXO is burned.
@@ -736,6 +753,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // per opcode constraints
         let next_wires = self.visit_yield(next_wires)?;
+        let next_wires = self.visit_return(next_wires)?;
         let next_wires = self.visit_resume(next_wires)?;
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_program_hash(next_wires)?;
@@ -1009,6 +1027,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
                 LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
+                LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
@@ -1049,8 +1068,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &F::from(target_pid_value),
             );
 
+            let curr_is_utxo = self.instance.is_utxo[irw.id_curr.into_bigint().0[0] as usize];
             let (curr_write, target_write) =
-                instr.program_state_transitions(irw.id_curr, curr_read, target_read);
+                instr.program_state_transitions(irw.id_curr, curr_read, target_read, curr_is_utxo);
 
             self.write_ops
                 .push((curr_write.clone(), target_write.clone()));
@@ -1071,9 +1091,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     irw.id_curr = *target;
                 }
                 LedgerOperation::Yield { .. } => {
-                    let old_curr = irw.id_curr;
+                    irw.id_prev = OptionalF::new(irw.id_curr);
                     irw.id_curr = curr_yield_to.decode_or_zero();
-                    irw.id_prev = OptionalF::new(old_curr);
+                }
+                LedgerOperation::Return { .. } => {
+                    if let Some(parent) = curr_yield_to.to_option() {
+                        irw.id_prev = OptionalF::new(irw.id_curr);
+                        irw.id_curr = parent;
+                    }
                 }
                 LedgerOperation::Burn { .. } => {
                     let old_curr = irw.id_curr;
@@ -1186,6 +1211,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             interface_index,
             abi::opcode_discriminant(instruction),
         );
+
         default.opcode_args = abi::opcode_args(instruction);
 
         let prewires = match instruction {
@@ -1199,6 +1225,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             },
             LedgerOperation::Yield { .. } => PreWires {
                 switches: ExecutionSwitches::yield_op(),
+                ..default
+            },
+            LedgerOperation::Return { .. } => PreWires {
+                switches: ExecutionSwitches::return_op(),
                 ..default
             },
             LedgerOperation::Burn { .. } => PreWires {
@@ -1277,7 +1307,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 2. UTXO cannot resume UTXO.
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
         let is_utxo_target = wires.is_utxo_target.is_one()?;
-        let both_are_utxos = is_utxo_curr & is_utxo_target;
+        let both_are_utxos = is_utxo_curr.clone() & is_utxo_target;
         both_are_utxos.conditional_enforce_equal(&Boolean::FALSE, switch)?;
         // 3. Target must be initialized
         wires
@@ -1306,7 +1336,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 7. If target was in yield state, record yield_to; otherwise keep it unchanged.
         let target_on_yield = wires.target_read_wires.on_yield.clone();
         let new_yield_to = OptionalFpVar::select_encoded(
-            &(switch & target_on_yield.clone()),
+            &(switch & target_on_yield & is_utxo_curr.not()),
             &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.target_read_wires.yield_to,
         )?;
@@ -1489,6 +1519,42 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let next_id_curr = (switch & &yield_to_is_some).select(&yield_to_value, &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
             &(switch & yield_to_is_some),
+            &OptionalFpVar::from_pid(&wires.id_curr),
+            &wires.id_prev,
+        )?;
+        wires.id_curr = next_id_curr;
+        wires.id_prev = next_id_prev;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_return(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.switches.return_op;
+        let yield_to = wires.curr_read_wires.yield_to.clone();
+        let has_parent = yield_to.is_some()?;
+
+        // Coordination scripts only.
+        wires
+            .is_utxo_curr
+            .is_one()?
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
+        wires
+            .curr_write_wires
+            .finalized
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+        wires
+            .curr_write_wires
+            .activation
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+
+        // If we have a parent, transfer control back like Yield.
+        let has_parent_and_switch = switch & &has_parent;
+        let parent = yield_to.decode_or_zero()?;
+        let next_id_curr = has_parent_and_switch.select(&parent, &wires.id_curr)?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            &has_parent_and_switch,
             &OptionalFpVar::from_pid(&wires.id_curr),
             &wires.id_prev,
         )?;

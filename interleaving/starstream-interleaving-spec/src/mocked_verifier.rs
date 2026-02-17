@@ -230,6 +230,7 @@ pub struct Rom {
 pub struct InterleavingState {
     id_curr: ProcessId,
     id_prev: Option<ProcessId>,
+    entrypoint: ProcessId,
 
     /// Claims memory: M[pid] = expected argument to next Resume into pid.
     expected_input: Vec<Option<Ref>>,
@@ -289,6 +290,7 @@ pub fn verify_interleaving_semantics(
     let mut state = InterleavingState {
         id_curr: ProcessId(inst.entrypoint.into()),
         id_prev: None,
+        entrypoint: inst.entrypoint,
         expected_input: claims_memory,
         expected_resumer: vec![None; n],
         on_yield: vec![true; n],
@@ -481,7 +483,7 @@ pub fn state_transition(
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = caller.to_option().flatten();
 
-            if state.on_yield[target.0] {
+            if state.on_yield[target.0] && !rom.is_utxo[id_curr.0] {
                 state.yield_to[target.0] = Some(id_curr);
                 state.on_yield[target.0] = false;
             }
@@ -535,6 +537,23 @@ pub fn state_transition(
             state.id_prev = Some(id_curr);
             state.activation[id_curr.0] = None;
             state.id_curr = parent;
+        }
+        WitLedgerEffect::Return {} => {
+            if rom.is_utxo[id_curr.0] {
+                return Err(InterleavingError::CoordOnly(id_curr));
+            }
+
+            state.finalized[id_curr.0] = true;
+            state.activation[id_curr.0] = None;
+
+            if let Some(parent) = state.yield_to[id_curr.0] {
+                state.id_prev = Some(id_curr);
+                state.id_curr = parent;
+            } else if id_curr != state.entrypoint {
+                return Err(InterleavingError::Shape(
+                    "Return requires parent unless current process is entrypoint",
+                ));
+            }
         }
 
         WitLedgerEffect::ProgramHash {

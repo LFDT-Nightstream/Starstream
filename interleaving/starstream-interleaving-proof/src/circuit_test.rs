@@ -482,3 +482,72 @@ fn test_yield_parent_resumer_mismatch_trace() {
 
     let _result = prove(instance, wit);
 }
+
+#[test]
+fn test_entrypoint_return_sat() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+
+    let entry_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        WitLedgerEffect::Return {},
+    ];
+
+    let traces = vec![entry_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        must_burn: vec![],
+        ownership_in: vec![],
+        ownership_out: vec![],
+        host_calls_roots,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+    let result = prove(instance, wit);
+    assert!(result.is_ok());
+}
+
+#[test]
+#[should_panic]
+fn test_non_entrypoint_return_without_parent_panics() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+
+    // p1 has a Return but is never reached from entrypoint p0, so this is an
+    // invalid interleaving shape and should fail.
+    let traces = vec![vec![], vec![WitLedgerEffect::Return {}]];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 2,
+        entrypoint: p0,
+        process_table: vec![h(0), h(1)],
+        is_utxo: vec![false, false],
+        must_burn: vec![],
+        ownership_in: vec![],
+        ownership_out: vec![],
+        host_calls_roots,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+    let _ = prove(instance, wit);
+}
