@@ -53,6 +53,5 @@ T-Fn: test => i64
     Rectangle { width: i64, height: i64 },
 }, width: i64} ⊢ height ⇒ i64
           Unify-Const: i64 ~ i64 => {}
-          Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

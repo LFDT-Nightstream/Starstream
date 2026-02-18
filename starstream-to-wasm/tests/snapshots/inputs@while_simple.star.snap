@@ -118,23 +118,23 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Let: {} ⊢ let mut foo = 0; ⇒ i64
-    T-Int: {} ⊢ 0 ⇒ i64
-  T-While: {foo: i64} ⊢ while (foo < 10) {
+  T-Let: {} ⊢ let mut foo = 0; ⇒ t3
+    T-Int: {} ⊢ 0 ⇒ t3
+  T-While: {foo: t3} ⊢ while (foo < 10) {
     foo = foo + 1;
 } ⇒ ()
-    T-Bin-Lt: {foo: i64} ⊢ foo < 10 ⇒ bool
-      T-Var: {foo: i64} ⊢ foo ⇒ i64
-      T-Int: {foo: i64} ⊢ 10 ⇒ i64
+    T-Bin-Lt: {foo: t3} ⊢ foo < 10 ⇒ bool
+      T-Var: {foo: t3} ⊢ foo ⇒ t3
+      T-Int: {foo: t3} ⊢ 10 ⇒ t4
       Check-Compare: i64 vs i64 => ok (int)
+        Unify-Const: i64 ~ i64 => {}
     Check-Bool: bool => ok
-    T-Assign: {foo: i64} ⊢ foo = foo + 1; ⇒ i64
-      T-Bin-Add: {foo: i64} ⊢ foo + 1 ⇒ i64
-        T-Var: {foo: i64} ⊢ foo ⇒ i64
-        T-Int: {foo: i64} ⊢ 1 ⇒ i64
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
+    T-Assign: {foo: t3} ⊢ foo = foo + 1; ⇒ t3
+      T-Bin-Add: {foo: t3} ⊢ foo + 1 ⇒ t5
+        T-Var: {foo: t3} ⊢ foo ⇒ t3
+        T-Int: {foo: t3} ⊢ 1 ⇒ t5
+        Unify-Var: t3 ~ t5 => {t5/t3}
+      Unify-Var: t5 ~ t5 => {}
 
 ==== Typed AST ====
 TypedProgram {
@@ -161,7 +161,9 @@ TypedProgram {
                             },
                             value: Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Literal(
                                         Integer(
                                             0,
@@ -179,7 +181,9 @@ TypedProgram {
                                         op: Less,
                                         left: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "foo",
@@ -191,7 +195,9 @@ TypedProgram {
                                         },
                                         right: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Literal(
                                                     Integer(
                                                         10,
@@ -213,12 +219,16 @@ TypedProgram {
                                         },
                                         value: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Binary {
                                                     op: Add,
                                                     left: Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Identifier(
                                                                 Identifier {
                                                                     name: "foo",
@@ -230,7 +240,9 @@ TypedProgram {
                                                     },
                                                     right: Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     1,

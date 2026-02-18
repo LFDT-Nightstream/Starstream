@@ -577,6 +577,33 @@ impl Compiler {
         idx
     }
 
+    /// Emit truncation/masking after an i32 operation for sub-32-bit types.
+    fn emit_truncate(&self, func: &mut Function, w: IntWidth) {
+        match w {
+            IntWidth::I8 => {
+                func.instructions().i32_const(24);
+                func.instructions().i32_shl();
+                func.instructions().i32_const(24);
+                func.instructions().i32_shr_s();
+            }
+            IntWidth::I16 => {
+                func.instructions().i32_const(16);
+                func.instructions().i32_shl();
+                func.instructions().i32_const(16);
+                func.instructions().i32_shr_s();
+            }
+            IntWidth::U8 => {
+                func.instructions().i32_const(0xFF);
+                func.instructions().i32_and();
+            }
+            IntWidth::U16 => {
+                func.instructions().i32_const(0xFFFF);
+                func.instructions().i32_and();
+            }
+            _ => {} // i32, u32, i64, u64 don't need truncation
+        }
+    }
+
     // ------------------------------------------------------------------------
     // Component table management
 
@@ -725,7 +752,16 @@ impl Compiler {
 
         let cat = match ty {
             Type::Var(_) => todo!(),
-            Type::Int => ComponentAbiType::S64,
+            Type::Int(w) => match w {
+                IntWidth::I8 => ComponentAbiType::S8,
+                IntWidth::I16 => ComponentAbiType::S16,
+                IntWidth::I32 => ComponentAbiType::S32,
+                IntWidth::I64 => ComponentAbiType::S64,
+                IntWidth::U8 => ComponentAbiType::U8,
+                IntWidth::U16 => ComponentAbiType::U16,
+                IntWidth::U32 => ComponentAbiType::U32,
+                IntWidth::U64 => ComponentAbiType::U64,
+            },
             Type::Bool => ComponentAbiType::Bool,
             Type::Unit => {
                 return None;
@@ -835,7 +871,13 @@ impl Compiler {
         match ty {
             Type::Unit => {}
             Type::Bool => dest.push(ValType::I32),
-            Type::Int => dest.push(ValType::I64),
+            Type::Int(w) => {
+                if w.is_64bit() {
+                    dest.push(ValType::I64);
+                } else {
+                    dest.push(ValType::I32);
+                }
+            }
             Type::Tuple(items) => {
                 // flatten_record
                 for each in items {
@@ -968,7 +1010,7 @@ impl Compiler {
         match ty {
             Type::Unit => 0,
             Type::Bool => 1,
-            Type::Int => 1,
+            Type::Int(_) => 1,
             Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
             Type::Record(record) => record
                 .fields
@@ -1488,8 +1530,15 @@ impl Compiler {
             }
             // Literals
             TypedExprKind::Literal(Literal::Integer(i)) => {
-                func.instructions().i64_const(*i);
-                assert_eq!(expr.ty, Type::Int);
+                match &expr.ty {
+                    Type::Int(w) if w.is_64bit() => {
+                        func.instructions().i64_const(*i as i64);
+                    }
+                    Type::Int(_) => {
+                        func.instructions().i32_const(*i as i32);
+                    }
+                    _ => {}
+                }
                 Ok(())
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
@@ -1512,14 +1561,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        if self.options.check_overflows {
-                            let checked_sum = self.get_or_create_i64_add_checked();
-                            func.instructions().call(checked_sum);
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if self.options.check_overflows {
+                                let checked_sum = self.get_or_create_i64_add_checked();
+                                func.instructions().call(checked_sum);
+                            } else {
+                                func.instructions().i64_add();
+                            }
                         } else {
-                            func.instructions().i64_add();
+                            func.instructions().i32_add();
+                            self.emit_truncate(func, *w);
                         }
-
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Add({lhs:?}, {rhs:?})"))),
@@ -1535,14 +1588,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        if self.options.check_overflows {
-                            let checked_sub = self.get_or_create_i64_sub_checked();
-                            func.instructions().call(checked_sub);
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if self.options.check_overflows {
+                                let checked_sub = self.get_or_create_i64_sub_checked();
+                                func.instructions().call(checked_sub);
+                            } else {
+                                func.instructions().i64_sub();
+                            }
                         } else {
-                            func.instructions().i64_sub();
+                            func.instructions().i32_sub();
+                            self.emit_truncate(func, *w);
                         }
-
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
@@ -1558,14 +1615,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        if self.options.check_overflows {
-                            let checked_mul = self.get_or_create_i64_mul_checked();
-                            func.instructions().call(checked_mul);
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if self.options.check_overflows {
+                                let checked_mul = self.get_or_create_i64_mul_checked();
+                                func.instructions().call(checked_mul);
+                            } else {
+                                func.instructions().i64_mul();
+                            }
                         } else {
-                            func.instructions().i64_mul();
+                            func.instructions().i32_mul();
+                            self.emit_truncate(func, *w);
                         }
-
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),
@@ -1581,8 +1642,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_div_s();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if w.is_signed() {
+                                func.instructions().i64_div_s();
+                            } else {
+                                func.instructions().i64_div_u();
+                            }
+                        } else if w.is_signed() {
+                            func.instructions().i32_div_s();
+                        } else {
+                            func.instructions().i32_div_u();
+                        }
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Divide({lhs:?}, {rhs:?})"))),
@@ -1598,8 +1669,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_rem_s();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if w.is_signed() {
+                                func.instructions().i64_rem_s();
+                            } else {
+                                func.instructions().i64_rem_u();
+                            }
+                        } else if w.is_signed() {
+                            func.instructions().i32_rem_s();
+                        } else {
+                            func.instructions().i32_rem_u();
+                        }
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Remainder({lhs:?}, {rhs:?})"))),
@@ -1610,12 +1691,18 @@ impl Compiler {
                 expr: inner,
             } => {
                 // `-x` compiles to `0 - x`.
-                func.instructions().i64_const(0);
-                self.visit_expr_stack(func, locals, inner.span, &inner.node)?;
                 match &inner.node.ty {
-                    Type::Int => {
+                    Type::Int(w) if w.is_64bit() => {
+                        func.instructions().i64_const(0);
+                        self.visit_expr_stack(func, locals, inner.span, &inner.node)?;
                         func.instructions().i64_sub();
-                        assert_eq!(expr.ty, Type::Int);
+                        Ok(())
+                    }
+                    Type::Int(w) => {
+                        func.instructions().i32_const(0);
+                        self.visit_expr_stack(func, locals, inner.span, &inner.node)?;
+                        func.instructions().i32_sub();
+                        self.emit_truncate(func, *w);
                         Ok(())
                     }
                     lhs => Err(self.todo(format!("Negate({lhs:?})"))),
@@ -1646,8 +1733,12 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_eq();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            func.instructions().i64_eq();
+                        } else {
+                            func.instructions().i32_eq();
+                        }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -1669,8 +1760,12 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_ne();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            func.instructions().i64_ne();
+                        } else {
+                            func.instructions().i32_ne();
+                        }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -1692,8 +1787,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_lt_s();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if w.is_signed() {
+                                func.instructions().i64_lt_s();
+                            } else {
+                                func.instructions().i64_lt_u();
+                            }
+                        } else if w.is_signed() {
+                            func.instructions().i32_lt_s();
+                        } else {
+                            func.instructions().i32_lt_u();
+                        }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -1715,8 +1820,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_gt_s();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if w.is_signed() {
+                                func.instructions().i64_gt_s();
+                            } else {
+                                func.instructions().i64_gt_u();
+                            }
+                        } else if w.is_signed() {
+                            func.instructions().i32_gt_s();
+                        } else {
+                            func.instructions().i32_gt_u();
+                        }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -1738,8 +1853,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_le_s();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if w.is_signed() {
+                                func.instructions().i64_le_s();
+                            } else {
+                                func.instructions().i64_le_u();
+                            }
+                        } else if w.is_signed() {
+                            func.instructions().i32_le_s();
+                        } else {
+                            func.instructions().i32_le_u();
+                        }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -1761,8 +1886,18 @@ impl Compiler {
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
-                    (Type::Int, Type::Int) => {
-                        func.instructions().i64_ge_s();
+                    (Type::Int(w), Type::Int(_)) => {
+                        if w.is_64bit() {
+                            if w.is_signed() {
+                                func.instructions().i64_ge_s();
+                            } else {
+                                func.instructions().i64_ge_u();
+                            }
+                        } else if w.is_signed() {
+                            func.instructions().i32_ge_s();
+                        } else {
+                            func.instructions().i32_ge_u();
+                        }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -1771,7 +1906,7 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => Err(self.todo(format!("GreaterEqual({lhs:?}, {rhs:?})"))),
                 }
             }
             // Short-circuiting operators
@@ -2404,7 +2539,8 @@ impl Compiler {
                             },
                         );
                     }
-                    Type::Int => {
+                    Type::Int(w) => {
+                        let is_64bit = w.is_64bit();
                         self.emit_simple_switch(
                             func,
                             locals,
@@ -2418,11 +2554,16 @@ impl Compiler {
                             result_base,
                             result_count,
                             outer_depth,
-                            |func_inst, ctor, base| {
+                            move |func_inst, ctor, base| {
                                 if let Ctor::IntLiteral(n) = ctor {
                                     func_inst.local_get(base);
-                                    func_inst.i64_const(*n);
-                                    func_inst.i64_ne();
+                                    if is_64bit {
+                                        func_inst.i64_const(*n as i64);
+                                        func_inst.i64_ne();
+                                    } else {
+                                        func_inst.i32_const(*n as i32);
+                                        func_inst.i32_ne();
+                                    }
                                     func_inst.br_if(0);
                                 }
                             },

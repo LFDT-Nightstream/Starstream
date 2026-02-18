@@ -11,6 +11,88 @@ use std::fmt;
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
+/// Integer width and signedness.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum IntWidth {
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+}
+
+impl IntWidth {
+    pub fn is_signed(self) -> bool {
+        matches!(
+            self,
+            IntWidth::I8 | IntWidth::I16 | IntWidth::I32 | IntWidth::I64
+        )
+    }
+
+    pub fn bit_width(self) -> u32 {
+        match self {
+            IntWidth::I8 | IntWidth::U8 => 8,
+            IntWidth::I16 | IntWidth::U16 => 16,
+            IntWidth::I32 | IntWidth::U32 => 32,
+            IntWidth::I64 | IntWidth::U64 => 64,
+        }
+    }
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            IntWidth::I8 => "i8",
+            IntWidth::I16 => "i16",
+            IntWidth::I32 => "i32",
+            IntWidth::I64 => "i64",
+            IntWidth::U8 => "u8",
+            IntWidth::U16 => "u16",
+            IntWidth::U32 => "u32",
+            IntWidth::U64 => "u64",
+        }
+    }
+
+    pub fn min_value(self) -> i128 {
+        match self {
+            IntWidth::I8 => i8::MIN as i128,
+            IntWidth::I16 => i16::MIN as i128,
+            IntWidth::I32 => i32::MIN as i128,
+            IntWidth::I64 => i64::MIN as i128,
+            IntWidth::U8 | IntWidth::U16 | IntWidth::U32 | IntWidth::U64 => 0,
+        }
+    }
+
+    pub fn max_value(self) -> i128 {
+        match self {
+            IntWidth::I8 => i8::MAX as i128,
+            IntWidth::I16 => i16::MAX as i128,
+            IntWidth::I32 => i32::MAX as i128,
+            IntWidth::I64 => i64::MAX as i128,
+            IntWidth::U8 => u8::MAX as i128,
+            IntWidth::U16 => u16::MAX as i128,
+            IntWidth::U32 => u32::MAX as i128,
+            IntWidth::U64 => u64::MAX as i128,
+        }
+    }
+
+    pub fn fits(self, value: i128) -> bool {
+        value >= self.min_value() && value <= self.max_value()
+    }
+
+    pub fn is_64bit(self) -> bool {
+        matches!(self, IntWidth::I64 | IntWidth::U64)
+    }
+
+    pub fn is_sub32(self) -> bool {
+        matches!(
+            self,
+            IntWidth::I8 | IntWidth::I16 | IntWidth::U8 | IntWidth::U16
+        )
+    }
+}
+
 /// Effect kind for functions - tracks whether a function performs side effects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum EffectKind {
@@ -71,8 +153,8 @@ impl GenericTypeDef {
 pub enum Type {
     /// An unknown type represented by a type variable.
     Var(TypeVarId),
-    /// 64-bit signed integer.
-    Int,
+    /// Integer type with width and signedness.
+    Int(IntWidth),
     /// Boolean.
     Bool,
     /// Unit `()` value used for statement expressions and other places that
@@ -106,7 +188,11 @@ impl Type {
     }
 
     pub fn int() -> Self {
-        Type::Int
+        Type::Int(IntWidth::I64)
+    }
+
+    pub fn int_of(w: IntWidth) -> Self {
+        Type::Int(w)
     }
 
     /// Canonical record type helper.
@@ -183,7 +269,7 @@ impl Type {
     fn to_doc(&self, mode: TypeDocMode, params: &HashMap<TypeVarId, String>) -> RcDoc<'static, ()> {
         match self {
             Type::Var(id) => RcDoc::text(params.get(id).cloned().unwrap_or_else(|| id.as_str())),
-            Type::Int => RcDoc::text("i64"),
+            Type::Int(w) => RcDoc::text(w.display_name()),
             Type::Bool => RcDoc::text("bool"),
             Type::Unit => RcDoc::text("()"),
             Type::Function {

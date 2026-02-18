@@ -6,7 +6,8 @@ use std::{
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, Scheme, Span, Spanned, Type,
+    AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IntWidth, Scheme, Span,
+    Spanned, Type,
     TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal,
     UtxoPart,
     ast::{
@@ -190,6 +191,12 @@ pub fn typecheck_program(
         return Err(errors);
     }
 
+    // Default any unresolved integer type variables to i64.
+    inferencer.default_int_vars();
+
+    // Check range validity of integer literals against their resolved types.
+    inferencer.check_int_literal_ranges()?;
+
     let mut typed_program = TypedProgram::new(typed_definitions);
     inferencer.apply_substitutions_program(&mut typed_program);
 
@@ -214,6 +221,10 @@ struct Inferencer {
     capture_traces: bool,
     next_type_var: u32,
     subst: HashMap<TypeVarId, Type>,
+    /// Type variables constrained to integer types (from polymorphic integer literals).
+    int_vars: HashSet<TypeVarId>,
+    /// Tracks the literal value associated with each integer type variable for range checking.
+    int_literal_values: HashMap<TypeVarId, (i128, Span)>,
     types: TypeRegistry,
     functions: FunctionRegistry,
     events: EventRegistry,
@@ -323,6 +334,8 @@ impl Inferencer {
             capture_traces,
             next_type_var: 0,
             subst: HashMap::new(),
+            int_vars: HashSet::new(),
+            int_literal_values: HashMap::new(),
             types: TypeRegistry::new(),
             functions: FunctionRegistry::new(),
             events: EventRegistry::new(),
@@ -1207,7 +1220,7 @@ impl Inferencer {
             Pattern::Literal { value, span } => {
                 // Literal patterns must match the expected type
                 let literal_ty = match value {
-                    Literal::Integer(_) => Type::Int,
+                    Literal::Integer(_) => Type::int(),
                     Literal::Boolean(_) => Type::Bool,
                     Literal::Unit => Type::Unit,
                 };
@@ -1217,7 +1230,7 @@ impl Inferencer {
                     value_span,
                     *span,
                     TypeErrorKind::GeneralMismatch {
-                        expected: self.apply(&expected_ty),
+                        expected: self.apply_for_display(&expected_ty),
                         found: literal_ty.clone(),
                     },
                 )?;
@@ -1236,7 +1249,7 @@ impl Inferencer {
                     enum_name.span(),
                     TypeErrorKind::PatternEnumMismatch {
                         enum_name: enum_name.name.clone(),
-                        found: self.apply(&expected_ty),
+                        found: self.apply_for_display(&expected_ty),
                     },
                 )?;
                 let mut traces = vec![unify_trace];
@@ -1595,8 +1608,8 @@ impl Inferencer {
                         value.span,
                         TypeErrorKind::AssignmentMismatch {
                             name: name.name.clone(),
-                            expected: self.apply(&expected_type),
-                            found: self.apply(&value_type),
+                            expected: self.apply_for_display(&expected_type),
+                            found: self.apply_for_display(&value_type),
                         },
                     )?;
                     value_type = new_value_type;
@@ -1664,8 +1677,8 @@ impl Inferencer {
                     target.span_or(value.span),
                     TypeErrorKind::AssignmentMismatch {
                         name: target.name.clone(),
-                        expected: self.apply(&expected_type),
-                        found: self.apply(&actual_type),
+                        expected: self.apply_for_display(&expected_type),
+                        found: self.apply_for_display(&actual_type),
                     },
                 )?;
 
@@ -1698,8 +1711,8 @@ impl Inferencer {
                             expr.span,
                             ctx.return_span,
                             TypeErrorKind::ReturnMismatch {
-                                expected: self.apply(&ctx.expected_return),
-                                found: self.apply(&actual_type),
+                                expected: self.apply_for_display(&ctx.expected_return),
+                                found: self.apply_for_display(&actual_type),
                             },
                         )?;
                         ctx.saw_return = true;
@@ -1720,8 +1733,8 @@ impl Inferencer {
                             ctx.return_span,
                             ctx.return_span,
                             TypeErrorKind::ReturnMismatch {
-                                expected: self.apply(&ctx.expected_return),
-                                found: self.apply(&unit),
+                                expected: self.apply_for_display(&ctx.expected_return),
+                                found: self.apply_for_display(&unit),
                             },
                         )?;
                         ctx.saw_return = true;
@@ -1807,8 +1820,8 @@ impl Inferencer {
                     expr.span,
                     ctx.return_span,
                     TypeErrorKind::ReturnMismatch {
-                        expected: self.apply(&ctx.expected_return),
-                        found: self.apply(&actual),
+                        expected: self.apply_for_display(&ctx.expected_return),
+                        found: self.apply_for_display(&actual),
                     },
                 )?;
                 children.push(unify_trace);
@@ -1842,11 +1855,17 @@ impl Inferencer {
         match &expr.node {
             Expr::Literal(lit) => {
                 let (ty, kind, rule) = match lit {
-                    Literal::Integer(value) => (
-                        Type::int(),
-                        TypedExprKind::Literal(Literal::Integer(*value)),
-                        "T-Int",
-                    ),
+                    Literal::Integer(value) => {
+                        let ty = self.fresh_int_var();
+                        if let Type::Var(id) = &ty {
+                            self.int_literal_values.insert(*id, (*value, expr.span));
+                        }
+                        (
+                            ty,
+                            TypedExprKind::Literal(Literal::Integer(*value)),
+                            "T-Int",
+                        )
+                    }
                     Literal::Boolean(value) => (
                         Type::bool(),
                         TypedExprKind::Literal(Literal::Boolean(*value)),
@@ -1900,17 +1919,51 @@ impl Inferencer {
             Expr::Unary { op, expr: inner } => {
                 let (typed_inner, inner_trace) = self.infer_expr(env, inner, ctx)?;
                 let check = match op {
-                    UnaryOp::Negate => self.require_is(
-                        &typed_inner.node.ty,
-                        Type::int(),
-                        inner.span,
-                        inner.span,
-                        TypeErrorKind::UnaryMismatch {
-                            op: *op,
-                            expected: Type::int(),
-                            found: self.apply(&typed_inner.node.ty),
-                        },
-                    )?,
+                    UnaryOp::Negate => {
+                        let inner_ty = self.apply(&typed_inner.node.ty);
+                        match &inner_ty {
+                            Type::Int(w) if w.is_signed() => {
+                                // Concrete signed int type — OK
+                                let subject =
+                                    self.maybe_string(|| self.format_type(&inner_ty).to_string());
+                                let result = self.maybe_string(|| "ok (signed int)".to_string());
+                                self.make_trace("Check-Negate", None, subject, result, Vec::new)
+                            }
+                            Type::Int(w) => {
+                                // Unsigned int — error
+                                return Err(TypeError::new(
+                                    TypeErrorKind::UnaryMismatch {
+                                        op: *op,
+                                        expected: Type::int(),
+                                        found: Type::Int(*w),
+                                    },
+                                    inner.span,
+                                )
+                                .with_primary_message(format!(
+                                    "cannot negate unsigned type `{}`",
+                                    w.display_name()
+                                )));
+                            }
+                            Type::Var(id) if self.int_vars.contains(id) => {
+                                // Int-constrained var (polymorphic literal) — allow for now,
+                                // signedness will be checked when the type resolves
+                                let subject =
+                                    self.maybe_string(|| self.format_type(&inner_ty).to_string());
+                                let result = self.maybe_string(|| "ok (int var)".to_string());
+                                self.make_trace("Check-Negate", None, subject, result, Vec::new)
+                            }
+                            _ => {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::UnaryMismatch {
+                                        op: *op,
+                                        expected: Type::int(),
+                                        found: inner_ty,
+                                    },
+                                    inner.span,
+                                ));
+                            }
+                        }
+                    }
                     UnaryOp::Not => self.require_is(
                         &typed_inner.node.ty,
                         Type::bool(),
@@ -1919,7 +1972,7 @@ impl Inferencer {
                         TypeErrorKind::UnaryMismatch {
                             op: *op,
                             expected: Type::bool(),
-                            found: self.apply(&typed_inner.node.ty),
+                            found: self.apply_for_display(&typed_inner.node.ty),
                         },
                     )?,
                 };
@@ -1966,8 +2019,7 @@ impl Inferencer {
                     | BinaryOp::Multiply
                     | BinaryOp::Divide
                     | BinaryOp::Remainder => {
-                        let both_int =
-                            matches!(&left_ty, Type::Int) && matches!(&right_ty, Type::Int);
+                        let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
                         if !both_int {
                             let left_repr = self.format_type(&left_ty);
                             let right_repr = self.format_type(&right_ty);
@@ -1983,29 +2035,20 @@ impl Inferencer {
                             .with_secondary(right_label_span, format!("has type `{right_repr}`")));
                         }
 
-                        children.push(self.require_is(
-                            &typed_left.node.ty,
-                            Type::int(),
+                        // Unify left and right to ensure same int width
+                        let (unified_ty, unify_trace) = self.unify(
+                            left_ty.clone(),
+                            right_ty.clone(),
                             left_label_span,
-                            left_label_span,
-                            TypeErrorKind::BinaryOperandMismatch {
-                                op: *op,
-                                left: self.apply(&typed_left.node.ty),
-                                right: self.apply(&typed_right.node.ty),
-                            },
-                        )?);
-                        children.push(self.require_is(
-                            &typed_right.node.ty,
-                            Type::int(),
-                            right_label_span,
                             right_label_span,
                             TypeErrorKind::BinaryOperandMismatch {
                                 op: *op,
-                                left: self.apply(&typed_left.node.ty),
-                                right: self.apply(&typed_right.node.ty),
+                                left: self.apply_for_display(&typed_left.node.ty),
+                                right: self.apply_for_display(&typed_right.node.ty),
                             },
-                        )?);
-                        Type::int()
+                        )?;
+                        children.push(unify_trace);
+                        unified_ty
                     }
                     BinaryOp::Less
                     | BinaryOp::LessEqual
@@ -2057,8 +2100,8 @@ impl Inferencer {
                             left_label_span,
                             TypeErrorKind::BinaryOperandMismatch {
                                 op: *op,
-                                left: self.apply(&typed_left.node.ty),
-                                right: self.apply(&typed_right.node.ty),
+                                left: self.apply_for_display(&typed_left.node.ty),
+                                right: self.apply_for_display(&typed_right.node.ty),
                             },
                         )?);
                         children.push(self.require_is(
@@ -2068,8 +2111,8 @@ impl Inferencer {
                             right_label_span,
                             TypeErrorKind::BinaryOperandMismatch {
                                 op: *op,
-                                left: self.apply(&typed_left.node.ty),
-                                right: self.apply(&typed_right.node.ty),
+                                left: self.apply_for_display(&typed_left.node.ty),
+                                right: self.apply_for_display(&typed_right.node.ty),
                             },
                         )?);
                         Type::bool()
@@ -2174,7 +2217,7 @@ impl Inferencer {
                         field.name.span_or(field.value.span),
                         TypeErrorKind::GeneralMismatch {
                             expected: expected_ty,
-                            found: self.apply(&actual_ty),
+                            found: self.apply_for_display(&actual_ty),
                         },
                     )?;
                     children.push(value_trace);
@@ -2218,7 +2261,7 @@ impl Inferencer {
             }
             Expr::FieldAccess { target, field } => {
                 let (typed_target, target_trace) = self.infer_expr(env, target, ctx)?;
-                let target_ty = self.apply(&typed_target.node.ty);
+                let target_ty = self.apply_for_display(&typed_target.node.ty);
                 let field_ty = match target_ty.clone() {
                     Type::Record(record) => record
                         .fields
@@ -2361,7 +2404,7 @@ impl Inferencer {
                             arg.span,
                             TypeErrorKind::ArgumentTypeMismatch {
                                 expected: expected_ty.clone(),
-                                found: self.apply(&actual_ty),
+                                found: self.apply_for_display(&actual_ty),
                                 position: index + 1,
                                 param_span: None,
                             },
@@ -2499,7 +2542,7 @@ impl Inferencer {
                                 variant.span_or(expr.span),
                                 TypeErrorKind::GeneralMismatch {
                                     expected: expected_ty.clone(),
-                                    found: self.apply(&actual_ty),
+                                    found: self.apply_for_display(&actual_ty),
                                 },
                             )?;
                             children.push(value_trace);
@@ -2555,7 +2598,7 @@ impl Inferencer {
                                 field.name.span_or(field.value.span),
                                 TypeErrorKind::GeneralMismatch {
                                     expected: expected_field.ty.clone(),
-                                    found: self.apply(&actual_ty),
+                                    found: self.apply_for_display(&actual_ty),
                                 },
                             )?;
                             children.push(value_trace);
@@ -2671,7 +2714,7 @@ impl Inferencer {
                             expr.span,
                             TypeErrorKind::GeneralMismatch {
                                 expected: current,
-                                found: self.apply(&then_ty),
+                                found: self.apply_for_display(&then_ty),
                             },
                         )?;
                         children.push(unify_trace);
@@ -2707,7 +2750,7 @@ impl Inferencer {
                         expr.span,
                         TypeErrorKind::GeneralMismatch {
                             expected: current,
-                            found: self.apply(&else_ty),
+                            found: self.apply_for_display(&else_ty),
                         },
                     )?;
                     children.push(unify_trace);
@@ -2821,7 +2864,7 @@ impl Inferencer {
             }
             Expr::Call { callee, args } => {
                 let (typed_callee, callee_trace) = self.infer_expr(env, callee, ctx)?;
-                let callee_ty = self.apply(&typed_callee.node.ty);
+                let callee_ty = self.apply_for_display(&typed_callee.node.ty);
 
                 let callee_name = if let TypedExprKind::Identifier(Identifier { name, .. }) =
                     &typed_callee.node.kind
@@ -2921,7 +2964,7 @@ impl Inferencer {
                         arg.span,
                         TypeErrorKind::ArgumentTypeMismatch {
                             expected: expected_ty.clone(),
-                            found: self.apply(&actual_ty),
+                            found: self.apply_for_display(&actual_ty),
                             position: index + 1,
                             param_span,
                         },
@@ -2994,7 +3037,7 @@ impl Inferencer {
                         TypeErrorKind::EventArgumentTypeMismatch {
                             event_name: event_name.clone(),
                             expected: expected_ty.clone(),
-                            found: self.apply(&actual_ty),
+                            found: self.apply_for_display(&actual_ty),
                             position: index + 1,
                             param_span,
                         },
@@ -3176,7 +3219,14 @@ impl Inferencer {
         }
 
         match annotation.name.name.as_str() {
+            "i8" => Ok(Type::int_of(IntWidth::I8)),
+            "i16" => Ok(Type::int_of(IntWidth::I16)),
+            "i32" => Ok(Type::int_of(IntWidth::I32)),
             "i64" => Ok(Type::int()),
+            "u8" => Ok(Type::int_of(IntWidth::U8)),
+            "u16" => Ok(Type::int_of(IntWidth::U16)),
+            "u32" => Ok(Type::int_of(IntWidth::U32)),
+            "u64" => Ok(Type::int_of(IntWidth::U64)),
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
@@ -3207,7 +3257,7 @@ impl Inferencer {
         span: Span,
         context: ConditionContext,
     ) -> Result<InferenceTree, TypeError> {
-        let applied = self.apply(ty);
+        let applied = self.apply_for_display(ty);
         if matches!(&applied, Type::Bool) {
             let subject = self.maybe_string(|| self.format_type(&applied));
             Ok(self.make_trace(
@@ -3250,19 +3300,33 @@ impl Inferencer {
         right: &Spanned<TypedExpr>,
         right_span: Span,
     ) -> Result<InferenceTree, TypeError> {
-        let left_ty = self.apply(&left.node.ty);
-        let right_ty = self.apply(&right.node.ty);
+        let left_ty = self.apply_for_display(&left.node.ty);
+        let right_ty = self.apply_for_display(&right.node.ty);
 
-        if matches!(&left_ty, Type::Int) && matches!(&right_ty, Type::Int) {
+        let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
+
+        if both_int {
+            // Unify to ensure same int width
+            let (unified_ty, unify_trace) = self.unify(
+                left_ty.clone(),
+                right_ty.clone(),
+                left_span,
+                right_span,
+                TypeErrorKind::BinaryOperandMismatch {
+                    op: *op,
+                    left: left_ty.clone(),
+                    right: right_ty.clone(),
+                },
+            )?;
             let subject = self.maybe_string(|| {
                 format!(
                     "{} vs {}",
                     self.format_type(&left_ty),
-                    self.format_type(&right_ty)
+                    self.format_type(&unified_ty)
                 )
             });
             let result = self.maybe_string(|| "ok (int)".to_string());
-            Ok(self.make_trace("Check-Compare", None, subject, result, Vec::new))
+            Ok(self.make_trace("Check-Compare", None, subject, result, || vec![unify_trace]))
         } else if matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool) {
             let subject = self.maybe_string(|| {
                 format!(
@@ -3299,12 +3363,34 @@ impl Inferencer {
         right: &Spanned<TypedExpr>,
         right_span: Span,
     ) -> Result<InferenceTree, TypeError> {
-        let left_ty = self.apply(&left.node.ty);
-        let right_ty = self.apply(&right.node.ty);
+        let left_ty = self.apply_for_display(&left.node.ty);
+        let right_ty = self.apply_for_display(&right.node.ty);
 
-        if (matches!(&left_ty, Type::Int) && matches!(&right_ty, Type::Int))
-            || (matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool))
-        {
+        let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
+
+        if both_int {
+            // Unify to ensure same int width
+            let (unified_ty, unify_trace) = self.unify(
+                left_ty.clone(),
+                right_ty.clone(),
+                left_span,
+                right_span,
+                TypeErrorKind::BinaryOperandMismatch {
+                    op: *op,
+                    left: left_ty.clone(),
+                    right: right_ty.clone(),
+                },
+            )?;
+            let subject = self.maybe_string(|| {
+                format!(
+                    "{} vs {}",
+                    self.format_type(&left_ty),
+                    self.format_type(&unified_ty)
+                )
+            });
+            let result = self.maybe_string(|| "ok".to_string());
+            Ok(self.make_trace("Check-Eq", None, subject, result, || vec![unify_trace]))
+        } else if matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool) {
             let subject = self.maybe_string(|| {
                 format!(
                     "{} vs {}",
@@ -3328,6 +3414,77 @@ impl Inferencer {
                 right_span,
                 format!("has type `{}`", right_ty.to_compact_string()),
             ))
+        }
+    }
+
+    /// Normalize a type for use in user-facing error messages.
+    ///
+    /// Like [`apply`], but also defaults unresolved int-constrained type
+    /// variables to `i64` so that error messages show a concrete type name
+    /// instead of an internal type variable like `t3`.
+    fn apply_for_display(&self, ty: &Type) -> Type {
+        match ty {
+            Type::Var(id) => match self.subst.get(id) {
+                Some(ty) => self.apply_for_display(ty),
+                None if self.int_vars.contains(id) => Type::int(),
+                None => Type::Var(*id),
+            },
+            Type::Function {
+                params,
+                result,
+                effect,
+            } => Type::Function {
+                params: params.iter().map(|t| self.apply_for_display(t)).collect(),
+                result: Box::new(self.apply_for_display(result)),
+                effect: *effect,
+            },
+            Type::Tuple(items) => {
+                Type::Tuple(items.iter().map(|t| self.apply_for_display(t)).collect())
+            }
+            Type::Record(record) => Type::Record(RecordType {
+                name: record.name.clone(),
+                fields: record
+                    .fields
+                    .iter()
+                    .map(|field| TypeRecordField {
+                        name: field.name.clone(),
+                        ty: self.apply_for_display(&field.ty),
+                    })
+                    .collect(),
+            }),
+            Type::Enum(enum_type) => Type::Enum(EnumType {
+                name: enum_type.name.clone(),
+                type_args: enum_type
+                    .type_args
+                    .iter()
+                    .map(|t| self.apply_for_display(t))
+                    .collect(),
+                variants: enum_type
+                    .variants
+                    .iter()
+                    .map(|variant| TypeEnumVariant {
+                        name: variant.name.clone(),
+                        kind: match &variant.kind {
+                            TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
+                            TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
+                                payload.iter().map(|ty| self.apply_for_display(ty)).collect(),
+                            ),
+                            TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
+                                fields
+                                    .iter()
+                                    .map(|field| {
+                                        TypeRecordField::new(
+                                            field.name.clone(),
+                                            self.apply_for_display(&field.ty),
+                                        )
+                                    })
+                                    .collect(),
+                            ),
+                        },
+                    })
+                    .collect(),
+            }),
+            _ => ty.clone(),
         }
     }
 
@@ -3391,7 +3548,7 @@ impl Inferencer {
                     .map(|ty| self.apply(ty))
                     .collect(),
             }),
-            Type::Int => Type::Int,
+            Type::Int(w) => Type::Int(*w),
             Type::Bool => Type::Bool,
             Type::Unit => Type::Unit,
         }
@@ -3538,7 +3695,9 @@ impl Inferencer {
         let applied = self.apply(ty);
         let mut ty_free = free_type_vars_type(&applied);
         let env_free = env.free_type_vars();
-        ty_free.retain(|var| !env_free.contains(var));
+        // Don't quantify int-constrained vars — they should stay monomorphic
+        // so that all uses share the same int type variable.
+        ty_free.retain(|var| !env_free.contains(var) && !self.int_vars.contains(var));
         let mut vars: Vec<_> = ty_free.into_iter().collect();
         vars.sort();
         Scheme { vars, ty: applied }
@@ -3562,6 +3721,48 @@ impl Inferencer {
 
     fn fresh_var(&mut self) -> Type {
         Type::Var(self.fresh_var_id())
+    }
+
+    /// Create a fresh type variable constrained to integer types.
+    /// Used for polymorphic integer literals.
+    fn fresh_int_var(&mut self) -> Type {
+        let id = self.fresh_var_id();
+        self.int_vars.insert(id);
+        Type::Var(id)
+    }
+
+    /// Default any unresolved integer type variables to `i64`.
+    fn default_int_vars(&mut self) {
+        for &id in &self.int_vars {
+            let resolved = self.apply(&Type::Var(id));
+            if matches!(resolved, Type::Var(_)) {
+                self.subst.insert(id, Type::int());
+            }
+        }
+    }
+
+    /// Check that all integer literals fit within the range of their resolved type.
+    fn check_int_literal_ranges(&self) -> Result<(), Vec<TypeError>> {
+        let mut errors = Vec::new();
+        for (&id, &(value, span)) in &self.int_literal_values {
+            let resolved = self.apply(&Type::Var(id));
+            if let Type::Int(w) = resolved
+                && !w.fits(value)
+            {
+                errors.push(TypeError::new(
+                    TypeErrorKind::LiteralOutOfRange {
+                        value,
+                        ty: Type::Int(w),
+                    },
+                    span,
+                ));
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     /// Render the current environment snapshot into a deterministic string.
@@ -3711,7 +3912,9 @@ impl Inferencer {
         right: Type,
     ) -> Result<(Type, Vec<InferenceTree>, &'static str), ()> {
         match (left.clone(), right.clone()) {
-            (Type::Int, Type::Int) => Ok((Type::Int, Vec::new(), "Unify-Const")),
+            (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
+                Ok((Type::Int(w1), Vec::new(), "Unify-Const"))
+            }
             (Type::Bool, Type::Bool) => Ok((Type::Bool, Vec::new(), "Unify-Const")),
             (Type::Unit, Type::Unit) => Ok((Type::Unit, Vec::new(), "Unify-Const")),
             (Type::Tuple(ls), Type::Tuple(rs)) if ls.len() == rs.len() => {
@@ -3807,6 +4010,22 @@ impl Inferencer {
                 if occurs_in(id, &ty, &self.subst) {
                     return Err(());
                 }
+                // If this var is int-constrained, verify the target is an int type
+                // or propagate the constraint to another var.
+                if self.int_vars.contains(&id) {
+                    match &ty {
+                        Type::Int(_) => {} // OK
+                        Type::Var(other_id) => {
+                            // Propagate int constraint to the other var
+                            self.int_vars.insert(*other_id);
+                            // Also propagate literal value tracking if present
+                            if let Some(val) = self.int_literal_values.get(&id).copied() {
+                                self.int_literal_values.entry(*other_id).or_insert(val);
+                            }
+                        }
+                        _ => return Err(()),
+                    }
+                }
                 self.subst.insert(id, ty.clone());
                 Ok((ty, Vec::new(), "Unify-Var"))
             }
@@ -3816,6 +4035,20 @@ impl Inferencer {
                 }
                 if occurs_in(id, &ty, &self.subst) {
                     return Err(());
+                }
+                // If this var is int-constrained, verify the target is an int type
+                // or propagate the constraint to another var.
+                if self.int_vars.contains(&id) {
+                    match &ty {
+                        Type::Int(_) => {} // OK
+                        Type::Var(other_id) => {
+                            self.int_vars.insert(*other_id);
+                            if let Some(val) = self.int_literal_values.get(&id).copied() {
+                                self.int_literal_values.entry(*other_id).or_insert(val);
+                            }
+                        }
+                        _ => return Err(()),
+                    }
                 }
                 self.subst.insert(id, ty.clone());
                 Ok((ty, Vec::new(), "Unify-Var"))
@@ -3844,7 +4077,9 @@ impl Inferencer {
         };
 
         let (result_ty, children, rule) = match (left.clone(), right.clone()) {
-            (Type::Int, Type::Int) => (Type::Int, Vec::new(), "Unify-Const"),
+            (Type::Int(w1), Type::Int(w2)) if w1 == w2 => {
+                (Type::Int(w1), Vec::new(), "Unify-Const")
+            }
             (Type::Bool, Type::Bool) => (Type::Bool, Vec::new(), "Unify-Const"),
             (Type::Unit, Type::Unit) => (Type::Unit, Vec::new(), "Unify-Const"),
             (Type::Tuple(ls), Type::Tuple(rs)) => {
@@ -4062,6 +4297,15 @@ impl Inferencer {
         Ok((result_ty, tree))
     }
 
+    /// Returns `true` if `ty` is either a concrete `Type::Int(_)` or an int-constrained type variable.
+    fn is_int_like(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Int(_) => true,
+            Type::Var(id) => self.int_vars.contains(id),
+            _ => false,
+        }
+    }
+
     fn bind(
         &mut self,
         var: TypeVarId,
@@ -4077,6 +4321,26 @@ impl Inferencer {
         if occurs_in(var, &ty, &self.subst) {
             return Err(TypeError::new(kind, var_span)
                 .with_secondary(other_span, "would create an infinite type"));
+        }
+
+        // If this var is int-constrained, verify the target is an int type
+        // or propagate the constraint to another var.
+        if self.int_vars.contains(&var) {
+            match &ty {
+                Type::Int(_) => {} // OK — concrete int type
+                Type::Var(other_id) => {
+                    // Propagate int constraint to the other var
+                    self.int_vars.insert(*other_id);
+                    // Also propagate literal value tracking if present
+                    if let Some(val) = self.int_literal_values.get(&var).copied() {
+                        self.int_literal_values.entry(*other_id).or_insert(val);
+                    }
+                }
+                _ => {
+                    return Err(TypeError::new(kind, var_span)
+                        .with_secondary(other_span, "expected an integer type"));
+                }
+            }
         }
 
         self.subst.insert(var, ty);
@@ -4152,7 +4416,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
         }),
-        Type::Int => Type::Int,
+        Type::Int(w) => Type::Int(*w),
         Type::Bool => Type::Bool,
         Type::Unit => Type::Unit,
     }
@@ -4191,7 +4455,7 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
                     fields.iter().any(|field| occurs_in(var, &field.ty, subst))
                 }
             }),
-        Type::Int | Type::Bool | Type::Unit => false,
+        Type::Int(_) | Type::Bool | Type::Unit => false,
     }
 }
 
@@ -4241,7 +4505,7 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
                 }
             }
         }
-        Type::Int | Type::Bool | Type::Unit => {}
+        Type::Int(_) | Type::Bool | Type::Unit => {}
     }
 }
 

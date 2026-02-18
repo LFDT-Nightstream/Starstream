@@ -313,6 +313,11 @@ pub enum TypeErrorKind {
     },
     /// A function was declared with a return type in a position where it shouldn't have one.
     ReturnTypeNotAllowed,
+    /// An integer literal is out of range for its resolved type.
+    LiteralOutOfRange {
+        value: i128,
+        ty: Type,
+    },
 }
 
 impl TypeErrorKind {
@@ -361,7 +366,8 @@ impl TypeErrorKind {
             TypeErrorKind::RuntimeRequiresRuntime => "E0040",
             TypeErrorKind::RuntimeWithoutKeyword { .. } => "E0041",
             TypeErrorKind::WrongGenericArity { .. } => "E0042",
-            TypeErrorKind::ReturnTypeNotAllowed { .. } => "E0043",
+            TypeErrorKind::ReturnTypeNotAllowed => "E0043",
+            TypeErrorKind::LiteralOutOfRange { .. } => "E0044",
         }
     }
 }
@@ -685,6 +691,13 @@ impl fmt::Display for TypeErrorKind {
             }
             TypeErrorKind::ReturnTypeNotAllowed => {
                 write!(f, "return type not allowed on this function")
+            }
+            TypeErrorKind::LiteralOutOfRange { value, ty } => {
+                write!(
+                    f,
+                    "integer literal `{value}` does not fit in type `{}`",
+                    ty.to_compact_string()
+                )
             }
         }
     }

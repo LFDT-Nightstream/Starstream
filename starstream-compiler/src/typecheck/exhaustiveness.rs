@@ -35,7 +35,7 @@ pub enum SimplePat {
 /// Simplified literal for exhaustiveness checking
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum SimpleLiteral {
-    Int(i64),
+    Int(i128),
     Bool(bool),
     Unit,
 }
@@ -79,7 +79,7 @@ impl CtorSet {
             // For primitive types (Int, Unit) and type variables, there are no constructors.
             // A wildcard pattern always covers these types completely.
             // We represent this as an empty constructor set.
-            Type::Int | Type::Unit | Type::Var(_) => Some(Self::infinite()),
+            Type::Int(_) | Type::Unit | Type::Var(_) => Some(Self::infinite()),
             Type::Function { .. } | Type::Tuple(_) => Some(Self::infinite()),
         }
     }
@@ -834,7 +834,7 @@ mod tests {
                     if arity == 0 {
                         EnumVariantType::unit(vname)
                     } else {
-                        EnumVariantType::tuple(vname, vec![Type::Int; arity])
+                        EnumVariantType::tuple(vname, vec![Type::int(); arity])
                     }
                 })
                 .collect(),

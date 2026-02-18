@@ -55,7 +55,7 @@ pub enum TypeKind {
 impl From<&Type> for TypeRef {
     fn from(ty: &Type) -> Self {
         match ty {
-            Type::Int => TypeRef::Primitive("i64".to_string()),
+            Type::Int(w) => TypeRef::Primitive(w.display_name().to_string()),
             Type::Bool => TypeRef::Primitive("bool".to_string()),
             Type::Unit => TypeRef::Primitive("()".to_string()),
             Type::Var(id) => TypeRef::Primitive(id.as_str()),

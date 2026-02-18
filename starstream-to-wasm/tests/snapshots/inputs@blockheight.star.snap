@@ -204,7 +204,9 @@ TypedProgram {
                             },
                             ty: Function {
                                 params: [],
-                                result: Int,
+                                result: Int(
+                                    I64,
+                                ),
                                 effect: Runtime,
                             },
                         },
@@ -238,24 +240,32 @@ TypedProgram {
                     span: 63..71,
                 },
                 params: [],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [
                         Expression(
                             Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Runtime {
                                         expr: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Call {
                                                     callee: Spanned {
                                                         node: TypedExpr {
                                                             ty: Function {
                                                                 params: [],
-                                                                result: Int,
+                                                                result: Int(
+                                                                    I64,
+                                                                ),
                                                                 effect: Runtime,
                                                             },
                                                             kind: Identifier(
@@ -281,17 +291,23 @@ TypedProgram {
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Runtime {
                                     expr: Spanned {
                                         node: TypedExpr {
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                             kind: Call {
                                                 callee: Spanned {
                                                     node: TypedExpr {
                                                         ty: Function {
                                                             params: [],
-                                                            result: Int,
+                                                            result: Int(
+                                                                I64,
+                                                            ),
                                                             effect: Runtime,
                                                         },
                                                         kind: Identifier(
@@ -326,20 +342,26 @@ TypedProgram {
                     span: 149..155,
                 },
                 params: [],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Call {
                                     callee: Spanned {
                                         node: TypedExpr {
                                             ty: Function {
                                                 params: [],
-                                                result: Int,
+                                                result: Int(
+                                                    I64,
+                                                ),
                                                 effect: Pure,
                                             },
                                             kind: Identifier(

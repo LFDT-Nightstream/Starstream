@@ -4,12 +4,12 @@ description: "Source:\n\nfn test() {\n    let flag = true;\n    let x = flag + 1
 ---
 E0006 (https://starstream.nightstream.dev/errors/E0006)
 
-  x binary `+` operands must match; found `bool` and `i64`
+  x binary `+` operands must match; found `bool` and `t3`
    ,-[test.star:3:13]
  2 |     let flag = true;
  3 |     let x = flag + 1;
    :             ^^|^   |
-   :               |    `-- has type `i64`
+   :               |    `-- has type `t3`
    :               `-- has type `bool`
  4 | }
    `----

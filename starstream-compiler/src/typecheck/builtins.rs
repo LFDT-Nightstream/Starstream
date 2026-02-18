@@ -95,7 +95,7 @@ impl BuiltinRegistry {
             "blockHeight".to_string(),
             BuiltinFunction {
                 params: vec![],
-                return_type: Type::Int,
+                return_type: Type::int(),
                 effect: EffectKind::Runtime,
             },
         );
@@ -105,7 +105,7 @@ impl BuiltinRegistry {
             "currentSlot".to_string(),
             BuiltinFunction {
                 params: vec![],
-                return_type: Type::Int,
+                return_type: Type::int(),
                 effect: EffectKind::Runtime,
             },
         );
@@ -129,7 +129,7 @@ mod tests {
             .expect("blockHeight should exist");
 
         assert_eq!(func.params, vec![]);
-        assert_eq!(func.return_type, Type::Int);
+        assert_eq!(func.return_type, Type::int());
         assert_eq!(func.effect, EffectKind::Runtime);
     }
 

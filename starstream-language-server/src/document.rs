@@ -1583,7 +1583,7 @@ impl DocumentState {
             let label = def.ty.display_with_params(&def.param_name_map());
             self.add_hover_label_with_doc(span, label, doc);
         } else {
-            let ty = self.enum_types.get(name).or_else(|| fallback_ty).cloned();
+            let ty = self.enum_types.get(name).or(fallback_ty).cloned();
             if let Some(ty) = ty {
                 self.add_hover_span_with_doc(span, &ty, doc);
             }

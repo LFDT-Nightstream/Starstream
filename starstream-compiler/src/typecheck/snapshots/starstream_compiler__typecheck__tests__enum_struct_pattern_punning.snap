@@ -73,6 +73,5 @@ T-Fn: add => i64
     Pong { x: i64 },
 }, x: i64} ⊢ a ⇒ Point
           Unify-Const: i64 ~ i64 => {}
-          Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
