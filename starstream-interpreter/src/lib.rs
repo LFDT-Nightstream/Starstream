@@ -80,7 +80,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         // Identifiers
         TypedExprKind::Identifier(Identifier { name, .. }) => locals.get(name),
         // Literals
-        TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i),
+        TypedExprKind::Literal(Literal::Integer(i)) => Value::Number(*i as i64),
         TypedExprKind::Literal(Literal::Boolean(b)) => Value::Boolean(*b),
         TypedExprKind::Literal(Literal::Unit) => Value::Unit,
         // Arithmetic operators
@@ -215,15 +215,15 @@ fn eval_math() {
     assert_eq!(
         eval(
             &TypedExpr::new(
-                Type::Int,
+                Type::int(),
                 TypedExprKind::Binary {
                     op: BinaryOp::Add,
                     left: Box::new(Spanned::none(TypedExpr::new(
-                        Type::Int,
+                        Type::int(),
                         TypedExprKind::Literal(Literal::Integer(17))
                     ))),
                     right: Box::new(Spanned::none(TypedExpr::new(
-                        Type::Int,
+                        Type::int(),
                         TypedExprKind::Literal(Literal::Integer(33))
                     ))),
                 },
@@ -244,22 +244,22 @@ fn eval_locals() {
                 mutable: true,
                 name: foo.clone(),
                 value: Spanned::none(TypedExpr::new(
-                    Type::Int,
+                    Type::int(),
                     TypedExprKind::Literal(Literal::Integer(6)),
                 )),
             },
             TypedStatement::Assignment {
                 target: foo.clone(),
                 value: Spanned::none(TypedExpr::new(
-                    Type::Int,
+                    Type::int(),
                     TypedExprKind::Binary {
                         op: BinaryOp::Multiply,
                         left: Box::new(Spanned::none(TypedExpr::new(
-                            Type::Int,
+                            Type::int(),
                             TypedExprKind::Identifier(foo.clone()),
                         ))),
                         right: Box::new(Spanned::none(TypedExpr::new(
-                            Type::Int,
+                            Type::int(),
                             TypedExprKind::Literal(Literal::Integer(3)),
                         ))),
                     },
@@ -268,7 +268,7 @@ fn eval_locals() {
             TypedStatement::Assignment {
                 target: bar.clone(),
                 value: Spanned::none(TypedExpr::new(
-                    Type::Int,
+                    Type::int(),
                     TypedExprKind::Identifier(foo.clone()),
                 )),
             },

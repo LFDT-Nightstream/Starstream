@@ -1,6 +1,6 @@
 ---
 source: starstream-to-wasm/tests/snapshots.rs
-input_file: starstream-to-wasm/tests/inputs/utxo_definition.star
+input_file: starstream-to-wasm/tests/inputs/enum_simple.star
 ---
 ==== AST ====
 Program {
@@ -88,7 +88,9 @@ TypedProgram {
                         },
                         payload: Tuple(
                             [
-                                Int,
+                                Int(
+                                    I64,
+                                ),
                             ],
                         ),
                     },
@@ -105,7 +107,9 @@ TypedProgram {
                                 name: "Pong",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },

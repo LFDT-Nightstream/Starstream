@@ -45,12 +45,11 @@ T-Fn: test => i64
           T-Int: {code: t6, r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
-}} ⊢ 0 ⇒ i64
+}} ⊢ 0 ⇒ t7
           T-Var: {code: t6, r: enum Result<i64, i64> {
     Ok(i64),
     Err(i64),
 }} ⊢ code ⇒ t6
-          Unify-Const: i64 ~ i64 => {}
-          Unify-Const: i64 ~ i64 => {}
+          Unify-Var: t7 ~ i64 => {i64/t7}
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

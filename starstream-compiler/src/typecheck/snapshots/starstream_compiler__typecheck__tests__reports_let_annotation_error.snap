@@ -5,11 +5,10 @@ description: "Source:\n\nfn test() {\n    let wrong: bool = 1;\n}\n"
 E0003 (https://starstream.nightstream.dev/errors/E0003)
 
   x cannot assign value of type `i64` to variable `wrong` of type `bool`
-   ,-[test.star:2:9]
+   ,-[test.star:2:23]
  1 | fn test() {
  2 |     let wrong: bool = 1;
-   :         ^^|^^         |
-   :           |           `-- has type `i64`
-   :           `-- has type `bool`
+   :         ^^|^^         ^
+   :           `-- expected an integer type
  3 | }
    `----

@@ -1061,13 +1061,13 @@ T-Fn: match_foo => i64
         Unify-Enum: Thing ~ Thing => {}
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
-      T-Tail: 0 => i64
+      T-Tail: 0 => t3
         T-Int: {b: bool, foo: enum Foo {
     Bar(bool),
     Baz(i64),
     Thing(Thing),
-}} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+}} ⊢ 0 ⇒ t3
+      Unify-Var: t3 ~ i64 => i64
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -1081,13 +1081,13 @@ T-Fn: match_foo => i64
     Thing(Thing),
 }, n: i64} ⊢ n ⇒ i64
       Unify-Const: i64 ~ i64 => i64
-      T-Tail: 2 => i64
+      T-Tail: 2 => t4
         T-Int: {foo: enum Foo {
     Bar(bool),
     Baz(i64),
     Thing(Thing),
-}} ⊢ 2 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+}} ⊢ 2 ⇒ t4
+      Unify-Var: t4 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: match_with_wildcard => i64
@@ -1098,7 +1098,7 @@ T-Fn: match_with_wildcard => i64
     _ => {
         0
     },
-} => i64
+} => t5
     T-Match: {foo: enum Foo {
     Bar(bool),
     Baz(i64),
@@ -1110,7 +1110,7 @@ T-Fn: match_with_wildcard => i64
     _ => {
         0
     },
-} ⇒ i64
+} ⇒ t5
       T-Var: {foo: enum Foo {
     Bar(bool),
     Baz(i64),
@@ -1122,20 +1122,20 @@ T-Fn: match_with_wildcard => i64
         Unify-Enum: Thing ~ Thing => {}
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
-      T-Tail: 1 => i64
+      T-Tail: 1 => t5
         T-Int: {b: bool, foo: enum Foo {
     Bar(bool),
     Baz(i64),
     Thing(Thing),
-}} ⊢ 1 ⇒ i64
-      T-Tail: 0 => i64
+}} ⊢ 1 ⇒ t5
+      T-Tail: 0 => t6
         T-Int: {foo: enum Foo {
     Bar(bool),
     Baz(i64),
     Thing(Thing),
-}} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
-    Unify-Const: i64 ~ i64 => {}
+}} ⊢ 0 ⇒ t6
+      Unify-Var: t6 ~ t5 => t5
+    Unify-Var: t5 ~ i64 => {i64/t5}
 
 T-Fn: match_literal => i64
   T-ReturnTail: match x {
@@ -1145,7 +1145,7 @@ T-Fn: match_literal => i64
     _ => {
         0
     },
-} => i64
+} => t7
     T-Match: {x: i64} ⊢ match x {
     42 => {
         1
@@ -1153,15 +1153,15 @@ T-Fn: match_literal => i64
     _ => {
         0
     },
-} ⇒ i64
+} ⇒ t7
       T-Var: {x: i64} ⊢ x ⇒ i64
       Unify-Const: i64 ~ i64 => {}
-      T-Tail: 1 => i64
-        T-Int: {x: i64} ⊢ 1 ⇒ i64
-      T-Tail: 0 => i64
-        T-Int: {x: i64} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
-    Unify-Const: i64 ~ i64 => {}
+      T-Tail: 1 => t7
+        T-Int: {x: i64} ⊢ 1 ⇒ t7
+      T-Tail: 0 => t8
+        T-Int: {x: i64} ⊢ 0 ⇒ t8
+      Unify-Var: t8 ~ t7 => t7
+    Unify-Var: t7 ~ i64 => {i64/t7}
 
 
 T-Fn: match_point => i64
@@ -1205,13 +1205,12 @@ T-Fn: match_point => i64
     Point { x: i64, y: i64 },
 }, x: i64, y: i64} ⊢ y ⇒ i64
           Unify-Const: i64 ~ i64 => {}
-          Unify-Const: i64 ~ i64 => {}
-      T-Tail: 0 => i64
+      T-Tail: 0 => t9
         T-Int: {msg: enum Message {
     Ping,
     Point { x: i64, y: i64 },
-}} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+}} ⊢ 0 ⇒ t9
+      Unify-Var: t9 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_bar => ()
@@ -1247,7 +1246,9 @@ TypedProgram {
                                 17..18,
                             ),
                         },
-                        ty: Int,
+                        ty: Int(
+                            I64,
+                        ),
                     },
                 ],
                 ty: Record(
@@ -1256,7 +1257,9 @@ TypedProgram {
                         fields: [
                             RecordFieldType {
                                 name: "x",
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                         ],
                     },
@@ -1287,7 +1290,9 @@ TypedProgram {
                                         fields: [
                                             RecordFieldType {
                                                 name: "x",
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                             },
                                         ],
                                     },
@@ -1319,7 +1324,9 @@ TypedProgram {
                                                 fields: [
                                                     RecordFieldType {
                                                         name: "x",
-                                                        ty: Int,
+                                                        ty: Int(
+                                                            I64,
+                                                        ),
                                                     },
                                                 ],
                                             },
@@ -1368,7 +1375,9 @@ TypedProgram {
                         },
                         payload: Tuple(
                             [
-                                Int,
+                                Int(
+                                    I64,
+                                ),
                             ],
                         ),
                     },
@@ -1395,7 +1404,9 @@ TypedProgram {
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: "x",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                 ],
                                                             },
@@ -1431,7 +1442,9 @@ TypedProgram {
                                 name: "Baz",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },
@@ -1453,7 +1466,9 @@ TypedProgram {
                                                                         fields: [
                                                                             RecordFieldType {
                                                                                 name: "x",
-                                                                                ty: Int,
+                                                                                ty: Int(
+                                                                                    I64,
+                                                                                ),
                                                                             },
                                                                         ],
                                                                     },
@@ -1511,7 +1526,9 @@ TypedProgram {
                                         name: "Baz",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -1533,7 +1550,9 @@ TypedProgram {
                                                                                 fields: [
                                                                                     RecordFieldType {
                                                                                         name: "x",
-                                                                                        ty: Int,
+                                                                                        ty: Int(
+                                                                                            I64,
+                                                                                        ),
                                                                                     },
                                                                                 ],
                                                                             },
@@ -1558,14 +1577,18 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Match {
                                     scrutinee: Spanned {
                                         node: TypedExpr {
@@ -1585,7 +1608,9 @@ TypedProgram {
                                                             name: "Baz",
                                                             kind: Tuple(
                                                                 [
-                                                                    Int,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
                                                                 ],
                                                             ),
                                                         },
@@ -1607,7 +1632,9 @@ TypedProgram {
                                                                                                     fields: [
                                                                                                         RecordFieldType {
                                                                                                             name: "x",
-                                                                                                            ty: Int,
+                                                                                                            ty: Int(
+                                                                                                                I64,
+                                                                                                            ),
                                                                                                         },
                                                                                                     ],
                                                                                                 },
@@ -1692,7 +1719,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: FieldAccess {
                                                                 target: Spanned {
                                                                     node: TypedExpr {
@@ -1702,7 +1731,9 @@ TypedProgram {
                                                                                 fields: [
                                                                                     RecordFieldType {
                                                                                         name: "x",
-                                                                                        ty: Int,
+                                                                                        ty: Int(
+                                                                                            I64,
+                                                                                        ),
                                                                                     },
                                                                                 ],
                                                                             },
@@ -1763,7 +1794,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     0,
@@ -1807,7 +1840,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Identifier(
                                                                 Identifier {
                                                                     name: "n",
@@ -1829,7 +1864,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     2,
@@ -1883,7 +1920,9 @@ TypedProgram {
                                         name: "Baz",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -1905,7 +1944,9 @@ TypedProgram {
                                                                                 fields: [
                                                                                     RecordFieldType {
                                                                                         name: "x",
-                                                                                        ty: Int,
+                                                                                        ty: Int(
+                                                                                            I64,
+                                                                                        ),
                                                                                     },
                                                                                 ],
                                                                             },
@@ -1930,14 +1971,18 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Match {
                                     scrutinee: Spanned {
                                         node: TypedExpr {
@@ -1957,7 +2002,9 @@ TypedProgram {
                                                             name: "Baz",
                                                             kind: Tuple(
                                                                 [
-                                                                    Int,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
                                                                 ],
                                                             ),
                                                         },
@@ -1979,7 +2026,9 @@ TypedProgram {
                                                                                                     fields: [
                                                                                                         RecordFieldType {
                                                                                                             name: "x",
-                                                                                                            ty: Int,
+                                                                                                            ty: Int(
+                                                                                                                I64,
+                                                                                                            ),
                                                                                                         },
                                                                                                     ],
                                                                                                 },
@@ -2046,7 +2095,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     1,
@@ -2065,7 +2116,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     0,
@@ -2103,21 +2156,29 @@ TypedProgram {
                                 569..570,
                             ),
                         },
-                        ty: Int,
+                        ty: Int(
+                            I64,
+                        ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Match {
                                     scrutinee: Spanned {
                                         node: TypedExpr {
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                             kind: Identifier(
                                                 Identifier {
                                                     name: "x",
@@ -2141,7 +2202,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     1,
@@ -2160,7 +2223,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     0,
@@ -2215,7 +2280,9 @@ TypedProgram {
                                             727..728,
                                         ),
                                     },
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                 },
                                 TypedStructField {
                                     name: Identifier {
@@ -2224,7 +2291,9 @@ TypedProgram {
                                             735..736,
                                         ),
                                     },
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                 },
                             ],
                         ),
@@ -2244,11 +2313,15 @@ TypedProgram {
                                     [
                                         RecordFieldType {
                                             name: "x",
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                         },
                                         RecordFieldType {
                                             name: "y",
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                         },
                                     ],
                                 ),
@@ -2290,11 +2363,15 @@ TypedProgram {
                                             [
                                                 RecordFieldType {
                                                     name: "x",
-                                                    ty: Int,
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
                                                 },
                                                 RecordFieldType {
                                                     name: "y",
-                                                    ty: Int,
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
                                                 },
                                             ],
                                         ),
@@ -2305,14 +2382,18 @@ TypedProgram {
                         ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Match {
                                     scrutinee: Spanned {
                                         node: TypedExpr {
@@ -2330,11 +2411,15 @@ TypedProgram {
                                                                 [
                                                                     RecordFieldType {
                                                                         name: "x",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                     RecordFieldType {
                                                                         name: "y",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                 ],
                                                             ),
@@ -2411,12 +2496,16 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Binary {
                                                                 op: Add,
                                                                 left: Spanned {
                                                                     node: TypedExpr {
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                         kind: Identifier(
                                                                             Identifier {
                                                                                 name: "x",
@@ -2430,7 +2519,9 @@ TypedProgram {
                                                                 },
                                                                 right: Spanned {
                                                                     node: TypedExpr {
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                         kind: Identifier(
                                                                             Identifier {
                                                                                 name: "y",
@@ -2456,7 +2547,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     0,
@@ -2496,7 +2589,9 @@ TypedProgram {
                         Expression(
                             Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
@@ -2518,7 +2613,9 @@ TypedProgram {
                                                                         name: "Baz",
                                                                         kind: Tuple(
                                                                             [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                             ],
                                                                         ),
                                                                     },
@@ -2540,7 +2637,9 @@ TypedProgram {
                                                                                                                 fields: [
                                                                                                                     RecordFieldType {
                                                                                                                         name: "x",
-                                                                                                                        ty: Int,
+                                                                                                                        ty: Int(
+                                                                                                                            I64,
+                                                                                                                        ),
                                                                                                                     },
                                                                                                                 ],
                                                                                                             },
@@ -2564,7 +2663,9 @@ TypedProgram {
                                                             },
                                                         ),
                                                     ],
-                                                    result: Int,
+                                                    result: Int(
+                                                        I64,
+                                                    ),
                                                     effect: Pure,
                                                 },
                                                 kind: Identifier(
@@ -2597,7 +2698,9 @@ TypedProgram {
                                                                     name: "Baz",
                                                                     kind: Tuple(
                                                                         [
-                                                                            Int,
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
                                                                         ],
                                                                     ),
                                                                 },
@@ -2619,7 +2722,9 @@ TypedProgram {
                                                                                                             fields: [
                                                                                                                 RecordFieldType {
                                                                                                                     name: "x",
-                                                                                                                    ty: Int,
+                                                                                                                    ty: Int(
+                                                                                                                        I64,
+                                                                                                                    ),
                                                                                                                 },
                                                                                                             ],
                                                                                                         },

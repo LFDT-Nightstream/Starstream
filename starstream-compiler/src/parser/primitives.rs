@@ -26,7 +26,7 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
 pub fn integer_literal<'a>() -> impl Parser<'a, &'a str, Literal, Extra<'a>> + Clone {
     text::int(10)
         .map(|digits: &str| {
-            let value = digits.parse::<i64>().expect("integer literal");
+            let value = digits.parse::<i128>().expect("integer literal");
             Literal::Integer(value)
         })
         .boxed()

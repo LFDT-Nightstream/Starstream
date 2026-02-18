@@ -28,7 +28,7 @@ pub enum Ctor {
     EnumVariant { variant_index: usize },
     BoolTrue,
     BoolFalse,
-    IntLiteral(i64),
+    IntLiteral(i128),
     Struct,
     Unit,
 }
@@ -331,7 +331,7 @@ fn is_complete_signature(ctors: &[Ctor], ty: &Type) -> bool {
         }
         Type::Record(_) => true,
         Type::Unit => true,
-        Type::Int => false,
+        Type::Int(_) => false,
         _ => false,
     }
 }

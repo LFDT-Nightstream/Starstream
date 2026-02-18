@@ -372,7 +372,7 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 
 ## Expression semantics
 
-- Integer literals work in the obvious way.
+- Integer literals are polymorphic: an unadorned numeric literal like `42` adopts the integer type determined by context (e.g. a type annotation or function parameter type). When no context constrains the type, the literal defaults to `i64`. A compile-time error is emitted if the literal value does not fit in the resolved type (e.g. `let x: i8 = 300` is an error).
 - Boolean literals work in the obvious way.
 - Struct literals `TypeName { field: expr, ... }` evaluate each field expression once and produce a record value. Field names must be unique; order is irrelevant.
 - Enum constructors use `TypeName::Variant` with a previously declared enum name. Tuple-style payloads evaluate left-to-right and are stored without reordering.
@@ -385,12 +385,26 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 - `runtime expr` wraps a runtime function call. Runtime functions access runtime-only information (e.g., block height) and must be explicitly marked at the call site. Using `runtime` on a non-runtime call is a type error.
 - Variable names refer to a `let` declaration earlier in the current scope or
   one of its parents, but not child scopes.
-- Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers in the usual
-  way.
-  - We assume wrapping signed 64-bit two's complement integers.
-  - `/` and `%` are floored. `%` has the same sign as the divisor.
-- Unary `-` applies to integers. Unary `!` applies to booleans.
-- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) or (boolean, boolean) and
+- Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers of the same type.
+  - Both operands must have the same integer type; cross-type arithmetic (e.g. `i32 + i64`) is a type error.
+  - The supported integer types and their ranges are:
+
+    | Type  | Signed | Bits | Min                        | Max                       |
+    | ----- | ------ | ---- | -------------------------- | ------------------------- |
+    | `i8`  | yes    | 8    | -128                       | 127                       |
+    | `i16` | yes    | 16   | -32768                     | 32767                     |
+    | `i32` | yes    | 32   | -2147483648                | 2147483647                |
+    | `i64` | yes    | 64   | -9223372036854775808       | 9223372036854775807       |
+    | `u8`  | no     | 8    | 0                          | 255                       |
+    | `u16` | no     | 16   | 0                          | 65535                     |
+    | `u32` | no     | 32   | 0                          | 4294967295                |
+    | `u64` | no     | 64   | 0                          | 18446744073709551615      |
+
+  - Integer overflow and underflow is checked at runtime and traps.
+  - `/` and `%` are floored for signed types. `%` has the same sign as the divisor.
+  - For unsigned types, `/` and `%` are standard unsigned division and remainder.
+- Unary `-` applies to signed integers only. Negating an unsigned integer is a type error. Unary `!` applies to booleans.
+- Comparison operators: `==`, `!=`, `<`, `>`, `<=`, `>=` accept (integer, integer) of the same type or (boolean, boolean) and
   produce booleans.
 - The boolean operators `!`, `&&`, `||` accept booleans and produce
   booleans.
@@ -399,29 +413,31 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 
 | Syntax rule                 | Type rule                                                                 | Value rule                |
 | --------------------------- | ------------------------------------------------------------------------- | ------------------------- |
-| integer_literal             | $\dfrac{}{Γ ⊢ integer\ literal : i64}$                                    | Integer literal           |
+| integer_literal             | $\dfrac{}{Γ ⊢ integer\ literal : Int}$ where $Int$ is inferred from context, defaulting to $i64$ | Polymorphic integer literal |
 | boolean_literal             | $\dfrac{}{Γ ⊢ boolean\ literal : bool}$                                   | Boolean literal           |
 | identifier                  | $\dfrac{ident : T ∈ Γ}{Γ ⊢ ident : T}$                                    | Refers to `let` in scope  |
 | (expression)                | $\dfrac{Γ ⊢ e : T}{Γ ⊢ (e) : T}$                                          | Identity                  |
 | !expression                 | $\dfrac{Γ ⊢ e : bool}{Γ ⊢\ !e : bool}$                                    | Boolean inverse           |
-| -expression                 | $\dfrac{Γ ⊢ e : i64}{Γ ⊢ -e : i64}$                                       | Integer negation          |
-| expression \* expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs * rhs : i64}$              | Integer multiplication    |
-| expression / expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs / rhs : i64}$              | Integer floored division  |
-| expression % expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs\ \%\ rhs : i64}$           | Integer floored remainder |
-| expression + expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs + rhs : i64}$              | Integer addition          |
-| expression - expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs - rhs : i64}$              | Integer subtraction       |
-| expression < expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs < rhs : bool}$             | Integer less-than         |
+| -expression                 | $\dfrac{Γ ⊢ e : Int,\ Int\ signed}{Γ ⊢ -e : Int}$                         | Signed integer negation   |
+| expression \* expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs * rhs : Int}$              | Integer multiplication    |
+| expression / expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs / rhs : Int}$              | Integer division          |
+| expression % expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs\ \%\ rhs : Int}$           | Integer remainder         |
+| expression + expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs + rhs : Int}$              | Integer addition          |
+| expression - expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs - rhs : Int}$              | Integer subtraction       |
+| expression < expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs < rhs : bool}$             | Integer less-than         |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs < rhs : bool}$           | See [truth tables]        |
-| expression &lt;= expression | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs <= rhs : bool}$            | Integer less-or-equal     |
+| expression &lt;= expression | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs <= rhs : bool}$            | Integer less-or-equal     |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs <= rhs : bool}$          | See [truth tables]        |
-| expression > expression     | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs > rhs : bool}$             | Integer greater-than      |
+| expression > expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs > rhs : bool}$             | Integer greater-than      |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs > rhs : bool}$           | See [truth tables]        |
-| expression >= expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs >= rhs : bool}$            | Integer greater-or-equal  |
+| expression >= expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs >= rhs : bool}$            | Integer greater-or-equal  |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs >= rhs : bool}$          | See [truth tables]        |
-| expression == expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs == rhs : bool}$            | Integer equality          |
+| expression == expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs == rhs : bool}$            | Integer equality          |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$          | See [truth tables]        |
-| expression != expression    | $\dfrac{Γ ⊢ lhs : i64 ∧ Γ ⊢ rhs : i64}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
+| expression != expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
+
+In the rules above, $Int$ stands for any single integer type from `{i8, i16, i32, i64, u8, u16, u32, u64}`. Both operands of a binary operator must have the **same** integer type.
 | expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
 | expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
 | f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$ | Function call             |
@@ -436,7 +452,7 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 
 ### Overflow and underflow
 
-Integer overflow and underflow wraps.
+Integer overflow and underflow is checked at runtime and causes a trap (runtime error).
 
 ### Floored division and remainder
 
@@ -472,7 +488,7 @@ The remainder always has the sign of the right-hand side.
 - Blocks introduce a new child scope for `let` statements.
 - `let` statements add a new variable binding to the current scope and give it
   an initial value based on its expression.
-  - Variables are integers.
+  - Variables may be integers (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`), booleans, structs, or enums.
 - Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
 
 # Not Yet Implemented
