@@ -11,9 +11,7 @@ Program {
                 UtxoDef {
                     name: Identifier {
                         name: "MyUtxo",
-                        span: Some(
-                            5..11,
-                        ),
+                        span: 5..11,
                     },
                     parts: [
                         Storage(
@@ -21,16 +19,12 @@ Program {
                                 UtxoGlobal {
                                     name: Identifier {
                                         name: "counter",
-                                        span: Some(
-                                            44..51,
-                                        ),
+                                        span: 44..51,
                                     },
                                     ty: TypeAnnotation {
                                         name: Identifier {
                                             name: "i64",
-                                            span: Some(
-                                                53..56,
-                                            ),
+                                            span: 53..56,
                                         },
                                         generics: [],
                                     },
@@ -50,18 +44,14 @@ Program {
                     ),
                     name: Identifier {
                         name: "increment",
-                        span: Some(
-                            77..86,
-                        ),
+                        span: 77..86,
                     },
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    92..95,
-                                ),
+                                span: 92..95,
                             },
                             generics: [],
                         },
@@ -72,9 +62,7 @@ Program {
                                 node: Assignment {
                                     target: Identifier {
                                         name: "counter",
-                                        span: Some(
-                                            102..109,
-                                        ),
+                                        span: 102..109,
                                     },
                                     value: Spanned {
                                         node: Binary {
@@ -83,9 +71,7 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "counter",
-                                                        span: Some(
-                                                            112..119,
-                                                        ),
+                                                        span: 112..119,
                                                     },
                                                 ),
                                                 span: 112..120,
@@ -110,9 +96,7 @@ Program {
                                 node: Identifier(
                                     Identifier {
                                         name: "counter",
-                                        span: Some(
-                                            129..136,
-                                        ),
+                                        span: 129..136,
                                     },
                                 ),
                                 span: 129..137,
@@ -149,9 +133,7 @@ TypedProgram {
             TypedUtxoDef {
                 name: Identifier {
                     name: "MyUtxo",
-                    span: Some(
-                        5..11,
-                    ),
+                    span: 5..11,
                 },
                 parts: [
                     Storage(
@@ -159,9 +141,7 @@ TypedProgram {
                             TypedUtxoGlobal {
                                 name: Identifier {
                                     name: "counter",
-                                    span: Some(
-                                        44..51,
-                                    ),
+                                    span: 44..51,
                                 },
                                 ty: Int,
                             },
@@ -177,9 +157,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "increment",
-                    span: Some(
-                        77..86,
-                    ),
+                    span: 77..86,
                 },
                 params: [],
                 return_type: Int,
@@ -189,9 +167,7 @@ TypedProgram {
                         Assignment {
                             target: Identifier {
                                 name: "counter",
-                                span: Some(
-                                    102..109,
-                                ),
+                                span: 102..109,
                             },
                             value: Spanned {
                                 node: TypedExpr {
@@ -204,9 +180,7 @@ TypedProgram {
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "counter",
-                                                        span: Some(
-                                                            112..119,
-                                                        ),
+                                                        span: 112..119,
                                                     },
                                                 ),
                                             },
@@ -236,9 +210,7 @@ TypedProgram {
                                 kind: Identifier(
                                     Identifier {
                                         name: "counter",
-                                        span: Some(
-                                            129..136,
-                                        ),
+                                        span: 129..136,
                                     },
                                 ),
                             },

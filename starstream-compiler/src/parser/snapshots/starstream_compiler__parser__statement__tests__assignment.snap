@@ -5,9 +5,7 @@ description: "Code:\n\nvalue = value + 1;"
 Assignment {
     target: Identifier {
         name: "value",
-        span: Some(
-            0..5,
-        ),
+        span: 0..5,
     },
     value: Spanned {
         node: Binary {
@@ -16,9 +14,7 @@ Assignment {
                 node: Identifier(
                     Identifier {
                         name: "value",
-                        span: Some(
-                            8..13,
-                        ),
+                        span: 8..13,
                     },
                 ),
                 span: 8..14,

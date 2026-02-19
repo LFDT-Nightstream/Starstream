@@ -14,24 +14,18 @@ Program {
                     ),
                     name: Identifier {
                         name: "add",
-                        span: Some(
-                            10..13,
-                        ),
+                        span: 10..13,
                     },
                     params: [
                         FunctionParam {
                             name: Identifier {
                                 name: "x",
-                                span: Some(
-                                    14..15,
-                                ),
+                                span: 14..15,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
-                                    span: Some(
-                                        17..20,
-                                    ),
+                                    span: 17..20,
                                 },
                                 generics: [],
                             },
@@ -39,16 +33,12 @@ Program {
                         FunctionParam {
                             name: Identifier {
                                 name: "y",
-                                span: Some(
-                                    22..23,
-                                ),
+                                span: 22..23,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
-                                    span: Some(
-                                        25..28,
-                                    ),
+                                    span: 25..28,
                                 },
                                 generics: [],
                             },
@@ -58,9 +48,7 @@ Program {
                         TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    33..36,
-                                ),
+                                span: 33..36,
                             },
                             generics: [],
                         },
@@ -75,9 +63,7 @@ Program {
                                         node: Identifier(
                                             Identifier {
                                                 name: "x",
-                                                span: Some(
-                                                    43..44,
-                                                ),
+                                                span: 43..44,
                                             },
                                         ),
                                         span: 43..45,
@@ -86,9 +72,7 @@ Program {
                                         node: Identifier(
                                             Identifier {
                                                 name: "y",
-                                                span: Some(
-                                                    47..48,
-                                                ),
+                                                span: 47..48,
                                             },
                                         ),
                                         span: 47..49,
@@ -126,26 +110,20 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "add",
-                    span: Some(
-                        10..13,
-                    ),
+                    span: 10..13,
                 },
                 params: [
                     TypedFunctionParam {
                         name: Identifier {
                             name: "x",
-                            span: Some(
-                                14..15,
-                            ),
+                            span: 14..15,
                         },
                         ty: Int,
                     },
                     TypedFunctionParam {
                         name: Identifier {
                             name: "y",
-                            span: Some(
-                                22..23,
-                            ),
+                            span: 22..23,
                         },
                         ty: Int,
                     },
@@ -166,9 +144,7 @@ TypedProgram {
                                             kind: Identifier(
                                                 Identifier {
                                                     name: "x",
-                                                    span: Some(
-                                                        43..44,
-                                                    ),
+                                                    span: 43..44,
                                                 },
                                             ),
                                         },
@@ -180,9 +156,7 @@ TypedProgram {
                                             kind: Identifier(
                                                 Identifier {
                                                     name: "y",
-                                                    span: Some(
-                                                        47..48,
-                                                    ),
+                                                    span: 47..48,
                                                 },
                                             ),
                                         },

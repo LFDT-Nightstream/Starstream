@@ -8,9 +8,7 @@ Spanned {
             node: Identifier(
                 Identifier {
                     name: "foo",
-                    span: Some(
-                        0..3,
-                    ),
+                    span: 0..3,
                 },
             ),
             span: 0..3,

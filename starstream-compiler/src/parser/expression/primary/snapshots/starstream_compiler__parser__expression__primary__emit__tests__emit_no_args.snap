@@ -6,9 +6,7 @@ Spanned {
     node: Emit {
         event: Identifier {
             name: "Ping",
-            span: Some(
-                18..22,
-            ),
+            span: 18..22,
         },
         args: [],
     },

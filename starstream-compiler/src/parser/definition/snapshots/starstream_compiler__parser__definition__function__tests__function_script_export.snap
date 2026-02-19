@@ -8,9 +8,7 @@ FunctionDef {
     ),
     name: Identifier {
         name: "main",
-        span: Some(
-            10..14,
-        ),
+        span: 10..14,
     },
     params: [],
     return_type: None,

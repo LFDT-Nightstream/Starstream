@@ -6,9 +6,7 @@ VariableDeclaration {
     mutable: true,
     name: Identifier {
         name: "answer",
-        span: Some(
-            8..14,
-        ),
+        span: 8..14,
     },
     ty: None,
     value: Spanned {
