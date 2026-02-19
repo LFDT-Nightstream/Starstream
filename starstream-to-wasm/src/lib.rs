@@ -45,6 +45,18 @@ pub fn compile(program: &TypedProgram) -> (Option<Vec<u8>>, Vec<CompileError>) {
     compiler.finish()
 }
 
+struct CompilerOptions {
+    check_overflows: bool,
+}
+
+impl Default for CompilerOptions {
+    fn default() -> Self {
+        Self {
+            check_overflows: true,
+        }
+    }
+}
+
 /// A Wasm compiler error.
 #[derive(Debug, Error)]
 #[error("{message}")]
@@ -70,6 +82,8 @@ type Result<T> = std::result::Result<T, ErrorToken>;
 /// needed to build them.
 #[derive(Default)]
 struct Compiler {
+    options: CompilerOptions,
+
     // Wasm binary output.
     types: TypeSection,
     imports: ImportSection,
@@ -373,6 +387,194 @@ impl Compiler {
 
     fn export_core_fn(&mut self, name: &str, idx: u32) {
         self.exports.export(name, ExportKind::Func, idx);
+    }
+
+    /// Get or create the `__starstream_i64_add_checked` function for overflow-checked addition.
+    /// Returns the function index.
+    fn get_or_create_i64_add_checked(&mut self) -> u32 {
+        if let Some(&checked_sum) = self.callables.get("__starstream_i64_add_checked") {
+            return checked_sum;
+        }
+
+        let params = [ValType::I64, ValType::I64];
+        let result = [ValType::I64];
+        let mut code = Function::from_params(&params);
+
+        let sum_local = code.add_locals([ValType::I64]);
+
+        code.instructions().local_get(0); //  [x]
+        code.instructions().local_get(1); //  [x, y]
+        code.instructions().i64_add();
+        code.instructions().local_tee(sum_local); //  [sum]
+
+        // Check for overflow.
+
+        // (x^y)>=0
+        code.instructions().local_get(0); //  [sum, x]
+        code.instructions().local_get(1); //  [sum, x, y]
+        code.instructions().i64_xor(); //  [sum, x^y]
+        code.instructions().i64_const(0); //  [sum, x^y, 0]  
+        code.instructions().i64_ge_s(); //  [sum, (x^y)>=0]
+
+        // (sum^x)<0
+        code.instructions().local_get(sum_local); //  [sum, (x^y)>=0, sum]
+        code.instructions().local_get(0); //  [sum, (x^y)>=0, sum, x]
+        code.instructions().i64_xor(); //  [sum, (x^y)>=0, sum^x]
+        code.instructions().i64_const(0); //  [sum, (x^y)>=0, sum^x, 0]
+        code.instructions().i64_lt_s(); //  [sum, (x^y)>=0, (sum^x)<0]
+        code.instructions().i32_and(); //  [sum, overflow_flag]
+
+        // If overflow_flag != 0, trap.
+        code.instructions().i32_const(0); //  [sum, overflow_flag, 0]
+        code.instructions().i32_ne(); //  [sum, overflowed?]
+        code.instructions().if_(BlockType::Empty); //  [sum]
+        code.instructions().unreachable();
+        code.instructions().end();
+
+        // Sum is already on stack, add function body end
+        code.instructions().end();
+
+        let idx = self.add_function(FuncType::new(params, result), code);
+
+        self.callables
+            .insert("__starstream_i64_add_checked".to_string(), idx);
+
+        idx
+    }
+
+    /// Get or create the `__starstream_i64_sub_checked` function for overflow-checked subtraction.
+    /// Returns the function index.
+    fn get_or_create_i64_sub_checked(&mut self) -> u32 {
+        if let Some(&checked_sub) = self.callables.get("__starstream_i64_sub_checked") {
+            return checked_sub;
+        }
+
+        let params = [ValType::I64, ValType::I64];
+        let result = [ValType::I64];
+        let mut code = Function::from_params(&params);
+
+        let diff_local = code.add_locals([ValType::I64]);
+
+        code.instructions().local_get(0); //  [x]
+        code.instructions().local_get(1); //  [x, y]
+        code.instructions().i64_sub();
+        code.instructions().local_tee(diff_local); //  [diff]
+
+        // Check for overflow.
+        // Overflow occurs when subtracting a negative from a positive yields negative,
+        // or subtracting a positive from a negative yields positive.
+        // In other words: (x^y)<0 && (diff^x)<0
+
+        // (x^y)<0
+        code.instructions().local_get(0); //  [diff, x]
+        code.instructions().local_get(1); //  [diff, x, y]
+        code.instructions().i64_xor(); //  [diff, x^y]
+        code.instructions().i64_const(0); //  [diff, x^y, 0]
+        code.instructions().i64_lt_s(); //  [diff, (x^y)<0]
+
+        // (diff^x)<0
+        code.instructions().local_get(diff_local); //  [diff, (x^y)<0, diff]
+        code.instructions().local_get(0); //  [diff, (x^y)<0, diff, x]
+        code.instructions().i64_xor(); //  [diff, (x^y)<0, diff^x]
+        code.instructions().i64_const(0); //  [diff, (x^y)<0, diff^x, 0]
+        code.instructions().i64_lt_s(); //  [diff, (x^y)<0, (diff^x)<0]
+        code.instructions().i32_and(); //  [diff, overflow_flag]
+
+        // If overflow_flag != 0, trap.
+        code.instructions().i32_const(0); //  [diff, overflow_flag, 0]
+        code.instructions().i32_ne(); //  [diff, overflowed?]
+        code.instructions().if_(BlockType::Empty); //  [diff]
+        code.instructions().unreachable();
+        code.instructions().end();
+
+        // Diff is already on stack, add function body end
+        code.instructions().end();
+
+        let idx = self.add_function(FuncType::new(params, result), code);
+
+        self.callables
+            .insert("__starstream_i64_sub_checked".to_string(), idx);
+
+        idx
+    }
+
+    /// Get or create the `__starstream_i64_mul_checked` function for overflow-checked multiplication.
+    /// Returns the function index.
+    fn get_or_create_i64_mul_checked(&mut self) -> u32 {
+        if let Some(&checked_mul) = self.callables.get("__starstream_i64_mul_checked") {
+            return checked_mul;
+        }
+
+        let params = [ValType::I64, ValType::I64];
+        let result = [ValType::I64];
+        let mut code = Function::from_params(&params);
+
+        let product_local = code.add_locals([ValType::I64]);
+        let x_local = code.add_locals([ValType::I64]);
+        let y_local = code.add_locals([ValType::I64]);
+
+        // Store parameters in locals for reuse
+        code.instructions().local_get(0); //  [x]
+        code.instructions().local_tee(x_local); //  [x]
+        code.instructions().local_get(1); //  [x, y]
+        code.instructions().local_tee(y_local); //  [x, y]
+        code.instructions().i64_mul();
+        code.instructions().local_tee(product_local); //  [product]
+
+        // Check for overflow.
+        // For multiplication overflow detection, we check:
+        // 1. If y == 0, no overflow
+        // 2. If product / y != x, then overflow occurred
+        // Special case: MIN * -1 overflows (since -MIN doesn't fit in i64)
+
+        // Special case: check if x == MIN && y == -1
+        code.instructions().local_get(x_local); //  [product, x]
+        code.instructions().i64_const(i64::MIN); //  [product, x, MIN]
+        code.instructions().i64_eq(); //  [product, x==MIN]
+        code.instructions().local_get(y_local); //  [product, x==MIN, y]
+        code.instructions().i64_const(-1); //  [product, x==MIN, y, -1]
+        code.instructions().i64_eq(); //  [product, x==MIN, y==-1]
+        code.instructions().i32_and(); //  [product, (x==MIN && y==-1)]
+
+        // Also check y == MIN && x == -1
+        code.instructions().local_get(y_local); //  [product, (x==MIN && y==-1), y]
+        code.instructions().i64_const(i64::MIN); //  [product, (x==MIN && y==-1), y, MIN]
+        code.instructions().i64_eq(); //  [product, (x==MIN && y==-1), y==MIN]
+        code.instructions().local_get(x_local); //  [product, (x==MIN && y==-1), y==MIN, x]
+        code.instructions().i64_const(-1); //  [product, (x==MIN && y==-1), y==MIN, x, -1]
+        code.instructions().i64_eq(); //  [product, (x==MIN && y==-1), y==MIN, x==-1]
+        code.instructions().i32_and(); //  [product, (x==MIN && y==-1), (y==MIN && x==-1)]
+        code.instructions().i32_or(); //  [product, overflow_special]
+
+        code.instructions().if_(BlockType::Empty); //  [product]
+        code.instructions().unreachable();
+        code.instructions().end();
+
+        // Check regular overflow: if y != 0 and product / y != x
+        code.instructions().local_get(y_local); //  [product, y]
+        code.instructions().i64_const(0); //  [product, y, 0]
+        code.instructions().i64_ne(); //  [product, y!=0]
+        code.instructions().if_(BlockType::Empty); //  [product]
+        // y != 0, so check if product / y == x
+        code.instructions().local_get(product_local); //  [product, product]
+        code.instructions().local_get(y_local); //  [product, product, y]
+        code.instructions().i64_div_s(); //  [product, product/y]
+        code.instructions().local_get(x_local); //  [product, product/y, x]
+        code.instructions().i64_ne(); //  [product, (product/y)!=x]
+        code.instructions().if_(BlockType::Empty); //  [product]
+        code.instructions().unreachable();
+        code.instructions().end();
+        code.instructions().end();
+
+        // Product is already on stack, add function body end
+        code.instructions().end();
+
+        let idx = self.add_function(FuncType::new(params, result), code);
+
+        self.callables
+            .insert("__starstream_i64_mul_checked".to_string(), idx);
+
+        idx
     }
 
     // ------------------------------------------------------------------------
@@ -1311,7 +1513,13 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int, Type::Int) => {
-                        func.instructions().i64_add();
+                        if self.options.check_overflows {
+                            let checked_sum = self.get_or_create_i64_add_checked();
+                            func.instructions().call(checked_sum);
+                        } else {
+                            func.instructions().i64_add();
+                        }
+
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Add({lhs:?}, {rhs:?})"))),
@@ -1328,7 +1536,13 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int, Type::Int) => {
-                        func.instructions().i64_sub();
+                        if self.options.check_overflows {
+                            let checked_sub = self.get_or_create_i64_sub_checked();
+                            func.instructions().call(checked_sub);
+                        } else {
+                            func.instructions().i64_sub();
+                        }
+
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
@@ -1345,7 +1559,13 @@ impl Compiler {
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int, Type::Int) => {
-                        func.instructions().i64_mul();
+                        if self.options.check_overflows {
+                            let checked_mul = self.get_or_create_i64_mul_checked();
+                            func.instructions().call(checked_mul);
+                        } else {
+                            func.instructions().i64_mul();
+                        }
+
                         Ok(())
                     }
                     (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),

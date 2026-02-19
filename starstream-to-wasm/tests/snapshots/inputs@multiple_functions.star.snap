@@ -353,7 +353,8 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func))
-  (type (;1;) (func (result i64)))
+  (type (;1;) (func (param i64 i64) (result i64)))
+  (type (;2;) (func (result i64)))
   (func (;0;) (type 0)
     (local i32)
     (local.set 0
@@ -367,11 +368,34 @@ TypedProgram {
         (br 1 (;@1;)))
       (return))
   )
-  (func (;1;) (type 1) (result i64)
+  (func (;1;) (type 1) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.ge_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;2;) (type 2) (result i64)
     (local i64)
     (local.set 0
       (i64.const 41))
-    (i64.add
+    (call 1
       (local.get 0)
       (i64.const 1))
   )
