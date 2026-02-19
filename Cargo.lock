@@ -2003,7 +2003,7 @@ dependencies = [
 [[package]]
 name = "neo-ajtai"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2023,7 +2023,7 @@ dependencies = [
 [[package]]
 name = "neo-ccs"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "neo-math",
  "neo-params",
@@ -2044,7 +2044,7 @@ dependencies = [
 [[package]]
 name = "neo-fold"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "neo-ajtai",
  "neo-ccs",
@@ -2068,7 +2068,7 @@ dependencies = [
 [[package]]
 name = "neo-math"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "p3-field",
  "p3-goldilocks",
@@ -2083,7 +2083,7 @@ dependencies = [
 [[package]]
 name = "neo-memory"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "neo-ajtai",
  "neo-ccs",
@@ -2102,7 +2102,7 @@ dependencies = [
 [[package]]
 name = "neo-params"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
@@ -2111,7 +2111,7 @@ dependencies = [
 [[package]]
 name = "neo-reductions"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "bincode",
  "blake3",
@@ -2135,7 +2135,7 @@ dependencies = [
 [[package]]
 name = "neo-transcript"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "neo-ccs",
  "neo-math",
@@ -2151,7 +2151,7 @@ dependencies = [
 [[package]]
 name = "neo-vm-trace"
 version = "0.1.0"
-source = "git+https://github.com/nicarq/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
+source = "git+https://github.com/LFDT-Nightstream/Nightstream.git?rev=e93ae040e29a3e883d08569a8ccbf79118ebd218#e93ae040e29a3e883d08569a8ccbf79118ebd218"
 dependencies = [
  "serde",
  "thiserror 2.0.17",
@@ -3253,7 +3253,9 @@ dependencies = [
  "starstream-interleaving-proof",
  "starstream-interleaving-spec",
  "thiserror 2.0.17",
+ "wasm-encoder 0.240.0",
  "wasmi",
+ "wasmprinter 0.2.80",
  "wat",
 ]
 
@@ -3268,7 +3270,7 @@ dependencies = [
  "starstream-compiler",
  "starstream-to-wasm",
  "termcolor",
- "wasmprinter",
+ "wasmprinter 0.240.0",
  "wit-component",
 ]
 
@@ -3282,7 +3284,7 @@ dependencies = [
  "starstream-types",
  "thiserror 2.0.17",
  "wasm-encoder 0.240.0",
- "wasmprinter",
+ "wasmprinter 0.240.0",
  "wasmtime",
  "wit-component",
 ]
@@ -3969,6 +3971,17 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
+version = "0.121.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9dbe55c8f9d0dbd25d9447a5a889ff90c0cc3feaa7395310d3d826b2c703eaab"
+dependencies = [
+ "bitflags 2.9.4",
+ "indexmap 2.11.4",
+ "semver",
+]
+
+[[package]]
+name = "wasmparser"
 version = "0.228.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4abf1132c1fdf747d56bbc1bb52152400c70f336870f968b85e89ea422198ae3"
@@ -3999,6 +4012,16 @@ dependencies = [
  "bitflags 2.9.4",
  "indexmap 2.11.4",
  "semver",
+]
+
+[[package]]
+name = "wasmprinter"
+version = "0.2.80"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60e73986a6b7fdfedb7c5bf9e7eb71135486507c8fbc4c0c42cffcb6532988b7"
+dependencies = [
+ "anyhow",
+ "wasmparser 0.121.2",
 ]
 
 [[package]]
@@ -4092,7 +4115,7 @@ dependencies = [
  "target-lexicon",
  "wasm-encoder 0.240.0",
  "wasmparser 0.240.0",
- "wasmprinter",
+ "wasmprinter 0.240.0",
  "wasmtime-internal-component-util",
 ]
 
