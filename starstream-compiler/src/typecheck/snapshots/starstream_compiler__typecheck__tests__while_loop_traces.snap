@@ -11,12 +11,12 @@ T-Fn: test => ()
     T-Bin-Lt: {counter: t3} ⊢ counter < 3 ⇒ bool
       T-Var: {counter: t3} ⊢ counter ⇒ t3
       T-Int: {counter: t3} ⊢ 3 ⇒ t4
-      Check-Compare: i64 vs i64 => ok (int)
-        Unify-Const: i64 ~ i64 => {}
+      Check-Compare: t3 vs t4 => ok (int)
+        Unify-Var: t3 ~ t4 => {t4/t3}
     Check-Bool: bool => ok
     T-Assign: {counter: t3} ⊢ counter = counter + 1; ⇒ t3
       T-Bin-Add: {counter: t3} ⊢ counter + 1 ⇒ t5
         T-Var: {counter: t3} ⊢ counter ⇒ t3
         T-Int: {counter: t3} ⊢ 1 ⇒ t5
-        Unify-Var: t3 ~ t5 => {t5/t3}
+        Unify-Var: t4 ~ t5 => {t5/t4}
       Unify-Var: t5 ~ t5 => {}
