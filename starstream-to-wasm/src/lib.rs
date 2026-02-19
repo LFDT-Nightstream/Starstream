@@ -91,7 +91,6 @@ struct Compiler {
 
     // Function building.
     core_func_type_cache: HashMap<FuncType, u32>,
-    global_record_type: Vec<TypedStructField>,
     /// Map from name to function index.
     callables: HashMap<String, u32>,
 
@@ -105,9 +104,6 @@ impl Compiler {
     fn finish(mut self) -> (Option<Vec<u8>>, Vec<CompileError>) {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
-
-        // Generate suspend/resume functions.
-        self.generate_storage_exports();
 
         // Generate memory.
         if self.bump_ptr > 0 {
@@ -241,11 +237,15 @@ impl Compiler {
         self.push_error(DUMMY_SPAN, format!("TODO: {why}"))
     }
 
-    fn generate_storage_exports(&mut self) {
-        let fields = std::mem::take(&mut self.global_record_type);
+    fn generate_storage_exports(
+        &mut self,
+        name: &Identifier,
+        scope: &dyn Locals,
+        fields: Vec<TypedStructField>,
+    ) {
         if !fields.is_empty() {
             let storage_struct = Type::Record(RecordType {
-                name: "Storage".into(),
+                name: name.name.clone(),
                 fields: fields
                     .iter()
                     .map(|f| RecordFieldType {
@@ -255,7 +255,7 @@ impl Compiler {
                     .collect(),
             });
             self.visit_struct(&TypedStructDef {
-                name: Identifier::anon("Storage"),
+                name: name.clone(),
                 fields: fields.clone(),
                 ty: storage_struct.clone(),
             });
@@ -269,7 +269,7 @@ impl Compiler {
                     body: TypedBlock::from(Spanned::none(TypedExpr {
                         ty: storage_struct.clone(),
                         kind: TypedExprKind::StructLiteral {
-                            name: Identifier::anon("Storage"),
+                            name: name.clone(),
                             fields: fields
                                 .iter()
                                 .map(|f| TypedStructLiteralField {
@@ -283,7 +283,7 @@ impl Compiler {
                         },
                     })),
                 },
-                &(),
+                scope,
             );
             self.visit_function(
                 &TypedFunctionDef {
@@ -316,7 +316,7 @@ impl Compiler {
                             .collect::<Vec<_>>(),
                     ),
                 },
-                &(),
+                scope,
             );
         }
     }
@@ -977,6 +977,7 @@ impl Compiler {
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
         // TODO: use the utxo name to declare the type, etc.
         let mut utxo_storage = HashMap::new();
+        let mut utxo_record_type = Vec::new();
         for part in &utxo.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
@@ -985,7 +986,7 @@ impl Compiler {
                         _ = self.star_to_core_types(utxo.name.span(), &mut types, &var.ty);
                         let idx = self.add_globals(types.iter().copied());
                         utxo_storage.insert(var.name.name.clone(), Var::Global(idx));
-                        self.global_record_type.push(TypedStructField {
+                        utxo_record_type.push(TypedStructField {
                             name: var.name.clone(),
                             ty: var.ty.clone(),
                         });
@@ -996,6 +997,11 @@ impl Compiler {
                 }
             }
         }
+        self.generate_storage_exports(
+            &utxo.name,
+            &(&() as &dyn Locals, &utxo_storage),
+            utxo_record_type,
+        );
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
