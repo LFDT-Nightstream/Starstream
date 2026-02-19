@@ -1,0 +1,22 @@
+[package]
+name = "starstream-runtime"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+thiserror = "2.0.17"
+wasmi = "1.0.7"
+ark-ff = { version = "0.5.0", default-features = false }
+ark-poseidon2 = { path = "../../ark-poseidon2" }
+wasm-encoder = { workspace = true }
+
+[dev-dependencies]
+imbl = "6.1.0"
+wat = "1.0"
+wasmprinter = "0.2"

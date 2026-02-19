@@ -1,0 +1,21 @@
+[package]
+name = "starstream-interleaving-spec"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hex = "0.4.3"
+imbl = "6.1.0"
+thiserror = "2.0.17"
+ark-ff = { version = "0.5.0", default-features = false }
+ark-goldilocks = { path = "../../ark-goldilocks" }
+
+# TODO: move to workspace deps
+neo-fold = { workspace = true }
+neo-math = { workspace = true }
+neo-ccs = { workspace = true }
+neo-ajtai = { workspace = true }
+neo-memory = { workspace = true }
+
+p3-field = "0.4.1"
+ark-poseidon2 = { path = "../../ark-poseidon2" }
