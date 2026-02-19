@@ -21,7 +21,7 @@ pub enum LedgerOperation<F: PrimeField> {
         caller: OptionalF<F>,
     },
     CallEffectHandler {
-        interface_id: F,
+        interface_id: [F; 4],
         val: F,
         ret: F,
     },
@@ -81,13 +81,13 @@ pub enum LedgerOperation<F: PrimeField> {
         vals: [F; REF_WRITE_BATCH_SIZE],
     },
     InstallHandler {
-        interface_id: F,
+        interface_id: [F; 4],
     },
     UninstallHandler {
-        interface_id: F,
+        interface_id: [F; 4],
     },
     GetHandlerFor {
-        interface_id: F,
+        interface_id: [F; 4],
         handler_id: F,
     },
     /// Auxiliary instructions.

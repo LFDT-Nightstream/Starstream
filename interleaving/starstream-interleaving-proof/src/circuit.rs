@@ -1185,13 +1185,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Initialize Interfaces ROM and HandlerStackHeads
         for (index, interface_id) in interfaces.iter().enumerate() {
-            mem.init(
-                Address {
-                    addr: index as u64,
-                    tag: MemoryTag::Interfaces.into(),
-                },
-                vec![*interface_id],
-            );
+            for (limb, field) in interface_id.iter().enumerate() {
+                mem.init(
+                    Address {
+                        addr: (index * 4 + limb) as u64,
+                        tag: MemoryTag::Interfaces.into(),
+                    },
+                    vec![*field],
+                );
+            }
 
             mem.init(
                 Address {
@@ -1459,10 +1461,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let switch = &wires.switches.call_effect_handler;
 
         // The interface witness must match interface ROM.
-        wires
-            .handler_state
-            .interface_rom_read
-            .conditional_enforce_equal(&wires.arg(ArgName::CallEffectHandlerInterfaceId), switch)?;
+        let interface_args = [
+            ArgName::InterfaceId0,
+            ArgName::InterfaceId1,
+            ArgName::InterfaceId2,
+            ArgName::InterfaceId3,
+        ];
+        for (i, arg) in interface_args.iter().enumerate() {
+            wires.handler_state.interface_rom_read[i]
+                .conditional_enforce_equal(&wires.arg(*arg), switch)?;
+        }
 
         // No self-call.
         wires.id_curr.conditional_enforce_not_equal(
@@ -1953,10 +1961,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Verify that Interfaces[interface_index] == interface_id
         // This ensures the interface index witness is correct
-        wires
-            .handler_state
-            .interface_rom_read
-            .conditional_enforce_equal(&wires.arg(ArgName::InterfaceId), switch)?;
+        let interface_args = [
+            ArgName::InterfaceId0,
+            ArgName::InterfaceId1,
+            ArgName::InterfaceId2,
+            ArgName::InterfaceId3,
+        ];
+        for (i, arg) in interface_args.iter().enumerate() {
+            wires.handler_state.interface_rom_read[i]
+                .conditional_enforce_equal(&wires.arg(*arg), switch)?;
+        }
 
         // Update handler stack counter (allocate new node)
         wires.handler_stack_ptr = switch.select(
@@ -1979,10 +1993,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Verify that Interfaces[interface_index] == interface_id
         // This ensures the interface index witness is correct
-        wires
-            .handler_state
-            .interface_rom_read
-            .conditional_enforce_equal(&wires.arg(ArgName::InterfaceId), switch)?;
+        let interface_args = [
+            ArgName::InterfaceId0,
+            ArgName::InterfaceId1,
+            ArgName::InterfaceId2,
+            ArgName::InterfaceId3,
+        ];
+        for (i, arg) in interface_args.iter().enumerate() {
+            wires.handler_state.interface_rom_read[i]
+                .conditional_enforce_equal(&wires.arg(*arg), switch)?;
+        }
 
         // Read the node at current head: should contain (process_id, next_ptr)
         let node_process = &wires.handler_state.handler_stack_node_process;
@@ -2001,10 +2021,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // Verify that Interfaces[interface_index] == interface_id
         // This ensures the interface index witness is correct
-        wires
-            .handler_state
-            .interface_rom_read
-            .conditional_enforce_equal(&wires.arg(ArgName::InterfaceId), switch)?;
+        let interface_args = [
+            ArgName::InterfaceId0,
+            ArgName::InterfaceId1,
+            ArgName::InterfaceId2,
+            ArgName::InterfaceId3,
+        ];
+        for (i, arg) in interface_args.iter().enumerate() {
+            wires.handler_state.interface_rom_read[i]
+                .conditional_enforce_equal(&wires.arg(*arg), switch)?;
+        }
 
         // Read the node at current head: should contain (process_id, next_ptr)
         let node_process = &wires.handler_state.handler_stack_node_process;

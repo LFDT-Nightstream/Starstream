@@ -36,8 +36,10 @@ pub enum ArgName {
     ActivationCaller,
     OwnerId,
     TokenId,
-    InterfaceId,
-    CallEffectHandlerInterfaceId,
+    InterfaceId0,
+    InterfaceId1,
+    InterfaceId2,
+    InterfaceId3,
 
     PackedRef0,
     PackedRef1,
@@ -54,10 +56,13 @@ impl ArgName {
     pub const fn idx(self) -> usize {
         match self {
             ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
-            ArgName::Val | ArgName::InterfaceId => 1,
+            ArgName::Val => 1,
             ArgName::Ret => 2,
             ArgName::Caller | ArgName::Offset | ArgName::Size | ArgName::ActivationCaller => 3,
-            ArgName::CallEffectHandlerInterfaceId => 4,
+            ArgName::InterfaceId0 => 3,
+            ArgName::InterfaceId1 => 4,
+            ArgName::InterfaceId2 => 5,
+            ArgName::InterfaceId3 => 6,
             ArgName::ProgramHash0 => 3,
             ArgName::ProgramHash1 => 4,
             ArgName::ProgramHash2 => 5,
@@ -153,16 +158,16 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             vals: vals.map(value_to_field),
         },
         WitLedgerEffect::InstallHandler { interface_id } => LedgerOperation::InstallHandler {
-            interface_id: F::from(interface_id.0[0] as u64),
+            interface_id: encode_hash_as_fields(*interface_id),
         },
         WitLedgerEffect::UninstallHandler { interface_id } => LedgerOperation::UninstallHandler {
-            interface_id: F::from(interface_id.0[0] as u64),
+            interface_id: encode_hash_as_fields(*interface_id),
         },
         WitLedgerEffect::GetHandlerFor {
             interface_id,
             handler_id,
         } => LedgerOperation::GetHandlerFor {
-            interface_id: F::from(interface_id.0[0] as u64),
+            interface_id: encode_hash_as_fields(*interface_id),
             handler_id: F::from(handler_id.unwrap().0 as u64),
         },
         WitLedgerEffect::CallEffectHandler {
@@ -171,7 +176,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             ret,
             ..
         } => LedgerOperation::CallEffectHandler {
-            interface_id: F::from(interface_id.0[0] as u64),
+            interface_id: encode_hash_as_fields(*interface_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
         },
@@ -231,7 +236,10 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         } => {
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
-            args[ArgName::CallEffectHandlerInterfaceId.idx()] = *interface_id;
+            args[ArgName::InterfaceId0.idx()] = interface_id[0];
+            args[ArgName::InterfaceId1.idx()] = interface_id[1];
+            args[ArgName::InterfaceId2.idx()] = interface_id[2];
+            args[ArgName::InterfaceId3.idx()] = interface_id[3];
         }
         LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;
@@ -313,13 +321,19 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         }
         LedgerOperation::InstallHandler { interface_id }
         | LedgerOperation::UninstallHandler { interface_id } => {
-            args[ArgName::InterfaceId.idx()] = *interface_id;
+            args[ArgName::InterfaceId0.idx()] = interface_id[0];
+            args[ArgName::InterfaceId1.idx()] = interface_id[1];
+            args[ArgName::InterfaceId2.idx()] = interface_id[2];
+            args[ArgName::InterfaceId3.idx()] = interface_id[3];
         }
         LedgerOperation::GetHandlerFor {
             interface_id,
             handler_id,
         } => {
-            args[ArgName::InterfaceId.idx()] = *interface_id;
+            args[ArgName::InterfaceId0.idx()] = interface_id[0];
+            args[ArgName::InterfaceId1.idx()] = interface_id[1];
+            args[ArgName::InterfaceId2.idx()] = interface_id[2];
+            args[ArgName::InterfaceId3.idx()] = interface_id[3];
             args[ArgName::Ret.idx()] = *handler_id;
         }
     }

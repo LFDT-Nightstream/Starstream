@@ -43,7 +43,7 @@ impl From<&HandlerSwitchboardWires> for HandlerSwitches<Boolean<F>> {
 }
 
 pub struct HandlerStackReads<V> {
-    pub interface_rom_read: V,
+    pub interface_rom_read: [V; 4],
     pub handler_stack_node_process: V,
 }
 
@@ -54,11 +54,19 @@ fn handler_stack_ops<D: OpcodeDsl>(
     handler_stack_counter: &D::Val,
     id_curr: &D::Val,
 ) -> Result<HandlerStackReads<D::Val>, D::Error> {
-    let interface_rom_read = dsl.read(
-        &switches.read_interface,
-        MemoryTag::Interfaces,
-        interface_index,
-    )?;
+    let four = dsl.const_u64(4)?;
+    let interface_base_addr = dsl.mul(interface_index, &four)?;
+    let read_interface_limb = |dsl: &mut D, limb: u64| -> Result<D::Val, D::Error> {
+        let offset = dsl.const_u64(limb)?;
+        let addr = dsl.add(&interface_base_addr, &offset)?;
+        dsl.read(&switches.read_interface, MemoryTag::Interfaces, &addr)
+    };
+    let interface_rom_read = [
+        read_interface_limb(dsl, 0)?,
+        read_interface_limb(dsl, 1)?,
+        read_interface_limb(dsl, 2)?,
+        read_interface_limb(dsl, 3)?,
+    ];
     let handler_stack_head_read = dsl.read(
         &switches.read_head,
         MemoryTag::HandlerStackHeads,
@@ -150,7 +158,7 @@ pub fn handler_stack_access_wires<M: IVCMemoryAllocated<F>>(
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceResolver {
-    mapping: BTreeMap<F, usize>,
+    mapping: BTreeMap<[F; 4], usize>,
 }
 
 impl InterfaceResolver {
@@ -183,16 +191,16 @@ impl InterfaceResolver {
         Self { mapping }
     }
 
-    pub(crate) fn get_index(&self, interface_id: F) -> usize {
+    pub(crate) fn get_index(&self, interface_id: [F; 4]) -> usize {
         *self.mapping.get(&interface_id).unwrap_or(&0)
     }
 
-    pub(crate) fn get_interface_index_field(&self, interface_id: F) -> F {
+    pub(crate) fn get_interface_index_field(&self, interface_id: [F; 4]) -> F {
         F::from(self.get_index(interface_id) as u64)
     }
 
-    pub(crate) fn interfaces(&self) -> Vec<F> {
-        let mut interfaces = vec![F::ZERO; self.mapping.len()];
+    pub(crate) fn interfaces(&self) -> Vec<[F; 4]> {
+        let mut interfaces = vec![[F::ZERO; 4]; self.mapping.len()];
         for (interface_id, index) in &self.mapping {
             interfaces[*index] = *interface_id;
         }
@@ -203,5 +211,5 @@ impl InterfaceResolver {
 #[derive(Clone)]
 pub(crate) struct HandlerState {
     pub(crate) handler_stack_node_process: FpVar<F>,
-    pub(crate) interface_rom_read: FpVar<F>,
+    pub(crate) interface_rom_read: [FpVar<F>; 4],
 }
