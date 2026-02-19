@@ -276,7 +276,7 @@ impl Compiler {
             self.visit_function(
                 &TypedFunctionDef {
                     export: Some(FunctionExport::Script),
-                    name: Identifier::anon("get_storage"),
+                    name: Identifier::anon(format!("{name}::get_storage")),
                     params: Vec::new(),
                     return_type: storage_struct.clone(),
                     effect: EffectKind::Pure,
@@ -302,7 +302,7 @@ impl Compiler {
             self.visit_function(
                 &TypedFunctionDef {
                     export: Some(FunctionExport::Script),
-                    name: Identifier::anon("set_storage"),
+                    name: Identifier::anon(format!("{name}::set_storage")),
                     params: vec![TypedFunctionParam {
                         name: Identifier::anon("storage"),
                         ty: storage_struct.clone(),
@@ -413,7 +413,7 @@ impl Compiler {
         code.instructions().local_get(0); //  [sum, x]
         code.instructions().local_get(1); //  [sum, x, y]
         code.instructions().i64_xor(); //  [sum, x^y]
-        code.instructions().i64_const(0); //  [sum, x^y, 0]  
+        code.instructions().i64_const(0); //  [sum, x^y, 0]
         code.instructions().i64_ge_s(); //  [sum, (x^y)>=0]
 
         // (sum^x)<0
@@ -2800,9 +2800,9 @@ fn to_kebab_case(name: &str) -> String {
                 }
             }
             out.push(ch);
-        } else if ch == '_'
-            && let Some(p) = prev
-            && p != '_'
+        } else if (ch == '_' || ch == ':')
+            && let Some(l) = out.chars().last()
+            && l != '-'
         {
             out.push('-');
         }
