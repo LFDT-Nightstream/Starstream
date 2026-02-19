@@ -6,18 +6,14 @@ Spanned {
     node: Emit {
         event: Identifier {
             name: "Transfer",
-            span: Some(
-                23..31,
-            ),
+            span: 23..31,
         },
         args: [
             Spanned {
                 node: Identifier(
                     Identifier {
                         name: "sender",
-                        span: Some(
-                            32..38,
-                        ),
+                        span: 32..38,
                     },
                 ),
                 span: 32..38,
@@ -26,9 +22,7 @@ Spanned {
                 node: Identifier(
                     Identifier {
                         name: "to",
-                        span: Some(
-                            40..42,
-                        ),
+                        span: 40..42,
                     },
                 ),
                 span: 40..42,
@@ -37,9 +31,7 @@ Spanned {
                 node: Identifier(
                     Identifier {
                         name: "amount",
-                        span: Some(
-                            44..50,
-                        ),
+                        span: 44..50,
                     },
                 ),
                 span: 44..50,

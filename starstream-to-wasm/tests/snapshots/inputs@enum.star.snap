@@ -11,26 +11,20 @@ Program {
                 EnumDef {
                     name: Identifier {
                         name: "Foo",
-                        span: Some(
-                            5..8,
-                        ),
+                        span: 5..8,
                     },
                     variants: [
                         EnumVariant {
                             name: Identifier {
                                 name: "Bar",
-                                span: Some(
-                                    15..18,
-                                ),
+                                span: 15..18,
                             },
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
                                         name: Identifier {
                                             name: "bool",
-                                            span: Some(
-                                                19..23,
-                                            ),
+                                            span: 19..23,
                                         },
                                         generics: [],
                                     },
@@ -41,18 +35,14 @@ Program {
                         EnumVariant {
                             name: Identifier {
                                 name: "Baz",
-                                span: Some(
-                                    30..33,
-                                ),
+                                span: 30..33,
                             },
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
                                         name: Identifier {
                                             name: "i64",
-                                            span: Some(
-                                                34..37,
-                                            ),
+                                            span: 34..37,
                                         },
                                         generics: [],
                                     },
@@ -71,24 +61,18 @@ Program {
                     export: None,
                     name: Identifier {
                         name: "accepts_foo",
-                        span: Some(
-                            46..57,
-                        ),
+                        span: 46..57,
                     },
                     params: [
                         FunctionParam {
                             name: Identifier {
                                 name: "foo",
-                                span: Some(
-                                    58..61,
-                                ),
+                                span: 58..61,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "Foo",
-                                    span: Some(
-                                        63..66,
-                                    ),
+                                    span: 63..66,
                                 },
                                 generics: [],
                             },
@@ -112,9 +96,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "get_bar",
-                        span: Some(
-                            83..90,
-                        ),
+                        span: 83..90,
                     },
                     params: [],
                     return_type: None,
@@ -128,9 +110,7 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "accepts_foo",
-                                                        span: Some(
-                                                            99..110,
-                                                        ),
+                                                        span: 99..110,
                                                     },
                                                 ),
                                                 span: 99..110,
@@ -140,15 +120,11 @@ Program {
                                                     node: EnumConstructor {
                                                         enum_name: Identifier {
                                                             name: "Foo",
-                                                            span: Some(
-                                                                111..114,
-                                                            ),
+                                                            span: 111..114,
                                                         },
                                                         variant: Identifier {
                                                             name: "Bar",
-                                                            span: Some(
-                                                                116..119,
-                                                            ),
+                                                            span: 116..119,
                                                         },
                                                         payload: Tuple(
                                                             [
@@ -188,9 +164,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "get_baz",
-                        span: Some(
-                            141..148,
-                        ),
+                        span: 141..148,
                     },
                     params: [],
                     return_type: None,
@@ -204,9 +178,7 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "accepts_foo",
-                                                        span: Some(
-                                                            157..168,
-                                                        ),
+                                                        span: 157..168,
                                                     },
                                                 ),
                                                 span: 157..168,
@@ -216,15 +188,11 @@ Program {
                                                     node: EnumConstructor {
                                                         enum_name: Identifier {
                                                             name: "Foo",
-                                                            span: Some(
-                                                                169..172,
-                                                            ),
+                                                            span: 169..172,
                                                         },
                                                         variant: Identifier {
                                                             name: "Baz",
-                                                            span: Some(
-                                                                174..177,
-                                                            ),
+                                                            span: 174..177,
                                                         },
                                                         payload: Tuple(
                                                             [
@@ -292,17 +260,13 @@ TypedProgram {
             TypedEnumDef {
                 name: Identifier {
                     name: "Foo",
-                    span: Some(
-                        5..8,
-                    ),
+                    span: 5..8,
                 },
                 variants: [
                     TypedEnumVariant {
                         name: Identifier {
                             name: "Bar",
-                            span: Some(
-                                15..18,
-                            ),
+                            span: 15..18,
                         },
                         payload: Tuple(
                             [
@@ -313,9 +277,7 @@ TypedProgram {
                     TypedEnumVariant {
                         name: Identifier {
                             name: "Baz",
-                            span: Some(
-                                30..33,
-                            ),
+                            span: 30..33,
                         },
                         payload: Tuple(
                             [
@@ -355,17 +317,13 @@ TypedProgram {
                 export: None,
                 name: Identifier {
                     name: "accepts_foo",
-                    span: Some(
-                        46..57,
-                    ),
+                    span: 46..57,
                 },
                 params: [
                     TypedFunctionParam {
                         name: Identifier {
                             name: "foo",
-                            span: Some(
-                                58..61,
-                            ),
+                            span: 58..61,
                         },
                         ty: Enum(
                             EnumType {
@@ -408,9 +366,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "get_bar",
-                    span: Some(
-                        83..90,
-                    ),
+                    span: 83..90,
                 },
                 params: [],
                 return_type: Unit,
@@ -457,9 +413,7 @@ TypedProgram {
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "accepts_foo",
-                                                        span: Some(
-                                                            99..110,
-                                                        ),
+                                                        span: 99..110,
                                                     },
                                                 ),
                                             },
@@ -495,15 +449,11 @@ TypedProgram {
                                                     kind: EnumConstructor {
                                                         enum_name: Identifier {
                                                             name: "Foo",
-                                                            span: Some(
-                                                                111..114,
-                                                            ),
+                                                            span: 111..114,
                                                         },
                                                         variant: Identifier {
                                                             name: "Bar",
-                                                            span: Some(
-                                                                116..119,
-                                                            ),
+                                                            span: 116..119,
                                                         },
                                                         payload: Tuple(
                                                             [
@@ -542,9 +492,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "get_baz",
-                    span: Some(
-                        141..148,
-                    ),
+                    span: 141..148,
                 },
                 params: [],
                 return_type: Unit,
@@ -591,9 +539,7 @@ TypedProgram {
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "accepts_foo",
-                                                        span: Some(
-                                                            157..168,
-                                                        ),
+                                                        span: 157..168,
                                                     },
                                                 ),
                                             },
@@ -629,15 +575,11 @@ TypedProgram {
                                                     kind: EnumConstructor {
                                                         enum_name: Identifier {
                                                             name: "Foo",
-                                                            span: Some(
-                                                                169..172,
-                                                            ),
+                                                            span: 169..172,
                                                         },
                                                         variant: Identifier {
                                                             name: "Baz",
-                                                            span: Some(
-                                                                174..177,
-                                                            ),
+                                                            span: 174..177,
                                                         },
                                                         payload: Tuple(
                                                             [

@@ -8,15 +8,11 @@ Spanned {
             node: EnumConstructor {
                 enum_name: Identifier {
                     name: "context",
-                    span: Some(
-                        8..15,
-                    ),
+                    span: 8..15,
                 },
                 variant: Identifier {
                     name: "blockHeight",
-                    span: Some(
-                        17..28,
-                    ),
+                    span: 17..28,
                 },
                 payload: Tuple(
                     [],

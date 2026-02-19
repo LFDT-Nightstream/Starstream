@@ -9,6 +9,12 @@ use serde::Serialize;
 
 pub type Span = SimpleSpan;
 
+pub const DUMMY_SPAN: Span = Span {
+    start: 0,
+    end: 0,
+    context: (),
+};
+
 /// Create a span from start and end offsets.
 ///
 /// This is a convenience function that avoids needing to import the chumsky Span trait.
@@ -54,7 +60,7 @@ impl<T> Spanned<T> {
 pub struct Identifier {
     pub name: String,
     #[serde(skip)]
-    pub span: Option<Span>,
+    pub span: Span,
 }
 
 impl Identifier {
@@ -62,7 +68,7 @@ impl Identifier {
     pub fn anon(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            span: None,
+            span: DUMMY_SPAN,
         }
     }
 
@@ -70,12 +76,36 @@ impl Identifier {
     pub fn new(name: impl Into<String>, span: Span) -> Self {
         Self {
             name: name.into(),
-            span: Some(span),
+            span,
         }
     }
 
+    /// Get the identifier's text.
     pub fn as_str(&self) -> &str {
         &self.name
+    }
+
+    /// Get the identifier's source span if available, or DUMMY_SPAN if the identifier was hardcoded.
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    /// Get the identifier's source span if available, or `default` if the identifier was hardcoded.
+    pub fn span_or(&self, default: Span) -> Span {
+        if self.span == DUMMY_SPAN {
+            default
+        } else {
+            self.span
+        }
+    }
+
+    /// Get the identifier's source span if available, or `None` if the identifier was hardcoded.
+    pub fn opt_span(&self) -> Option<Span> {
+        if self.span == DUMMY_SPAN {
+            None
+        } else {
+            Some(self.span)
+        }
     }
 }
 

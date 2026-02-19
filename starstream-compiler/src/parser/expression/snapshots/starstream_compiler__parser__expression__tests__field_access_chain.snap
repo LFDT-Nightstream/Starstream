@@ -10,27 +10,21 @@ Spanned {
                     node: Identifier(
                         Identifier {
                             name: "state",
-                            span: Some(
-                                0..5,
-                            ),
+                            span: 0..5,
                         },
                     ),
                     span: 0..5,
                 },
                 field: Identifier {
                     name: "position",
-                    span: Some(
-                        6..14,
-                    ),
+                    span: 6..14,
                 },
             },
             span: 0..14,
         },
         field: Identifier {
             name: "x",
-            span: Some(
-                15..16,
-            ),
+            span: 15..16,
         },
     },
     span: 0..16,

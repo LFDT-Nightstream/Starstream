@@ -5,17 +5,13 @@ description: "Code:\n\nenum Color { Red, Green, Blue }"
 EnumDef {
     name: Identifier {
         name: "Color",
-        span: Some(
-            5..10,
-        ),
+        span: 5..10,
     },
     variants: [
         EnumVariant {
             name: Identifier {
                 name: "Red",
-                span: Some(
-                    13..16,
-                ),
+                span: 13..16,
             },
             payload: Unit,
             span: 13..16,
@@ -23,9 +19,7 @@ EnumDef {
         EnumVariant {
             name: Identifier {
                 name: "Green",
-                span: Some(
-                    18..23,
-                ),
+                span: 18..23,
             },
             payload: Unit,
             span: 18..23,
@@ -33,9 +27,7 @@ EnumDef {
         EnumVariant {
             name: Identifier {
                 name: "Blue",
-                span: Some(
-                    25..29,
-                ),
+                span: 25..29,
             },
             payload: Unit,
             span: 25..30,

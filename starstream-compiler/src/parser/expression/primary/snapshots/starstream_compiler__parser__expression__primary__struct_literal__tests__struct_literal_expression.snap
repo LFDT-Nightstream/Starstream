@@ -6,17 +6,13 @@ Spanned {
     node: StructLiteral {
         name: Identifier {
             name: "Point",
-            span: Some(
-                0..5,
-            ),
+            span: 0..5,
         },
         fields: [
             StructLiteralField {
                 name: Identifier {
                     name: "x",
-                    span: Some(
-                        12..13,
-                    ),
+                    span: 12..13,
                 },
                 value: Spanned {
                     node: Literal(
@@ -30,9 +26,7 @@ Spanned {
             StructLiteralField {
                 name: Identifier {
                     name: "y",
-                    span: Some(
-                        23..24,
-                    ),
+                    span: 23..24,
                 },
                 value: Spanned {
                     node: Binary {
@@ -41,9 +35,7 @@ Spanned {
                             node: Identifier(
                                 Identifier {
                                     name: "value",
-                                    span: Some(
-                                        26..31,
-                                    ),
+                                    span: 26..31,
                                 },
                             ),
                             span: 26..32,

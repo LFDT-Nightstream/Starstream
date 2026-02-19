@@ -11,18 +11,14 @@ Program {
                 AbiDef {
                     name: Identifier {
                         name: "Foo",
-                        span: Some(
-                            4..7,
-                        ),
+                        span: 4..7,
                     },
                     parts: [
                         Event(
                             EventDef {
                                 name: Identifier {
                                     name: "Hello",
-                                    span: Some(
-                                        20..25,
-                                    ),
+                                    span: 20..25,
                                 },
                                 params: [],
                             },
@@ -40,9 +36,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "main",
-                        span: Some(
-                            42..46,
-                        ),
+                        span: 42..46,
                     },
                     params: [],
                     return_type: None,
@@ -54,9 +48,7 @@ Program {
                                         node: Emit {
                                             event: Identifier {
                                                 name: "Hello",
-                                                span: Some(
-                                                    60..65,
-                                                ),
+                                                span: 60..65,
                                             },
                                             args: [],
                                         },
@@ -89,18 +81,14 @@ TypedProgram {
             TypedAbiDef {
                 name: Identifier {
                     name: "Foo",
-                    span: Some(
-                        4..7,
-                    ),
+                    span: 4..7,
                 },
                 parts: [
                     Event(
                         TypedEventDef {
                             name: Identifier {
                                 name: "Hello",
-                                span: Some(
-                                    20..25,
-                                ),
+                                span: 20..25,
                             },
                             params: [],
                         },
@@ -115,9 +103,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "main",
-                    span: Some(
-                        42..46,
-                    ),
+                    span: 42..46,
                 },
                 params: [],
                 return_type: Unit,
@@ -131,9 +117,7 @@ TypedProgram {
                                     kind: Emit {
                                         event: Identifier {
                                             name: "Hello",
-                                            span: Some(
-                                                60..65,
-                                            ),
+                                            span: 60..65,
                                         },
                                         args: [],
                                     },

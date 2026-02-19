@@ -1,0 +1,155 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_storage_err.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 5..11,
+                    },
+                    parts: [
+                        Storage(
+                            [
+                                UtxoGlobal {
+                                    name: Identifier {
+                                        name: "counter",
+                                        span: 44..51,
+                                    },
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i64",
+                                            span: 53..56,
+                                        },
+                                        generics: [],
+                                    },
+                                },
+                            ],
+                        ),
+                    ],
+                },
+            ),
+            span: 0..67,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "get",
+                        span: 77..80,
+                    },
+                    params: [],
+                    return_type: Some(
+                        TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: 86..89,
+                            },
+                            generics: [],
+                        },
+                    ),
+                    body: Block {
+                        statements: [],
+                        tail_expression: Some(
+                            Spanned {
+                                node: Identifier(
+                                    Identifier {
+                                        name: "counter",
+                                        span: 96..103,
+                                    },
+                                ),
+                                span: 96..104,
+                            },
+                        ),
+                        span: 90..106,
+                    },
+                },
+            ),
+            span: 67..106,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Utxo: MyUtxo => 
+
+T-Fn: get => i64
+  T-ReturnTail: counter => i64
+    T-Var: {counter: i64} ⊢ counter ⇒ i64
+    Unify-Const: i64 ~ i64 => {}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: 5..11,
+                },
+                parts: [
+                    Storage(
+                        [
+                            TypedUtxoGlobal {
+                                name: Identifier {
+                                    name: "counter",
+                                    span: 44..51,
+                                },
+                                ty: Int,
+                            },
+                        ],
+                    ),
+                ],
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "get",
+                    span: 77..80,
+                },
+                params: [],
+                return_type: Int,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: TypedExpr {
+                                ty: Int,
+                                kind: Identifier(
+                                    Identifier {
+                                        name: "counter",
+                                        span: 96..103,
+                                    },
+                                ),
+                            },
+                            span: 96..104,
+                        },
+                    ),
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+  x unknown name "counter"
+   ,-[8:5]
+ 7 | script fn get() -> i64 {
+ 8 |     counter
+   :     ^^^|^^^
+   :        `-- unknown name "counter"
+ 9 | }
+   `----

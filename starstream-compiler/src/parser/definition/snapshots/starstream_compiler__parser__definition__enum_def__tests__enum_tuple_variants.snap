@@ -5,26 +5,20 @@ description: "Code:\n\nenum Option { Some(i64), None }"
 EnumDef {
     name: Identifier {
         name: "Option",
-        span: Some(
-            5..11,
-        ),
+        span: 5..11,
     },
     variants: [
         EnumVariant {
             name: Identifier {
                 name: "Some",
-                span: Some(
-                    14..18,
-                ),
+                span: 14..18,
             },
             payload: Tuple(
                 [
                     TypeAnnotation {
                         name: Identifier {
                             name: "i64",
-                            span: Some(
-                                19..22,
-                            ),
+                            span: 19..22,
                         },
                         generics: [],
                     },
@@ -35,9 +29,7 @@ EnumDef {
         EnumVariant {
             name: Identifier {
                 name: "None",
-                span: Some(
-                    25..29,
-                ),
+                span: 25..29,
             },
             payload: Unit,
             span: 25..30,

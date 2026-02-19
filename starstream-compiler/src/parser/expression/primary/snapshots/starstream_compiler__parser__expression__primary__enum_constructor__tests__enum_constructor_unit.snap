@@ -6,15 +6,11 @@ Spanned {
     node: EnumConstructor {
         enum_name: Identifier {
             name: "Option",
-            span: Some(
-                0..6,
-            ),
+            span: 0..6,
         },
         variant: Identifier {
             name: "None",
-            span: Some(
-                8..12,
-            ),
+            span: 8..12,
         },
         payload: Unit,
     },

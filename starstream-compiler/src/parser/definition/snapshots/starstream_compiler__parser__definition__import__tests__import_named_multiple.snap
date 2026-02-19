@@ -8,29 +8,21 @@ ImportDef {
             ImportNamedItem {
                 imported: Identifier {
                     name: "blockHeight",
-                    span: Some(
-                        9..20,
-                    ),
+                    span: 9..20,
                 },
                 local: Identifier {
                     name: "blockHeight",
-                    span: Some(
-                        9..20,
-                    ),
+                    span: 9..20,
                 },
             },
             ImportNamedItem {
                 imported: Identifier {
                     name: "now",
-                    span: Some(
-                        22..25,
-                    ),
+                    span: 22..25,
                 },
                 local: Identifier {
                     name: "now",
-                    span: Some(
-                        22..25,
-                    ),
+                    span: 22..25,
                 },
             },
         ],
@@ -38,22 +30,16 @@ ImportDef {
     from: ImportSource {
         namespace: Identifier {
             name: "starstream",
-            span: Some(
-                33..43,
-            ),
+            span: 33..43,
         },
         package: Identifier {
             name: "std",
-            span: Some(
-                44..47,
-            ),
+            span: 44..47,
         },
         interface: Some(
             Identifier {
                 name: "cardano",
-                span: Some(
-                    48..55,
-                ),
+                span: 48..55,
             },
         ),
     },

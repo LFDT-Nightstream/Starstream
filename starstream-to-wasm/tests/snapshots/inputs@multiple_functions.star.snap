@@ -12,9 +12,7 @@ Program {
                     export: None,
                     name: Identifier {
                         name: "main",
-                        span: Some(
-                            3..7,
-                        ),
+                        span: 3..7,
                     },
                     params: [],
                     return_type: None,
@@ -25,9 +23,7 @@ Program {
                                     mutable: false,
                                     name: Identifier {
                                         name: "flag",
-                                        span: Some(
-                                            20..24,
-                                        ),
+                                        span: 20..24,
                                     },
                                     ty: None,
                                     value: Spanned {
@@ -51,9 +47,7 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "flag",
-                                                        span: Some(
-                                                            41..45,
-                                                        ),
+                                                        span: 41..45,
                                                     },
                                                 ),
                                                 span: 41..45,
@@ -102,18 +96,14 @@ Program {
                     export: None,
                     name: Identifier {
                         name: "compute",
-                        span: Some(
-                            106..113,
-                        ),
+                        span: 106..113,
                     },
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    119..122,
-                                ),
+                                span: 119..122,
                             },
                             generics: [],
                         },
@@ -125,9 +115,7 @@ Program {
                                     mutable: false,
                                     name: Identifier {
                                         name: "base",
-                                        span: Some(
-                                            133..137,
-                                        ),
+                                        span: 133..137,
                                     },
                                     ty: None,
                                     value: Spanned {
@@ -150,9 +138,7 @@ Program {
                                         node: Identifier(
                                             Identifier {
                                                 name: "base",
-                                                span: Some(
-                                                    148..152,
-                                                ),
+                                                span: 148..152,
                                             },
                                         ),
                                         span: 148..153,
@@ -220,9 +206,7 @@ TypedProgram {
                 export: None,
                 name: Identifier {
                     name: "main",
-                    span: Some(
-                        3..7,
-                    ),
+                    span: 3..7,
                 },
                 params: [],
                 return_type: Unit,
@@ -233,9 +217,7 @@ TypedProgram {
                             mutable: false,
                             name: Identifier {
                                 name: "flag",
-                                span: Some(
-                                    20..24,
-                                ),
+                                span: 20..24,
                             },
                             value: Spanned {
                                 node: TypedExpr {
@@ -263,9 +245,7 @@ TypedProgram {
                                                     kind: Identifier(
                                                         Identifier {
                                                             name: "flag",
-                                                            span: Some(
-                                                                41..45,
-                                                            ),
+                                                            span: 41..45,
                                                         },
                                                     ),
                                                 },
@@ -304,9 +284,7 @@ TypedProgram {
                 export: None,
                 name: Identifier {
                     name: "compute",
-                    span: Some(
-                        106..113,
-                    ),
+                    span: 106..113,
                 },
                 params: [],
                 return_type: Int,
@@ -317,9 +295,7 @@ TypedProgram {
                             mutable: false,
                             name: Identifier {
                                 name: "base",
-                                span: Some(
-                                    133..137,
-                                ),
+                                span: 133..137,
                             },
                             value: Spanned {
                                 node: TypedExpr {
@@ -346,9 +322,7 @@ TypedProgram {
                                             kind: Identifier(
                                                 Identifier {
                                                     name: "base",
-                                                    span: Some(
-                                                        148..152,
-                                                    ),
+                                                    span: 148..152,
                                                 },
                                             ),
                                         },

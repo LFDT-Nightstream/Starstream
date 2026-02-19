@@ -18,9 +18,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "main",
-                        span: Some(
-                            22..26,
-                        ),
+                        span: 22..26,
                     },
                     params: [],
                     return_type: None,
@@ -49,9 +47,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "main",
-                    span: Some(
-                        22..26,
-                    ),
+                    span: 22..26,
                 },
                 params: [],
                 return_type: Unit,

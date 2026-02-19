@@ -1,6 +1,6 @@
 ---
 source: starstream-to-wasm/tests/snapshots.rs
-input_file: starstream-to-wasm/tests/inputs/utxo_definition.star
+input_file: starstream-to-wasm/tests/inputs/enum_simple.star
 ---
 ==== AST ====
 Program {
@@ -11,17 +11,13 @@ Program {
                 EnumDef {
                     name: Identifier {
                         name: "Message",
-                        span: Some(
-                            5..12,
-                        ),
+                        span: 5..12,
                     },
                     variants: [
                         EnumVariant {
                             name: Identifier {
                                 name: "Ping",
-                                span: Some(
-                                    19..23,
-                                ),
+                                span: 19..23,
                             },
                             payload: Unit,
                             span: 19..23,
@@ -29,18 +25,14 @@ Program {
                         EnumVariant {
                             name: Identifier {
                                 name: "Pong",
-                                span: Some(
-                                    29..33,
-                                ),
+                                span: 29..33,
                             },
                             payload: Tuple(
                                 [
                                     TypeAnnotation {
                                         name: Identifier {
                                             name: "i64",
-                                            span: Some(
-                                                34..37,
-                                            ),
+                                            span: 34..37,
                                         },
                                         generics: [],
                                     },
@@ -65,26 +57,20 @@ TypedProgram {
             TypedEnumDef {
                 name: Identifier {
                     name: "Message",
-                    span: Some(
-                        5..12,
-                    ),
+                    span: 5..12,
                 },
                 variants: [
                     TypedEnumVariant {
                         name: Identifier {
                             name: "Ping",
-                            span: Some(
-                                19..23,
-                            ),
+                            span: 19..23,
                         },
                         payload: Unit,
                     },
                     TypedEnumVariant {
                         name: Identifier {
                             name: "Pong",
-                            span: Some(
-                                29..33,
-                            ),
+                            span: 29..33,
                         },
                         payload: Tuple(
                             [

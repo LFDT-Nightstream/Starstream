@@ -10,9 +10,7 @@ While {
                 node: Identifier(
                     Identifier {
                         name: "count",
-                        span: Some(
-                            7..12,
-                        ),
+                        span: 7..12,
                     },
                 ),
                 span: 7..13,
@@ -34,9 +32,7 @@ While {
                 node: Assignment {
                     target: Identifier {
                         name: "count",
-                        span: Some(
-                            21..26,
-                        ),
+                        span: 21..26,
                     },
                     value: Spanned {
                         node: Binary {
@@ -45,9 +41,7 @@ While {
                                 node: Identifier(
                                     Identifier {
                                         name: "count",
-                                        span: Some(
-                                            29..34,
-                                        ),
+                                        span: 29..34,
                                     },
                                 ),
                                 span: 29..35,

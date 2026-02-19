@@ -10,9 +10,7 @@ Expression(
                 node: Identifier(
                     Identifier {
                         name: "value",
-                        span: Some(
-                            0..5,
-                        ),
+                        span: 0..5,
                     },
                 ),
                 span: 0..6,

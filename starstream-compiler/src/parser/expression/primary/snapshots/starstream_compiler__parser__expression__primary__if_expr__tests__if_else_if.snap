@@ -10,9 +10,7 @@ Spanned {
                     node: Identifier(
                         Identifier {
                             name: "a",
-                            span: Some(
-                                4..5,
-                            ),
+                            span: 4..5,
                         },
                     ),
                     span: 4..5,
@@ -37,9 +35,7 @@ Spanned {
                     node: Identifier(
                         Identifier {
                             name: "b",
-                            span: Some(
-                                22..23,
-                            ),
+                            span: 22..23,
                         },
                     ),
                     span: 22..23,
