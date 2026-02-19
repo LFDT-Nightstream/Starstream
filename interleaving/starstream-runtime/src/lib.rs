@@ -129,6 +129,7 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         WitLedgerEffect::NewUtxo { .. }
         | WitLedgerEffect::NewCoord { .. }
         | WitLedgerEffect::GetHandlerFor { .. }
+        | WitLedgerEffect::CallEffectHandler { .. }
         | WitLedgerEffect::NewRef { .. } => 1,
         WitLedgerEffect::RefGet { .. } => 4,
         WitLedgerEffect::InstallHandler { .. }
@@ -470,6 +471,30 @@ impl Runtime {
                         WitLedgerEffect::GetHandlerFor {
                             interface_id,
                             handler_id: WitEffectOutput::Resolved(handler_id),
+                        },
+                    )
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_call_effect_handler",
+                |mut caller: Caller<'_, RuntimeState>,
+                 h0: u64,
+                 h1: u64,
+                 h2: u64,
+                 h3: u64,
+                 val: u64|
+                 -> Result<u64, wasmi::Error> {
+                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    suspend_with_effect(
+                        &mut caller,
+                        WitLedgerEffect::CallEffectHandler {
+                            interface_id,
+                            val: Ref(val),
+                            ret: WitEffectOutput::Thunk,
                         },
                     )
                 },
@@ -1019,6 +1044,9 @@ impl UnprovenTransaction {
                             *caller =
                                 WitEffectOutput::Resolved(Some(ProcessId(next_args[1] as usize)));
                         }
+                        WitLedgerEffect::CallEffectHandler { ret, .. } => {
+                            *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
+                        }
                         _ => {}
                     }
                 }
@@ -1066,6 +1094,23 @@ impl UnprovenTransaction {
 
                     match last_effect {
                         WitLedgerEffect::Resume { target, val, .. } => {
+                            next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
+                            current_pid = target;
+                        }
+                        WitLedgerEffect::CallEffectHandler {
+                            interface_id, val, ..
+                        } => {
+                            let target = {
+                                let stack = runtime
+                                    .store
+                                    .data()
+                                    .handler_stack
+                                    .get(&interface_id)
+                                    .expect("handler stack not found while dispatching call_effect_handler");
+                                *stack.last().expect(
+                                    "handler stack empty while dispatching call_effect_handler",
+                                )
+                            };
                             next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
                             current_pid = target;
                         }

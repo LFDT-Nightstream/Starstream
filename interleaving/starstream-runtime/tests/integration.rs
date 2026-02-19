@@ -29,11 +29,10 @@ fn test_runtime_simple_effect_handlers() {
         assert_eq caller_hash_c, script_hash_c;
         assert_eq caller_hash_d, script_hash_d;
 
-        let handler_id = call get_handler_for(1, 0, 0, 0);
         let req = call new_ref(1);
         call ref_push(42, 0, 0, 0);
 
-        let (resp, _caller) = call resume(handler_id, req);
+        let resp = call call_effect_handler(1, 0, 0, 0, req);
         let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
 
         assert_eq resp_val, 1;
@@ -125,7 +124,6 @@ fn test_runtime_effect_handlers_cross_calls() {
     let utxo1_bin = wasm_module!({
         let (_init_ref, _caller) = call activation();
 
-        let handler_id = call get_handler_for(1, 2, 3, 4);
         let x0 = 99;
         let n = 5;
         let i0 = 0;
@@ -143,7 +141,7 @@ fn test_runtime_effect_handlers_cross_calls() {
             let req = call new_ref(1);
             call ref_push(1, num_ref, 0, 0);
 
-            let (resp, _caller2) = call resume(handler_id, req);
+            let resp = call call_effect_handler(1, 2, 3, 4, req);
             let (y, _b, _c, _d) = call ref_get(resp, 0);
             let expected = add x, 1;
             assert_eq y, expected;
@@ -157,7 +155,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         call ref_push(x, 0, 0, 0);
         let stop = call new_ref(1);
         call ref_push(2, stop_num_ref, 0, 0);
-        let (_resp_stop, _caller_stop) = call resume(handler_id, stop);
+        let _resp_stop = call call_effect_handler(1, 2, 3, 4, stop);
 
         call yield_(stop);
     });

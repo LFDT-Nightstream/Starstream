@@ -496,6 +496,10 @@ pub fn state_transition(
         }
 
         WitLedgerEffect::Yield { val } => {
+            if !rom.is_utxo[id_curr.0] {
+                return Err(InterleavingError::UtxoOnly(id_curr));
+            }
+
             let parent = state
                 .yield_to
                 .get(id_curr.0)
@@ -685,6 +689,57 @@ pub fn state_transition(
                     got: handler_id.unwrap(),
                 });
             }
+        }
+        WitLedgerEffect::CallEffectHandler {
+            interface_id,
+            val,
+            ret,
+        } => {
+            let stack = state.handler_stack.entry(interface_id).or_default();
+            let target = stack
+                .last()
+                .copied()
+                .ok_or(InterleavingError::HandlerNotFound {
+                    interface_id,
+                    pid: id_curr,
+                })?;
+
+            if state.activation[target.0].is_some() {
+                return Err(InterleavingError::ReentrantResume(target));
+            }
+
+            state.activation[id_curr.0] = None;
+
+            if let Some(expected) = state.expected_input[target.0]
+                && expected != val
+            {
+                return Err(InterleavingError::ResumeClaimMismatch {
+                    target,
+                    expected,
+                    got: val,
+                });
+            }
+
+            if let Some(expected) = state.expected_resumer[target.0]
+                && expected != id_curr
+            {
+                return Err(InterleavingError::ResumerMismatch {
+                    target,
+                    expected,
+                    got: id_curr,
+                });
+            }
+
+            state.expected_input[target.0] = None;
+            state.expected_resumer[target.0] = None;
+
+            state.activation[target.0] = Some((val, id_curr));
+            state.expected_input[id_curr.0] = ret.to_option();
+            state.expected_resumer[id_curr.0] = Some(target);
+
+            state.id_prev = Some(id_curr);
+            state.id_curr = target;
+            state.finalized[target.0] = false;
         }
 
         WitLedgerEffect::Activation { val, caller } => {

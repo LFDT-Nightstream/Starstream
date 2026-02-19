@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 // TODO: benchmark properly
 pub(crate) const CHUNK_SIZE: usize = 40;
-const PER_STEP_COLS: usize = 1151;
+const PER_STEP_COLS: usize = 1169;
 const BASE_INSTANCE_COLS: usize = 1;
 const EXTRA_INSTANCE_COLS: usize = IvcWireLayout::FIELD_COUNT * 2;
 const M_IN: usize = BASE_INSTANCE_COLS + EXTRA_INSTANCE_COLS;

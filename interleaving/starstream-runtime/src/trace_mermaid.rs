@@ -268,6 +268,21 @@ fn format_edge_line(
             let to = ctx.labels.get(target.0)?;
             Some(format!("{from} ->> {to}: {label}"))
         }
+        WitLedgerEffect::CallEffectHandler { val, .. } => {
+            let target = ctx.interleaving.get(idx + 1).map(|(p, _)| *p)?;
+            let interface_id = ctx.handler_interfaces.get(&target);
+            let label = format!(
+                "call_effect_handler<br/>{}",
+                format_ref_with_value(
+                    ctx.ref_store,
+                    *val,
+                    interface_id,
+                    DecodeMode::RequestAndResponse
+                )
+            );
+            let to = ctx.labels.get(target.0)?;
+            Some(format!("{from} ->> {to}: {label}"))
+        }
         WitLedgerEffect::Yield { val, .. } => {
             let next_pid = ctx.interleaving.get(idx + 1).map(|(p, _)| *p)?;
             let label = format!(

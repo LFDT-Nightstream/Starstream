@@ -35,6 +35,7 @@ use rand::SeedableRng as _;
 use starstream_interleaving_spec::{
     InterleavingInstance, InterleavingWitness, ProcessId, ZkTransactionProof,
 };
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -165,6 +166,7 @@ fn make_interleaved_trace(
     let mut next_op_idx = vec![0usize; inst.process_table.len()];
     let mut on_yield = vec![true; inst.process_table.len()];
     let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
+    let mut handler_stack: BTreeMap<[u8; 32], Vec<usize>> = BTreeMap::new();
 
     let expected_len: usize = wit.traces.iter().map(|t| t.len()).sum();
 
@@ -193,6 +195,30 @@ fn make_interleaved_trace(
                 }
                 id_prev = Some(id_curr);
                 id_curr = target.0;
+            }
+            starstream_interleaving_spec::WitLedgerEffect::InstallHandler { interface_id } => {
+                handler_stack
+                    .entry(interface_id.0)
+                    .or_default()
+                    .push(id_curr);
+            }
+            starstream_interleaving_spec::WitLedgerEffect::UninstallHandler { interface_id } => {
+                let stack = handler_stack.entry(interface_id.0).or_default();
+
+                stack
+                    .pop()
+                    .expect("UninstallHandler with empty stack in interleaving trace");
+            }
+            starstream_interleaving_spec::WitLedgerEffect::CallEffectHandler {
+                interface_id,
+                ..
+            } => {
+                let target = *handler_stack
+                    .get(&interface_id.0)
+                    .and_then(|stack| stack.last())
+                    .expect("CallEffectHandler with empty stack in interleaving trace");
+                id_prev = Some(id_curr);
+                id_curr = target;
             }
             starstream_interleaving_spec::WitLedgerEffect::Yield { .. } => {
                 on_yield[id_curr] = true;

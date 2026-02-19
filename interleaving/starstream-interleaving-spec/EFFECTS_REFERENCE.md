@@ -100,18 +100,17 @@ Rule: Resume
 
     (No self resume)
 
-    2. let val = ref_store[val_ref] in
-       if expected_input[target] is set, it must equal val
+    2. if expected_input[target] is set, it must equal val_ref
 
-    (Check val matches target's previous claim)
+    (Check ref claim matches target's previous claim)
 
     3. if expected_resumer[target] is set, it must equal id_curr
 
     (Check that the current process matches the expected resumer for the target)
 
-    4. is_utxo(id_curr) => !is_utxo(target)
+    4. is_utxo[id_curr] == False
 
-    (Utxo's can't call into utxos)
+    (Direct Resume is coordination-script only)
 
     5. initialized[target]
 
@@ -169,14 +168,18 @@ Rule: Yield
 ===========
     op = Yield(val_ref)
 
-    1. yield_to[id_curr] is set
+    1. is_utxo[id_curr] == True
 
-    2. let val = ref_store[val_ref] in
+    (Only UTXOs may yield; coordination scripts must use Return)
+
+    2. yield_to[id_curr] is set
+
+    3. let val = ref_store[val_ref] in
        if expected_input[yield_to[id_curr]] is set, it must equal val
 
     (Check val matches target's previous claim)
 
-    3. if expected_resumer[yield_to[id_curr]] is set, it must equal id_curr
+    4. if expected_resumer[yield_to[id_curr]] is set, it must equal id_curr
 
     (Check that the current process matches the expected resumer for the parent)
 
@@ -330,6 +333,45 @@ Rule: Get Handler For
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
+```
+
+## Call Effect Handler
+
+Calls the currently installed handler for an interface, without allowing an
+arbitrary target choice.
+
+`interface_id` here is the full `InterfaceId` key (4-limb encoding in witness
+space), and resolves to `handler_stack[interface_id].top()`.
+
+```text
+Rule: Call Effect Handler
+=========================
+    op = CallEffectHandler(interface_id, val_ref) -> ret_ref
+
+    1. target = handler_stack[interface_id].top()
+
+    (There must be an installed handler)
+
+    2. id_curr ≠ target
+
+    (No self call)
+
+    3. if expected_input[target] is set, it must equal val_ref
+
+    (Check ref claim matches target's previous claim)
+
+    4. if expected_resumer[target] is set, it must equal id_curr
+
+    (Check that current process matches expected resumer for target)
+
+--------------------------------------------------------------------------------------------
+    1. expected_input[id_curr]   <- ret_ref
+    2. expected_resumer[id_curr] <- Some(target)
+    3. expected_input[target]    <- None
+    4. expected_resumer[target]  <- None
+    5. id_prev'                  <- id_curr
+    6. id_curr'                  <- target
+    7. activation'[target]       <- Some(val_ref, id_curr)
 ```
 
 ---

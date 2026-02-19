@@ -202,6 +202,7 @@ pub struct Imports {
     pub activation: FuncRef,
     pub get_program_hash: FuncRef,
     pub get_handler_for: FuncRef,
+    pub call_effect_handler: FuncRef,
     pub install_handler: FuncRef,
     pub uninstall_handler: FuncRef,
     pub new_ref: FuncRef,
@@ -258,6 +259,18 @@ impl ModuleBuilder {
             "env",
             "starstream_get_handler_for",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+            &[ValType::I64],
+        );
+        let call_effect_handler = self.import_func(
+            "env",
+            "starstream_call_effect_handler",
+            &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
             &[ValType::I64],
         );
         let install_handler = self.import_func(
@@ -344,6 +357,7 @@ impl ModuleBuilder {
             activation,
             get_program_hash,
             get_handler_for,
+            call_effect_handler,
             install_handler,
             uninstall_handler,
             new_ref,

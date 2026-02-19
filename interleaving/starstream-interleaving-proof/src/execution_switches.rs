@@ -12,6 +12,7 @@ use crate::F;
 #[derive(Clone)]
 pub(crate) struct ExecutionSwitches<T> {
     pub(crate) resume: T,
+    pub(crate) call_effect_handler: T,
     pub(crate) yield_op: T,
     pub(crate) return_op: T,
     pub(crate) burn: T,
@@ -41,6 +42,7 @@ impl ExecutionSwitches<bool> {
     ) -> Result<ExecutionSwitches<Boolean<F>>, SynthesisError> {
         let switches = [
             self.resume,
+            self.call_effect_handler,
             self.yield_op,
             self.return_op,
             self.nop,
@@ -81,6 +83,7 @@ impl ExecutionSwitches<bool> {
 
         let [
             resume,
+            call_effect_handler,
             yield_op,
             return_op,
             nop,
@@ -106,6 +109,10 @@ impl ExecutionSwitches<bool> {
 
         let terms = [
             (resume, EffectDiscriminant::Resume as u64),
+            (
+                call_effect_handler,
+                EffectDiscriminant::CallEffectHandler as u64,
+            ),
             (yield_op, EffectDiscriminant::Yield as u64),
             (return_op, EffectDiscriminant::Return as u64),
             (burn, EffectDiscriminant::Burn as u64),
@@ -136,6 +143,7 @@ impl ExecutionSwitches<bool> {
 
         Ok(ExecutionSwitches {
             resume: resume.clone(),
+            call_effect_handler: call_effect_handler.clone(),
             yield_op: yield_op.clone(),
             return_op: return_op.clone(),
             nop: nop.clone(),
@@ -167,6 +175,13 @@ impl ExecutionSwitches<bool> {
     pub(crate) fn resume() -> Self {
         Self {
             resume: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn call_effect_handler() -> Self {
+        Self {
+            call_effect_handler: true,
             ..Self::default()
         }
     }
@@ -295,6 +310,7 @@ impl Default for ExecutionSwitches<bool> {
     fn default() -> Self {
         Self {
             resume: false,
+            call_effect_handler: false,
             yield_op: false,
             return_op: false,
             burn: false,

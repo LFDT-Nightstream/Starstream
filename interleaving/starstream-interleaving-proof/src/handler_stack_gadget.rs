@@ -167,6 +167,9 @@ impl InterfaceResolver {
                 LedgerOperation::GetHandlerFor { interface_id, .. } => {
                     unique_interfaces.insert(*interface_id);
                 }
+                LedgerOperation::CallEffectHandler { interface_id, .. } => {
+                    unique_interfaces.insert(*interface_id);
+                }
                 _ => (),
             }
         }

@@ -8,7 +8,6 @@ use crate::{
 pub enum EffectDiscriminant {
     Resume = 0,
     Yield = 1,
-    Return = 17,
     NewUtxo = 2,
     NewCoord = 3,
     InstallHandler = 4,
@@ -24,6 +23,8 @@ pub enum EffectDiscriminant {
     Unbind = 14,
     ProgramHash = 15,
     RefWrite = 16,
+    Return = 17,
+    CallEffectHandler = 18,
 }
 
 pub const REF_PUSH_WIDTH: usize = 4;
@@ -97,6 +98,13 @@ pub enum WitLedgerEffect {
         interface_id: InterfaceId,
         // out
         handler_id: WitEffectOutput<ProcessId>,
+    },
+    CallEffectHandler {
+        // in
+        interface_id: InterfaceId,
+        val: Ref,
+        // out
+        ret: WitEffectOutput<Ref>,
     },
 
     // UTXO-only
@@ -200,7 +208,6 @@ impl From<u64> for EffectDiscriminant {
         match value {
             0 => EffectDiscriminant::Resume,
             1 => EffectDiscriminant::Yield,
-            17 => EffectDiscriminant::Return,
             2 => EffectDiscriminant::NewUtxo,
             3 => EffectDiscriminant::NewCoord,
             4 => EffectDiscriminant::InstallHandler,
@@ -216,6 +223,8 @@ impl From<u64> for EffectDiscriminant {
             14 => EffectDiscriminant::Unbind,
             15 => EffectDiscriminant::ProgramHash,
             16 => EffectDiscriminant::RefWrite,
+            17 => EffectDiscriminant::Return,
+            18 => EffectDiscriminant::CallEffectHandler,
             _ => todo!(),
         }
     }

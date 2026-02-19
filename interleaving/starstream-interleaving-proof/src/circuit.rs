@@ -246,9 +246,27 @@ impl Wires {
         let curr_read_wires =
             program_state_read_wires(rm, &cs, curr_address.clone(), &curr_mem_switches)?;
 
+        let handler_switches =
+            HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
+        let ref_arena_switches =
+            RefArenaSwitchboardWires::allocate(cs.clone(), &vals.ref_arena_switches)?;
+        let interface_index_var = FpVar::new_witness(cs.clone(), || Ok(vals.interface_index))?;
+        let handler_reads = handler_stack_access_wires(
+            cs.clone(),
+            rm,
+            &handler_switches,
+            &interface_index_var,
+            &handler_stack_counter,
+            &id_curr,
+        )?;
+
         let yield_to_value = curr_read_wires.yield_to.decode_or_zero()?;
         let return_like = &switches.yield_op | &switches.return_op;
-        let target_address = return_like.select(&yield_to_value, &target)?;
+        let default_target_address = return_like.select(&yield_to_value, &target)?;
+        let target_address = switches.call_effect_handler.select(
+            &handler_reads.handler_stack_node_process,
+            &default_target_address,
+        )?;
         let target_read_wires =
             program_state_read_wires(rm, &cs, target_address.clone(), &target_mem_switches)?;
 
@@ -308,22 +326,6 @@ impl Wires {
             rm,
             &rom_switches.read_program_hash_target,
             &target_address,
-        )?;
-
-        let handler_switches =
-            HandlerSwitchboardWires::allocate(cs.clone(), &vals.handler_switches)?;
-        let ref_arena_switches =
-            RefArenaSwitchboardWires::allocate(cs.clone(), &vals.ref_arena_switches)?;
-
-        let interface_index_var = FpVar::new_witness(cs.clone(), || Ok(vals.interface_index))?;
-
-        let handler_reads = handler_stack_access_wires(
-            cs.clone(),
-            rm,
-            &handler_switches,
-            &interface_index_var,
-            &handler_stack_counter,
-            &id_curr,
         )?;
 
         let handler_state = HandlerState {
@@ -481,6 +483,22 @@ impl LedgerOperation<crate::F> {
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
             }
+            LedgerOperation::CallEffectHandler { .. } => {
+                config.execution_switches.call_effect_handler = true;
+
+                config.mem_switches_curr.activation = true;
+                config.mem_switches_curr.expected_input = true;
+                config.mem_switches_curr.expected_resumer = true;
+
+                config.mem_switches_target.activation = true;
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.finalized = true;
+
+                config.handler_switches.read_interface = true;
+                config.handler_switches.read_head = true;
+                config.handler_switches.read_node = true;
+            }
             LedgerOperation::Yield { .. } => {
                 config.execution_switches.yield_op = true;
 
@@ -491,6 +509,8 @@ impl LedgerOperation<crate::F> {
 
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
             }
             LedgerOperation::Return { .. } => {
                 config.execution_switches.return_op = true;
@@ -640,6 +660,7 @@ impl LedgerOperation<crate::F> {
         curr_read: ProgramState,
         target_read: ProgramState,
         curr_is_utxo: bool,
+        target_id: Option<F>,
     ) -> (ProgramState, ProgramState) {
         let mut curr_write = curr_read.clone();
         let mut target_write = target_read.clone();
@@ -669,6 +690,17 @@ impl LedgerOperation<crate::F> {
                     target_write.yield_to = OptionalF::new(curr_id);
                 }
                 target_write.on_yield = false;
+            }
+            LedgerOperation::CallEffectHandler { val, ret, .. } => {
+                let target = target_id.expect("CallEffectHandler requires resolved handler target");
+                curr_write.activation = F::ZERO;
+                curr_write.expected_input = OptionalF::new(*ret);
+                curr_write.expected_resumer = OptionalF::new(target);
+
+                target_write.expected_input = OptionalF::none();
+                target_write.expected_resumer = OptionalF::none();
+                target_write.activation = *val;
+                target_write.finalized = false;
             }
             LedgerOperation::Yield { val: _, .. } => {
                 // Current process yields control back to its parent (the target of this operation).
@@ -754,6 +786,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // per opcode constraints
         let next_wires = self.visit_yield(next_wires)?;
         let next_wires = self.visit_return(next_wires)?;
+        let next_wires = self.visit_call_effect_handler(next_wires)?;
         let next_wires = self.visit_resume(next_wires)?;
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_program_hash(next_wires)?;
@@ -996,10 +1029,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::GetHandlerFor { interface_id, .. } => self
                     .interface_resolver
                     .get_interface_index_field(*interface_id),
+                LedgerOperation::CallEffectHandler { interface_id, .. } => self
+                    .interface_resolver
+                    .get_interface_index_field(*interface_id),
                 _ => F::ZERO,
             };
 
-            let _handler_reads = trace_handler_stack_ops(
+            let handler_reads = trace_handler_stack_ops(
                 &mut mb,
                 &handler_switches,
                 &interface_index,
@@ -1026,6 +1062,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
+                LedgerOperation::CallEffectHandler { .. } => {
+                    Some(handler_reads.handler_stack_node_process)
+                }
                 LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
@@ -1069,8 +1108,19 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             );
 
             let curr_is_utxo = self.instance.is_utxo[irw.id_curr.into_bigint().0[0] as usize];
-            let (curr_write, target_write) =
-                instr.program_state_transitions(irw.id_curr, curr_read, target_read, curr_is_utxo);
+            let target_id = match instr {
+                LedgerOperation::CallEffectHandler { .. } => {
+                    Some(handler_reads.handler_stack_node_process)
+                }
+                _ => None,
+            };
+            let (curr_write, target_write) = instr.program_state_transitions(
+                irw.id_curr,
+                curr_read,
+                target_read,
+                curr_is_utxo,
+                target_id,
+            );
 
             self.write_ops
                 .push((curr_write.clone(), target_write.clone()));
@@ -1089,6 +1139,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::Resume { target, .. } => {
                     irw.id_prev = OptionalF::new(irw.id_curr);
                     irw.id_curr = *target;
+                }
+                LedgerOperation::CallEffectHandler { .. } => {
+                    irw.id_prev = OptionalF::new(irw.id_curr);
+                    irw.id_curr = handler_reads.handler_stack_node_process;
                 }
                 LedgerOperation::Yield { .. } => {
                     irw.id_prev = OptionalF::new(irw.id_curr);
@@ -1198,6 +1252,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             LedgerOperation::GetHandlerFor { interface_id, .. } => self
                 .interface_resolver
                 .get_interface_index_field(*interface_id),
+            LedgerOperation::CallEffectHandler { interface_id, .. } => self
+                .interface_resolver
+                .get_interface_index_field(*interface_id),
             _ => F::ZERO,
         };
 
@@ -1221,6 +1278,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             },
             LedgerOperation::Resume { .. } => PreWires {
                 switches: ExecutionSwitches::resume(),
+                ..default
+            },
+            LedgerOperation::CallEffectHandler { .. } => PreWires {
+                switches: ExecutionSwitches::call_effect_handler(),
                 ..default
             },
             LedgerOperation::Yield { .. } => PreWires {
@@ -1304,11 +1365,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .id_curr
             .conditional_enforce_not_equal(&wires.arg(ArgName::Target), switch)?;
 
-        // 2. UTXO cannot resume UTXO.
+        // 2. Direct Resume is coordination-script only.
+        wires
+            .is_utxo_curr
+            .is_one()?
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         let is_utxo_curr = wires.is_utxo_curr.is_one()?;
-        let is_utxo_target = wires.is_utxo_target.is_one()?;
-        let both_are_utxos = is_utxo_curr.clone() & is_utxo_target;
-        both_are_utxos.conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // 3. Target must be initialized
         wires
             .target_read_wires
@@ -1391,6 +1455,79 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_call_effect_handler(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.switches.call_effect_handler;
+
+        // The interface witness must match interface ROM.
+        wires
+            .handler_state
+            .interface_rom_read
+            .conditional_enforce_equal(&wires.arg(ArgName::CallEffectHandlerInterfaceId), switch)?;
+
+        // No self-call.
+        wires.id_curr.conditional_enforce_not_equal(
+            &wires.handler_state.handler_stack_node_process,
+            switch,
+        )?;
+
+        // Re-entrancy check (target activation must be None).
+        wires
+            .target_read_wires
+            .activation
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+
+        // Claim check: val ref must match target expected_input (if set).
+        wires
+            .target_read_wires
+            .expected_input
+            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Val))?;
+
+        // Resumer check: current process must match target expected_resumer (if set).
+        wires
+            .target_read_wires
+            .expected_resumer
+            .conditional_enforce_eq_if_some(switch, &wires.id_curr)?;
+
+        // Target expectations are consumed by the call.
+        wires
+            .target_write_wires
+            .expected_input
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+        wires
+            .target_write_wires
+            .expected_resumer
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+
+        // Caller expected_resumer is fixed to the resolved target.
+        wires
+            .curr_write_wires
+            .expected_resumer
+            .encoded()
+            .conditional_enforce_equal(
+                &OptionalFpVar::from_pid(&wires.handler_state.handler_stack_node_process).encoded(),
+                switch,
+            )?;
+
+        // IVC state updates mirror resume-to-target.
+        let next_id_curr = switch.select(
+            &wires.handler_state.handler_stack_node_process,
+            &wires.id_curr,
+        )?;
+        let next_id_prev = OptionalFpVar::select_encoded(
+            switch,
+            &OptionalFpVar::from_pid(&wires.id_curr),
+            &wires.id_prev,
+        )?;
+
+        wires.id_curr = next_id_curr;
+        wires.id_prev = next_id_prev;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_burn(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.burn;
 
@@ -1451,10 +1588,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let yield_to = wires.curr_read_wires.yield_to.clone();
         let yield_to_is_some = yield_to.is_some()?;
 
-        // 1. Must have a target to yield to.
+        // 1. Yield is only valid for UTXOs.
+        wires
+            .is_utxo_curr
+            .is_one()?
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        // 2. Must have a target to yield to.
         yield_to_is_some.conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 2. Claim check: yielded value `val` must match parent's `expected_input`.
+        // 3. Claim check: yielded value `val` must match parent's `expected_input`.
         // The parent's state is in `target_read_wires` because we set `target = yield_to`.
         wires
             .target_read_wires
@@ -1464,7 +1607,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &wires.arg(ArgName::Val),
             )?;
 
-        // 3. Resumer check: parent must expect the current process (if set).
+        // 4. Resumer check: parent must expect the current process (if set).
         wires
             .target_read_wires
             .expected_resumer

@@ -484,6 +484,105 @@ fn test_yield_parent_resumer_mismatch_trace() {
 }
 
 #[test]
+#[should_panic]
+fn test_call_effect_handler_resumer_mismatch_trace() {
+    setup_logger();
+
+    let utxo_id = 0;
+    let coord_top_id = 1;
+    let coord_handler_id = 2;
+
+    let p0 = ProcessId(utxo_id);
+    let p1 = ProcessId(coord_top_id);
+    let p2 = ProcessId(coord_handler_id);
+
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+    let iface = h(100);
+
+    let utxo_trace = vec![
+        WitLedgerEffect::Init {
+            val: ref_0.into(),
+            caller: p1.into(),
+        },
+        WitLedgerEffect::CallEffectHandler {
+            interface_id: iface,
+            val: ref_0,
+            ret: ref_0.into(),
+        },
+        WitLedgerEffect::Yield { val: ref_0 },
+    ];
+
+    let coord_top_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        WitLedgerEffect::NewUtxo {
+            program_hash: h(0),
+            val: ref_0,
+            id: p0.into(),
+        },
+        WitLedgerEffect::NewCoord {
+            program_hash: h(2),
+            val: ref_0,
+            id: p2.into(),
+        },
+        WitLedgerEffect::Resume {
+            target: p2,
+            val: ref_0,
+            ret: ref_0.into(),
+            caller: WitEffectOutput::Resolved(None),
+        },
+        // Invalid on purpose: after p0 CallEffectHandler, only p2 should resume p0.
+        WitLedgerEffect::Resume {
+            target: p0,
+            val: ref_0,
+            ret: ref_0.into(),
+            caller: WitEffectOutput::Resolved(None),
+        },
+    ];
+
+    let coord_handler_trace = vec![
+        WitLedgerEffect::Init {
+            val: ref_0.into(),
+            caller: p1.into(),
+        },
+        WitLedgerEffect::InstallHandler {
+            interface_id: iface,
+        },
+        WitLedgerEffect::Resume {
+            target: p0,
+            val: ref_0,
+            ret: ref_0.into(),
+            caller: WitEffectOutput::Resolved(None),
+        },
+        WitLedgerEffect::Return {},
+    ];
+
+    let traces = vec![utxo_trace, coord_top_trace, coord_handler_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 1,
+        n_coords: 2,
+        entrypoint: p1,
+        process_table: vec![h(0), h(1), h(2)],
+        is_utxo: vec![true, false, false],
+        must_burn: vec![false, false, false],
+        ownership_in: vec![None, None, None],
+        ownership_out: vec![None, None, None],
+        host_calls_roots,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+    let _result = prove(instance, wit);
+}
+
+#[test]
 fn test_entrypoint_return_sat() {
     setup_logger();
 

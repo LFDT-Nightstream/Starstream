@@ -20,6 +20,11 @@ pub enum LedgerOperation<F: PrimeField> {
         ret: F,
         caller: OptionalF<F>,
     },
+    CallEffectHandler {
+        interface_id: F,
+        val: F,
+        ret: F,
+    },
     /// Called by utxo to yield.
     ///
     Yield {

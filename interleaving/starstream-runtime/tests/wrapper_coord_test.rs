@@ -83,12 +83,10 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         let (init_ref, _caller) = call activation();
         let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
 
-        let handler_id = call get_handler_for(1, 2, 3, 4);
-
         let req = call new_ref(1);
         call ref_push(2, cell_ref, 42, 0);
 
-        let (_resp, _caller2) = call resume(handler_id, req);
+        let _resp = call call_effect_handler(1, 2, 3, 4, req);
 
         let done = call new_ref(1);
         call ref_push(0, 0, 0, 0);
@@ -99,12 +97,10 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         let (init_ref, _caller) = call activation();
         let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
 
-        let handler_id = call get_handler_for(1, 2, 3, 4);
-
         let req = call new_ref(1);
         call ref_push(3, cell_ref, 0, 0);
 
-        let (resp, _caller2) = call resume(handler_id, req);
+        let resp = call call_effect_handler(1, 2, 3, 4, req);
         let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
         assert_eq val, 42;
 

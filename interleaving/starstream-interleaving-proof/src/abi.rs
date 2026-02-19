@@ -37,6 +37,7 @@ pub enum ArgName {
     OwnerId,
     TokenId,
     InterfaceId,
+    CallEffectHandlerInterfaceId,
 
     PackedRef0,
     PackedRef1,
@@ -56,6 +57,7 @@ impl ArgName {
             ArgName::Val | ArgName::InterfaceId => 1,
             ArgName::Ret => 2,
             ArgName::Caller | ArgName::Offset | ArgName::Size | ArgName::ActivationCaller => 3,
+            ArgName::CallEffectHandlerInterfaceId => 4,
             ArgName::ProgramHash0 => 3,
             ArgName::ProgramHash1 => 4,
             ArgName::ProgramHash2 => 5,
@@ -163,6 +165,16 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             interface_id: F::from(interface_id.0[0] as u64),
             handler_id: F::from(handler_id.unwrap().0 as u64),
         },
+        WitLedgerEffect::CallEffectHandler {
+            interface_id,
+            val,
+            ret,
+            ..
+        } => LedgerOperation::CallEffectHandler {
+            interface_id: F::from(interface_id.0[0] as u64),
+            val: F::from(val.0),
+            ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
+        },
     }
 }
 
@@ -170,6 +182,9 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
     match op {
         LedgerOperation::Nop {} => F::zero(),
         LedgerOperation::Resume { .. } => F::from(EffectDiscriminant::Resume as u64),
+        LedgerOperation::CallEffectHandler { .. } => {
+            F::from(EffectDiscriminant::CallEffectHandler as u64)
+        }
         LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
         LedgerOperation::Return { .. } => F::from(EffectDiscriminant::Return as u64),
         LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
@@ -208,6 +223,15 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::Caller.idx()] = caller.encoded();
+        }
+        LedgerOperation::CallEffectHandler {
+            interface_id,
+            val,
+            ret,
+        } => {
+            args[ArgName::Val.idx()] = *val;
+            args[ArgName::Ret.idx()] = *ret;
+            args[ArgName::CallEffectHandlerInterfaceId.idx()] = *interface_id;
         }
         LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;
