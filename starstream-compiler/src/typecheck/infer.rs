@@ -2021,18 +2021,28 @@ impl Inferencer {
                     | BinaryOp::Remainder => {
                         let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
                         if !both_int {
-                            let left_repr = self.format_type(&left_ty);
-                            let right_repr = self.format_type(&right_ty);
+                            let left_display = self.apply_for_display(&typed_left.node.ty);
+                            let right_display =
+                                self.apply_for_display(&typed_right.node.ty);
                             return Err(TypeError::new(
                                 TypeErrorKind::BinaryOperandMismatch {
                                     op: *op,
-                                    left: left_ty.clone(),
-                                    right: right_ty.clone(),
+                                    left: left_display.clone(),
+                                    right: right_display.clone(),
                                 },
                                 left_label_span,
                             )
-                            .with_primary_message(format!("has type `{left_repr}`"))
-                            .with_secondary(right_label_span, format!("has type `{right_repr}`")));
+                            .with_primary_message(format!(
+                                "has type `{}`",
+                                left_display.to_compact_string()
+                            ))
+                            .with_secondary(
+                                right_label_span,
+                                format!(
+                                    "has type `{}`",
+                                    right_display.to_compact_string()
+                                ),
+                            ));
                         }
 
                         // Unify left and right to ensure same int width
@@ -2079,18 +2089,28 @@ impl Inferencer {
                         let both_bool =
                             matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool);
                         if !both_bool {
-                            let left_repr = self.format_type(&left_ty);
-                            let right_repr = self.format_type(&right_ty);
+                            let left_display = self.apply_for_display(&typed_left.node.ty);
+                            let right_display =
+                                self.apply_for_display(&typed_right.node.ty);
                             return Err(TypeError::new(
                                 TypeErrorKind::BinaryOperandMismatch {
                                     op: *op,
-                                    left: left_ty.clone(),
-                                    right: right_ty.clone(),
+                                    left: left_display.clone(),
+                                    right: right_display.clone(),
                                 },
                                 left_label_span,
                             )
-                            .with_primary_message(format!("has type `{left_repr}`"))
-                            .with_secondary(right_label_span, format!("has type `{right_repr}`")));
+                            .with_primary_message(format!(
+                                "has type `{}`",
+                                left_display.to_compact_string()
+                            ))
+                            .with_secondary(
+                                right_label_span,
+                                format!(
+                                    "has type `{}`",
+                                    right_display.to_compact_string()
+                                ),
+                            ));
                         }
 
                         children.push(self.require_is(
@@ -3300,8 +3320,8 @@ impl Inferencer {
         right: &Spanned<TypedExpr>,
         right_span: Span,
     ) -> Result<InferenceTree, TypeError> {
-        let left_ty = self.apply_for_display(&left.node.ty);
-        let right_ty = self.apply_for_display(&right.node.ty);
+        let left_ty = self.apply(&left.node.ty);
+        let right_ty = self.apply(&right.node.ty);
 
         let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
 
@@ -3314,8 +3334,8 @@ impl Inferencer {
                 right_span,
                 TypeErrorKind::BinaryOperandMismatch {
                     op: *op,
-                    left: left_ty.clone(),
-                    right: right_ty.clone(),
+                    left: self.apply_for_display(&left.node.ty),
+                    right: self.apply_for_display(&right.node.ty),
                 },
             )?;
             let subject = self.maybe_string(|| {
@@ -3338,18 +3358,20 @@ impl Inferencer {
             let result = self.maybe_string(|| "ok (bool)".to_string());
             Ok(self.make_trace("Check-Compare", None, subject, result, Vec::new))
         } else {
+            let left_display = self.apply_for_display(&left.node.ty);
+            let right_display = self.apply_for_display(&right.node.ty);
             Err(TypeError::new(
                 TypeErrorKind::BinaryOperandMismatch {
                     op: *op,
-                    left: left_ty.clone(),
-                    right: right_ty.clone(),
+                    left: left_display.clone(),
+                    right: right_display.clone(),
                 },
                 left_span,
             )
-            .with_primary_message(format!("has type `{}`", left_ty.to_compact_string()))
+            .with_primary_message(format!("has type `{}`", left_display.to_compact_string()))
             .with_secondary(
                 right_span,
-                format!("has type `{}`", right_ty.to_compact_string()),
+                format!("has type `{}`", right_display.to_compact_string()),
             ))
         }
     }
@@ -3363,8 +3385,8 @@ impl Inferencer {
         right: &Spanned<TypedExpr>,
         right_span: Span,
     ) -> Result<InferenceTree, TypeError> {
-        let left_ty = self.apply_for_display(&left.node.ty);
-        let right_ty = self.apply_for_display(&right.node.ty);
+        let left_ty = self.apply(&left.node.ty);
+        let right_ty = self.apply(&right.node.ty);
 
         let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
 
@@ -3377,8 +3399,8 @@ impl Inferencer {
                 right_span,
                 TypeErrorKind::BinaryOperandMismatch {
                     op: *op,
-                    left: left_ty.clone(),
-                    right: right_ty.clone(),
+                    left: self.apply_for_display(&left.node.ty),
+                    right: self.apply_for_display(&right.node.ty),
                 },
             )?;
             let subject = self.maybe_string(|| {
@@ -3401,18 +3423,20 @@ impl Inferencer {
             let result = self.maybe_string(|| "ok".to_string());
             Ok(self.make_trace("Check-Eq", None, subject, result, Vec::new))
         } else {
+            let left_display = self.apply_for_display(&left.node.ty);
+            let right_display = self.apply_for_display(&right.node.ty);
             Err(TypeError::new(
                 TypeErrorKind::BinaryOperandMismatch {
                     op: *op,
-                    left: left_ty.clone(),
-                    right: right_ty.clone(),
+                    left: left_display.clone(),
+                    right: right_display.clone(),
                 },
                 left_span,
             )
-            .with_primary_message(format!("has type `{}`", left_ty.to_compact_string()))
+            .with_primary_message(format!("has type `{}`", left_display.to_compact_string()))
             .with_secondary(
                 right_span,
-                format!("has type `{}`", right_ty.to_compact_string()),
+                format!("has type `{}`", right_display.to_compact_string()),
             ))
         }
     }
@@ -3467,7 +3491,10 @@ impl Inferencer {
                         kind: match &variant.kind {
                             TypeEnumVariantKind::Unit => TypeEnumVariantKind::Unit,
                             TypeEnumVariantKind::Tuple(payload) => TypeEnumVariantKind::Tuple(
-                                payload.iter().map(|ty| self.apply_for_display(ty)).collect(),
+                                payload
+                                    .iter()
+                                    .map(|ty| self.apply_for_display(ty))
+                                    .collect(),
                             ),
                             TypeEnumVariantKind::Struct(fields) => TypeEnumVariantKind::Struct(
                                 fields

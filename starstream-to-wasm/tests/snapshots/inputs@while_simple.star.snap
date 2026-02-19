@@ -126,14 +126,14 @@ T-Fn: main => ()
     T-Bin-Lt: {foo: t3} ⊢ foo < 10 ⇒ bool
       T-Var: {foo: t3} ⊢ foo ⇒ t3
       T-Int: {foo: t3} ⊢ 10 ⇒ t4
-      Check-Compare: i64 vs i64 => ok (int)
-        Unify-Const: i64 ~ i64 => {}
+      Check-Compare: t3 vs t4 => ok (int)
+        Unify-Var: t3 ~ t4 => {t4/t3}
     Check-Bool: bool => ok
     T-Assign: {foo: t3} ⊢ foo = foo + 1; ⇒ t3
       T-Bin-Add: {foo: t3} ⊢ foo + 1 ⇒ t5
         T-Var: {foo: t3} ⊢ foo ⇒ t3
         T-Int: {foo: t3} ⊢ 1 ⇒ t5
-        Unify-Var: t3 ~ t5 => {t5/t3}
+        Unify-Var: t4 ~ t5 => {t5/t4}
       Unify-Var: t5 ~ t5 => {}
 
 ==== Typed AST ====
