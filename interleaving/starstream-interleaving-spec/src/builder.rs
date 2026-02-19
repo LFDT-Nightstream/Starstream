@@ -31,10 +31,7 @@ impl Default for RefGenerator {
 }
 
 pub fn h<T>(n: u8) -> Hash<T> {
-    // TODO: actual hashing
-    let mut bytes = [0u8; 32];
-    bytes[0] = n;
-    Hash(bytes, std::marker::PhantomData)
+    Hash([n as u64, 0, 0, 0], std::marker::PhantomData)
 }
 
 pub fn v(data: &[u8]) -> Value {

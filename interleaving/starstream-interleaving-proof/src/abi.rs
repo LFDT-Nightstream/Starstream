@@ -1,8 +1,6 @@
 use crate::{F, OptionalF, ledger_operation::LedgerOperation};
 use ark_ff::Zero;
-use starstream_interleaving_spec::{
-    EffectDiscriminant, Hash, LedgerEffectsCommitment, WitLedgerEffect,
-};
+use starstream_interleaving_spec::{EffectDiscriminant, LedgerEffectsCommitment, WitLedgerEffect};
 
 pub const OPCODE_ARG_COUNT: usize = 7;
 
@@ -106,14 +104,14 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             program_hash,
         } => LedgerOperation::ProgramHash {
             target: F::from(target.0 as u64),
-            program_hash: encode_hash_as_fields(program_hash.unwrap()),
+            program_hash: program_hash.unwrap().0.map(F::from),
         },
         WitLedgerEffect::NewUtxo {
             program_hash,
             val,
             id,
         } => LedgerOperation::NewUtxo {
-            program_hash: encode_hash_as_fields(*program_hash),
+            program_hash: program_hash.0.map(F::from),
             val: F::from(val.0),
             target: F::from(id.unwrap().0 as u64),
         },
@@ -122,7 +120,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             val,
             id,
         } => LedgerOperation::NewCoord {
-            program_hash: encode_hash_as_fields(*program_hash),
+            program_hash: program_hash.0.map(F::from),
             val: F::from(val.0),
             target: F::from(id.unwrap().0 as u64),
         },
@@ -158,16 +156,16 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             vals: vals.map(value_to_field),
         },
         WitLedgerEffect::InstallHandler { interface_id } => LedgerOperation::InstallHandler {
-            interface_id: encode_hash_as_fields(*interface_id),
+            interface_id: interface_id.0.map(F::from),
         },
         WitLedgerEffect::UninstallHandler { interface_id } => LedgerOperation::UninstallHandler {
-            interface_id: encode_hash_as_fields(*interface_id),
+            interface_id: interface_id.0.map(F::from),
         },
         WitLedgerEffect::GetHandlerFor {
             interface_id,
             handler_id,
         } => LedgerOperation::GetHandlerFor {
-            interface_id: encode_hash_as_fields(*interface_id),
+            interface_id: interface_id.0.map(F::from),
             handler_id: F::from(handler_id.unwrap().0 as u64),
         },
         WitLedgerEffect::CallEffectHandler {
@@ -176,7 +174,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             ret,
             ..
         } => LedgerOperation::CallEffectHandler {
-            interface_id: encode_hash_as_fields(*interface_id),
+            interface_id: interface_id.0.map(F::from),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
         },
@@ -338,15 +336,6 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         }
     }
     args
-}
-
-pub(crate) fn encode_hash_as_fields<T>(hash: Hash<T>) -> [F; 4] {
-    let mut out = [F::zero(); 4];
-    for (i, chunk) in hash.0.chunks_exact(8).take(4).enumerate() {
-        let bytes: [u8; 8] = chunk.try_into().expect("hash chunk size");
-        out[i] = F::from(u64::from_le_bytes(bytes));
-    }
-    out
 }
 
 pub(crate) fn value_to_field(val: starstream_interleaving_spec::Value) -> F {

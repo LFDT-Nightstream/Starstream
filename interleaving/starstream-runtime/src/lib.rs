@@ -1,4 +1,4 @@
-use sha2::{Digest, Sha256};
+use ark_ff::PrimeField;
 use starstream_interleaving_proof::commit;
 use starstream_interleaving_spec::{
     CoroutineState, Hash, InterfaceId, InterleavingInstance, InterleavingWitness,
@@ -42,13 +42,33 @@ impl std::fmt::Display for Interrupt {
 
 impl HostError for Interrupt {}
 
-fn args_to_hash(a: u64, b: u64, c: u64, d: u64) -> [u8; 32] {
-    let mut buffer = [0u8; 32];
-    buffer[0..8].copy_from_slice(&a.to_le_bytes());
-    buffer[8..16].copy_from_slice(&b.to_le_bytes());
-    buffer[16..24].copy_from_slice(&c.to_le_bytes());
-    buffer[24..32].copy_from_slice(&d.to_le_bytes());
-    buffer
+fn pack_bytes_to_safe_limbs(bytes: &[u8]) -> Vec<ark_poseidon2::F> {
+    let mut out = Vec::with_capacity(bytes.len().div_ceil(7));
+
+    for chunk in bytes.chunks(7) {
+        let mut limb = [0u8; 8];
+        limb[..chunk.len()].copy_from_slice(chunk);
+        out.push(ark_poseidon2::F::from(u64::from_le_bytes(limb)));
+    }
+
+    out
+}
+
+pub fn poseidon_program_hash(program_bytes: &[u8]) -> [u64; 4] {
+    let mut msg = pack_bytes_to_safe_limbs("starstream/program_hash/v1/poseidon2".as_bytes());
+    msg.push(ark_poseidon2::F::from(program_bytes.len() as u64));
+    msg.extend(pack_bytes_to_safe_limbs(program_bytes));
+
+    let hash = ark_poseidon2::sponge_12_trace(&msg).unwrap();
+
+    let mut out = [0; 4];
+
+    out[0] = hash[0].into_bigint().0[0];
+    out[1] = hash[0].into_bigint().0[0];
+    out[2] = hash[0].into_bigint().0[0];
+    out[3] = hash[0].into_bigint().0[0];
+
+    out
 }
 
 fn snapshot_globals(
@@ -302,7 +322,7 @@ impl Runtime {
                  val: u64|
                  -> Result<u64, wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let h = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let val = Ref(val);
 
                     let mut found_id = None;
@@ -352,7 +372,7 @@ impl Runtime {
                  val: u64|
                  -> Result<u64, wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let h = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let val = Ref(val);
 
                     let mut found_id = None;
@@ -402,7 +422,7 @@ impl Runtime {
                  h3: u64|
                  -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     caller
                         .data_mut()
                         .handler_stack
@@ -428,7 +448,7 @@ impl Runtime {
                  h3: u64|
                  -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
-                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let stack = caller
                         .data_mut()
                         .handler_stack
@@ -455,7 +475,7 @@ impl Runtime {
                  h2: u64,
                  h3: u64|
                  -> Result<u64, wasmi::Error> {
-                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let handler_id = {
                         let stack = caller
                             .data()
@@ -488,7 +508,7 @@ impl Runtime {
                  h3: u64,
                  val: u64|
                  -> Result<u64, wasmi::Error> {
-                    let interface_id = Hash(args_to_hash(h0, h1, h2, h3), std::marker::PhantomData);
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     suspend_with_effect(
                         &mut caller,
                         WitLedgerEffect::CallEffectHandler {
@@ -939,12 +959,10 @@ impl UnprovenTransaction {
         let mut globals_by_pid: Vec<Vec<wasmi::Global>> = Vec::new();
 
         for (pid, program_bytes) in self.programs.iter().enumerate() {
-            let mut hasher = Sha256::new();
-            hasher.update(program_bytes);
-            let result = hasher.finalize();
-            let mut h = [0u8; 32];
-            h.copy_from_slice(&result);
-            let hash = Hash(h, std::marker::PhantomData);
+            let hash = Hash(
+                poseidon_program_hash(program_bytes),
+                std::marker::PhantomData,
+            );
 
             runtime
                 .store
@@ -1173,13 +1191,7 @@ impl UnprovenTransaction {
                         }
                         WitLedgerEffect::ProgramHash { program_hash, .. } => {
                             let limbs = program_hash.unwrap().0;
-                            next_args = [
-                                u64::from_le_bytes(limbs[0..8].try_into().unwrap()),
-                                u64::from_le_bytes(limbs[8..16].try_into().unwrap()),
-                                u64::from_le_bytes(limbs[16..24].try_into().unwrap()),
-                                u64::from_le_bytes(limbs[24..32].try_into().unwrap()),
-                                0,
-                            ];
+                            next_args = [limbs[0], limbs[1], limbs[2], limbs[3], 0];
                         }
                         _ => {
                             next_args = [0; 5];

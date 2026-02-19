@@ -120,7 +120,7 @@ pub fn sponge_8_trace(inputs: &[F; 8]) -> Result<[F; 4], SynthesisError> {
     )
 }
 
-pub fn sponge_12_trace(inputs: &[F; 12]) -> Result<[F; 4], SynthesisError> {
+pub fn sponge_12_trace(inputs: &[F]) -> Result<[F; 4], SynthesisError> {
     let constants = RoundConstants::new_goldilocks_12_constants();
     sponge_trace_generic::<12, 8, GoldilocksExternalLinearLayer<12>, GoldilocksInternalLinearLayer12>(
         inputs, &constants,
@@ -133,7 +133,7 @@ fn sponge_trace_generic<
     ExtLinear: crate::linear_layers::ExternalLinearLayer<F, WIDTH>,
     IntLinear: crate::linear_layers::InternalLinearLayer<F, WIDTH>,
 >(
-    inputs: &[F; WIDTH],
+    inputs: &[F],
     constants: &RoundConstants<F, WIDTH, HALF_FULL_ROUNDS, PARTIAL_ROUNDS>,
 ) -> Result<[F; 4], SynthesisError> {
     // TODO: obviously this is not a good way of implementing this, but the

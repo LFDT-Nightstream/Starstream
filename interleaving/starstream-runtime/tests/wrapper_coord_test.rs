@@ -1,6 +1,7 @@
-use sha2::{Digest, Sha256};
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
-use starstream_runtime::{UnprovenTransaction, register_mermaid_decoder, wasm_module};
+use starstream_runtime::{
+    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, wasm_module,
+};
 use std::marker::PhantomData;
 
 // this tests tries to encode something like a coordination script that provides a Cell interface
@@ -293,14 +294,11 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 }
 
 fn hash_program(utxo_bin: &Vec<u8>) -> (i64, i64, i64, i64) {
-    let mut hasher = Sha256::new();
-    hasher.update(utxo_bin);
-    let utxo_hash_bytes = hasher.finalize();
-
-    let utxo_hash_limb_a = i64::from_le_bytes(utxo_hash_bytes[0..8].try_into().unwrap());
-    let utxo_hash_limb_b = i64::from_le_bytes(utxo_hash_bytes[8..8 * 2].try_into().unwrap());
-    let utxo_hash_limb_c = i64::from_le_bytes(utxo_hash_bytes[8 * 2..8 * 3].try_into().unwrap());
-    let utxo_hash_limb_d = i64::from_le_bytes(utxo_hash_bytes[8 * 3..8 * 4].try_into().unwrap());
+    let limbs = poseidon_program_hash(utxo_bin);
+    let utxo_hash_limb_a = limbs[0] as i64;
+    let utxo_hash_limb_b = limbs[1] as i64;
+    let utxo_hash_limb_c = limbs[2] as i64;
+    let utxo_hash_limb_d = limbs[3] as i64;
 
     (
         utxo_hash_limb_a,
@@ -322,10 +320,5 @@ fn print_wat(name: &str, wasm: &[u8]) {
 }
 
 fn interface_id(a: u64, b: u64, c: u64, d: u64) -> InterfaceId {
-    let mut buffer = [0u8; 32];
-    buffer[0..8].copy_from_slice(&a.to_le_bytes());
-    buffer[8..16].copy_from_slice(&b.to_le_bytes());
-    buffer[16..24].copy_from_slice(&c.to_le_bytes());
-    buffer[24..32].copy_from_slice(&d.to_le_bytes());
-    Hash(buffer, PhantomData)
+    Hash([a, b, c, d], PhantomData)
 }

@@ -1,20 +1,11 @@
-use sha2::{Digest, Sha256};
 use starstream_interleaving_spec::{Ledger, UtxoId, Value};
 use starstream_runtime::{
-    UnprovenTransaction, register_mermaid_default_decoder, register_mermaid_process_labels,
-    test_support::wasm_dsl, wasm_module,
+    UnprovenTransaction, poseidon_program_hash, register_mermaid_default_decoder,
+    register_mermaid_process_labels, test_support::wasm_dsl, wasm_module,
 };
 
 fn hash_program(wasm: &Vec<u8>) -> (i64, i64, i64, i64) {
-    let mut hasher = Sha256::new();
-    hasher.update(wasm);
-    let hash_bytes = hasher.finalize();
-    let mut limbs = [0u64; 4];
-    for (i, limb) in limbs.iter_mut().enumerate() {
-        let start = i * 8;
-        let end = start + 8;
-        *limb = u64::from_le_bytes(hash_bytes[start..end].try_into().unwrap());
-    }
+    let limbs = poseidon_program_hash(wasm);
     (
         limbs[0] as i64,
         limbs[1] as i64,

@@ -832,7 +832,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             register_memory_segments(&mut mb);
 
             for (pid, mod_hash) in self.instance.process_table.iter().enumerate() {
-                let hash_fields = abi::encode_hash_as_fields(*mod_hash);
+                let hash_fields = mod_hash.0.map(F::from);
                 for (lane, field) in hash_fields.iter().enumerate() {
                     let addr = (pid * 4) + lane;
                     mb.init(

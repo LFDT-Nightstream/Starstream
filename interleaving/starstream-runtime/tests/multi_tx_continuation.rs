@@ -1,16 +1,14 @@
-use sha2::{Digest, Sha256};
 use starstream_interleaving_spec::{Ledger, UtxoId, Value};
-use starstream_runtime::{UnprovenTransaction, test_support::wasm_dsl, wasm_module};
+use starstream_runtime::{
+    UnprovenTransaction, poseidon_program_hash, test_support::wasm_dsl, wasm_module,
+};
 
 fn hash_program(wasm: &Vec<u8>) -> (i64, i64, i64, i64) {
-    let mut hasher = Sha256::new();
-    hasher.update(wasm);
-    let hash_bytes = hasher.finalize();
-
-    let a = i64::from_le_bytes(hash_bytes[0..8].try_into().unwrap());
-    let b = i64::from_le_bytes(hash_bytes[8..16].try_into().unwrap());
-    let c = i64::from_le_bytes(hash_bytes[16..24].try_into().unwrap());
-    let d = i64::from_le_bytes(hash_bytes[24..32].try_into().unwrap());
+    let limbs = poseidon_program_hash(wasm);
+    let a = limbs[0] as i64;
+    let b = limbs[1] as i64;
+    let c = limbs[2] as i64;
+    let d = limbs[3] as i64;
 
     (a, b, c, d)
 }

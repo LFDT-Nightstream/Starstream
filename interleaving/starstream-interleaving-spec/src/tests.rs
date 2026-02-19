@@ -30,12 +30,12 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
     };
 
     let input_1_coroutine = CoroutineId {
-        creation_tx_hash: Hash([1u8; 32], PhantomData),
+        creation_tx_hash: Hash([1u64, 0, 0, 0], PhantomData),
         creation_output_index: 0,
     };
 
     let input_2_coroutine = CoroutineId {
-        creation_tx_hash: Hash([1u8; 32], PhantomData),
+        creation_tx_hash: Hash([1u64, 0, 0, 0], PhantomData),
         creation_output_index: 1,
     };
 
@@ -570,7 +570,7 @@ fn test_duplicate_input_utxo_fails() {
     utxo_to_coroutine.insert(
         input_id.clone(),
         CoroutineId {
-            creation_tx_hash: Hash([1u8; 32], PhantomData),
+            creation_tx_hash: Hash([1u64, 0, 0, 0], PhantomData),
             creation_output_index: 0,
         },
     );

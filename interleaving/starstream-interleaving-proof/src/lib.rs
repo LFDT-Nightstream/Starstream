@@ -166,7 +166,7 @@ fn make_interleaved_trace(
     let mut next_op_idx = vec![0usize; inst.process_table.len()];
     let mut on_yield = vec![true; inst.process_table.len()];
     let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
-    let mut handler_stack: BTreeMap<[u8; 32], Vec<usize>> = BTreeMap::new();
+    let mut handler_stack: BTreeMap<[u64; 4], Vec<usize>> = BTreeMap::new();
 
     let expected_len: usize = wit.traces.iter().map(|t| t.len()).sum();
 
@@ -270,7 +270,7 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayo
     let cs = ConstraintSystem::new_ref();
     cs.set_optimization_goal(ark_relations::gr1cs::OptimizationGoal::Constraints);
 
-    let hash = starstream_interleaving_spec::Hash([0u8; 32], std::marker::PhantomData);
+    let hash = starstream_interleaving_spec::Hash([0u64; 4], std::marker::PhantomData);
 
     let inst = InterleavingInstance {
         host_calls_roots: vec![],

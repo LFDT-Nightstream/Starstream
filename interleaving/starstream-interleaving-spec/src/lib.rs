@@ -23,7 +23,7 @@ pub use transaction_effects::{
 };
 
 #[derive(PartialEq, Eq)]
-pub struct Hash<T>(pub [u8; 32], pub PhantomData<T>);
+pub struct Hash<T>(pub [u64; 4], pub PhantomData<T>);
 
 impl<T> Copy for Hash<T> {}
 
@@ -53,12 +53,7 @@ impl Value {
 }
 
 fn encode_hash_to_fields<T>(hash: Hash<T>) -> [neo_math::F; 4] {
-    let mut out = [neo_math::F::from_u64(0); 4];
-    for (i, chunk) in hash.0.chunks_exact(8).take(4).enumerate() {
-        let bytes: [u8; 8] = chunk.try_into().expect("hash chunk size");
-        out[i] = neo_math::F::from_u64(u64::from_le_bytes(bytes));
-    }
-    out
+    hash.0.map(neo_math::F::from_u64)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -738,7 +733,7 @@ pub fn build_wasm_instances_in_canonical_order(
 
 impl TransactionBody {
     pub fn hash(&self) -> Hash<TransactionBody> {
-        Hash([0u8; 32], PhantomData)
+        Hash([0u64; 4], PhantomData)
     }
 }
 
@@ -756,6 +751,6 @@ impl<T> std::hash::Hash for Hash<T> {
 
 impl<T> std::fmt::Debug for Hash<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Hash({})", hex::encode(self.0))
+        write!(f, "Hash({:016x?})", self.0)
     }
 }
