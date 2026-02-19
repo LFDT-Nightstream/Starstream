@@ -91,7 +91,6 @@ struct Compiler {
 
     // Function building.
     core_func_type_cache: HashMap<FuncType, u32>,
-    global_vars: HashMap<String, u32>,
     global_record_type: Vec<TypedStructField>,
     /// Map from name to function index.
     callables: HashMap<String, u32>,
@@ -260,59 +259,65 @@ impl Compiler {
                 fields: fields.clone(),
                 ty: storage_struct.clone(),
             });
-            self.visit_function(&TypedFunctionDef {
-                export: Some(FunctionExport::Script),
-                name: Identifier::anon("get_storage"),
-                params: Vec::new(),
-                return_type: storage_struct.clone(),
-                effect: EffectKind::Pure,
-                body: TypedBlock::from(Spanned::none(TypedExpr {
-                    ty: storage_struct.clone(),
-                    kind: TypedExprKind::StructLiteral {
-                        name: Identifier::anon("Storage"),
-                        fields: fields
+            self.visit_function(
+                &TypedFunctionDef {
+                    export: Some(FunctionExport::Script),
+                    name: Identifier::anon("get_storage"),
+                    params: Vec::new(),
+                    return_type: storage_struct.clone(),
+                    effect: EffectKind::Pure,
+                    body: TypedBlock::from(Spanned::none(TypedExpr {
+                        ty: storage_struct.clone(),
+                        kind: TypedExprKind::StructLiteral {
+                            name: Identifier::anon("Storage"),
+                            fields: fields
+                                .iter()
+                                .map(|f| TypedStructLiteralField {
+                                    name: f.name.clone(),
+                                    value: Spanned::none(TypedExpr {
+                                        ty: f.ty.clone(),
+                                        kind: TypedExprKind::Identifier(f.name.clone()),
+                                    }),
+                                })
+                                .collect(),
+                        },
+                    })),
+                },
+                &(),
+            );
+            self.visit_function(
+                &TypedFunctionDef {
+                    export: Some(FunctionExport::Script),
+                    name: Identifier::anon("set_storage"),
+                    params: vec![TypedFunctionParam {
+                        name: Identifier::anon("storage"),
+                        ty: storage_struct.clone(),
+                    }],
+                    return_type: Type::Unit,
+                    effect: EffectKind::Pure,
+                    body: TypedBlock::from(
+                        fields
                             .iter()
-                            .map(|f| TypedStructLiteralField {
-                                name: f.name.clone(),
+                            .map(|f| TypedStatement::Assignment {
+                                target: f.name.clone(),
                                 value: Spanned::none(TypedExpr {
                                     ty: f.ty.clone(),
-                                    kind: TypedExprKind::Identifier(f.name.clone()),
+                                    kind: TypedExprKind::FieldAccess {
+                                        target: Box::new(Spanned::none(TypedExpr {
+                                            ty: storage_struct.clone(),
+                                            kind: TypedExprKind::Identifier(Identifier::anon(
+                                                "storage",
+                                            )),
+                                        })),
+                                        field: f.name.clone(),
+                                    },
                                 }),
                             })
-                            .collect(),
-                    },
-                })),
-            });
-            self.visit_function(&TypedFunctionDef {
-                export: Some(FunctionExport::Script),
-                name: Identifier::anon("set_storage"),
-                params: vec![TypedFunctionParam {
-                    name: Identifier::anon("storage"),
-                    ty: storage_struct.clone(),
-                }],
-                return_type: Type::Unit,
-                effect: EffectKind::Pure,
-                body: TypedBlock::from(
-                    fields
-                        .iter()
-                        .map(|f| TypedStatement::Assignment {
-                            target: f.name.clone(),
-                            value: Spanned::none(TypedExpr {
-                                ty: f.ty.clone(),
-                                kind: TypedExprKind::FieldAccess {
-                                    target: Box::new(Spanned::none(TypedExpr {
-                                        ty: storage_struct.clone(),
-                                        kind: TypedExprKind::Identifier(Identifier::anon(
-                                            "storage",
-                                        )),
-                                    })),
-                                    field: f.name.clone(),
-                                },
-                            }),
-                        })
-                        .collect::<Vec<_>>(),
-                ),
-            });
+                            .collect::<Vec<_>>(),
+                    ),
+                },
+                &(),
+            );
         }
     }
 
@@ -813,7 +818,7 @@ impl Compiler {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
 
-                TypedDefinition::Function(func) => self.visit_function(func),
+                TypedDefinition::Function(func) => self.visit_function(func, &()),
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
                 TypedDefinition::Enum(enum_) => self.visit_enum(enum_),
@@ -924,11 +929,14 @@ impl Compiler {
         }
     }
 
-    fn visit_function(&mut self, function: &TypedFunctionDef) {
-        let mut locals = HashMap::<String, u32>::new();
+    fn visit_function(&mut self, function: &TypedFunctionDef, parent: &dyn Locals) {
+        let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
-            locals.insert(p.name.name.clone(), u32::try_from(params.len()).unwrap());
+            locals.insert(
+                p.name.name.clone(),
+                Var::Local(u32::try_from(params.len()).unwrap()),
+            );
             _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
         }
 
@@ -937,7 +945,7 @@ impl Compiler {
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
-        let _ = self.visit_block_stack(&mut func, &(&() as &dyn Locals, &locals), &function.body);
+        let _ = self.visit_block_stack(&mut func, &(parent, &locals), &function.body);
         func.instructions().end();
 
         let idx = self.add_function(
@@ -968,6 +976,7 @@ impl Compiler {
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
         // TODO: use the utxo name to declare the type, etc.
+        let mut utxo_storage = HashMap::new();
         for part in &utxo.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
@@ -975,8 +984,7 @@ impl Compiler {
                         let mut types = Vec::new();
                         _ = self.star_to_core_types(utxo.name.span(), &mut types, &var.ty);
                         let idx = self.add_globals(types.iter().copied());
-                        // TODO: treat these identifiers as scoped only to this UTXO, rather than true globals
-                        self.global_vars.insert(var.name.name.clone(), idx);
+                        utxo_storage.insert(var.name.name.clone(), Var::Global(idx));
                         self.global_record_type.push(TypedStructField {
                             name: var.name.clone(),
                             ty: var.ty.clone(),
@@ -984,7 +992,7 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::MainFn(function) => {
-                    self.visit_function(function);
+                    self.visit_function(function, &(&() as &dyn Locals, &utxo_storage));
                 }
             }
         }
@@ -998,7 +1006,7 @@ impl Compiler {
         func: &mut Function,
         parent: &dyn Locals,
         block: &TypedBlock,
-    ) -> Result<HashMap<String, u32>> {
+    ) -> Result<HashMap<String, Var>> {
         let mut locals = HashMap::new();
         for statement in &block.statements {
             match statement {
@@ -1014,7 +1022,7 @@ impl Compiler {
                     let mut local_types = Vec::new();
                     _ = self.star_to_core_types(value.span, &mut local_types, &value.node.ty);
                     let local = func.add_locals(local_types.iter().copied());
-                    locals.insert(name.name.clone(), local);
+                    locals.insert(name.name.clone(), Var::Local(local));
 
                     if self
                         .visit_expr_stack(func, &(parent, &locals), value.span, &value.node)
@@ -1027,24 +1035,7 @@ impl Compiler {
                     }
                 }
                 TypedStatement::Assignment { target, value } => {
-                    if let Some(local) = (parent, &locals).get(&target.name) {
-                        if self
-                            .visit_expr_stack(func, &(parent, &locals), value.span, &value.node)
-                            .is_ok()
-                        {
-                            let mut local_types = Vec::new();
-                            _ = self.star_to_core_types(
-                                value.span,
-                                &mut local_types,
-                                &value.node.ty,
-                            );
-
-                            // Pop from stack to set locals in reverse order.
-                            for i in (0..local_types.len()).rev() {
-                                func.instructions().local_set(local + (i as u32));
-                            }
-                        }
-                    } else if let Some(global) = self.global_vars.get(&target.name).copied() {
+                    if let Some(var) = (parent, &locals).get(&target.name) {
                         if self
                             .visit_expr_stack(func, &(parent, &locals), value.span, &value.node)
                             .is_ok()
@@ -1053,8 +1044,17 @@ impl Compiler {
                             _ = self.star_to_core_types(value.span, &mut types, &value.node.ty);
 
                             // Pop from stack to set locals in reverse order.
-                            for i in (0..types.len()).rev() {
-                                func.instructions().global_set(global + (i as u32));
+                            match var {
+                                Var::Local(local) => {
+                                    for i in (0..types.len()).rev() {
+                                        func.instructions().local_set(local + (i as u32));
+                                    }
+                                }
+                                Var::Global(global) => {
+                                    for i in (0..types.len()).rev() {
+                                        func.instructions().global_set(global + (i as u32));
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -1257,14 +1257,18 @@ impl Compiler {
         match &expr.kind {
             // Identifiers
             TypedExprKind::Identifier(ident) => {
-                if let Some(local) = locals.get(&ident.name) {
-                    for i in 0..self.star_count_core_types(&expr.ty) {
-                        func.instructions().local_get(local + i);
-                    }
-                    Ok(())
-                } else if let Some(global) = self.global_vars.get(&ident.name).copied() {
-                    for i in 0..self.star_count_core_types(&expr.ty) {
-                        func.instructions().global_get(global + i);
+                if let Some(var) = locals.get(&ident.name) {
+                    match var {
+                        Var::Local(local) => {
+                            for i in 0..self.star_count_core_types(&expr.ty) {
+                                func.instructions().local_get(local + i);
+                            }
+                        }
+                        Var::Global(global) => {
+                            for i in 0..self.star_count_core_types(&expr.ty) {
+                                func.instructions().global_get(global + i);
+                            }
+                        }
                     }
                     Ok(())
                 } else {
@@ -2101,7 +2105,7 @@ impl Compiler {
                 for b in bindings {
                     if b.action == *action {
                         let (local, _ty) = &col_locals[b.column];
-                        arm_locals.insert(b.name.clone(), *local);
+                        arm_locals.insert(b.name.clone(), Var::Local(*local));
                     }
                 }
 
@@ -2463,19 +2467,25 @@ impl Compiler {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Var {
+    Local(u32),
+    Global(u32),
+}
+
 // Probably inefficient, but fun. Fix later?
 trait Locals {
-    fn get(&self, name: &str) -> Option<u32>;
+    fn get(&self, name: &str) -> Option<Var>;
 }
 
 impl Locals for () {
-    fn get(&self, _: &str) -> Option<u32> {
+    fn get(&self, _: &str) -> Option<Var> {
         None
     }
 }
 
-impl Locals for (&dyn Locals, &HashMap<String, u32>) {
-    fn get(&self, name: &str) -> Option<u32> {
+impl Locals for (&dyn Locals, &HashMap<String, Var>) {
+    fn get(&self, name: &str) -> Option<Var> {
         match self.1.get(name) {
             Some(v) => Some(*v),
             None => self.0.get(name),
