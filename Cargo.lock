@@ -3252,8 +3252,9 @@ dependencies = [
 name = "starstream-runtime"
 version = "0.0.0"
 dependencies = [
+ "ark-ff",
+ "ark-poseidon2",
  "imbl",
- "sha2",
  "starstream-interleaving-proof",
  "starstream-interleaving-spec",
  "thiserror 2.0.17",
