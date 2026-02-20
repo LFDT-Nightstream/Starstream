@@ -2051,8 +2051,7 @@ impl Inferencer {
                         let both_int = self.is_int_like(&left_ty) && self.is_int_like(&right_ty);
                         if !both_int {
                             let left_display = self.apply_for_display(&typed_left.node.ty);
-                            let right_display =
-                                self.apply_for_display(&typed_right.node.ty);
+                            let right_display = self.apply_for_display(&typed_right.node.ty);
                             return Err(TypeError::new(
                                 TypeErrorKind::BinaryOperandMismatch {
                                     op: *op,
@@ -2067,10 +2066,7 @@ impl Inferencer {
                             ))
                             .with_secondary(
                                 right_label_span,
-                                format!(
-                                    "has type `{}`",
-                                    right_display.to_compact_string()
-                                ),
+                                format!("has type `{}`", right_display.to_compact_string()),
                             ));
                         }
 
@@ -2119,8 +2115,7 @@ impl Inferencer {
                             matches!(&left_ty, Type::Bool) && matches!(&right_ty, Type::Bool);
                         if !both_bool {
                             let left_display = self.apply_for_display(&typed_left.node.ty);
-                            let right_display =
-                                self.apply_for_display(&typed_right.node.ty);
+                            let right_display = self.apply_for_display(&typed_right.node.ty);
                             return Err(TypeError::new(
                                 TypeErrorKind::BinaryOperandMismatch {
                                     op: *op,
@@ -2135,10 +2130,7 @@ impl Inferencer {
                             ))
                             .with_secondary(
                                 right_label_span,
-                                format!(
-                                    "has type `{}`",
-                                    right_display.to_compact_string()
-                                ),
+                                format!("has type `{}`", right_display.to_compact_string()),
                             ));
                         }
 
