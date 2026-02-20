@@ -1,6 +1,7 @@
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
 use starstream_runtime::{
-    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, wasm_module,
+    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, test_support::wasm_dsl,
+    wasm_module,
 };
 use std::marker::PhantomData;
 
@@ -14,90 +15,113 @@ fn test_runtime_simple_effect_handlers() {
         let v0 = values.first()?.0;
         Some(format!("val={v0}"))
     });
-    let utxo_bin = wasm_module!({
-        let (_init_ref, caller) = call activation();
-        call trace(8, 0, _init_ref, 0, caller, 0, 0, 0);
+    let mut utxo_builder = wasm_dsl::ModuleBuilder::new();
+    utxo_builder.add_global_i64(0, true); // g0: pc
+    utxo_builder.add_global_i64(0, true); // g1: req ref
+    let utxo_bin = wasm_module!(utxo_builder, {
+        let pc = global_get 0;
+        if pc == 0 {
+            let (_init_ref, caller) = call untraced_activation();
+            call trace(8, 0, _init_ref, 0, caller, 0, 0, 0);
 
-        let (caller_hash_a, caller_hash_b, caller_hash_c, caller_hash_d) = call get_program_hash(caller);
-        call trace(15, caller, 0, 0, caller_hash_a, caller_hash_b, caller_hash_c, caller_hash_d);
-        let (script_hash_a, script_hash_b, script_hash_c, script_hash_d) = call get_program_hash(1);
-        call trace(15, 1, 0, 0, script_hash_a, script_hash_b, script_hash_c, script_hash_d);
+            let (caller_hash_a, caller_hash_b, caller_hash_c, caller_hash_d) = call get_program_hash(caller);
+            call trace(15, caller, 0, 0, caller_hash_a, caller_hash_b, caller_hash_c, caller_hash_d);
+            let (script_hash_a, script_hash_b, script_hash_c, script_hash_d) = call get_program_hash(1);
+            call trace(15, 1, 0, 0, script_hash_a, script_hash_b, script_hash_c, script_hash_d);
 
-        assert_eq caller_hash_a, script_hash_a;
-        assert_eq caller_hash_b, script_hash_b;
-        assert_eq caller_hash_c, script_hash_c;
-        assert_eq caller_hash_d, script_hash_d;
+            assert_eq caller_hash_a, script_hash_a;
+            assert_eq caller_hash_b, script_hash_b;
+            assert_eq caller_hash_c, script_hash_c;
+            assert_eq caller_hash_d, script_hash_d;
 
-        let req = call new_ref(1);
-        call trace(10, 0, 0, req, 1, 0, 0, 0);
-        call ref_push(42, 0, 0, 0);
-        call trace(11, 42, 0, 0, 0, 0, 0, 0);
-
-        call call_effect_handler(1, 0, 0, 0, req);
-        let (resp, _caller_effect) = call untraced_activation();
-        call trace(18, 0, req, resp, 1, 0, 0, 0);
-        let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
-        call trace(12, resp_val, resp, _b, 0, _c, _d, 0);
-
-        assert_eq resp_val, 1;
-        call trace(1, 0, resp, 0, 0, 0, 0, 0);
-        call yield_(resp);
+            let req = call new_ref(1);
+            call trace(10, 0, 0, req, 1, 0, 0, 0);
+            call ref_push(42, 0, 0, 0);
+            call trace(11, 42, 0, 0, 0, 0, 0, 0);
+            set_global 1 = req;
+            set_global 0 = 1;
+            call call_effect_handler(1, 0, 0, 0, req);
+        }
+        if pc == 1 {
+            let req = global_get 1;
+            let (resp, _caller_effect) = call untraced_activation();
+            call trace(18, 0, req, resp, 1, 0, 0, 0);
+            let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
+            call trace(12, resp_val, resp, _b, 0, _c, _d, 0);
+            assert_eq resp_val, 1;
+            set_global 0 = 2;
+            call trace(1, 0, resp, 0, 0, 0, 0, 0);
+            call yield_(resp);
+        }
     });
 
     let (utxo_hash_limb_a, utxo_hash_limb_b, utxo_hash_limb_c, utxo_hash_limb_d) =
         hash_program(&utxo_bin);
 
-    let coord_bin = wasm_module!({
-        call install_handler(1, 0, 0, 0);
-        call trace(4, 0, 0, 0, 1, 0, 0, 0);
+    let mut coord_builder = wasm_dsl::ModuleBuilder::new();
+    coord_builder.add_global_i64(0, true); // g0: pc
+    coord_builder.add_global_i64(0, true); // g1: init/resp ref
+    let coord_bin = wasm_module!(coord_builder, {
+        let pc = global_get 0;
+        if pc == 0 {
+            call install_handler(1, 0, 0, 0);
+            call trace(4, 0, 0, 0, 1, 0, 0, 0);
 
-        let init_val = call new_ref(1);
-        call trace(10, 0, 0, init_val, 1, 0, 0, 0);
+            let init_val = call new_ref(1);
+            call trace(10, 0, 0, init_val, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+            set_global 1 = init_val;
 
-        call ref_push(0, 0, 0, 0);
-        call trace(11, 0, 0, 0, 0, 0, 0, 0);
+            let utxo_id = call new_utxo(
+                const(utxo_hash_limb_a),
+                const(utxo_hash_limb_b),
+                const(utxo_hash_limb_c),
+                const(utxo_hash_limb_d),
+                init_val
+            );
+            call trace(
+                2,
+                utxo_id,
+                init_val,
+                0,
+                const(utxo_hash_limb_a),
+                const(utxo_hash_limb_b),
+                const(utxo_hash_limb_c),
+                const(utxo_hash_limb_d)
+            );
 
-        let utxo_id = call new_utxo(
-            const(utxo_hash_limb_a),
-            const(utxo_hash_limb_b),
-            const(utxo_hash_limb_c),
-            const(utxo_hash_limb_d),
-            init_val
-        );
-        call trace(
-            2,
-            utxo_id,
-            init_val,
-            0,
-            const(utxo_hash_limb_a),
-            const(utxo_hash_limb_b),
-            const(utxo_hash_limb_c),
-            const(utxo_hash_limb_d)
-        );
+            set_global 0 = 1;
+            call resume(0, init_val);
+        }
+        if pc == 1 {
+            let init_val = global_get 1;
+            let (req, caller_pid) = call untraced_activation();
+            let caller_pid_enc = add caller_pid, 1;
+            call trace(0, 0, init_val, req, caller_pid_enc, 0, 0, 0);
+            let (req_val, _b, _c, _d) = call ref_get(req, 0);
+            call trace(12, req_val, req, _b, 0, _c, _d, 0);
+            assert_eq req_val, 42;
 
-        call resume(0, init_val);
-        let (req, caller_pid) = call untraced_activation();
-        let caller_pid_enc = add caller_pid, 1;
-        call trace(0, 0, init_val, req, caller_pid_enc, 0, 0, 0);
-        let (req_val, _b, _c, _d) = call ref_get(req, 0);
-        call trace(12, req_val, req, _b, 0, _c, _d, 0);
-
-        assert_eq req_val, 42;
-
-        let resp = call new_ref(1);
-        call trace(10, 0, 0, resp, 1, 0, 0, 0);
-        call ref_push(1, 0, 0, 0);
-        call trace(11, 1, 0, 0, 0, 0, 0, 0);
-
-        call resume(0, resp);
-        let (ret, caller2) = call untraced_activation();
-        let caller2_enc = add caller2, 1;
-        call trace(0, 0, resp, ret, caller2_enc, 0, 0, 0);
-
-        call uninstall_handler(1, 0, 0, 0);
-        call trace(5, 0, 0, 0, 1, 0, 0, 0);
-        call trace(17, 0, 0, 0, 0, 0, 0, 0);
-        call return_();
+            let resp = call new_ref(1);
+            call trace(10, 0, 0, resp, 1, 0, 0, 0);
+            call ref_push(1, 0, 0, 0);
+            call trace(11, 1, 0, 0, 0, 0, 0, 0);
+            set_global 1 = resp;
+            set_global 0 = 2;
+            call resume(0, resp);
+        }
+        if pc == 2 {
+            let resp = global_get 1;
+            let (ret, caller2) = call untraced_activation();
+            let caller2_enc = add caller2, 1;
+            call trace(0, 0, resp, ret, caller2_enc, 0, 0, 0);
+            call uninstall_handler(1, 0, 0, 0);
+            call trace(5, 0, 0, 0, 1, 0, 0, 0);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            set_global 0 = 3;
+            call return_();
+        }
     });
 
     print_wat("simple/utxo", &utxo_bin);

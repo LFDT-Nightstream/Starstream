@@ -7,10 +7,7 @@ use starstream_interleaving_spec::{
     builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
-use wasmi::{
-    Caller, Config, Engine, Linker, Memory, Store, TypedResumableCall, TypedResumableCallHostTrap,
-    Val, errors::HostError,
-};
+use wasmi::{Caller, Config, Engine, Linker, Memory, Store, Val};
 
 mod trace_mermaid;
 pub use trace_mermaid::{
@@ -31,17 +28,6 @@ pub enum Error {
 }
 
 pub type WasmProgram = Vec<u8>;
-
-#[derive(Debug)]
-struct Interrupt {}
-
-impl std::fmt::Display for Interrupt {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl HostError for Interrupt {}
 
 fn pack_bytes_to_safe_limbs(bytes: &[u8]) -> Vec<ark_poseidon2::F> {
     let mut out = Vec::with_capacity(bytes.len().div_ceil(7));
@@ -130,15 +116,10 @@ fn restore_globals(
 fn suspend_with_effect<T>(
     caller: &mut Caller<'_, RuntimeState>,
     effect: WitLedgerEffect,
+    ret: T,
 ) -> Result<T, wasmi::Error> {
-    let current_pid = caller.data().current_process;
-    caller
-        .data_mut()
-        .traces
-        .entry(current_pid)
-        .or_default()
-        .push(effect);
-    Err(wasmi::Error::host(Interrupt {}))
+    caller.data_mut().pending_host_effect = Some(effect);
+    Ok(ret)
 }
 
 fn hash4<T>(a0: u64, a1: u64, a2: u64, a3: u64) -> Hash<T> {
@@ -289,107 +270,6 @@ fn decode_effect_from_commit_abi(
     Ok(effect)
 }
 
-fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
-    match effect {
-        WitLedgerEffect::Resume { .. } => 0,
-        WitLedgerEffect::Activation { .. } | WitLedgerEffect::Init { .. } => 2,
-        WitLedgerEffect::ProgramHash { .. } => 4,
-        WitLedgerEffect::NewUtxo { .. }
-        | WitLedgerEffect::NewCoord { .. }
-        | WitLedgerEffect::GetHandlerFor { .. }
-        | WitLedgerEffect::NewRef { .. } => 1,
-        WitLedgerEffect::RefGet { .. } => 4,
-        WitLedgerEffect::InstallHandler { .. }
-        | WitLedgerEffect::UninstallHandler { .. }
-        | WitLedgerEffect::Burn { .. }
-        | WitLedgerEffect::Yield { .. }
-        | WitLedgerEffect::Return { .. }
-        | WitLedgerEffect::Bind { .. }
-        | WitLedgerEffect::Unbind { .. }
-        | WitLedgerEffect::RefPush { .. }
-        | WitLedgerEffect::RefWrite { .. }
-        | WitLedgerEffect::CallEffectHandler { .. } => 0,
-    }
-}
-
-fn strip_effect_outputs(effect: &WitLedgerEffect) -> WitLedgerEffect {
-    match effect {
-        WitLedgerEffect::Resume { target, val, .. } => WitLedgerEffect::Resume {
-            target: *target,
-            val: *val,
-            ret: WitEffectOutput::Thunk,
-            caller: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::Yield { val } => WitLedgerEffect::Yield { val: *val },
-        WitLedgerEffect::Return {} => WitLedgerEffect::Return {},
-        WitLedgerEffect::ProgramHash { target, .. } => WitLedgerEffect::ProgramHash {
-            target: *target,
-            program_hash: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::NewUtxo {
-            program_hash, val, ..
-        } => WitLedgerEffect::NewUtxo {
-            program_hash: *program_hash,
-            val: *val,
-            id: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::NewCoord {
-            program_hash, val, ..
-        } => WitLedgerEffect::NewCoord {
-            program_hash: *program_hash,
-            val: *val,
-            id: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::InstallHandler { interface_id } => WitLedgerEffect::InstallHandler {
-            interface_id: *interface_id,
-        },
-        WitLedgerEffect::UninstallHandler { interface_id } => WitLedgerEffect::UninstallHandler {
-            interface_id: *interface_id,
-        },
-        WitLedgerEffect::GetHandlerFor { interface_id, .. } => WitLedgerEffect::GetHandlerFor {
-            interface_id: *interface_id,
-            handler_id: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::CallEffectHandler {
-            interface_id, val, ..
-        } => WitLedgerEffect::CallEffectHandler {
-            interface_id: *interface_id,
-            val: *val,
-            ret: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::Burn { ret } => WitLedgerEffect::Burn { ret: *ret },
-        WitLedgerEffect::Activation { .. } => WitLedgerEffect::Activation {
-            val: WitEffectOutput::Thunk,
-            caller: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::Init { .. } => WitLedgerEffect::Init {
-            val: WitEffectOutput::Thunk,
-            caller: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::NewRef { size, .. } => WitLedgerEffect::NewRef {
-            size: *size,
-            ret: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::RefPush { vals } => WitLedgerEffect::RefPush { vals: *vals },
-        WitLedgerEffect::RefGet { reff, offset, .. } => WitLedgerEffect::RefGet {
-            reff: *reff,
-            offset: *offset,
-            ret: WitEffectOutput::Thunk,
-        },
-        WitLedgerEffect::RefWrite { reff, offset, vals } => WitLedgerEffect::RefWrite {
-            reff: *reff,
-            offset: *offset,
-            vals: *vals,
-        },
-        WitLedgerEffect::Bind { owner_id } => WitLedgerEffect::Bind {
-            owner_id: *owner_id,
-        },
-        WitLedgerEffect::Unbind { token_id } => WitLedgerEffect::Unbind {
-            token_id: *token_id,
-        },
-    }
-}
-
 pub struct UnprovenTransaction {
     pub inputs: Vec<UtxoId>,
     pub input_states: Vec<CoroutineState>,
@@ -400,8 +280,9 @@ pub struct UnprovenTransaction {
 }
 
 pub struct RuntimeState {
-    pub traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
     pub effect_traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
+    pub suspended_effect: HashMap<ProcessId, WitLedgerEffect>,
+    pub pending_host_effect: Option<WitLedgerEffect>,
     pub interleaving: Vec<(ProcessId, WitLedgerEffect)>,
     pub current_process: ProcessId,
     pub memories: HashMap<ProcessId, Memory>,
@@ -447,8 +328,9 @@ impl Runtime {
         let mut linker = Linker::new(&engine);
 
         let state = RuntimeState {
-            traces: HashMap::new(),
             effect_traces: HashMap::new(),
+            suspended_effect: HashMap::new(),
+            pending_host_effect: None,
             interleaving: Vec::new(),
             current_process: ProcessId(0),
             memories: HashMap::new(),
@@ -513,7 +395,7 @@ impl Runtime {
                     let current_pid = caller.data().current_process;
                     let target = ProcessId(target as usize);
                     let val = Ref(val);
-                    let ret = WitEffectOutput::Thunk;
+                    let ret = WitEffectOutput::Resolved(Ref(0));
 
                     caller
                         .data_mut()
@@ -538,8 +420,9 @@ impl Runtime {
                             target,
                             val,
                             ret,
-                            caller: WitEffectOutput::Thunk,
+                            caller: WitEffectOutput::Resolved(None),
                         },
+                        (),
                     )
                 },
             )
@@ -552,7 +435,7 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().on_yield.insert(current_pid, true);
-                    suspend_with_effect(&mut caller, WitLedgerEffect::Yield { val: Ref(val) })
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Yield { val: Ref(val) }, ())
                 },
             )
             .unwrap();
@@ -562,7 +445,7 @@ impl Runtime {
                 "env",
                 "starstream_return",
                 |mut caller: Caller<'_, RuntimeState>| -> Result<(), wasmi::Error> {
-                    suspend_with_effect(&mut caller, WitLedgerEffect::Return {})
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Return {}, ())
                 },
             )
             .unwrap();
@@ -605,14 +488,7 @@ impl Runtime {
                         .insert(id, (val, current_pid));
                     caller.data_mut().n_new += 1;
 
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::NewUtxo {
-                            program_hash: h,
-                            val,
-                            id: WitEffectOutput::Resolved(id),
-                        },
-                    )
+                    Ok(id.0 as u64)
                 },
             )
             .unwrap();
@@ -656,14 +532,7 @@ impl Runtime {
                         .insert(id, (val, current_pid));
                     caller.data_mut().n_coord += 1;
 
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::NewCoord {
-                            program_hash: h,
-                            val,
-                            id: WitEffectOutput::Resolved(id),
-                        },
-                    )
+                    Ok(id.0 as u64)
                 },
             )
             .unwrap();
@@ -686,10 +555,7 @@ impl Runtime {
                         .entry(interface_id)
                         .or_default()
                         .push(current_pid);
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::InstallHandler { interface_id },
-                    )
+                    Ok(())
                 },
             )
             .unwrap();
@@ -714,10 +580,7 @@ impl Runtime {
                     if stack.pop() != Some(current_pid) {
                         return Err(wasmi::Error::new("uninstall handler mismatch"));
                     }
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::UninstallHandler { interface_id },
-                    )
+                    Ok(())
                 },
             )
             .unwrap();
@@ -726,7 +589,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_get_handler_for",
-                |mut caller: Caller<'_, RuntimeState>,
+                |caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
                  h2: u64,
@@ -743,13 +606,7 @@ impl Runtime {
                             .last()
                             .ok_or(wasmi::Error::new("handler stack empty"))?
                     };
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::GetHandlerFor {
-                            interface_id,
-                            handler_id: WitEffectOutput::Resolved(handler_id),
-                        },
-                    )
+                    Ok(handler_id.0 as u64)
                 },
             )
             .unwrap();
@@ -771,8 +628,9 @@ impl Runtime {
                         WitLedgerEffect::CallEffectHandler {
                             interface_id,
                             val: Ref(val),
-                            ret: WitEffectOutput::Thunk,
+                            ret: WitEffectOutput::Resolved(Ref(0)),
                         },
+                        (),
                     )
                 },
             )
@@ -789,13 +647,7 @@ impl Runtime {
                         .pending_activation
                         .remove(&current_pid)
                         .ok_or(wasmi::Error::new("no pending activation"))?;
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::Activation {
-                            val: WitEffectOutput::Resolved(val),
-                            caller: WitEffectOutput::Resolved(caller_id),
-                        },
-                    )
+                    Ok((val.0, caller_id.0 as u64))
                 },
             )
             .unwrap();
@@ -820,7 +672,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_init",
-                |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = {
                         let (val, caller_id) = caller
@@ -830,13 +682,7 @@ impl Runtime {
                             .ok_or(wasmi::Error::new("no pending init"))?;
                         (*val, *caller_id)
                     };
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::Init {
-                            val: WitEffectOutput::Resolved(val),
-                            caller: WitEffectOutput::Resolved(caller_id),
-                        },
-                    )
+                    Ok((val.0, caller_id.0 as u64))
                 },
             )
             .unwrap();
@@ -864,13 +710,7 @@ impl Runtime {
                         .ref_state
                         .insert(current_pid, (ref_id, 0, size_words));
 
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::NewRef {
-                            size: size_words,
-                            ret: WitEffectOutput::Resolved(ref_id),
-                        },
-                    )
+                    Ok(ref_id.0)
                 },
             )
             .unwrap();
@@ -915,7 +755,7 @@ impl Runtime {
                         ),
                     );
 
-                    suspend_with_effect(&mut caller, WitLedgerEffect::RefPush { vals })
+                    Ok(())
                 },
             )
             .unwrap();
@@ -957,14 +797,7 @@ impl Runtime {
                         store[elem_offset + i] = *val;
                     }
 
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::RefWrite {
-                            reff: ref_id,
-                            offset: offset_words,
-                            vals,
-                        },
-                    )
+                    Ok(())
                 },
             )
             .unwrap();
@@ -973,7 +806,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_ref_get",
-                |mut caller: Caller<'_, RuntimeState>,
+                |caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64|
                  -> Result<(i64, i64, i64, i64), wasmi::Error> {
@@ -999,14 +832,6 @@ impl Runtime {
                             *slot = store[idx];
                         }
                     }
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::RefGet {
-                            reff: ref_id,
-                            offset: offset_words,
-                            ret: WitEffectOutput::Resolved(ret),
-                        },
-                    )?;
                     Ok((
                         ret[0].0 as i64,
                         ret[1].0 as i64,
@@ -1028,7 +853,7 @@ impl Runtime {
                         .data_mut()
                         .ownership
                         .insert(current_pid, Some(owner_id));
-                    suspend_with_effect(&mut caller, WitLedgerEffect::Bind { owner_id })
+                    Ok(())
                 },
             )
             .unwrap();
@@ -1047,7 +872,7 @@ impl Runtime {
                         );
                     }
                     caller.data_mut().ownership.insert(token_id, None);
-                    suspend_with_effect(&mut caller, WitLedgerEffect::Unbind { token_id })
+                    Ok(())
                 },
             )
             .unwrap();
@@ -1059,7 +884,7 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmi::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().must_burn.insert(current_pid);
-                    suspend_with_effect(&mut caller, WitLedgerEffect::Burn { ret: Ref(ret) })
+                    suspend_with_effect(&mut caller, WitLedgerEffect::Burn { ret: Ref(ret) }, ())
                 },
             )
             .unwrap();
@@ -1068,7 +893,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_get_program_hash",
-                |mut caller: Caller<'_, RuntimeState>,
+                |caller: Caller<'_, RuntimeState>,
                  target_pid: u64|
                  -> Result<(u64, u64, u64, u64), wasmi::Error> {
                     let target = ProcessId(target_pid as usize);
@@ -1078,13 +903,12 @@ impl Runtime {
                         .get(&target)
                         .ok_or(wasmi::Error::new("process hash not found"))?;
 
-                    suspend_with_effect(
-                        &mut caller,
-                        WitLedgerEffect::ProgramHash {
-                            target,
-                            program_hash: WitEffectOutput::Resolved(program_hash),
-                        },
-                    )
+                    Ok((
+                        program_hash.0[0],
+                        program_hash.0[1],
+                        program_hash.0[2],
+                        program_hash.0[3],
+                    ))
                 },
             )
             .unwrap();
@@ -1294,9 +1118,6 @@ impl UnprovenTransaction {
             }
         }
 
-        // Map of suspended processes
-        let mut resumables: HashMap<ProcessId, TypedResumableCallHostTrap<()>> = HashMap::new();
-
         // Start entrypoint
         let mut current_pid = ProcessId(self.entrypoint);
         runtime
@@ -1307,190 +1128,109 @@ impl UnprovenTransaction {
 
         runtime.store.data_mut().current_process = current_pid;
 
-        // Initial argument? 0?
-        let mut next_args = [0u64; 5];
-
         loop {
             runtime.store.data_mut().current_process = current_pid;
+            runtime.store.data_mut().pending_host_effect = None;
+            let instance = instances[current_pid.0];
+            let func = instance.get_typed_func::<(), ()>(&runtime.store, "_start")?;
+            func.call(&mut runtime.store, ())?;
 
-            let result = if let Some(continuation) = resumables.remove(&current_pid) {
-                let n_results = {
-                    let traces = &runtime.store.data().traces;
-                    let trace = traces.get(&current_pid).expect("trace exists");
-                    let last = trace.last().expect("trace not empty");
-                    effect_result_arity(last)
-                };
-
-                // Update previous effect with return value
-                let traces = &mut runtime.store.data_mut().traces;
-                if let Some(trace) = traces.get_mut(&current_pid)
-                    && let Some(last) = trace.last_mut()
-                {
-                    match last {
-                        WitLedgerEffect::Resume { ret, caller, .. } => {
-                            *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                            *caller =
-                                WitEffectOutput::Resolved(Some(ProcessId(next_args[1] as usize)));
-                        }
-                        WitLedgerEffect::CallEffectHandler { ret, .. } => {
-                            *ret = WitEffectOutput::Resolved(Ref(next_args[0]));
-                        }
-                        _ => {}
-                    }
-                }
-                let vals = [
-                    Val::I64(next_args[0] as i64),
-                    Val::I64(next_args[1] as i64),
-                    Val::I64(next_args[2] as i64),
-                    Val::I64(next_args[3] as i64),
-                    Val::I64(next_args[4] as i64),
-                ];
-
-                continuation.resume(&mut runtime.store, &vals[..n_results])?
-            } else {
-                let instance = instances[current_pid.0];
-                // Start with _start, 0 args, 0 results
-                let func = instance.get_typed_func::<(), ()>(&runtime.store, "_start")?;
-                func.call_resumable(&mut runtime.store, ()).unwrap()
-            };
-
-            match result {
-                TypedResumableCall::Finished(_) => {
-                    // Process finished naturally.
+            let Some(last_effect) = runtime.store.data_mut().pending_host_effect.take() else {
+                if current_pid == ProcessId(self.entrypoint) {
                     break;
                 }
-                TypedResumableCall::HostTrap(invocation) => {
-                    // It suspended.
+                return Err(Error::RuntimeError(format!(
+                    "process {current_pid:?} returned without control effect"
+                )));
+            };
 
-                    // Inspect the last effect
-                    let last_effect = {
-                        let traces = &runtime.store.data().traces;
-                        let trace = traces
-                            .get(&current_pid)
-                            .expect("trace exists after suspend");
-                        trace.last().expect("trace not empty after suspend").clone()
-                    };
+            runtime
+                .store
+                .data_mut()
+                .interleaving
+                .push((current_pid, last_effect.clone()));
 
+            match last_effect {
+                WitLedgerEffect::Resume { target, val, .. } => {
                     runtime
                         .store
                         .data_mut()
-                        .interleaving
-                        .push((current_pid, last_effect.clone()));
-
-                    resumables.insert(current_pid, invocation);
-
-                    match last_effect {
-                        WitLedgerEffect::Resume { target, val, .. } => {
-                            next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
-                            current_pid = target;
-                        }
-                        WitLedgerEffect::CallEffectHandler {
-                            interface_id, val, ..
-                        } => {
-                            let target = {
-                                let stack = runtime
-                                    .store
-                                    .data()
-                                    .handler_stack
-                                    .get(&interface_id)
-                                    .expect("handler stack not found while dispatching call_effect_handler");
-                                *stack.last().expect(
-                                    "handler stack empty while dispatching call_effect_handler",
-                                )
-                            };
-                            runtime
-                                .store
-                                .data_mut()
-                                .pending_activation
-                                .insert(target, (val, current_pid));
-                            next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
-                            current_pid = target;
-                        }
-                        WitLedgerEffect::Yield { val, .. } => {
-                            let caller = *runtime
-                                .store
-                                .data()
-                                .yield_to
-                                .get(&current_pid)
-                                .expect("yield on missing yield_to");
-                            runtime
-                                .store
-                                .data_mut()
-                                .pending_activation
-                                .insert(caller, (val, current_pid));
-                            next_args = [val.0, current_pid.0 as u64, 0, 0, 0];
-                            current_pid = caller;
-                        }
-                        WitLedgerEffect::Return { .. } => {
-                            if let Some(caller) =
-                                runtime.store.data().yield_to.get(&current_pid).copied()
-                            {
-                                runtime
-                                    .store
-                                    .data_mut()
-                                    .pending_activation
-                                    .insert(caller, (Ref(0), current_pid));
-                                next_args = [0; 5];
-                                current_pid = caller;
-                            } else if current_pid == ProcessId(self.entrypoint) {
-                                break;
-                            } else {
-                                return Err(Error::RuntimeError(
-                                    "return on missing yield_to for non-entrypoint".into(),
-                                ));
-                            }
-                        }
-                        WitLedgerEffect::Burn { .. } => {
-                            let caller = *runtime
-                                .store
-                                .data()
-                                .yield_to
-                                .get(&current_pid)
-                                .expect("burn on missing yield_to");
-                            runtime
-                                .store
-                                .data_mut()
-                                .pending_activation
-                                .insert(caller, (Ref(0), current_pid));
-                            next_args = [0; 5];
-                            current_pid = caller;
-                        }
-                        WitLedgerEffect::NewUtxo { id, .. } => {
-                            next_args = [id.unwrap().0 as u64, 0, 0, 0, 0];
-                        }
-                        WitLedgerEffect::NewCoord { id, .. } => {
-                            next_args = [id.unwrap().0 as u64, 0, 0, 0, 0];
-                        }
-                        WitLedgerEffect::GetHandlerFor { handler_id, .. } => {
-                            next_args = [handler_id.unwrap().0 as u64, 0, 0, 0, 0];
-                        }
-                        WitLedgerEffect::Activation { val, caller } => {
-                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0, 0];
-                        }
-                        WitLedgerEffect::Init { val, caller } => {
-                            next_args = [val.unwrap().0, caller.unwrap().0 as u64, 0, 0, 0];
-                        }
-                        WitLedgerEffect::NewRef { ret, .. } => {
-                            next_args = [ret.unwrap().0, 0, 0, 0, 0];
-                        }
-                        WitLedgerEffect::RefGet { ret, .. } => {
-                            let ret = ret.unwrap();
-                            next_args = [ret[0].0, ret[1].0, ret[2].0, ret[3].0, 0];
-                        }
-                        WitLedgerEffect::RefWrite { .. } => {
-                            next_args = [0; 5];
-                        }
-                        WitLedgerEffect::ProgramHash { program_hash, .. } => {
-                            let limbs = program_hash.unwrap().0;
-                            next_args = [limbs[0], limbs[1], limbs[2], limbs[3], 0];
-                        }
-                        _ => {
-                            next_args = [0; 5];
-                        }
+                        .pending_activation
+                        .insert(target, (val, current_pid));
+                    current_pid = target;
+                }
+                WitLedgerEffect::CallEffectHandler {
+                    interface_id, val, ..
+                } => {
+                    let target = {
+                        let stack = runtime
+                            .store
+                            .data()
+                            .handler_stack
+                            .get(&interface_id)
+                            .expect(
+                                "handler stack not found while dispatching call_effect_handler",
+                            );
+                        *stack
+                            .last()
+                            .expect("handler stack empty while dispatching call_effect_handler")
+                    };
+                    runtime
+                        .store
+                        .data_mut()
+                        .pending_activation
+                        .insert(target, (val, current_pid));
+                    current_pid = target;
+                }
+                WitLedgerEffect::Yield { val, .. } => {
+                    let caller = *runtime
+                        .store
+                        .data()
+                        .yield_to
+                        .get(&current_pid)
+                        .expect("yield on missing yield_to");
+                    runtime
+                        .store
+                        .data_mut()
+                        .pending_activation
+                        .insert(caller, (val, current_pid));
+                    current_pid = caller;
+                }
+                WitLedgerEffect::Return { .. } => {
+                    if let Some(caller) = runtime.store.data().yield_to.get(&current_pid).copied() {
+                        runtime
+                            .store
+                            .data_mut()
+                            .pending_activation
+                            .insert(caller, (Ref(0), current_pid));
+                        current_pid = caller;
+                    } else if current_pid == ProcessId(self.entrypoint) {
+                        break;
+                    } else {
+                        return Err(Error::RuntimeError(
+                            "return on missing yield_to for non-entrypoint".into(),
+                        ));
                     }
                 }
-                TypedResumableCall::OutOfFuel(_) => {
-                    todo!();
+                WitLedgerEffect::Burn { .. } => {
+                    let caller = *runtime
+                        .store
+                        .data()
+                        .yield_to
+                        .get(&current_pid)
+                        .expect("burn on missing yield_to");
+                    runtime
+                        .store
+                        .data_mut()
+                        .pending_activation
+                        .insert(caller, (Ref(0), current_pid));
+                    current_pid = caller;
+                }
+                _ => {
+                    return Err(Error::RuntimeError(format!(
+                        "process {current_pid:?} ended with non-control effect {:?}",
+                        last_effect
+                    )));
                 }
             }
         }
@@ -1507,53 +1247,13 @@ impl UnprovenTransaction {
         let n_inputs = process_table.len() - n_new - n_coords;
 
         for pid in 0..self.programs.len() {
-            let proc_id = ProcessId(pid);
-            let legacy_trace = runtime
-                .store
-                .data()
-                .traces
-                .get(&proc_id)
-                .cloned()
-                .unwrap_or_default();
-            let effect_trace = runtime
-                .store
-                .data()
-                .effect_traces
-                .get(&proc_id)
-                .cloned()
-                .unwrap_or_default();
-            if effect_trace.is_empty() {
-                continue;
-            }
-            let legacy_stripped: Vec<_> = legacy_trace.iter().map(strip_effect_outputs).collect();
-            let effect_stripped: Vec<_> = effect_trace.iter().map(strip_effect_outputs).collect();
-            if legacy_stripped != effect_stripped {
-                return Err(Error::RuntimeError(format!(
-                    "legacy trace != starstream_trace trace (ignoring outputs) for pid {} (legacy={}, trace={})",
-                    pid,
-                    legacy_trace.len(),
-                    effect_trace.len()
-                )));
-            }
-        }
-
-        for pid in 0..self.programs.len() {
             let data = runtime.store.data();
-            let legacy_trace = data
-                .traces
-                .get(&ProcessId(pid))
-                .cloned()
-                .unwrap_or_default();
             let effect_trace = data
                 .effect_traces
                 .get(&ProcessId(pid))
                 .cloned()
                 .unwrap_or_default();
-            let trace = if effect_trace.is_empty() {
-                legacy_trace
-            } else {
-                effect_trace
-            };
+            let trace = effect_trace;
             let mut commitment = LedgerEffectsCommitment::iv();
             for op in &trace {
                 commitment = commit(commitment, op.clone());

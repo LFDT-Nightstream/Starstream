@@ -298,9 +298,7 @@ fn format_edge_line(
             Some(format!("{from} -->> {to}: return"))
         }
         WitLedgerEffect::NewUtxo { val, id, .. } => {
-            let WitEffectOutput::Resolved(pid) = id else {
-                return None;
-            };
+            let pid = id.unwrap();
             let created = ctx.labels.get(pid.0)?;
             let label = format!(
                 "new_utxo<br/>{}",
@@ -309,9 +307,7 @@ fn format_edge_line(
             Some(format!("{from} ->> {created}: {label}"))
         }
         WitLedgerEffect::NewCoord { val, id, .. } => {
-            let WitEffectOutput::Resolved(pid) = id else {
-                return None;
-            };
+            let pid = id.unwrap();
             let created = ctx.labels.get(pid.0)?;
             let label = format!(
                 "new_coord<br/>{}",
@@ -448,9 +444,9 @@ fn update_handler_targets(
         handler_id,
         interface_id,
     } = effect
-        && let WitEffectOutput::Resolved(handler_id) = handler_id
     {
-        handler_targets.insert(pid, *handler_id);
-        handler_interfaces.insert(*handler_id, *interface_id);
+        let handler_id = handler_id.unwrap();
+        handler_targets.insert(pid, handler_id);
+        handler_interfaces.insert(handler_id, *interface_id);
     }
 }

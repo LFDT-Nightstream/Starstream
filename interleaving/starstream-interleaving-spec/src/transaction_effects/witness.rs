@@ -42,7 +42,6 @@ pub const REF_WRITE_WIDTH: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WitEffectOutput<T> {
     Resolved(T),
-    Thunk,
 }
 
 /// One entry in the per-process trace.
@@ -178,18 +177,16 @@ impl<T> WitEffectOutput<T> {
     pub fn unwrap(self) -> T {
         match self {
             WitEffectOutput::Resolved(v) => v,
-            WitEffectOutput::Thunk => panic!("Called unwrap on a Thunk"),
         }
     }
 
     pub fn is_resolved(&self) -> bool {
-        matches!(self, WitEffectOutput::Resolved(_))
+        true
     }
 
     pub fn to_option(self) -> Option<T> {
         match self {
             WitEffectOutput::Resolved(t) => Some(t),
-            WitEffectOutput::Thunk => None,
         }
     }
 }
@@ -197,15 +194,6 @@ impl<T> WitEffectOutput<T> {
 impl<T> From<T> for WitEffectOutput<T> {
     fn from(value: T) -> WitEffectOutput<T> {
         WitEffectOutput::Resolved(value)
-    }
-}
-
-impl<T> From<Option<T>> for WitEffectOutput<T> {
-    fn from(value: Option<T>) -> WitEffectOutput<T> {
-        match value {
-            Some(t) => WitEffectOutput::Resolved(t),
-            None => WitEffectOutput::Thunk,
-        }
     }
 }
 
