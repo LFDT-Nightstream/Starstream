@@ -134,9 +134,8 @@ T-Fn: increment => i64
   T-Assign: {counter: i64} ⊢ counter = counter + 1; ⇒ i64
     T-Bin-Add: {counter: i64} ⊢ counter + 1 ⇒ i64
       T-Var: {counter: i64} ⊢ counter ⇒ i64
-      T-Int: {counter: i64} ⊢ 1 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
+      T-Int: {counter: i64} ⊢ 1 ⇒ t3
+      Unify-Var: i64 ~ t3 => {i64/t3}
     Unify-Const: i64 ~ i64 => {}
   T-ReturnTail: counter => i64
     T-Var: {counter: i64} ⊢ counter ⇒ i64
@@ -163,7 +162,9 @@ TypedProgram {
                                         44..51,
                                     ),
                                 },
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                         ],
                     ),
@@ -182,7 +183,9 @@ TypedProgram {
                     ),
                 },
                 params: [],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [
@@ -195,12 +198,16 @@ TypedProgram {
                             },
                             value: Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Binary {
                                         op: Add,
                                         left: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "counter",
@@ -214,7 +221,9 @@ TypedProgram {
                                         },
                                         right: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Literal(
                                                     Integer(
                                                         1,
@@ -232,7 +241,9 @@ TypedProgram {
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Identifier(
                                     Identifier {
                                         name: "counter",

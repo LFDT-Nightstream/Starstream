@@ -81,7 +81,9 @@ TypedProgram {
                                 19..20,
                             ),
                         },
-                        ty: Int,
+                        ty: Int(
+                            I64,
+                        ),
                     },
                     TypedStructField {
                         name: Identifier {
@@ -90,7 +92,9 @@ TypedProgram {
                                 31..32,
                             ),
                         },
-                        ty: Int,
+                        ty: Int(
+                            I64,
+                        ),
                     },
                 ],
                 ty: Record(
@@ -99,11 +103,15 @@ TypedProgram {
                         fields: [
                             RecordFieldType {
                                 name: "x",
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                             RecordFieldType {
                                 name: "y",
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                         ],
                     },

@@ -28,11 +28,11 @@ T-Fn: respond => i64
 }} ⊢ msg ⇒ Message
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
-      T-Tail: 0 => i64
+      T-Tail: 0 => t3
         T-Int: {msg: enum Message {
     Ping,
     Pong(i64),
-}} ⊢ 0 ⇒ i64
+}} ⊢ 0 ⇒ t3
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: value => i64
@@ -40,5 +40,5 @@ T-Fn: respond => i64
     Ping,
     Pong(i64),
 }, value: i64} ⊢ value ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+      Unify-Var: i64 ~ t3 => i64
     Unify-Const: i64 ~ i64 => {}
