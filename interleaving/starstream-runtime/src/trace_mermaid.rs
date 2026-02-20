@@ -71,8 +71,30 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
     let mut ref_state: HashMap<ProcessId, (Ref, usize, usize)> = HashMap::new();
     let mut handler_targets: HashMap<ProcessId, ProcessId> = HashMap::new();
     let mut handler_interfaces: HashMap<ProcessId, InterfaceId> = HashMap::new();
+    let mut effect_cursor: HashMap<ProcessId, usize> = HashMap::new();
 
     for (idx, (pid, effect)) in state.interleaving.iter().enumerate() {
+        let mut replay_lines = Vec::new();
+        // Reconstruct dataflow from explicit effect traces up to this control-flow edge.
+        replay_effect_trace_prefix(
+            state,
+            *pid,
+            effect,
+            &mut effect_cursor,
+            &mut ref_store,
+            &mut ref_state,
+            &mut handler_targets,
+            &mut handler_interfaces,
+            &labels,
+            &instance.is_utxo,
+            &mut replay_lines,
+        );
+        for line in replay_lines {
+            out.push_str("    ");
+            out.push_str(&line);
+            out.push('\n');
+        }
+
         let ctx = EdgeContext {
             labels: &labels,
             is_utxo: &instance.is_utxo,
@@ -87,12 +109,109 @@ pub fn emit_trace_mermaid(instance: &InterleavingInstance, state: &RuntimeState)
             out.push_str(&line);
             out.push('\n');
         }
-
-        apply_ref_mutations(*pid, effect, &mut ref_store, &mut ref_state);
-        update_handler_targets(*pid, effect, &mut handler_targets, &mut handler_interfaces);
     }
 
     emit_trace_mermaid_combined(labels, out);
+}
+
+fn replay_effect_trace_prefix(
+    state: &RuntimeState,
+    pid: ProcessId,
+    control_effect: &WitLedgerEffect,
+    effect_cursor: &mut HashMap<ProcessId, usize>,
+    ref_store: &mut HashMap<Ref, Vec<Value>>,
+    ref_state: &mut HashMap<ProcessId, (Ref, usize, usize)>,
+    handler_targets: &mut HashMap<ProcessId, ProcessId>,
+    handler_interfaces: &mut HashMap<ProcessId, InterfaceId>,
+    labels: &[String],
+    is_utxo: &[bool],
+    replay_lines: &mut Vec<String>,
+) {
+    let Some(trace) = state.effect_traces.get(&pid) else {
+        return;
+    };
+
+    let cursor = effect_cursor.entry(pid).or_insert(0);
+    while *cursor < trace.len() {
+        let effect = &trace[*cursor];
+        apply_ref_mutations(pid, effect, ref_store, ref_state);
+        update_handler_targets(pid, effect, handler_targets, handler_interfaces);
+        *cursor += 1;
+
+        if effect_matches_control(effect, control_effect) {
+            break;
+        }
+
+        if let Some(line) =
+            format_replayed_non_control_line(pid, effect, labels, is_utxo, ref_store)
+        {
+            replay_lines.push(line);
+        }
+    }
+}
+
+fn format_replayed_non_control_line(
+    pid: ProcessId,
+    effect: &WitLedgerEffect,
+    labels: &[String],
+    _is_utxo: &[bool],
+    ref_store: &HashMap<Ref, Vec<Value>>,
+) -> Option<String> {
+    let from = labels.get(pid.0)?;
+    match effect {
+        WitLedgerEffect::NewUtxo { val, id, .. } => {
+            let created = labels.get(id.unwrap().0)?;
+            let label = format!("new_utxo<br/>{}", format_ref_with_values(ref_store, *val));
+            Some(format!("{from} ->> {created}: {label}"))
+        }
+        WitLedgerEffect::NewCoord { val, id, .. } => {
+            let created = labels.get(id.unwrap().0)?;
+            let label = format!("new_coord<br/>{}", format_ref_with_values(ref_store, *val));
+            Some(format!("{from} ->> {created}: {label}"))
+        }
+        WitLedgerEffect::Bind { owner_id } => {
+            let to = labels.get(owner_id.0)?;
+            Some(format!("{from} ->> {to}: bind"))
+        }
+        WitLedgerEffect::Unbind { token_id } => {
+            let to = labels.get(token_id.0)?;
+            Some(format!("{from} ->> {to}: unbind"))
+        }
+        _ => None,
+    }
+}
+
+fn effect_matches_control(effect: &WitLedgerEffect, control: &WitLedgerEffect) -> bool {
+    match (effect, control) {
+        (
+            WitLedgerEffect::Resume {
+                target: t1,
+                val: v1,
+                ..
+            },
+            WitLedgerEffect::Resume {
+                target: t2,
+                val: v2,
+                ..
+            },
+        ) => t1 == t2 && v1 == v2,
+        (
+            WitLedgerEffect::CallEffectHandler {
+                interface_id: i1,
+                val: v1,
+                ..
+            },
+            WitLedgerEffect::CallEffectHandler {
+                interface_id: i2,
+                val: v2,
+                ..
+            },
+        ) => i1 == i2 && v1 == v2,
+        (WitLedgerEffect::Yield { val: v1 }, WitLedgerEffect::Yield { val: v2 }) => v1 == v2,
+        (WitLedgerEffect::Return {}, WitLedgerEffect::Return {}) => true,
+        (WitLedgerEffect::Burn { ret: r1 }, WitLedgerEffect::Burn { ret: r2 }) => r1 == r2,
+        _ => false,
+    }
 }
 
 #[derive(Clone)]
