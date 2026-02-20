@@ -174,78 +174,156 @@ fn test_runtime_effect_handlers_cross_calls() {
     //   - each coroutine allocates a new ref each time, this is not as efficient
     //   - coord should check that the answer it receives actually comes from
     //     the right process (or maybe this should be an optional arg to resume and be enforced by the circuit?)
-    let utxo1_bin = wasm_module!({
-        let (init_ref, caller) = call activation();
-        call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
+    let mut utxo1_builder = wasm_dsl::ModuleBuilder::new();
+    utxo1_builder.add_global_i64(0, true); // g0: pc
+    utxo1_builder.add_global_i64(99, true); // g1: x
+    utxo1_builder.add_global_i64(0, true); // g2: i
+    utxo1_builder.add_global_i64(0, true); // g3: last req ref
+    let utxo1_bin = wasm_module!(utxo1_builder, {
+        let pc = global_get 0;
 
-        let x0 = 99;
-        let n = 5;
-        let i0 = 0;
-        let x = x0;
-        let i = i0;
+        // pc=0: boot once, build first forward request, then hand control to coord.
+        if pc == 0 {
+            let (init_ref, caller) = call untraced_activation();
+            // 8=Activation: a1=init_ref, a3=caller pid.
+            call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
 
-        // Call the +1 service n times, then send disc=2 to break.
-        loop {
-            break_if i == n;
-
-            // Allocate a ref for the number, then send a nested ref message (disc, num_ref).
+            let x = global_get 1;
             let num_ref = call new_ref(1);
+            // 10=NewRef: a2=ret ref id, a3=size_words.
             call trace(10, 0, 0, num_ref, 1, 0, 0, 0);
             call ref_push(x, 0, 0, 0);
+            // 11=RefPush: a0..a3=packed pushed values.
             call trace(11, x, 0, 0, 0, 0, 0, 0);
 
             let req = call new_ref(1);
+            // 10=NewRef: request envelope ref.
             call trace(10, 0, 0, req, 1, 0, 0, 0);
             call ref_push(1, num_ref, 0, 0);
+            // 11=RefPush payload: [disc=1 (forward), num_ref, 0, 0].
             call trace(11, 1, num_ref, 0, 0, 0, 0, 0);
-
+            set_global 3 = req;
+            set_global 0 = 1;
             call call_effect_handler(1, 2, 3, 4, req);
-            let (resp, _caller_effect) = call untraced_activation();
-            call trace(18, 0, req, resp, 1, 2, 3, 4);
-            let (y, _b, _c, _d) = call ref_get(resp, 0);
-            call trace(12, y, resp, _b, 0, _c, _d, 0);
-            let expected = add x, 1;
-            assert_eq y, expected;
-
-            set x = y;
-            set i = add i, 1;
-            continue;
         }
 
-        let stop_num_ref = call new_ref(1);
-        call trace(10, 0, 0, stop_num_ref, 1, 0, 0, 0);
-        call ref_push(x, 0, 0, 0);
-        call trace(11, x, 0, 0, 0, 0, 0, 0);
-        let stop = call new_ref(1);
-        call trace(10, 0, 0, stop, 1, 0, 0, 0);
-        call ref_push(2, stop_num_ref, 0, 0);
-        call trace(11, 2, stop_num_ref, 0, 0, 0, 0, 0);
-        call call_effect_handler(1, 2, 3, 4, stop);
-        let (resp_stop, _caller_effect) = call untraced_activation();
-        call trace(18, 0, stop, resp_stop, 1, 2, 3, 4);
+        // pc=1: resumed by coord with a response. Validate y=x+1 and either
+        // send next forward request or send a stop request after 5 rounds.
+        if pc == 1 {
+            let req = global_get 3;
+            let (resp, _caller_effect) = call untraced_activation();
+            // 18=CallEffectHandler: a1=req, a2=resp, a3..a6=interface id.
+            call trace(18, 0, req, resp, 1, 2, 3, 4);
+            let (y, _b, _c, _d) = call ref_get(resp, 0);
+            // 12=RefGet: a0=first lane read (y), a1=ref, a3=offset.
+            call trace(12, y, resp, _b, 0, _c, _d, 0);
 
-        call trace(1, 0, stop, 0, 0, 0, 0, 0);
-        call yield_(stop);
+            let x = global_get 1;
+            let expected = add x, 1;
+            assert_eq y, expected;
+            set_global 1 = y;
+
+            let i = global_get 2;
+            let i_next = add i, 1;
+            set_global 2 = i_next;
+
+            // `i` is the pre-increment round index (old value before i_next write).
+            // i==4 means this is the 5th response, so emit final `disc=2` stop.
+            // This branch is intentionally first to make the terminal path explicit.
+            if i == 4 {
+                let stop_num_ref = call new_ref(1);
+                // 10=NewRef for stop payload value.
+                call trace(10, 0, 0, stop_num_ref, 1, 0, 0, 0);
+                call ref_push(y, 0, 0, 0);
+                // 11=RefPush payload value [y,0,0,0].
+                call trace(11, y, 0, 0, 0, 0, 0, 0);
+                let stop = call new_ref(1);
+                // 10=NewRef for stop request envelope.
+                call trace(10, 0, 0, stop, 1, 0, 0, 0);
+                call ref_push(2, stop_num_ref, 0, 0);
+                // 11=RefPush payload: [disc=2 (stop), num_ref, 0, 0].
+                call trace(11, 2, stop_num_ref, 0, 0, 0, 0, 0);
+                set_global 3 = stop;
+                set_global 0 = 2;
+                call call_effect_handler(1, 2, 3, 4, stop);
+            }
+
+            // i<4 are the normal forward rounds (disc=1).
+            if i < 4 {
+                let num_ref = call new_ref(1);
+                // 10=NewRef for next forwarded value.
+                call trace(10, 0, 0, num_ref, 1, 0, 0, 0);
+                call ref_push(y, 0, 0, 0);
+                // 11=RefPush payload value [y,0,0,0].
+                call trace(11, y, 0, 0, 0, 0, 0, 0);
+                let next_req = call new_ref(1);
+                // 10=NewRef for next request envelope.
+                call trace(10, 0, 0, next_req, 1, 0, 0, 0);
+                call ref_push(1, num_ref, 0, 0);
+                // 11=RefPush payload: [disc=1 (forward), num_ref, 0, 0].
+                call trace(11, 1, num_ref, 0, 0, 0, 0, 0);
+                set_global 3 = next_req;
+                set_global 0 = 1;
+                call call_effect_handler(1, 2, 3, 4, next_req);
+            }
+        }
+
+        // pc=2: ack the stop response and yield final control back to coord.
+        if pc == 2 {
+            let stop = global_get 3;
+            let (resp_stop, _caller_effect) = call untraced_activation();
+            // 18=CallEffectHandler completion for stop request.
+            call trace(18, 0, stop, resp_stop, 1, 2, 3, 4);
+            // 1=Yield: a1=yielded ref.
+            call trace(1, 0, stop, 0, 0, 0, 0, 0);
+            set_global 0 = 3;
+            call yield_(stop);
+        }
     });
 
-    let utxo2_bin = wasm_module!({
-        let (init_ref, caller) = call activation();
-        call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
-        let req = init_ref;
+    let mut utxo2_builder = wasm_dsl::ModuleBuilder::new();
+    utxo2_builder.add_global_i64(0, true); // g0: pc
+    utxo2_builder.add_global_i64(0, true); // g1: current req ref
+    let utxo2_bin = wasm_module!(utxo2_builder, {
+        let pc = global_get 0;
+        // pc=0: first activation, process forwarded value, write y=x+1, yield response.
+        if pc == 0 {
+            let (init_ref, caller) = call untraced_activation();
+            // 8=Activation: a1=activation ref, a3=caller pid.
+            call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
+            set_global 1 = init_ref;
 
-        // Serve x -> x+1 for each incoming request, writing back into the same ref.
-        loop {
+            let req = init_ref;
             let (x, _b, _c, _d) = call ref_get(req, 0);
+            // 12=RefGet first lane read from request value ref.
             call trace(12, x, req, _b, 0, _c, _d, 0);
             let y = add x, 1;
             call ref_write(req, 0, y, 0, 0, 0);
+            // 16=RefWrite: a0=y, a1=ref, a3=offset.
             call trace(16, y, req, 0, 0, 0, 0, 0);
+            // 1=Yield returning same ref as response.
+            call trace(1, 0, req, 0, 0, 0, 0, 0);
+            set_global 0 = 1;
+            call yield_(req);
+        }
+        // pc=1: steady-state loop for all following forwarded requests.
+        if pc == 1 {
+            let (next_req, caller2) = call untraced_activation();
+            // 8=Activation for subsequent forwarded request.
+            call trace(8, 0, next_req, 0, caller2, 0, 0, 0);
+            set_global 1 = next_req;
+
+            let req = next_req;
+            let (x, _b, _c, _d) = call ref_get(req, 0);
+            // 12=RefGet first lane read from request value ref.
+            call trace(12, x, req, _b, 0, _c, _d, 0);
+            let y = add x, 1;
+            call ref_write(req, 0, y, 0, 0, 0);
+            // 16=RefWrite writes response value in-place.
+            call trace(16, y, req, 0, 0, 0, 0, 0);
+            // 1=Yield response ref to coordinator.
             call trace(1, 0, req, 0, 0, 0, 0, 0);
             call yield_(req);
-            let (next_req, caller2) = call activation();
-            call trace(8, 0, next_req, 0, caller2, 0, 0, 0);
-            set req = next_req;
-            continue;
         }
     });
 
@@ -255,90 +333,141 @@ fn test_runtime_effect_handlers_cross_calls() {
     let (utxo2_hash_limb_a, utxo2_hash_limb_b, utxo2_hash_limb_c, utxo2_hash_limb_d) =
         hash_program(&utxo2_bin);
 
-    let coord_bin = wasm_module!({
-        call install_handler(1, 2, 3, 4);
-        call trace(4, 0, 0, 0, 1, 2, 3, 4);
+    let mut coord_builder = wasm_dsl::ModuleBuilder::new();
+    coord_builder.add_global_i64(0, true); // g0: pc
+    coord_builder.add_global_i64(0, true); // g1: utxo1 id
+    coord_builder.add_global_i64(0, true); // g2: utxo2 id
+    coord_builder.add_global_i64(0, true); // g3: req/current ref
+    coord_builder.add_global_i64(0, true); // g4: caller1
+    coord_builder.add_global_i64(0, true); // g5: last resume target
+    coord_builder.add_global_i64(0, true); // g6: last resume val
+    let coord_bin = wasm_module!(coord_builder, {
+        let pc = global_get 0;
+        // pc=0: install handler, spawn both utxos, resume utxo1 with init value.
+        if pc == 0 {
+            call install_handler(1, 2, 3, 4);
+            // 4=InstallHandler: a3..a6=interface id.
+            call trace(4, 0, 0, 0, 1, 2, 3, 4);
 
-        let init_val = call new_ref(1);
-        call trace(10, 0, 0, init_val, 1, 0, 0, 0);
-        call ref_push(0, 0, 0, 0);
-        call trace(11, 0, 0, 0, 0, 0, 0, 0);
+            let init_val = call new_ref(1);
+            // 10=NewRef init payload for boot resume.
+            call trace(10, 0, 0, init_val, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            // 11=RefPush payload [0,0,0,0].
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
 
-        let utxo_id1 = call new_utxo(
-            const(utxo1_hash_limb_a),
-            const(utxo1_hash_limb_b),
-            const(utxo1_hash_limb_c),
-            const(utxo1_hash_limb_d),
-            init_val
-        );
-        call trace(
-            2,
-            utxo_id1,
-            init_val,
-            0,
-            const(utxo1_hash_limb_a),
-            const(utxo1_hash_limb_b),
-            const(utxo1_hash_limb_c),
-            const(utxo1_hash_limb_d)
-        );
+            let utxo_id1 = call new_utxo(
+                const(utxo1_hash_limb_a),
+                const(utxo1_hash_limb_b),
+                const(utxo1_hash_limb_c),
+                const(utxo1_hash_limb_d),
+                init_val
+            );
+            // 2=NewUtxo: a0=new pid, a1=init ref, a3..a6=program hash.
+            call trace(
+                2,
+                utxo_id1,
+                init_val,
+                0,
+                const(utxo1_hash_limb_a),
+                const(utxo1_hash_limb_b),
+                const(utxo1_hash_limb_c),
+                const(utxo1_hash_limb_d)
+            );
 
-        let utxo_id2 = call new_utxo(
-            const(utxo2_hash_limb_a),
-            const(utxo2_hash_limb_b),
-            const(utxo2_hash_limb_c),
-            const(utxo2_hash_limb_d),
-            init_val
-        );
-        call trace(
-            2,
-            utxo_id2,
-            init_val,
-            0,
-            const(utxo2_hash_limb_a),
-            const(utxo2_hash_limb_b),
-            const(utxo2_hash_limb_c),
-            const(utxo2_hash_limb_d)
-        );
+            let utxo_id2 = call new_utxo(
+                const(utxo2_hash_limb_a),
+                const(utxo2_hash_limb_b),
+                const(utxo2_hash_limb_c),
+                const(utxo2_hash_limb_d),
+                init_val
+            );
+            // 2=NewUtxo for the second worker.
+            call trace(
+                2,
+                utxo_id2,
+                init_val,
+                0,
+                const(utxo2_hash_limb_a),
+                const(utxo2_hash_limb_b),
+                const(utxo2_hash_limb_c),
+                const(utxo2_hash_limb_d)
+            );
 
-        // Start utxo1 and then route messages until disc=2.
-        call resume(utxo_id1, init_val);
-        let (req0, caller0) = call untraced_activation();
-        let caller0_enc = add caller0, 1;
-        call trace(0, utxo_id1, init_val, req0, caller0_enc, 0, 0, 0);
-        let req = req0;
-        let caller1 = caller0;
-
-        loop {
-            let (disc, num_ref, _c, _d) = call ref_get(req, 0);
-            call trace(12, disc, req, num_ref, 0, _c, _d, 0);
-            if disc == 2 {
-                call resume(caller1, num_ref);
-        let (ret_stop, caller_stop) = call untraced_activation();
-                let caller_stop_enc = add caller_stop, 1;
-                call trace(0, caller1, num_ref, ret_stop, caller_stop_enc, 0, 0, 0);
-            }
-            break_if disc == 2;
-
-            // coord -> utxo2 (mutates num_ref in place)
-            call resume(utxo_id2, num_ref);
-        let (resp2, caller2) = call untraced_activation();
-            let caller2_enc = add caller2, 1;
-            call trace(0, utxo_id2, num_ref, resp2, caller2_enc, 0, 0, 0);
-
-            // coord -> utxo1, which will resume the handler again
-            call resume(caller1, resp2);
-        let (req_next, caller_next) = call untraced_activation();
-            let caller_next_enc = add caller_next, 1;
-            call trace(0, caller1, resp2, req_next, caller_next_enc, 0, 0, 0);
-            set req = req_next;
-            set caller1 = caller_next;
-            continue;
+            set_global 1 = utxo_id1;
+            set_global 2 = utxo_id2;
+            set_global 5 = utxo_id1;
+            set_global 6 = init_val;
+            set_global 0 = 1;
+            call resume(utxo_id1, init_val);
         }
 
-        call uninstall_handler(1, 2, 3, 4);
-        call trace(5, 0, 0, 0, 1, 2, 3, 4);
-        call trace(17, 0, 0, 0, 0, 0, 0, 0);
-        call return_();
+        // pc=1: receive request from utxo1.
+        // disc=1 => forward num_ref to utxo2.
+        // disc=2 => stop flow and resume utxo1 with stop payload.
+        if pc == 1 {
+            let last_target = global_get 5;
+            let last_val = global_get 6;
+            let (req, caller0) = call untraced_activation();
+            let caller0_enc = add caller0, 1;
+            // 0=Resume: a0=target, a1=val, a2=ret, a3=encoded caller.
+            call trace(0, last_target, last_val, req, caller0_enc, 0, 0, 0);
+            set_global 3 = req;
+            set_global 4 = caller0;
+
+            let (disc, num_ref, _c, _d) = call ref_get(req, 0);
+            // 12=RefGet: decode request envelope [disc, num_ref, ...].
+            call trace(12, disc, req, num_ref, 0, _c, _d, 0);
+
+            if disc == 2 {
+                let caller1 = global_get 4;
+                set_global 5 = caller1;
+                set_global 6 = num_ref;
+                set_global 0 = 3;
+                call resume(caller1, num_ref);
+            }
+            if disc == 1 {
+                let utxo_id2 = global_get 2;
+                set_global 5 = utxo_id2;
+                set_global 6 = num_ref;
+                set_global 0 = 2;
+                call resume(utxo_id2, num_ref);
+            }
+        }
+
+        // pc=2: receive utxo2 response and route it back to utxo1.
+        if pc == 2 {
+            let last_target = global_get 5;
+            let last_val = global_get 6;
+            let (resp2, caller2) = call untraced_activation();
+            let caller2_enc = add caller2, 1;
+            // 0=Resume return from utxo2.
+            call trace(0, last_target, last_val, resp2, caller2_enc, 0, 0, 0);
+
+            let caller1 = global_get 4;
+            set_global 5 = caller1;
+            set_global 6 = resp2;
+            set_global 0 = 1;
+            call resume(caller1, resp2);
+        }
+
+        // pc=3: receive terminal ack, uninstall handler, and return.
+        if pc == 3 {
+            let last_target = global_get 5;
+            let last_val = global_get 6;
+            let (ret_stop, caller_stop) = call untraced_activation();
+            let caller_stop_enc = add caller_stop, 1;
+            // 0=Resume return from final stop handoff.
+            call trace(0, last_target, last_val, ret_stop, caller_stop_enc, 0, 0, 0);
+
+            call uninstall_handler(1, 2, 3, 4);
+            // 5=UninstallHandler for the effect interface.
+            call trace(5, 0, 0, 0, 1, 2, 3, 4);
+            // 17=Return from coordinator.
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            set_global 0 = 4;
+            call return_();
+        }
     });
 
     print_wat("cross/utxo1", &utxo1_bin);

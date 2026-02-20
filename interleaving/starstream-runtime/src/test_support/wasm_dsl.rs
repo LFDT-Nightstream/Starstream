@@ -159,6 +159,18 @@ impl FuncBuilder {
         self.instrs.push(Instruction::End);
     }
 
+    pub fn if_lt<F>(&mut self, lhs: Value, rhs: Value, f: F)
+    where
+        F: FnOnce(&mut FuncBuilder),
+    {
+        lhs.emit(&mut self.instrs);
+        rhs.emit(&mut self.instrs);
+        self.instrs.push(Instruction::I64LtS);
+        self.instrs.push(Instruction::If(BlockType::Empty));
+        f(self);
+        self.instrs.push(Instruction::End);
+    }
+
     fn finish(self) -> Function {
         let mut groups: Vec<(u32, ValType)> = Vec::new();
         for ty in self.locals {
@@ -740,6 +752,13 @@ macro_rules! wasm_stmt {
 
     ($f:ident, $imports:ident, if $lhs:ident == $rhs:tt { $($body:tt)* } $($rest:tt)*) => {
         $f.if_eq($crate::wasm_value!($lhs), $crate::wasm_value!($rhs), |$f| {
+            $crate::wasm_stmt!($f, $imports, $($body)*);
+        });
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, if $lhs:ident < $rhs:tt { $($body:tt)* } $($rest:tt)*) => {
+        $f.if_lt($crate::wasm_value!($lhs), $crate::wasm_value!($rhs), |$f| {
             $crate::wasm_stmt!($f, $imports, $($body)*);
         });
         $crate::wasm_stmt!($f, $imports, $($rest)*);
