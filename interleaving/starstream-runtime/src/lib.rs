@@ -1,9 +1,10 @@
 use ark_ff::PrimeField;
 use starstream_interleaving_proof::commit;
 use starstream_interleaving_spec::{
-    CoroutineState, Hash, InterfaceId, InterleavingInstance, InterleavingWitness,
-    LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId, ProvenTransaction, Ref, UtxoId,
-    Value, WasmModule, WitEffectOutput, WitLedgerEffect, builder::TransactionBuilder,
+    ArgName, CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
+    InterleavingWitness, LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId,
+    ProvenTransaction, Ref, UtxoId, Value, WasmModule, WitEffectOutput, WitLedgerEffect,
+    builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
 use wasmi::{
@@ -140,6 +141,154 @@ fn suspend_with_effect<T>(
     Err(wasmi::Error::host(Interrupt {}))
 }
 
+fn hash4<T>(a0: u64, a1: u64, a2: u64, a3: u64) -> Hash<T> {
+    Hash([a0, a1, a2, a3], std::marker::PhantomData)
+}
+
+fn decode_optional_pid(encoded: u64) -> Option<ProcessId> {
+    if encoded == 0 {
+        None
+    } else {
+        Some(ProcessId((encoded - 1) as usize))
+    }
+}
+
+fn decode_effect_from_commit_abi(
+    discriminant: u64,
+    args: [u64; 7],
+) -> Result<WitLedgerEffect, String> {
+    let disc = EffectDiscriminant::try_from(discriminant)
+        .map_err(|e| format!("invalid starstream_trace discriminant: {}", e))?;
+    let arg = |name: ArgName| args[name.idx()];
+
+    let effect = match disc {
+        EffectDiscriminant::Resume => WitLedgerEffect::Resume {
+            target: ProcessId(arg(ArgName::Target) as usize),
+            val: Ref(arg(ArgName::Val)),
+            ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
+            caller: WitEffectOutput::Resolved(decode_optional_pid(arg(ArgName::Caller))),
+        },
+        EffectDiscriminant::Yield => WitLedgerEffect::Yield {
+            val: Ref(arg(ArgName::Val)),
+        },
+        EffectDiscriminant::NewUtxo => WitLedgerEffect::NewUtxo {
+            program_hash: hash4(
+                arg(ArgName::ProgramHash0),
+                arg(ArgName::ProgramHash1),
+                arg(ArgName::ProgramHash2),
+                arg(ArgName::ProgramHash3),
+            ),
+            val: Ref(arg(ArgName::Val)),
+            id: WitEffectOutput::Resolved(ProcessId(arg(ArgName::Target) as usize)),
+        },
+        EffectDiscriminant::NewCoord => WitLedgerEffect::NewCoord {
+            program_hash: hash4(
+                arg(ArgName::ProgramHash0),
+                arg(ArgName::ProgramHash1),
+                arg(ArgName::ProgramHash2),
+                arg(ArgName::ProgramHash3),
+            ),
+            val: Ref(arg(ArgName::Val)),
+            id: WitEffectOutput::Resolved(ProcessId(arg(ArgName::Target) as usize)),
+        },
+        EffectDiscriminant::InstallHandler => WitLedgerEffect::InstallHandler {
+            interface_id: hash4(
+                arg(ArgName::InterfaceId0),
+                arg(ArgName::InterfaceId1),
+                arg(ArgName::InterfaceId2),
+                arg(ArgName::InterfaceId3),
+            ),
+        },
+        EffectDiscriminant::UninstallHandler => WitLedgerEffect::UninstallHandler {
+            interface_id: hash4(
+                arg(ArgName::InterfaceId0),
+                arg(ArgName::InterfaceId1),
+                arg(ArgName::InterfaceId2),
+                arg(ArgName::InterfaceId3),
+            ),
+        },
+        EffectDiscriminant::GetHandlerFor => WitLedgerEffect::GetHandlerFor {
+            interface_id: hash4(
+                arg(ArgName::InterfaceId0),
+                arg(ArgName::InterfaceId1),
+                arg(ArgName::InterfaceId2),
+                arg(ArgName::InterfaceId3),
+            ),
+            handler_id: WitEffectOutput::Resolved(ProcessId(arg(ArgName::Target) as usize)),
+        },
+        EffectDiscriminant::Burn => WitLedgerEffect::Burn {
+            ret: Ref(arg(ArgName::Ret)),
+        },
+        EffectDiscriminant::Activation => WitLedgerEffect::Activation {
+            val: WitEffectOutput::Resolved(Ref(arg(ArgName::Val))),
+            caller: WitEffectOutput::Resolved(ProcessId(arg(ArgName::ActivationCaller) as usize)),
+        },
+        EffectDiscriminant::Init => WitLedgerEffect::Init {
+            val: WitEffectOutput::Resolved(Ref(arg(ArgName::Val))),
+            caller: WitEffectOutput::Resolved(ProcessId(arg(ArgName::ActivationCaller) as usize)),
+        },
+        EffectDiscriminant::NewRef => WitLedgerEffect::NewRef {
+            size: arg(ArgName::Size) as usize,
+            ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
+        },
+        EffectDiscriminant::RefPush => WitLedgerEffect::RefPush {
+            vals: [
+                Value(arg(ArgName::PackedRef0)),
+                Value(arg(ArgName::PackedRef1)),
+                Value(arg(ArgName::PackedRef2)),
+                Value(arg(ArgName::PackedRef3)),
+            ],
+        },
+        EffectDiscriminant::RefGet => WitLedgerEffect::RefGet {
+            reff: Ref(arg(ArgName::Val)),
+            offset: arg(ArgName::Offset) as usize,
+            ret: WitEffectOutput::Resolved([
+                Value(arg(ArgName::PackedRef0)),
+                Value(arg(ArgName::PackedRef2)),
+                Value(arg(ArgName::PackedRef4)),
+                Value(arg(ArgName::PackedRef5)),
+            ]),
+        },
+        EffectDiscriminant::Bind => WitLedgerEffect::Bind {
+            owner_id: ProcessId(arg(ArgName::OwnerId) as usize),
+        },
+        EffectDiscriminant::Unbind => WitLedgerEffect::Unbind {
+            token_id: ProcessId(arg(ArgName::TokenId) as usize),
+        },
+        EffectDiscriminant::ProgramHash => WitLedgerEffect::ProgramHash {
+            target: ProcessId(arg(ArgName::Target) as usize),
+            program_hash: WitEffectOutput::Resolved(hash4(
+                arg(ArgName::ProgramHash0),
+                arg(ArgName::ProgramHash1),
+                arg(ArgName::ProgramHash2),
+                arg(ArgName::ProgramHash3),
+            )),
+        },
+        EffectDiscriminant::RefWrite => WitLedgerEffect::RefWrite {
+            reff: Ref(arg(ArgName::Val)),
+            offset: arg(ArgName::Offset) as usize,
+            vals: [
+                Value(arg(ArgName::PackedRef0)),
+                Value(arg(ArgName::PackedRef2)),
+                Value(arg(ArgName::PackedRef4)),
+                Value(arg(ArgName::PackedRef5)),
+            ],
+        },
+        EffectDiscriminant::Return => WitLedgerEffect::Return {},
+        EffectDiscriminant::CallEffectHandler => WitLedgerEffect::CallEffectHandler {
+            interface_id: hash4(
+                arg(ArgName::InterfaceId0),
+                arg(ArgName::InterfaceId1),
+                arg(ArgName::InterfaceId2),
+                arg(ArgName::InterfaceId3),
+            ),
+            val: Ref(arg(ArgName::Val)),
+            ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
+        },
+    };
+    Ok(effect)
+}
+
 fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
     match effect {
         WitLedgerEffect::Resume { .. }
@@ -175,6 +324,7 @@ pub struct UnprovenTransaction {
 
 pub struct RuntimeState {
     pub traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
+    pub effect_traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
     pub interleaving: Vec<(ProcessId, WitLedgerEffect)>,
     pub current_process: ProcessId,
     pub memories: HashMap<ProcessId, Memory>,
@@ -221,6 +371,7 @@ impl Runtime {
 
         let state = RuntimeState {
             traces: HashMap::new(),
+            effect_traces: HashMap::new(),
             interleaving: Vec::new(),
             current_process: ProcessId(0),
             memories: HashMap::new(),
@@ -244,6 +395,35 @@ impl Runtime {
         };
 
         let store = Store::new(&engine, state);
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream_trace",
+                |mut caller: Caller<'_, RuntimeState>,
+                 discriminant: u64,
+                 a0: u64,
+                 a1: u64,
+                 a2: u64,
+                 a3: u64,
+                 a4: u64,
+                 a5: u64,
+                 a6: u64|
+                 -> Result<(), wasmi::Error> {
+                    let effect =
+                        decode_effect_from_commit_abi(discriminant, [a0, a1, a2, a3, a4, a5, a6])
+                            .map_err(wasmi::Error::new)?;
+                    let current_pid = caller.data().current_process;
+                    caller
+                        .data_mut()
+                        .effect_traces
+                        .entry(current_pid)
+                        .or_default()
+                        .push(effect);
+                    Ok(())
+                },
+            )
+            .unwrap();
 
         linker
             .func_wrap(
@@ -1068,7 +1248,6 @@ impl UnprovenTransaction {
                         _ => {}
                     }
                 }
-
                 let vals = [
                     Val::I64(next_args[0] as i64),
                     Val::I64(next_args[1] as i64),
@@ -1216,12 +1395,51 @@ impl UnprovenTransaction {
         let n_inputs = process_table.len() - n_new - n_coords;
 
         for pid in 0..self.programs.len() {
+            let proc_id = ProcessId(pid);
+            let legacy_trace = runtime
+                .store
+                .data()
+                .traces
+                .get(&proc_id)
+                .cloned()
+                .unwrap_or_default();
+            let effect_trace = runtime
+                .store
+                .data()
+                .effect_traces
+                .get(&proc_id)
+                .cloned()
+                .unwrap_or_default();
+            if effect_trace.is_empty() {
+                continue;
+            }
+            if legacy_trace != effect_trace {
+                return Err(Error::RuntimeError(format!(
+                    "legacy trace != starstream_trace trace for pid {} (legacy={}, trace={})",
+                    pid,
+                    legacy_trace.len(),
+                    effect_trace.len()
+                )));
+            }
+        }
+
+        for pid in 0..self.programs.len() {
             let data = runtime.store.data();
-            let trace = data
+            let legacy_trace = data
                 .traces
                 .get(&ProcessId(pid))
                 .cloned()
                 .unwrap_or_default();
+            let effect_trace = data
+                .effect_traces
+                .get(&ProcessId(pid))
+                .cloned()
+                .unwrap_or_default();
+            let trace = if effect_trace.is_empty() {
+                legacy_trace
+            } else {
+                effect_trace
+            };
             let mut commitment = LedgerEffectsCommitment::iv();
             for op in &trace {
                 commitment = commit(commitment, op.clone());

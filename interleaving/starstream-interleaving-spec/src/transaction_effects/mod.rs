@@ -1,5 +1,6 @@
 use crate::Hash;
 
+pub mod abi;
 pub mod instance;
 pub mod witness;
 

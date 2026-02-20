@@ -199,6 +199,7 @@ pub struct ModuleBuilder {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Imports {
+    pub trace: FuncRef,
     pub activation: FuncRef,
     pub get_program_hash: FuncRef,
     pub get_handler_for: FuncRef,
@@ -243,6 +244,21 @@ impl ModuleBuilder {
     }
 
     pub fn import_starstream(&mut self) -> Imports {
+        let trace = self.import_func(
+            "env",
+            "starstream_trace",
+            &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
+            &[],
+        );
         let activation = self.import_func(
             "env",
             "starstream_activation",
@@ -354,6 +370,7 @@ impl ModuleBuilder {
         let init = self.import_func("env", "starstream_init", &[], &[ValType::I64, ValType::I64]);
 
         Imports {
+            trace,
             activation,
             get_program_hash,
             get_handler_for,

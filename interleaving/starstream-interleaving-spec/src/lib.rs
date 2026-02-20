@@ -15,6 +15,7 @@ use p3_field::PrimeCharacteristicRing;
 use std::{hash::Hasher, marker::PhantomData};
 pub use transaction_effects::{
     InterfaceId,
+    abi::{ArgName, OPCODE_ARG_COUNT},
     instance::InterleavingInstance,
     witness::{
         EffectDiscriminant, REF_GET_WIDTH, REF_PUSH_WIDTH, REF_WRITE_WIDTH, WitEffectOutput,
