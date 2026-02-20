@@ -294,7 +294,7 @@ impl ModuleBuilder {
                 ValType::I64,
                 ValType::I64,
             ],
-            &[ValType::I64],
+            &[],
         );
         let install_handler = self.import_func(
             "env",

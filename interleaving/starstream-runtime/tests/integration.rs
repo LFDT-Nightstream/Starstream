@@ -33,7 +33,8 @@ fn test_runtime_simple_effect_handlers() {
         call ref_push(42, 0, 0, 0);
         call trace(11, 42, 0, 0, 0, 0, 0, 0);
 
-        let resp = call call_effect_handler(1, 0, 0, 0, req);
+        call call_effect_handler(1, 0, 0, 0, req);
+        let (resp, _caller_effect) = call untraced_activation();
         call trace(18, 0, req, resp, 1, 0, 0, 0);
         let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
         call trace(12, resp_val, resp, _b, 0, _c, _d, 0);
@@ -174,7 +175,8 @@ fn test_runtime_effect_handlers_cross_calls() {
             call ref_push(1, num_ref, 0, 0);
             call trace(11, 1, num_ref, 0, 0, 0, 0, 0);
 
-            let resp = call call_effect_handler(1, 2, 3, 4, req);
+            call call_effect_handler(1, 2, 3, 4, req);
+            let (resp, _caller_effect) = call untraced_activation();
             call trace(18, 0, req, resp, 1, 2, 3, 4);
             let (y, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, y, resp, _b, 0, _c, _d, 0);
@@ -194,7 +196,8 @@ fn test_runtime_effect_handlers_cross_calls() {
         call trace(10, 0, 0, stop, 1, 0, 0, 0);
         call ref_push(2, stop_num_ref, 0, 0);
         call trace(11, 2, stop_num_ref, 0, 0, 0, 0, 0);
-        let resp_stop = call call_effect_handler(1, 2, 3, 4, stop);
+        call call_effect_handler(1, 2, 3, 4, stop);
+        let (resp_stop, _caller_effect) = call untraced_activation();
         call trace(18, 0, stop, resp_stop, 1, 2, 3, 4);
 
         call trace(1, 0, stop, 0, 0, 0, 0, 0);

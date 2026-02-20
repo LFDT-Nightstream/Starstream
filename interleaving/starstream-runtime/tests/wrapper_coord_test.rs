@@ -87,7 +87,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         let req = call new_ref(1);
         call ref_push(2, cell_ref, 42, 0);
 
-        let _resp = call call_effect_handler(1, 2, 3, 4, req);
+        call call_effect_handler(1, 2, 3, 4, req);
+        let (_resp, _caller_effect) = call untraced_activation();
 
         let done = call new_ref(1);
         call ref_push(0, 0, 0, 0);
@@ -101,7 +102,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         let req = call new_ref(1);
         call ref_push(3, cell_ref, 0, 0);
 
-        let resp = call call_effect_handler(1, 2, 3, 4, req);
+        call call_effect_handler(1, 2, 3, 4, req);
+        let (resp, _caller_effect) = call untraced_activation();
         let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
         assert_eq val, 42;
 

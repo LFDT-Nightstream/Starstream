@@ -297,7 +297,6 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         WitLedgerEffect::NewUtxo { .. }
         | WitLedgerEffect::NewCoord { .. }
         | WitLedgerEffect::GetHandlerFor { .. }
-        | WitLedgerEffect::CallEffectHandler { .. }
         | WitLedgerEffect::NewRef { .. } => 1,
         WitLedgerEffect::RefGet { .. } => 4,
         WitLedgerEffect::InstallHandler { .. }
@@ -308,7 +307,8 @@ fn effect_result_arity(effect: &WitLedgerEffect) -> usize {
         | WitLedgerEffect::Bind { .. }
         | WitLedgerEffect::Unbind { .. }
         | WitLedgerEffect::RefPush { .. }
-        | WitLedgerEffect::RefWrite { .. } => 0,
+        | WitLedgerEffect::RefWrite { .. }
+        | WitLedgerEffect::CallEffectHandler { .. } => 0,
     }
 }
 
@@ -764,7 +764,7 @@ impl Runtime {
                  h2: u64,
                  h3: u64,
                  val: u64|
-                 -> Result<u64, wasmi::Error> {
+                 -> Result<(), wasmi::Error> {
                     let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     suspend_with_effect(
                         &mut caller,
