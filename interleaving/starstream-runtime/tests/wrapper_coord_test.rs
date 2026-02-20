@@ -124,22 +124,26 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         // new_cell
         let req_new = call new_ref(1);
         call ref_push(1, 0, 0, 0);
-        let (resp_new, _caller2) = call resume(handler_id, req_new);
+        call resume(handler_id, req_new);
+        let (resp_new, _caller2) = call untraced_activation();
         let (_disc, cell_ref, _c2, _d2) = call ref_get(resp_new, 0);
 
         let cell_init = call new_ref(1);
         call ref_push(cell_ref, 0, 0, 0);
 
         // utxo1 writes 42
-        let (_ret1, _caller3) = call resume(utxo1_id, cell_init);
+        call resume(utxo1_id, cell_init);
+        let (_ret1, _caller3) = call untraced_activation();
 
         // utxo2 reads 42
-        let (_ret2, _caller4) = call resume(utxo2_id, cell_init);
+        call resume(utxo2_id, cell_init);
+        let (_ret2, _caller4) = call untraced_activation();
 
         // end
         let req_end = call new_ref(1);
         call ref_push(4, 0, 0, 0);
-        let (_resp_end, _caller5) = call resume(handler_id, req_end);
+        call resume(handler_id, req_end);
+        let (_resp_end, _caller5) = call untraced_activation();
 
         call return_();
     });
@@ -153,7 +157,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
         call install_handler(1, 2, 3, 4);
 
-        let (req0, caller0) = call resume(inner_id, 0);
+        call resume(inner_id, 0);
+        let (req0, caller0) = call untraced_activation();
         let req = req0;
         let caller = caller0;
         let handled = const(0);
@@ -168,7 +173,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             if disc == 4 {
                 let resp = call new_ref(1);
                 call ref_push(13, 0, 0, 0);
-                let (_req_next, _caller_next) = call resume(caller, resp);
+                call resume(caller, resp);
+        let (_req_next, _caller_next) = call untraced_activation();
                 set handled = const(2);
             }
 
@@ -176,7 +182,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 let resp = call new_ref(1);
                 call ref_push(11, cell_id, 0, 0);
 
-                let (req_next, caller_next) = call resume(caller, resp);
+                call resume(caller, resp);
+        let (req_next, caller_next) = call untraced_activation();
                 set req = req_next;
                 set caller = caller_next;
                 set handled = const(1);
@@ -186,7 +193,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 set cell_val = value;
                 let resp = call new_ref(1);
                 call ref_push(10, 0, 0, 0);
-                let (req_next, caller_next) = call resume(caller, resp);
+                call resume(caller, resp);
+        let (req_next, caller_next) = call untraced_activation();
                 set req = req_next;
                 set caller = caller_next;
                 set handled = const(1);
@@ -196,7 +204,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             if handled == 0 {
                 let resp = call new_ref(1);
                 call ref_push(12, cell_val, 0, 0);
-                let (req_next, caller_next) = call resume(caller, resp);
+                call resume(caller, resp);
+        let (req_next, caller_next) = call untraced_activation();
                 set req = req_next;
                 set caller = caller_next;
                 set handled = const(1);
@@ -258,7 +267,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             wrapper_init
         );
 
-        let (_ret, _caller) = call resume(wrapper_id, wrapper_init);
+        call resume(wrapper_id, wrapper_init);
+        let (_ret, _caller) = call untraced_activation();
         call return_();
     });
 

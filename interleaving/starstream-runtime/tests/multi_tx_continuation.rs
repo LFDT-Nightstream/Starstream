@@ -82,7 +82,8 @@ fn test_multi_tx_accumulator_global() {
 
         let req = call new_ref(1);
         call ref_push(1, 5, 0, 0);
-        let (resp, _caller) = call resume(utxo_id, req);
+        call resume(utxo_id, req);
+        let (resp, _caller) = call untraced_activation();
         let (val, _b, _c, _d) = call ref_get(resp, 0);
         assert_eq val, 5;
         call return_();
@@ -91,7 +92,8 @@ fn test_multi_tx_accumulator_global() {
     let coord2_bin = wasm_module!({
         let req = call new_ref(1);
         call ref_push(1, 7, 0, 0);
-        let (resp, _caller) = call resume(0, req);
+        call resume(0, req);
+        let (resp, _caller) = call untraced_activation();
         let (val, _b, _c, _d) = call ref_get(resp, 0);
         assert_eq val, 12;
         call return_();
@@ -100,7 +102,8 @@ fn test_multi_tx_accumulator_global() {
     let coord3_bin = wasm_module!({
         let req = call new_ref(1);
         call ref_push(2, 0, 0, 0);
-        let (resp, _caller) = call resume(0, req);
+        call resume(0, req);
+        let (resp, _caller) = call untraced_activation();
         let (val, _b, _c, _d) = call ref_get(resp, 0);
         assert_eq val, 12;
         call return_();

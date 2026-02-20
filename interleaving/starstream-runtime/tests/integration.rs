@@ -74,7 +74,8 @@ fn test_runtime_simple_effect_handlers() {
             const(utxo_hash_limb_d)
         );
 
-        let (req, caller_pid) = call resume(0, init_val);
+        call resume(0, init_val);
+        let (req, caller_pid) = call untraced_activation();
         let caller_pid_enc = add caller_pid, 1;
         call trace(0, 0, init_val, req, caller_pid_enc, 0, 0, 0);
         let (req_val, _b, _c, _d) = call ref_get(req, 0);
@@ -87,7 +88,8 @@ fn test_runtime_simple_effect_handlers() {
         call ref_push(1, 0, 0, 0);
         call trace(11, 1, 0, 0, 0, 0, 0, 0);
 
-        let (ret, caller2) = call resume(0, resp);
+        call resume(0, resp);
+        let (ret, caller2) = call untraced_activation();
         let caller2_enc = add caller2, 1;
         call trace(0, 0, resp, ret, caller2_enc, 0, 0, 0);
 
@@ -272,7 +274,8 @@ fn test_runtime_effect_handlers_cross_calls() {
         );
 
         // Start utxo1 and then route messages until disc=2.
-        let (req0, caller0) = call resume(utxo_id1, init_val);
+        call resume(utxo_id1, init_val);
+        let (req0, caller0) = call untraced_activation();
         let caller0_enc = add caller0, 1;
         call trace(0, utxo_id1, init_val, req0, caller0_enc, 0, 0, 0);
         let req = req0;
@@ -282,19 +285,22 @@ fn test_runtime_effect_handlers_cross_calls() {
             let (disc, num_ref, _c, _d) = call ref_get(req, 0);
             call trace(12, disc, req, num_ref, 0, _c, _d, 0);
             if disc == 2 {
-                let (ret_stop, caller_stop) = call resume(caller1, num_ref);
+                call resume(caller1, num_ref);
+        let (ret_stop, caller_stop) = call untraced_activation();
                 let caller_stop_enc = add caller_stop, 1;
                 call trace(0, caller1, num_ref, ret_stop, caller_stop_enc, 0, 0, 0);
             }
             break_if disc == 2;
 
             // coord -> utxo2 (mutates num_ref in place)
-            let (resp2, caller2) = call resume(utxo_id2, num_ref);
+            call resume(utxo_id2, num_ref);
+        let (resp2, caller2) = call untraced_activation();
             let caller2_enc = add caller2, 1;
             call trace(0, utxo_id2, num_ref, resp2, caller2_enc, 0, 0, 0);
 
             // coord -> utxo1, which will resume the handler again
-            let (req_next, caller_next) = call resume(caller1, resp2);
+            call resume(caller1, resp2);
+        let (req_next, caller_next) = call untraced_activation();
             let caller_next_enc = add caller_next, 1;
             call trace(0, caller1, resp2, req_next, caller_next_enc, 0, 0, 0);
             set req = req_next;

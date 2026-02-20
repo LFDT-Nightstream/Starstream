@@ -201,6 +201,7 @@ pub struct ModuleBuilder {
 pub struct Imports {
     pub trace: FuncRef,
     pub activation: FuncRef,
+    pub untraced_activation: FuncRef,
     pub get_program_hash: FuncRef,
     pub get_handler_for: FuncRef,
     pub call_effect_handler: FuncRef,
@@ -262,6 +263,12 @@ impl ModuleBuilder {
         let activation = self.import_func(
             "env",
             "starstream_activation",
+            &[],
+            &[ValType::I64, ValType::I64],
+        );
+        let untraced_activation = self.import_func(
+            "env",
+            "starstream_untraced_activation",
             &[],
             &[ValType::I64, ValType::I64],
         );
@@ -336,7 +343,7 @@ impl ModuleBuilder {
             "env",
             "starstream_resume",
             &[ValType::I64, ValType::I64],
-            &[ValType::I64, ValType::I64],
+            &[],
         );
         let yield_ = self.import_func("env", "starstream_yield", &[ValType::I64], &[]);
         let return_ = self.import_func("env", "starstream_return", &[], &[]);
@@ -372,6 +379,7 @@ impl ModuleBuilder {
         Imports {
             trace,
             activation,
+            untraced_activation,
             get_program_hash,
             get_handler_for,
             call_effect_handler,

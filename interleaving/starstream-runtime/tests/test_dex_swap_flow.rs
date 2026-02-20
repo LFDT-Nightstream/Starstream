@@ -90,37 +90,43 @@ fn test_dex_swap_flow() {
         // start_swap
         let start = call new_ref(1);
         call ref_push(1, 0, 0, 0);
-        let (resp_start, caller) = call resume(utxo_id, start);
+        call resume(utxo_id, start);
+        let (resp_start, caller) = call untraced_activation();
         let caller_next = caller;
 
         // read token_y amount
         let get_amt = call new_ref(1);
         call ref_push(101, 0, 0, 0);
-        let (resp_amt, _caller_amt) = call resume(token_y_id, get_amt);
+        call resume(token_y_id, get_amt);
+        let (resp_amt, _caller_amt) = call untraced_activation();
         let (dy, _b0, _c0, _d0) = call ref_get(resp_amt, 0);
 
         // add_token(token_y_id, dy)
         let add = call new_ref(1);
         call ref_push(2, token_y_id, dy, 0);
-        let (resp_add, caller) = call resume(caller_next, add);
+        call resume(caller_next, add);
+        let (resp_add, caller) = call untraced_activation();
         let caller_next = caller;
 
         // remove_token(token_x_id) -> dx
         let remove = call new_ref(1);
         call ref_push(3, token_x_id, 0, 0);
-        let (resp_remove, caller) = call resume(caller_next, remove);
+        call resume(caller_next, remove);
+        let (resp_remove, caller) = call untraced_activation();
         let caller_next = caller;
         let (dx, _b1, _c1, _d1) = call ref_get(resp_remove, 0);
 
         // finalize token_x process in tx_swap without mutating it
         let read_x = call new_ref(1);
         call ref_push(101, 0, 0, 0);
-        let (_resp_x, _caller_x) = call resume(token_x_id, read_x);
+        call resume(token_x_id, read_x);
+        let (_resp_x, _caller_x) = call untraced_activation();
 
         // end_swap (k must match)
         let end = call new_ref(1);
         call ref_push(4, 0, 0, 0);
-        let (resp_end, _caller_end) = call resume(caller_next, end);
+        call resume(caller_next, end);
+        let (resp_end, _caller_end) = call untraced_activation();
         let (_k_val, _b2, _c2, _d2) = call ref_get(resp_end, 0);
         call return_();
     });
@@ -251,26 +257,31 @@ fn test_dex_swap_flow() {
         // pre-bind both tokens to DEX in tx_init_pool
         let bind_y = call new_ref(1);
         call ref_push(102, utxo_id, 0, 0);
-        let (_resp_bind_y, _caller_bind_y) = call resume(token_y_id, bind_y);
+        call resume(token_y_id, bind_y);
+        let (_resp_bind_y, _caller_bind_y) = call untraced_activation();
 
         let bind_x = call new_ref(1);
         call ref_push(102, utxo_id, 0, 0);
-        let (_resp_bind_x, _caller_bind_x) = call resume(token_x_id, bind_x);
+        call resume(token_x_id, bind_x);
+        let (_resp_bind_x, _caller_bind_x) = call untraced_activation();
 
         // finalize token_y once in tx_init_pool without changing state
         let read_y = call new_ref(1);
         call ref_push(101, 0, 0, 0);
-        let (_resp_read_y, _caller_read_y) = call resume(token_y_id, read_y);
+        call resume(token_y_id, read_y);
+        let (_resp_read_y, _caller_read_y) = call untraced_activation();
 
         // finalize token_x once in tx_init_pool without changing state
         let read_x = call new_ref(1);
         call ref_push(101, 0, 0, 0);
-        let (_resp_read_x, _caller_read_x) = call resume(token_x_id, read_x);
+        call resume(token_x_id, read_x);
+        let (_resp_read_x, _caller_read_x) = call untraced_activation();
 
         // finalize DEX once in tx_init_pool without changing state
         let noop = call new_ref(1);
         call ref_push(0, 0, 0, 0);
-        let (_resp_noop, _caller_noop) = call resume(utxo_id, noop);
+        call resume(utxo_id, noop);
+        let (_resp_noop, _caller_noop) = call untraced_activation();
         call return_();
     });
 
