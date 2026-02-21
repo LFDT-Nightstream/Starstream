@@ -44,28 +44,26 @@ fn print_ledger(label: &str, ledger: &Ledger) {
 
 #[test]
 fn test_multi_tx_accumulator_global() {
-    let mut builder = wasm_dsl::ModuleBuilder::new();
+    let builder = wasm_dsl::ModuleBuilder::new();
     // global 0 = gpc, global 1 = acc
-    builder.add_global_i64(0, true);
-    builder.add_global_i64(0, true);
     let utxo_bin = wasm_module!(builder, {
         let (state_ref, caller) = call activation();
         call trace(8, 0, state_ref, 0, caller, 0, 0, 0);
         let (disc, arg, _b, _c) = call ref_get(state_ref, 0);
         call trace(12, disc, state_ref, arg, 0, _b, _c, 0);
         if disc == 1 {
-            let curr = global_get 1;
+            let curr = call get_datum(1);
             let next = add curr, arg;
-            set_global 1 = next;
-            let pc = global_get 0;
+            call set_datum(1, next);
+            let pc = call get_datum(0);
             let next_pc = add pc, 1;
-            set_global 0 = next_pc;
+            call set_datum(0, next_pc);
             call ref_write(state_ref, 0, next, 0, 0, 0);
             call trace(16, next, state_ref, 0, 0, 0, 0, 0);
         }
         let resp = call new_ref(1);
         call trace(10, 0, 0, resp, 1, 0, 0, 0);
-        let acc = global_get 1;
+        let acc = call get_datum(1);
         call ref_push(acc, 0, 0, 0);
         call trace(11, acc, 0, 0, 0, 0, 0, 0);
         call trace(1, 0, resp, 0, 0, 0, 0, 0);
@@ -74,12 +72,9 @@ fn test_multi_tx_accumulator_global() {
 
     let (utxo_hash_a, utxo_hash_b, utxo_hash_c, utxo_hash_d) = hash_program(&utxo_bin);
 
-    let mut coord_builder = wasm_dsl::ModuleBuilder::new();
-    coord_builder.add_global_i64(0, true); // g0: pc
-    coord_builder.add_global_i64(0, true); // g1: last_target
-    coord_builder.add_global_i64(0, true); // g2: last_val
+    let coord_builder = wasm_dsl::ModuleBuilder::new();
     let coord_bin = wasm_module!(coord_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let init_ref = call new_ref(1);
             call trace(10, 0, 0, init_ref, 1, 0, 0, 0);
@@ -108,83 +103,77 @@ fn test_multi_tx_accumulator_global() {
             call trace(10, 0, 0, req, 1, 0, 0, 0);
             call ref_push(1, 5, 0, 0);
             call trace(11, 1, 5, 0, 0, 0, 0, 0);
-            set_global 1 = utxo_id;
-            set_global 2 = req;
-            set_global 0 = 1;
+            call set_datum(1, utxo_id);
+            call set_datum(2, req);
+            call set_datum(0, 1);
             call resume(utxo_id, req);
         }
         if pc == 1 {
-            let last_target = global_get 1;
-            let last_val = global_get 2;
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
             let (resp, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, val, resp, _b, 0, _c, _d, 0);
             assert_eq val, 5;
-            set_global 0 = 2;
+            call set_datum(0, 2);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }
     });
 
-    let mut coord2_builder = wasm_dsl::ModuleBuilder::new();
-    coord2_builder.add_global_i64(0, true); // g0: pc
-    coord2_builder.add_global_i64(0, true); // g1: last_target
-    coord2_builder.add_global_i64(0, true); // g2: last_val
+    let coord2_builder = wasm_dsl::ModuleBuilder::new();
     let coord2_bin = wasm_module!(coord2_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let req = call new_ref(1);
             call trace(10, 0, 0, req, 1, 0, 0, 0);
             call ref_push(1, 7, 0, 0);
             call trace(11, 1, 7, 0, 0, 0, 0, 0);
-            set_global 1 = 0;
-            set_global 2 = req;
-            set_global 0 = 1;
+            call set_datum(1, 0);
+            call set_datum(2, req);
+            call set_datum(0, 1);
             call resume(0, req);
         }
         if pc == 1 {
-            let last_target = global_get 1;
-            let last_val = global_get 2;
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
             let (resp, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, val, resp, _b, 0, _c, _d, 0);
             assert_eq val, 12;
-            set_global 0 = 2;
+            call set_datum(0, 2);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }
     });
 
-    let mut coord3_builder = wasm_dsl::ModuleBuilder::new();
-    coord3_builder.add_global_i64(0, true); // g0: pc
-    coord3_builder.add_global_i64(0, true); // g1: last_target
-    coord3_builder.add_global_i64(0, true); // g2: last_val
+    let coord3_builder = wasm_dsl::ModuleBuilder::new();
     let coord3_bin = wasm_module!(coord3_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let req = call new_ref(1);
             call trace(10, 0, 0, req, 1, 0, 0, 0);
             call ref_push(2, 0, 0, 0);
             call trace(11, 2, 0, 0, 0, 0, 0, 0);
-            set_global 1 = 0;
-            set_global 2 = req;
-            set_global 0 = 1;
+            call set_datum(1, 0);
+            call set_datum(2, req);
+            call set_datum(0, 1);
             call resume(0, req);
         }
         if pc == 1 {
-            let last_target = global_get 1;
-            let last_val = global_get 2;
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
             let (resp, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, val, resp, _b, 0, _c, _d, 0);
             assert_eq val, 12;
-            set_global 0 = 2;
+            call set_datum(0, 2);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }

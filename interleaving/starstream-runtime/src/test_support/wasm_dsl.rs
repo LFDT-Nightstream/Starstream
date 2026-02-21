@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, EntityType, ExportKind, ExportSection, Function,
-    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemArg, MemorySection,
-    MemoryType, Module, TypeSection, ValType,
+    BlockType, CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection,
+    ImportSection, Instruction, MemArg, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -123,16 +122,6 @@ impl FuncBuilder {
         self.instrs.push(Instruction::LocalSet(dst.0));
     }
 
-    pub fn global_get(&mut self, global: u32, dst: Local) {
-        self.instrs.push(Instruction::GlobalGet(global));
-        self.instrs.push(Instruction::LocalSet(dst.0));
-    }
-
-    pub fn global_set(&mut self, global: u32, val: Value) {
-        val.emit(&mut self.instrs);
-        self.instrs.push(Instruction::GlobalSet(global));
-    }
-
     pub fn emit_eq_i64(&mut self, a: Value, b: Value) {
         a.emit(&mut self.instrs);
         b.emit(&mut self.instrs);
@@ -220,7 +209,6 @@ pub struct ModuleBuilder {
     functions: FunctionSection,
     codes: CodeSection,
     exports: ExportSection,
-    globals: GlobalSection,
     memory: MemorySection,
     type_count: u32,
     import_count: u32,
@@ -230,6 +218,8 @@ pub struct ModuleBuilder {
 #[derive(Clone, Copy, Debug)]
 pub struct Imports {
     pub trace: FuncRef,
+    pub get_datum: FuncRef,
+    pub set_datum: FuncRef,
     pub activation: FuncRef,
     pub untraced_activation: FuncRef,
     pub get_program_hash: FuncRef,
@@ -260,7 +250,6 @@ impl ModuleBuilder {
             functions: FunctionSection::new(),
             codes: CodeSection::new(),
             exports: ExportSection::new(),
-            globals: GlobalSection::new(),
             memory: MemorySection::new(),
             type_count: 0,
             import_count: 0,
@@ -289,6 +278,18 @@ impl ModuleBuilder {
                 ValType::I64,
                 ValType::I64,
             ],
+            &[],
+        );
+        let get_datum = self.import_func(
+            "env",
+            "starstream-get-datum",
+            &[ValType::I64],
+            &[ValType::I64],
+        );
+        let set_datum = self.import_func(
+            "env",
+            "starstream-set-datum",
+            &[ValType::I64, ValType::I64],
             &[],
         );
         let activation = self.import_func("env", "starstream-activation", &[ValType::I32], &[]);
@@ -404,6 +405,8 @@ impl ModuleBuilder {
 
         Imports {
             trace,
+            get_datum,
+            set_datum,
             activation,
             untraced_activation,
             get_program_hash,
@@ -453,20 +456,6 @@ impl ModuleBuilder {
         FuncBuilder::new()
     }
 
-    pub fn add_global_i64(&mut self, initial: i64, mutable: bool) -> u32 {
-        let global_type = GlobalType {
-            val_type: ValType::I64,
-            mutable,
-            shared: false,
-        };
-        self.globals
-            .global(global_type, &ConstExpr::i64_const(initial));
-        let idx = self.globals.len() - 1;
-        let name = format!("__global_{}", idx);
-        self.exports.export(&name, ExportKind::Global, idx);
-        idx
-    }
-
     pub fn finish(mut self, func: FuncBuilder) -> Vec<u8> {
         let type_idx = self.type_count;
         self.type_count += 1;
@@ -489,9 +478,6 @@ impl ModuleBuilder {
         module.section(&self.imports);
         module.section(&self.functions);
         module.section(&self.memory);
-        if !self.globals.is_empty() {
-            module.section(&self.globals);
-        }
         module.section(&self.exports);
         module.section(&self.codes);
         module.finish()
@@ -762,17 +748,6 @@ macro_rules! wasm_stmt {
     ($f:ident, $imports:ident, let $var:ident = div $a:tt, $b:tt; $($rest:tt)*) => {
         let $var = $f.local_i64();
         $f.div_i64($crate::wasm_value!($a), $crate::wasm_value!($b), $var);
-        $crate::wasm_stmt!($f, $imports, $($rest)*);
-    };
-
-    ($f:ident, $imports:ident, let $var:ident = global_get $idx:literal; $($rest:tt)*) => {
-        let $var = $f.local_i64();
-        $f.global_get($idx as u32, $var);
-        $crate::wasm_stmt!($f, $imports, $($rest)*);
-    };
-
-    ($f:ident, $imports:ident, set_global $idx:literal = $val:tt; $($rest:tt)*) => {
-        $f.global_set($idx as u32, $crate::wasm_value!($val));
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 

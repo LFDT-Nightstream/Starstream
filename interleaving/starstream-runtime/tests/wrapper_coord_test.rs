@@ -81,11 +81,9 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         Some(label)
     });
 
-    let mut utxo1_builder = wasm_dsl::ModuleBuilder::new();
-    utxo1_builder.add_global_i64(0, true); // g0: pc
-    utxo1_builder.add_global_i64(0, true); // g1: req
+    let utxo1_builder = wasm_dsl::ModuleBuilder::new();
     let utxo1_bin = wasm_module!(utxo1_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let (init_ref, caller) = call activation();
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
@@ -97,29 +95,27 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call ref_push(2, cell_ref, 42, 0);
             call trace(11, 2, cell_ref, 42, 0, 0, 0, 0);
 
-            set_global 1 = req;
-            set_global 0 = 1;
+            call set_datum(1, req);
+            call set_datum(0, 1);
             call call_effect_handler(1, 2, 3, 4, req);
         }
         if pc == 1 {
-            let req = global_get 1;
+            let req = call get_datum(1);
             let (resp, _caller_effect) = call untraced_activation();
             call trace(18, 0, req, resp, 1, 2, 3, 4);
             let done = call new_ref(1);
             call trace(10, 0, 0, done, 1, 0, 0, 0);
             call ref_push(0, 0, 0, 0);
             call trace(11, 0, 0, 0, 0, 0, 0, 0);
-            set_global 0 = 2;
+            call set_datum(0, 2);
             call trace(1, 0, done, 0, 0, 0, 0, 0);
             call yield_(done);
         }
     });
 
-    let mut utxo2_builder = wasm_dsl::ModuleBuilder::new();
-    utxo2_builder.add_global_i64(0, true); // g0: pc
-    utxo2_builder.add_global_i64(0, true); // g1: req
+    let utxo2_builder = wasm_dsl::ModuleBuilder::new();
     let utxo2_bin = wasm_module!(utxo2_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let (init_ref, caller) = call activation();
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
@@ -131,12 +127,12 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call ref_push(3, cell_ref, 0, 0);
             call trace(11, 3, cell_ref, 0, 0, 0, 0, 0);
 
-            set_global 1 = req;
-            set_global 0 = 1;
+            call set_datum(1, req);
+            call set_datum(0, 1);
             call call_effect_handler(1, 2, 3, 4, req);
         }
         if pc == 1 {
-            let req = global_get 1;
+            let req = call get_datum(1);
             let (resp, _caller_effect) = call untraced_activation();
             call trace(18, 0, req, resp, 1, 2, 3, 4);
             let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
@@ -147,7 +143,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(10, 0, 0, done, 1, 0, 0, 0);
             call ref_push(0, 0, 0, 0);
             call trace(11, 0, 0, 0, 0, 0, 0, 0);
-            set_global 0 = 2;
+            call set_datum(0, 2);
             call trace(1, 0, done, 0, 0, 0, 0, 0);
             call yield_(done);
         }
@@ -158,16 +154,9 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let (utxo2_hash_limb_a, utxo2_hash_limb_b, utxo2_hash_limb_c, utxo2_hash_limb_d) =
         hash_program(&utxo2_bin);
 
-    let mut inner_builder = wasm_dsl::ModuleBuilder::new();
-    inner_builder.add_global_i64(0, true); // g0: pc
-    inner_builder.add_global_i64(0, true); // g1: utxo1_id
-    inner_builder.add_global_i64(0, true); // g2: utxo2_id
-    inner_builder.add_global_i64(0, true); // g3: handler_id
-    inner_builder.add_global_i64(0, true); // g4: cell_init
-    inner_builder.add_global_i64(0, true); // g5: last resume target
-    inner_builder.add_global_i64(0, true); // g6: last resume val
+    let inner_builder = wasm_dsl::ModuleBuilder::new();
     let inner_coord_bin = wasm_module!(inner_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let (init_ref, caller) = call init();
             call trace(9, 0, init_ref, 0, caller, 0, 0, 0);
@@ -175,22 +164,22 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(12, utxo1_id, init_ref, utxo2_id, 0, _c, _d, 0);
             let handler_id = call get_handler_for(1, 2, 3, 4);
             call trace(6, handler_id, 0, 0, 1, 2, 3, 4);
-            set_global 1 = utxo1_id;
-            set_global 2 = utxo2_id;
-            set_global 3 = handler_id;
+            call set_datum(1, utxo1_id);
+            call set_datum(2, utxo2_id);
+            call set_datum(3, handler_id);
 
             let req_new = call new_ref(1);
             call trace(10, 0, 0, req_new, 1, 0, 0, 0);
             call ref_push(1, 0, 0, 0);
             call trace(11, 1, 0, 0, 0, 0, 0, 0);
-            set_global 5 = handler_id;
-            set_global 6 = req_new;
-            set_global 0 = 1;
+            call set_datum(5, handler_id);
+            call set_datum(6, req_new);
+            call set_datum(0, 1);
             call resume(handler_id, req_new);
         }
         if pc == 1 {
-            let last_target = global_get 5;
-            let last_val = global_get 6;
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
             let (resp_new, caller2) = call untraced_activation();
             let caller2_enc = add caller2, 1;
             call trace(0, last_target, last_val, resp_new, caller2_enc, 0, 0, 0);
@@ -201,50 +190,50 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(10, 0, 0, cell_init, 1, 0, 0, 0);
             call ref_push(cell_ref, 0, 0, 0);
             call trace(11, cell_ref, 0, 0, 0, 0, 0, 0);
-            set_global 4 = cell_init;
+            call set_datum(4, cell_init);
 
-            let utxo1_id = global_get 1;
-            set_global 5 = utxo1_id;
-            set_global 6 = cell_init;
-            set_global 0 = 2;
+            let utxo1_id = call get_datum(1);
+            call set_datum(5, utxo1_id);
+            call set_datum(6, cell_init);
+            call set_datum(0, 2);
             call resume(utxo1_id, cell_init);
         }
         if pc == 2 {
-            let last_target = global_get 5;
-            let last_val = global_get 6;
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
             let (ret1, caller3) = call untraced_activation();
             let caller3_enc = add caller3, 1;
             call trace(0, last_target, last_val, ret1, caller3_enc, 0, 0, 0);
-            let utxo2_id = global_get 2;
-            let cell_init = global_get 4;
-            set_global 5 = utxo2_id;
-            set_global 6 = cell_init;
-            set_global 0 = 3;
+            let utxo2_id = call get_datum(2);
+            let cell_init = call get_datum(4);
+            call set_datum(5, utxo2_id);
+            call set_datum(6, cell_init);
+            call set_datum(0, 3);
             call resume(utxo2_id, cell_init);
         }
         if pc == 3 {
-            let last_target = global_get 5;
-            let last_val = global_get 6;
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
             let (ret2, caller4) = call untraced_activation();
             let caller4_enc = add caller4, 1;
             call trace(0, last_target, last_val, ret2, caller4_enc, 0, 0, 0);
-            let handler_id = global_get 3;
+            let handler_id = call get_datum(3);
             let req_end = call new_ref(1);
             call trace(10, 0, 0, req_end, 1, 0, 0, 0);
             call ref_push(4, 0, 0, 0);
             call trace(11, 4, 0, 0, 0, 0, 0, 0);
-            set_global 5 = handler_id;
-            set_global 6 = req_end;
-            set_global 0 = 4;
+            call set_datum(5, handler_id);
+            call set_datum(6, req_end);
+            call set_datum(0, 4);
             call resume(handler_id, req_end);
         }
         if pc == 4 {
-            let last_target = global_get 5;
-            let last_val = global_get 6;
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
             let (resp_end, caller5) = call untraced_activation();
             let caller5_enc = add caller5, 1;
             call trace(0, last_target, last_val, resp_end, caller5_enc, 0, 0, 0);
-            set_global 0 = 5;
+            call set_datum(0, 5);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }
@@ -253,33 +242,27 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let (inner_hash_limb_a, inner_hash_limb_b, inner_hash_limb_c, inner_hash_limb_d) =
         hash_program(&inner_coord_bin);
 
-    let mut wrapper_builder = wasm_dsl::ModuleBuilder::new();
-    wrapper_builder.add_global_i64(0, true); // g0: pc
-    wrapper_builder.add_global_i64(0, true); // g1: inner_id
-    wrapper_builder.add_global_i64(0, true); // g2: cell_val
-    wrapper_builder.add_global_i64(1, true); // g3: cell_id
-    wrapper_builder.add_global_i64(0, true); // g4: last resume target
-    wrapper_builder.add_global_i64(0, true); // g5: last resume val
+    let wrapper_builder = wasm_dsl::ModuleBuilder::new();
     let wrapper_coord_bin = wasm_module!(wrapper_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let (init_ref, caller) = call init();
             call trace(9, 0, init_ref, 0, caller, 0, 0, 0);
             let (inner_id, _inner_init, _c, _d) = call ref_get(init_ref, 0);
             call trace(12, inner_id, init_ref, _inner_init, 0, _c, _d, 0);
-            set_global 1 = inner_id;
-            set_global 2 = 0;
+            call set_datum(1, inner_id);
+            call set_datum(2, 0);
             call install_handler(1, 2, 3, 4);
             call trace(4, 0, 0, 0, 1, 2, 3, 4);
-            set_global 4 = inner_id;
-            set_global 5 = 0;
-            set_global 0 = 1;
+            call set_datum(4, inner_id);
+            call set_datum(5, 0);
+            call set_datum(0, 1);
             call resume(inner_id, 0);
         }
 
         if pc == 1 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (req, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, req, caller_enc, 0, 0, 0);
@@ -291,58 +274,58 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(13, 0, 0, 0);
                 call trace(11, 13, 0, 0, 0, 0, 0, 0);
-                set_global 4 = caller;
-                set_global 5 = resp;
-                set_global 0 = 2;
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 2);
                 call resume(caller, resp);
             }
 
             if disc == 1 {
-                let cell_id = global_get 3;
+                let cell_id = call get_datum(3);
                 let resp = call new_ref(1);
                 call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(11, cell_id, 0, 0);
                 call trace(11, 11, cell_id, 0, 0, 0, 0, 0);
-                set_global 4 = caller;
-                set_global 5 = resp;
-                set_global 0 = 1;
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 1);
                 call resume(caller, resp);
             }
 
             if disc == 2 {
-                set_global 2 = value;
+                call set_datum(2, value);
                 let resp = call new_ref(1);
                 call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(10, 0, 0, 0);
                 call trace(11, 10, 0, 0, 0, 0, 0, 0);
-                set_global 4 = caller;
-                set_global 5 = resp;
-                set_global 0 = 1;
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 1);
                 call resume(caller, resp);
             }
 
             if disc == 3 {
-                let cell_val = global_get 2;
+                let cell_val = call get_datum(2);
                 let resp = call new_ref(1);
                 call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(12, cell_val, 0, 0);
                 call trace(11, 12, cell_val, 0, 0, 0, 0, 0);
-                set_global 4 = caller;
-                set_global 5 = resp;
-                set_global 0 = 1;
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 1);
                 call resume(caller, resp);
             }
         }
 
         if pc == 2 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (ret, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
             call uninstall_handler(1, 2, 3, 4);
             call trace(5, 0, 0, 0, 1, 2, 3, 4);
-            set_global 0 = 3;
+            call set_datum(0, 3);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }
@@ -354,12 +337,9 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         hash_program(&wrapper_coord_bin);
 
     // Patch wrapper hash constants into driver.
-    let mut driver_builder = wasm_dsl::ModuleBuilder::new();
-    driver_builder.add_global_i64(0, true); // g0: pc
-    driver_builder.add_global_i64(0, true); // g1: last resume target
-    driver_builder.add_global_i64(0, true); // g2: last resume val
+    let driver_builder = wasm_dsl::ModuleBuilder::new();
     let driver_coord_bin = wasm_module!(driver_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let init_val = call new_ref(1);
             call trace(10, 0, 0, init_val, 1, 0, 0, 0);
@@ -448,18 +428,18 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 const(wrapper_hash_limb_d)
             );
 
-            set_global 1 = wrapper_id;
-            set_global 2 = wrapper_init;
-            set_global 0 = 1;
+            call set_datum(1, wrapper_id);
+            call set_datum(2, wrapper_init);
+            call set_datum(0, 1);
             call resume(wrapper_id, wrapper_init);
         }
         if pc == 1 {
-            let last_target = global_get 1;
-            let last_val = global_get 2;
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
             let (ret, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
-            set_global 0 = 2;
+            call set_datum(0, 2);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }

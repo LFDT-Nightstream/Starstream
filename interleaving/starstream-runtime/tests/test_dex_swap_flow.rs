@@ -43,17 +43,16 @@ fn test_dex_swap_flow() {
         Some(label)
     });
 
-    let mut token_builder = wasm_dsl::ModuleBuilder::new();
-    token_builder.add_global_i64(-1, true); // g0: amount
+    let token_builder = wasm_dsl::ModuleBuilder::new();
     let token_bin = wasm_module!(token_builder, {
-        let uninit = const(-1);
-        let curr = global_get 0;
-        if curr == uninit {
+        let initialized = call get_datum(1);
+        if initialized == 0 {
             let (init_ref, init_caller) = call init();
             call trace(9, 0, init_ref, 0, init_caller, 0, 0, 0);
             let (amt, _b0, _c0, _d0) = call ref_get(init_ref, 0);
             call trace(12, amt, init_ref, _b0, 0, _c0, _d0, 0);
-            set_global 0 = amt;
+            call set_datum(0, amt);
+            call set_datum(1, 1);
         }
         let (req, caller_id) = call activation();
         call trace(8, 0, req, 0, caller_id, 0, 0, 0);
@@ -69,7 +68,7 @@ fn test_dex_swap_flow() {
         call trace(10, 0, 0, resp, 1, 0, 0, 0);
 
         if disc == 101 {
-            let amt = global_get 0;
+            let amt = call get_datum(0);
             call ref_push(amt, 0, 0, 0);
             call trace(11, amt, 0, 0, 0, 0, 0, 0);
         }
@@ -85,14 +84,9 @@ fn test_dex_swap_flow() {
 
     let (token_hash_a, token_hash_b, token_hash_c, token_hash_d) = hash_program(&token_bin);
 
-    let mut coord_swap_builder = wasm_dsl::ModuleBuilder::new();
-    coord_swap_builder.add_global_i64(0, true); // g0: pc
-    coord_swap_builder.add_global_i64(0, true); // g1: caller_next
-    coord_swap_builder.add_global_i64(0, true); // g2: dy
-    coord_swap_builder.add_global_i64(0, true); // g3: last_target
-    coord_swap_builder.add_global_i64(0, true); // g4: last_val
+    let coord_swap_builder = wasm_dsl::ModuleBuilder::new();
     let coord_swap_bin = wasm_module!(coord_swap_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         let utxo_id = const(0);
         let token_y_id = const(1);
         let token_x_id = const(2);
@@ -102,72 +96,72 @@ fn test_dex_swap_flow() {
             call trace(10, 0, 0, start, 1, 0, 0, 0);
             call ref_push(1, 0, 0, 0);
             call trace(11, 1, 0, 0, 0, 0, 0, 0);
-            set_global 3 = utxo_id;
-            set_global 4 = start;
-            set_global 0 = 1;
+            call set_datum(3, utxo_id);
+            call set_datum(4, start);
+            call set_datum(0, 1);
             call resume(utxo_id, start);
         }
         if pc == 1 {
-            let last_target = global_get 3;
-            let last_val = global_get 4;
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
             let (_resp_start, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, _resp_start, caller_enc, 0, 0, 0);
-            set_global 1 = caller;
+            call set_datum(1, caller);
 
             let get_amt = call new_ref(1);
             call trace(10, 0, 0, get_amt, 1, 0, 0, 0);
             call ref_push(101, 0, 0, 0);
             call trace(11, 101, 0, 0, 0, 0, 0, 0);
-            set_global 3 = token_y_id;
-            set_global 4 = get_amt;
-            set_global 0 = 2;
+            call set_datum(3, token_y_id);
+            call set_datum(4, get_amt);
+            call set_datum(0, 2);
             call resume(token_y_id, get_amt);
         }
         if pc == 2 {
-            let last_target = global_get 3;
-            let last_val = global_get 4;
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
             let (resp_amt, caller_amt) = call untraced_activation();
             let caller_amt_enc = add caller_amt, 1;
             call trace(0, last_target, last_val, resp_amt, caller_amt_enc, 0, 0, 0);
             let (dy, _b0, _c0, _d0) = call ref_get(resp_amt, 0);
             call trace(12, dy, resp_amt, _b0, 0, _c0, _d0, 0);
-            set_global 2 = dy;
+            call set_datum(2, dy);
 
-            let caller_next = global_get 1;
+            let caller_next = call get_datum(1);
             let add = call new_ref(1);
             call trace(10, 0, 0, add, 1, 0, 0, 0);
             call ref_push(2, token_y_id, dy, 0);
             call trace(11, 2, token_y_id, dy, 0, 0, 0, 0);
-            set_global 3 = caller_next;
-            set_global 4 = add;
-            set_global 0 = 3;
+            call set_datum(3, caller_next);
+            call set_datum(4, add);
+            call set_datum(0, 3);
             call resume(caller_next, add);
         }
         if pc == 3 {
-            let last_target = global_get 3;
-            let last_val = global_get 4;
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
             let (_resp_add, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, _resp_add, caller_enc, 0, 0, 0);
-            set_global 1 = caller;
+            call set_datum(1, caller);
 
             let remove = call new_ref(1);
             call trace(10, 0, 0, remove, 1, 0, 0, 0);
             call ref_push(3, token_x_id, 0, 0);
             call trace(11, 3, token_x_id, 0, 0, 0, 0, 0);
-            set_global 3 = caller;
-            set_global 4 = remove;
-            set_global 0 = 4;
+            call set_datum(3, caller);
+            call set_datum(4, remove);
+            call set_datum(0, 4);
             call resume(caller, remove);
         }
         if pc == 4 {
-            let last_target = global_get 3;
-            let last_val = global_get 4;
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
             let (resp_remove, caller) = call untraced_activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp_remove, caller_enc, 0, 0, 0);
-            set_global 1 = caller;
+            call set_datum(1, caller);
             let (dx, _b1, _c1, _d1) = call ref_get(resp_remove, 0);
             call trace(12, dx, resp_remove, _b1, 0, _c1, _d1, 0);
 
@@ -175,37 +169,37 @@ fn test_dex_swap_flow() {
             call trace(10, 0, 0, read_x, 1, 0, 0, 0);
             call ref_push(101, 0, 0, 0);
             call trace(11, 101, 0, 0, 0, 0, 0, 0);
-            set_global 3 = token_x_id;
-            set_global 4 = read_x;
-            set_global 0 = 5;
+            call set_datum(3, token_x_id);
+            call set_datum(4, read_x);
+            call set_datum(0, 5);
             call resume(token_x_id, read_x);
         }
         if pc == 5 {
-            let last_target = global_get 3;
-            let last_val = global_get 4;
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
             let (_resp_x, caller_x) = call untraced_activation();
             let caller_x_enc = add caller_x, 1;
             call trace(0, last_target, last_val, _resp_x, caller_x_enc, 0, 0, 0);
 
-            let caller_next = global_get 1;
+            let caller_next = call get_datum(1);
             let end = call new_ref(1);
             call trace(10, 0, 0, end, 1, 0, 0, 0);
             call ref_push(4, 0, 0, 0);
             call trace(11, 4, 0, 0, 0, 0, 0, 0);
-            set_global 3 = caller_next;
-            set_global 4 = end;
-            set_global 0 = 6;
+            call set_datum(3, caller_next);
+            call set_datum(4, end);
+            call set_datum(0, 6);
             call resume(caller_next, end);
         }
         if pc == 6 {
-            let last_target = global_get 3;
-            let last_val = global_get 4;
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
             let (resp_end, caller_end) = call untraced_activation();
             let caller_end_enc = add caller_end, 1;
             call trace(0, last_target, last_val, resp_end, caller_end_enc, 0, 0, 0);
             let (_k_val, _b2, _c2, _d2) = call ref_get(resp_end, 0);
             call trace(12, _k_val, resp_end, _b2, 0, _c2, _d2, 0);
-            set_global 0 = 7;
+            call set_datum(0, 7);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }
@@ -213,18 +207,23 @@ fn test_dex_swap_flow() {
 
     let (coord_hash_a, coord_hash_b, coord_hash_c, coord_hash_d) = hash_program(&coord_swap_bin);
 
-    let mut builder = wasm_dsl::ModuleBuilder::new();
-    // global 0 = x, global 1 = y, global 2 = k_saved, global 3 = in_swap
-    // global 4..7 = coord hash limbs
-    builder.add_global_i64(10, true);
-    builder.add_global_i64(20, true);
-    builder.add_global_i64(0, true);
-    builder.add_global_i64(0, true);
-    builder.add_global_i64(coord_hash_a, false);
-    builder.add_global_i64(coord_hash_b, false);
-    builder.add_global_i64(coord_hash_c, false);
-    builder.add_global_i64(coord_hash_d, false);
+    let builder = wasm_dsl::ModuleBuilder::new();
     let utxo_bin = wasm_module!(builder, {
+        // datum 0 = x, 1 = y, 2 = k_saved, 3 = in_swap
+        // datum 4..7 = expected coord hash limbs, 8 = init flag
+        let initialized = call get_datum(8);
+        if initialized == 0 {
+            call set_datum(0, 10);
+            call set_datum(1, 20);
+            call set_datum(2, 0);
+            call set_datum(3, 0);
+            call set_datum(4, const(coord_hash_a));
+            call set_datum(5, const(coord_hash_b));
+            call set_datum(6, const(coord_hash_c));
+            call set_datum(7, const(coord_hash_d));
+            call set_datum(8, 1);
+        }
+
         let (state_ref, caller_id) = call activation();
         call trace(8, 0, state_ref, 0, caller_id, 0, 0, 0);
         let (disc, token_id, dy, _c) = call ref_get(state_ref, 0);
@@ -233,23 +232,23 @@ fn test_dex_swap_flow() {
         if disc == 1 {
             let (_ch_a, _ch_b, _ch_c, _ch_d) = call get_program_hash(caller_id);
             call trace(15, caller_id, 0, 0, _ch_a, _ch_b, _ch_c, _ch_d);
-            let _exp_a = global_get 4;
-            let _exp_b = global_get 5;
-            let _exp_c = global_get 6;
-            let _exp_d = global_get 7;
+            let _exp_a = call get_datum(4);
+            let _exp_b = call get_datum(5);
+            let _exp_c = call get_datum(6);
+            let _exp_d = call get_datum(7);
 
-            set_global 3 = 1;
+            call set_datum(3, 1);
 
-            let x = global_get 0;
-            let y = global_get 1;
+            let x = call get_datum(0);
+            let y = call get_datum(1);
             let k = mul x, y;
-            set_global 2 = k;
+            call set_datum(2, k);
         }
 
         if disc == 2 {
-            let y = global_get 1;
+            let y = call get_datum(1);
             let next_y = add y, dy;
-            set_global 1 = next_y;
+            call set_datum(1, next_y);
         }
 
         if disc == 3 {
@@ -276,24 +275,24 @@ fn test_dex_swap_flow() {
         }
 
         if disc == 3 {
-            let x = global_get 0;
-            let y = global_get 1;
-            let k = global_get 2;
+            let x = call get_datum(0);
+            let y = call get_datum(1);
+            let k = call get_datum(2);
             let next_x = div k, y;
             let dx = sub x, next_x;
-            set_global 0 = next_x;
+            call set_datum(0, next_x);
             call ref_push(dx, 0, 0, 0);
             call trace(11, dx, 0, 0, 0, 0, 0, 0);
         }
 
         if disc == 4 {
-            let x = global_get 0;
-            let y = global_get 1;
-            let k = global_get 2;
+            let x = call get_datum(0);
+            let y = call get_datum(1);
+            let k = call get_datum(2);
             let k_curr = mul x, y;
             call ref_push(k_curr, 0, 0, 0);
             call trace(11, k_curr, 0, 0, 0, 0, 0, 0);
-            set_global 3 = 0;
+            call set_datum(3, 0);
         }
 
         call trace(1, 0, resp, 0, 0, 0, 0, 0);
@@ -302,15 +301,9 @@ fn test_dex_swap_flow() {
 
     let (utxo_hash_a, utxo_hash_b, utxo_hash_c, utxo_hash_d) = hash_program(&utxo_bin);
 
-    let mut coord_create_builder = wasm_dsl::ModuleBuilder::new();
-    coord_create_builder.add_global_i64(0, true); // g0: pc
-    coord_create_builder.add_global_i64(0, true); // g1: utxo_id
-    coord_create_builder.add_global_i64(0, true); // g2: token_y_id
-    coord_create_builder.add_global_i64(0, true); // g3: token_x_id
-    coord_create_builder.add_global_i64(0, true); // g4: last_target
-    coord_create_builder.add_global_i64(0, true); // g5: last_val
+    let coord_create_builder = wasm_dsl::ModuleBuilder::new();
     let coord_create_bin = wasm_module!(coord_create_builder, {
-        let pc = global_get 0;
+        let pc = call get_datum(0);
         if pc == 0 {
             let init_ref = call new_ref(1);
             call trace(10, 0, 0, init_ref, 1, 0, 0, 0);
@@ -334,7 +327,7 @@ fn test_dex_swap_flow() {
                 const(utxo_hash_c),
                 const(utxo_hash_d)
             );
-            set_global 1 = utxo_id;
+            call set_datum(1, utxo_id);
 
             let token_init = call new_ref(1);
             call trace(10, 0, 0, token_init, 1, 0, 0, 0);
@@ -357,7 +350,7 @@ fn test_dex_swap_flow() {
                 const(token_hash_c),
                 const(token_hash_d)
             );
-            set_global 2 = token_y_id;
+            call set_datum(2, token_y_id);
 
             let token_x_init = call new_ref(1);
             call trace(10, 0, 0, token_x_init, 1, 0, 0, 0);
@@ -380,93 +373,93 @@ fn test_dex_swap_flow() {
                 const(token_hash_c),
                 const(token_hash_d)
             );
-            set_global 3 = token_x_id;
+            call set_datum(3, token_x_id);
 
             let bind_y = call new_ref(1);
             call trace(10, 0, 0, bind_y, 1, 0, 0, 0);
             call ref_push(102, utxo_id, 0, 0);
             call trace(11, 102, utxo_id, 0, 0, 0, 0, 0);
-            set_global 4 = token_y_id;
-            set_global 5 = bind_y;
-            set_global 0 = 1;
+            call set_datum(4, token_y_id);
+            call set_datum(5, bind_y);
+            call set_datum(0, 1);
             call resume(token_y_id, bind_y);
         }
         if pc == 1 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (_resp_bind_y, caller_bind_y) = call untraced_activation();
             let caller_enc = add caller_bind_y, 1;
             call trace(0, last_target, last_val, _resp_bind_y, caller_enc, 0, 0, 0);
 
-            let utxo_id = global_get 1;
-            let token_x_id = global_get 3;
+            let utxo_id = call get_datum(1);
+            let token_x_id = call get_datum(3);
             let bind_x = call new_ref(1);
             call trace(10, 0, 0, bind_x, 1, 0, 0, 0);
             call ref_push(102, utxo_id, 0, 0);
             call trace(11, 102, utxo_id, 0, 0, 0, 0, 0);
-            set_global 4 = token_x_id;
-            set_global 5 = bind_x;
-            set_global 0 = 2;
+            call set_datum(4, token_x_id);
+            call set_datum(5, bind_x);
+            call set_datum(0, 2);
             call resume(token_x_id, bind_x);
         }
         if pc == 2 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (_resp_bind_x, caller_bind_x) = call untraced_activation();
             let caller_enc = add caller_bind_x, 1;
             call trace(0, last_target, last_val, _resp_bind_x, caller_enc, 0, 0, 0);
 
-            let token_y_id = global_get 2;
+            let token_y_id = call get_datum(2);
             let read_y = call new_ref(1);
             call trace(10, 0, 0, read_y, 1, 0, 0, 0);
             call ref_push(101, 0, 0, 0);
             call trace(11, 101, 0, 0, 0, 0, 0, 0);
-            set_global 4 = token_y_id;
-            set_global 5 = read_y;
-            set_global 0 = 3;
+            call set_datum(4, token_y_id);
+            call set_datum(5, read_y);
+            call set_datum(0, 3);
             call resume(token_y_id, read_y);
         }
         if pc == 3 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (_resp_read_y, caller_read_y) = call untraced_activation();
             let caller_enc = add caller_read_y, 1;
             call trace(0, last_target, last_val, _resp_read_y, caller_enc, 0, 0, 0);
 
-            let token_x_id = global_get 3;
+            let token_x_id = call get_datum(3);
             let read_x = call new_ref(1);
             call trace(10, 0, 0, read_x, 1, 0, 0, 0);
             call ref_push(101, 0, 0, 0);
             call trace(11, 101, 0, 0, 0, 0, 0, 0);
-            set_global 4 = token_x_id;
-            set_global 5 = read_x;
-            set_global 0 = 4;
+            call set_datum(4, token_x_id);
+            call set_datum(5, read_x);
+            call set_datum(0, 4);
             call resume(token_x_id, read_x);
         }
         if pc == 4 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (_resp_read_x, caller_read_x) = call untraced_activation();
             let caller_enc = add caller_read_x, 1;
             call trace(0, last_target, last_val, _resp_read_x, caller_enc, 0, 0, 0);
 
-            let utxo_id = global_get 1;
+            let utxo_id = call get_datum(1);
             let noop = call new_ref(1);
             call trace(10, 0, 0, noop, 1, 0, 0, 0);
             call ref_push(0, 0, 0, 0);
             call trace(11, 0, 0, 0, 0, 0, 0, 0);
-            set_global 4 = utxo_id;
-            set_global 5 = noop;
-            set_global 0 = 5;
+            call set_datum(4, utxo_id);
+            call set_datum(5, noop);
+            call set_datum(0, 5);
             call resume(utxo_id, noop);
         }
         if pc == 5 {
-            let last_target = global_get 4;
-            let last_val = global_get 5;
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
             let (_resp_noop, caller_noop) = call untraced_activation();
             let caller_enc = add caller_noop, 1;
             call trace(0, last_target, last_val, _resp_noop, caller_enc, 0, 0, 0);
-            set_global 0 = 6;
+            call set_datum(0, 6);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
         }
@@ -510,9 +503,9 @@ fn test_dex_swap_flow() {
     for (id, entry) in &ledger.utxos {
         if entry.state.globals.len() >= 4 {
             dex_id = Some(id.clone());
-        } else if entry.state.globals.len() == 1 && entry.state.globals[0] == Value(5) {
+        } else if !entry.state.globals.is_empty() && entry.state.globals[0] == Value(5) {
             token_y_id = Some(id.clone());
-        } else if entry.state.globals.len() == 1 && entry.state.globals[0] == Value(2) {
+        } else if !entry.state.globals.is_empty() && entry.state.globals[0] == Value(2) {
             token_x_id = Some(id.clone());
         }
     }
@@ -547,7 +540,7 @@ fn test_dex_swap_flow() {
     );
     let tokens: Vec<_> = utxos
         .iter()
-        .filter(|u| u.state.globals.len() == 1)
+        .filter(|u| !u.state.globals.is_empty() && u.state.globals.len() < 4)
         .collect();
     assert_eq!(tokens.len(), 2);
     let mut amounts: Vec<_> = tokens.iter().map(|u| u.state.globals[0]).collect();

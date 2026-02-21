@@ -319,6 +319,7 @@ pub struct RuntimeState {
     pub pending_activation: HashMap<ProcessId, (Ref, ProcessId)>,
     pub pending_init: HashMap<ProcessId, (Ref, ProcessId)>,
     pub globals: HashMap<ProcessId, Vec<Value>>,
+    pub host_data: HashMap<ProcessId, Vec<Value>>,
 
     pub ownership: HashMap<ProcessId, Option<ProcessId>>,
     pub process_hashes: HashMap<ProcessId, Hash<WasmModule>>,
@@ -365,6 +366,7 @@ impl Runtime {
             pending_activation: HashMap::new(),
             pending_init: HashMap::new(),
             globals: HashMap::new(),
+            host_data: HashMap::new(),
             ownership: HashMap::new(),
             process_hashes: HashMap::new(),
             is_utxo: HashMap::new(),
@@ -402,6 +404,45 @@ impl Runtime {
                         .entry(current_pid)
                         .or_default()
                         .push(effect);
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream-get-datum",
+                |caller: Caller<'_, RuntimeState>, slot: u64| -> Result<u64, wasmtime::Error> {
+                    let current_pid = caller.data().current_process;
+                    let slot = usize::try_from(slot).map_err(|_| trap("slot overflow"))?;
+                    let value = caller
+                        .data()
+                        .host_data
+                        .get(&current_pid)
+                        .and_then(|slots| slots.get(slot))
+                        .copied()
+                        .unwrap_or(Value(0));
+                    Ok(value.0)
+                },
+            )
+            .unwrap();
+
+        linker
+            .func_wrap(
+                "env",
+                "starstream-set-datum",
+                |mut caller: Caller<'_, RuntimeState>,
+                 slot: u64,
+                 value: u64|
+                 -> Result<(), wasmtime::Error> {
+                    let current_pid = caller.data().current_process;
+                    let slot = usize::try_from(slot).map_err(|_| trap("slot overflow"))?;
+                    let slots = caller.data_mut().host_data.entry(current_pid).or_default();
+                    if slots.len() <= slot {
+                        slots.resize(slot + 1, Value(0));
+                    }
+                    slots[slot] = Value(value);
                     Ok(())
                 },
             )
@@ -1134,7 +1175,15 @@ impl UnprovenTransaction {
 
             if pid < n_inputs && !self.input_states.is_empty() {
                 let values = &self.input_states[pid].globals;
-                restore_globals(&mut runtime.store, &globals, values)?;
+                if globals.is_empty() {
+                    runtime
+                        .store
+                        .data_mut()
+                        .host_data
+                        .insert(ProcessId(pid), values.clone());
+                } else {
+                    restore_globals(&mut runtime.store, &globals, values)?;
+                }
             }
 
             globals_by_pid.push(globals);
@@ -1317,7 +1366,17 @@ impl UnprovenTransaction {
         }
 
         for (pid, globals) in globals_by_pid.iter().enumerate() {
-            let globals = snapshot_globals(&mut runtime.store, globals)?;
+            let globals = if globals.is_empty() {
+                runtime
+                    .store
+                    .data()
+                    .host_data
+                    .get(&ProcessId(pid))
+                    .cloned()
+                    .unwrap_or_default()
+            } else {
+                snapshot_globals(&mut runtime.store, globals)?
+            };
             runtime
                 .store
                 .data_mut()
