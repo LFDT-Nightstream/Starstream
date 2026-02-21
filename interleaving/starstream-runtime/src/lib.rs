@@ -1214,7 +1214,7 @@ impl UnprovenTransaction {
             runtime.store.data_mut().current_process = current_pid;
             runtime.store.data_mut().pending_host_effect = None;
             let instance = instances[current_pid.0];
-            let func = instance.get_typed_func::<(), ()>(&mut runtime.store, "_start")?;
+            let func = instance.get_typed_func::<(), ()>(&mut runtime.store, "step")?;
             func.call(&mut runtime.store, ())?;
 
             let Some(last_effect) = runtime.store.data_mut().pending_host_effect.take() else {

@@ -463,7 +463,8 @@ impl ModuleBuilder {
         self.functions.function(type_idx);
         self.codes.function(&func.finish());
         let start_idx = self.import_count;
-        self.exports.export("_start", ExportKind::Func, start_idx);
+        // `step` is the stable runtime entrypoint we want to lift into components.
+        self.exports.export("step", ExportKind::Func, start_idx);
         self.memory.memory(MemoryType {
             minimum: 1,
             maximum: None,
