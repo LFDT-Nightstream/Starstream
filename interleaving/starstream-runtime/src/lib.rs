@@ -7,7 +7,7 @@ use starstream_interleaving_spec::{
     builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
-use wasmi::{Caller, Config, Engine, Linker, Memory, Store, Val};
+use wasmtime::{Caller, Config, Engine, Linker, Memory, Store, Val};
 
 mod trace_mermaid;
 pub use trace_mermaid::{
@@ -23,8 +23,8 @@ pub enum Error {
     InvalidProof(String),
     #[error("runtime error: {0}")]
     RuntimeError(String),
-    #[error("wasmi error: {0}")]
-    Wasmi(#[from] wasmi::Error),
+    #[error("wasmtime error: {0}")]
+    Wasmtime(#[from] wasmtime::Error),
 }
 
 pub type WasmProgram = Vec<u8>;
@@ -59,12 +59,12 @@ pub fn poseidon_program_hash(program_bytes: &[u8]) -> [u64; 4] {
 }
 
 fn snapshot_globals(
-    store: &Store<RuntimeState>,
-    globals: &[wasmi::Global],
+    store: &mut Store<RuntimeState>,
+    globals: &[wasmtime::Global],
 ) -> Result<Vec<Value>, Error> {
     let mut values = Vec::with_capacity(globals.len());
     for global in globals {
-        let val = global.get(store);
+        let val = global.get(&mut *store);
         let value = match val {
             Val::I64(v) => Value(v as u64),
             Val::I32(v) => Value(v as u32 as u64),
@@ -81,7 +81,7 @@ fn snapshot_globals(
 
 fn restore_globals(
     store: &mut Store<RuntimeState>,
-    globals: &[wasmi::Global],
+    globals: &[wasmtime::Global],
     values: &[Value],
 ) -> Result<(), Error> {
     if globals.len() != values.len() {
@@ -97,8 +97,8 @@ fn restore_globals(
             continue;
         }
         let val = match global.ty(&mut *store).content() {
-            wasmi::ValType::I64 => Val::I64(value.0 as i64),
-            wasmi::ValType::I32 => Val::I32(value.0 as i32),
+            wasmtime::ValType::I64 => Val::I64(value.0 as i64),
+            wasmtime::ValType::I32 => Val::I32(value.0 as i32),
             _ => {
                 return Err(Error::RuntimeError(
                     "unsupported global type (only i32/i64 supported)".into(),
@@ -117,9 +117,13 @@ fn suspend_with_effect<T>(
     caller: &mut Caller<'_, RuntimeState>,
     effect: WitLedgerEffect,
     ret: T,
-) -> Result<T, wasmi::Error> {
+) -> Result<T, wasmtime::Error> {
     caller.data_mut().pending_host_effect = Some(effect);
     Ok(ret)
+}
+
+fn trap(msg: impl Into<String>) -> wasmtime::Error {
+    wasmtime::Error::msg(msg.into())
 }
 
 fn hash4<T>(a0: u64, a1: u64, a2: u64, a3: u64) -> Hash<T> {
@@ -324,7 +328,7 @@ impl Default for Runtime {
 impl Runtime {
     pub fn new() -> Self {
         let config = Config::default();
-        let engine = Engine::new(&config);
+        let engine = Engine::new(&config).expect("failed to create wasmtime engine");
         let mut linker = Linker::new(&engine);
 
         let state = RuntimeState {
@@ -368,10 +372,10 @@ impl Runtime {
                  a4: u64,
                  a5: u64,
                  a6: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let effect =
                         decode_effect_from_commit_abi(discriminant, [a0, a1, a2, a3, a4, a5, a6])
-                            .map_err(wasmi::Error::new)?;
+                            .map_err(|e| trap(e.to_string()))?;
                     let current_pid = caller.data().current_process;
                     caller
                         .data_mut()
@@ -391,7 +395,7 @@ impl Runtime {
                 |mut caller: Caller<'_, RuntimeState>,
                  target: u64,
                  val: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let target = ProcessId(target as usize);
                     let val = Ref(val);
@@ -432,7 +436,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_yield",
-                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().on_yield.insert(current_pid, true);
                     suspend_with_effect(&mut caller, WitLedgerEffect::Yield { val: Ref(val) }, ())
@@ -444,7 +448,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_return",
-                |mut caller: Caller<'_, RuntimeState>| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>| -> Result<(), wasmtime::Error> {
                     suspend_with_effect(&mut caller, WitLedgerEffect::Return {}, ())
                 },
             )
@@ -460,7 +464,7 @@ impl Runtime {
                  h2: u64,
                  h3: u64,
                  val: u64|
-                 -> Result<u64, wasmi::Error> {
+                 -> Result<u64, wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let val = Ref(val);
@@ -479,7 +483,7 @@ impl Runtime {
                             break;
                         }
                     }
-                    let id = found_id.ok_or(wasmi::Error::new("no matching utxo process found"))?;
+                    let id = found_id.ok_or(trap("no matching utxo process found"))?;
                     caller.data_mut().allocated_processes.insert(id);
 
                     caller
@@ -503,7 +507,7 @@ impl Runtime {
                  h2: u64,
                  h3: u64,
                  val: u64|
-                 -> Result<u64, wasmi::Error> {
+                 -> Result<u64, wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let val = Ref(val);
@@ -522,8 +526,7 @@ impl Runtime {
                             break;
                         }
                     }
-                    let id =
-                        found_id.ok_or(wasmi::Error::new("no matching coord process found"))?;
+                    let id = found_id.ok_or(trap("no matching coord process found"))?;
                     caller.data_mut().allocated_processes.insert(id);
 
                     caller
@@ -546,7 +549,7 @@ impl Runtime {
                  h1: u64,
                  h2: u64,
                  h3: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     caller
@@ -569,16 +572,16 @@ impl Runtime {
                  h1: u64,
                  h2: u64,
                  h3: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let stack = caller
                         .data_mut()
                         .handler_stack
                         .get_mut(&interface_id)
-                        .ok_or(wasmi::Error::new("handler stack not found"))?;
+                        .ok_or(trap("handler stack not found"))?;
                     if stack.pop() != Some(current_pid) {
-                        return Err(wasmi::Error::new("uninstall handler mismatch"));
+                        return Err(trap("uninstall handler mismatch"));
                     }
                     Ok(())
                 },
@@ -594,17 +597,15 @@ impl Runtime {
                  h1: u64,
                  h2: u64,
                  h3: u64|
-                 -> Result<u64, wasmi::Error> {
+                 -> Result<u64, wasmtime::Error> {
                     let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     let handler_id = {
                         let stack = caller
                             .data()
                             .handler_stack
                             .get(&interface_id)
-                            .ok_or(wasmi::Error::new("handler stack not found"))?;
-                        *stack
-                            .last()
-                            .ok_or(wasmi::Error::new("handler stack empty"))?
+                            .ok_or(trap("handler stack not found"))?;
+                        *stack.last().ok_or(trap("handler stack empty"))?
                     };
                     Ok(handler_id.0 as u64)
                 },
@@ -621,7 +622,7 @@ impl Runtime {
                  h2: u64,
                  h3: u64,
                  val: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                     suspend_with_effect(
                         &mut caller,
@@ -640,13 +641,13 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_activation",
-                |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = caller
                         .data_mut()
                         .pending_activation
                         .remove(&current_pid)
-                        .ok_or(wasmi::Error::new("no pending activation"))?;
+                        .ok_or(trap("no pending activation"))?;
                     Ok((val.0, caller_id.0 as u64))
                 },
             )
@@ -655,14 +656,14 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_untraced_activation",
-                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = caller
                         .data()
                         .pending_activation
                         .get(&current_pid)
                         .copied()
-                        .ok_or(wasmi::Error::new("no pending activation"))?;
+                        .ok_or(trap("no pending activation"))?;
                     Ok((val.0, caller_id.0 as u64))
                 },
             )
@@ -672,14 +673,14 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_init",
-                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmi::Error> {
+                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = {
                         let (val, caller_id) = caller
                             .data()
                             .pending_init
                             .get(&current_pid)
-                            .ok_or(wasmi::Error::new("no pending init"))?;
+                            .ok_or(trap("no pending init"))?;
                         (*val, *caller_id)
                     };
                     Ok((val.0, caller_id.0 as u64))
@@ -691,12 +692,12 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_new_ref",
-                |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let size_words = size as usize;
                     let size_elems = size_words
                         .checked_mul(starstream_interleaving_spec::REF_PUSH_WIDTH)
-                        .ok_or(wasmi::Error::new("ref size overflow"))?;
+                        .ok_or(trap("ref size overflow"))?;
                     let ref_id = Ref(caller.data().next_ref);
                     caller.data_mut().next_ref += size_elems as u64;
 
@@ -724,20 +725,20 @@ impl Runtime {
                  val_1: u64,
                  val_2: u64,
                  val_3: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
                     let (ref_id, offset, size_words) = *caller
                         .data()
                         .ref_state
                         .get(&current_pid)
-                        .ok_or(wasmi::Error::new("no ref state"))?;
+                        .ok_or(trap("no ref state"))?;
 
                     let store = caller
                         .data_mut()
                         .ref_store
                         .get_mut(&ref_id)
-                        .ok_or(wasmi::Error::new("ref not found"))?;
+                        .ok_or(trap("ref not found"))?;
 
                     let elem_offset = offset;
                     for (i, val) in vals.iter().enumerate() {
@@ -771,7 +772,7 @@ impl Runtime {
                  val_1: u64,
                  val_2: u64,
                  val_3: u64|
-                 -> Result<(), wasmi::Error> {
+                 -> Result<(), wasmtime::Error> {
                     let ref_id = Ref(reff);
                     let offset_words = offset as usize;
 
@@ -779,10 +780,10 @@ impl Runtime {
                         .data()
                         .ref_sizes
                         .get(&ref_id)
-                        .ok_or(wasmi::Error::new("ref size not found"))?;
+                        .ok_or(trap("ref size not found"))?;
 
                     if offset_words >= size {
-                        return Err(wasmi::Error::new("ref write overflow"));
+                        return Err(trap("ref write overflow"));
                     }
 
                     let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
@@ -790,7 +791,7 @@ impl Runtime {
                         .data_mut()
                         .ref_store
                         .get_mut(&ref_id)
-                        .ok_or(wasmi::Error::new("ref not found"))?;
+                        .ok_or(trap("ref not found"))?;
 
                     let elem_offset = offset_words * starstream_interleaving_spec::REF_WRITE_WIDTH;
                     for (i, val) in vals.iter().enumerate() {
@@ -809,21 +810,21 @@ impl Runtime {
                 |caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64|
-                 -> Result<(i64, i64, i64, i64), wasmi::Error> {
+                 -> Result<(i64, i64, i64, i64), wasmtime::Error> {
                     let ref_id = Ref(reff);
                     let offset_words = offset as usize;
                     let store = caller
                         .data()
                         .ref_store
                         .get(&ref_id)
-                        .ok_or(wasmi::Error::new("ref not found"))?;
+                        .ok_or(trap("ref not found"))?;
                     let size = *caller
                         .data()
                         .ref_sizes
                         .get(&ref_id)
-                        .ok_or(wasmi::Error::new("ref size not found"))?;
+                        .ok_or(trap("ref size not found"))?;
                     if offset_words >= size {
-                        return Err(wasmi::Error::new("ref get overflow"));
+                        return Err(trap("ref get overflow"));
                     }
                     let mut ret = [Value::nil(); starstream_interleaving_spec::REF_GET_WIDTH];
                     for (i, slot) in ret.iter_mut().enumerate() {
@@ -846,7 +847,9 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_bind",
-                |mut caller: Caller<'_, RuntimeState>, owner_id: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 owner_id: u64|
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let owner_id = ProcessId(owner_id as usize);
                     caller
@@ -862,7 +865,9 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_unbind",
-                |mut caller: Caller<'_, RuntimeState>, token_id: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 token_id: u64|
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let token_id = ProcessId(token_id as usize);
                     if caller.data().ownership.get(&token_id) != Some(&Some(current_pid)) {
@@ -881,7 +886,7 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_burn",
-                |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmi::Error> {
+                |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().must_burn.insert(current_pid);
                     suspend_with_effect(&mut caller, WitLedgerEffect::Burn { ret: Ref(ret) }, ())
@@ -895,13 +900,13 @@ impl Runtime {
                 "starstream_get_program_hash",
                 |caller: Caller<'_, RuntimeState>,
                  target_pid: u64|
-                 -> Result<(u64, u64, u64, u64), wasmi::Error> {
+                 -> Result<(u64, u64, u64, u64), wasmtime::Error> {
                     let target = ProcessId(target_pid as usize);
                     let program_hash = *caller
                         .data()
                         .process_hashes
                         .get(&target)
-                        .ok_or(wasmi::Error::new("process hash not found"))?;
+                        .ok_or(trap("process hash not found"))?;
 
                     Ok((
                         program_hash.0[0],
@@ -1050,7 +1055,7 @@ impl UnprovenTransaction {
 
         let mut instances = Vec::new();
         let mut process_table = Vec::new();
-        let mut globals_by_pid: Vec<Vec<wasmi::Global>> = Vec::new();
+        let mut globals_by_pid: Vec<Vec<wasmtime::Global>> = Vec::new();
 
         for (pid, program_bytes) in self.programs.iter().enumerate() {
             let hash = Hash(
@@ -1073,13 +1078,11 @@ impl UnprovenTransaction {
 
             process_table.push(hash);
 
-            let module = wasmi::Module::new(&runtime.engine, program_bytes)?;
-            let instance = runtime
-                .linker
-                .instantiate_and_start(&mut runtime.store, &module)?;
+            let module = wasmtime::Module::new(&runtime.engine, program_bytes)?;
+            let instance = runtime.linker.instantiate(&mut runtime.store, &module)?;
 
             // Store memory in RuntimeState for hash reading
-            if let Some(extern_) = instance.get_export(&runtime.store, "memory")
+            if let Some(extern_) = instance.get_export(&mut runtime.store, "memory")
                 && let Some(memory) = extern_.into_memory()
             {
                 runtime
@@ -1090,14 +1093,14 @@ impl UnprovenTransaction {
             }
 
             let mut globals = Vec::new();
-            for export in instance.exports(&runtime.store) {
+            for export in instance.exports(&mut runtime.store) {
                 let name = export.name().to_string();
                 if let Some(global) = export.into_global() {
                     globals.push((name, global));
                 }
             }
             globals.sort_by(|a, b| a.0.cmp(&b.0));
-            let globals: Vec<wasmi::Global> = globals.into_iter().map(|(_, g)| g).collect();
+            let globals: Vec<wasmtime::Global> = globals.into_iter().map(|(_, g)| g).collect();
 
             if pid < n_inputs && !self.input_states.is_empty() {
                 let values = &self.input_states[pid].globals;
@@ -1132,7 +1135,7 @@ impl UnprovenTransaction {
             runtime.store.data_mut().current_process = current_pid;
             runtime.store.data_mut().pending_host_effect = None;
             let instance = instances[current_pid.0];
-            let func = instance.get_typed_func::<(), ()>(&runtime.store, "_start")?;
+            let func = instance.get_typed_func::<(), ()>(&mut runtime.store, "_start")?;
             func.call(&mut runtime.store, ())?;
 
             let Some(last_effect) = runtime.store.data_mut().pending_host_effect.take() else {
@@ -1284,7 +1287,7 @@ impl UnprovenTransaction {
         }
 
         for (pid, globals) in globals_by_pid.iter().enumerate() {
-            let globals = snapshot_globals(&runtime.store, globals)?;
+            let globals = snapshot_globals(&mut runtime.store, globals)?;
             runtime
                 .store
                 .data_mut()
