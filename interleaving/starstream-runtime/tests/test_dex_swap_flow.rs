@@ -15,13 +15,30 @@ fn hash_program(wasm: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+        return;
+    }
+
+    match wit_component::decode(wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }
 
@@ -466,6 +483,7 @@ fn test_dex_swap_flow() {
     });
 
     print_wat("dex/token", &token_bin);
+    print_component_wit("dex", &token_bin);
     print_wat("dex/utxo", &utxo_bin);
     print_wat("dex/coord_create", &coord_create_bin);
     print_wat("dex/coord_swap", &coord_swap_bin);

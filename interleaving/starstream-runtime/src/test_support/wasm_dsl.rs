@@ -498,13 +498,17 @@ macro_rules! wasm_module {
         let __imports = __builder.starstream();
         let mut __func = __builder.func();
         $crate::wasm!(__func, __imports, { $($body)* });
-        __builder.finish(__func)
+        let __core = __builder.finish(__func);
+        $crate::test_support::components::componentize(&__core)
+            .expect("failed to componentize wasm_module output")
     }};
     ($builder:expr, { $($body:tt)* }) => {{
         let __imports = $builder.starstream();
         let mut __func = $builder.func();
         $crate::wasm!(__func, __imports, { $($body)* });
-        $builder.finish(__func)
+        let __core = $builder.finish(__func);
+        $crate::test_support::components::componentize(&__core)
+            .expect("failed to componentize wasm_module output")
     }};
 }
 

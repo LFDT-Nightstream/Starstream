@@ -1,8 +1,6 @@
-use components::componentize;
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
 use starstream_runtime::{
-    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder,
-    test_support::{components, wasm_dsl},
+    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, test_support::wasm_dsl,
     wasm_module,
 };
 use std::marker::PhantomData;
@@ -123,30 +121,8 @@ fn test_runtime_simple_effect_handlers() {
     });
 
     print_wat("simple/utxo", &utxo_bin);
+    print_component_wit("simple", &utxo_bin);
     print_wat("simple/coord", &coord_bin);
-
-    if std::env::var_os("DEBUG_COMPONENT_WAT").is_some() {
-        match componentize(&utxo_bin) {
-            Ok(utxo_component) => {
-                eprintln!("componentized size: utxo={} bytes", utxo_component.len());
-                print_wat("simple/utxo_component", &utxo_component);
-                print_component_wit("simple/utxo_component", &utxo_component);
-            }
-            Err(err) => {
-                eprintln!("componentize simple/utxo failed: {err}");
-            }
-        }
-        match componentize(&coord_bin) {
-            Ok(coord_component) => {
-                eprintln!("componentized size: coord={} bytes", coord_component.len());
-                print_wat("simple/coord_component", &coord_component);
-                print_component_wit("simple/coord_component", &coord_component);
-            }
-            Err(err) => {
-                eprintln!("componentize simple/coord failed: {err}");
-            }
-        }
-    }
 
     let programs = vec![utxo_bin, coord_bin.clone()];
 
@@ -479,10 +455,11 @@ fn test_runtime_effect_handlers_cross_calls() {
     });
 
     print_wat("cross/utxo1", &utxo1_bin);
+    print_component_wit("cross", &utxo1_bin);
     print_wat("cross/utxo2", &utxo2_bin);
     print_wat("cross/coord", &coord_bin);
 
-    let programs = vec![utxo1_bin.clone(), utxo2_bin.clone(), coord_bin.clone()];
+    let programs = vec![utxo1_bin, utxo2_bin, coord_bin];
 
     let tx = UnprovenTransaction {
         inputs: vec![],
@@ -518,7 +495,7 @@ fn hash_program(utxo_bin: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
@@ -528,12 +505,12 @@ fn print_wat(name: &str, wasm: &[u8]) {
     }
 }
 
-fn print_component_wit(name: &str, component_wasm: &[u8]) {
-    if std::env::var_os("DEBUG_COMPONENT_WIT").is_none() {
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
-    match wit_component::decode(component_wasm) {
+    match wit_component::decode(wasm) {
         Ok(decoded) => {
             let mut printer = wit_component::WitPrinter::default();
             match printer.print(decoded.resolve(), decoded.package(), &[]) {

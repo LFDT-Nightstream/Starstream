@@ -14,13 +14,30 @@ fn hash_program(wasm: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+        return;
+    }
+
+    match wit_component::decode(wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }
 
@@ -180,14 +197,16 @@ fn test_multi_tx_accumulator_global() {
     });
 
     print_wat("globals/utxo", &utxo_bin);
+    print_component_wit("globals", &utxo_bin);
     print_wat("globals/coord1", &coord_bin);
     print_wat("globals/coord2", &coord2_bin);
+    print_wat("globals/coord3", &coord3_bin);
 
     let tx1 = UnprovenTransaction {
         inputs: vec![],
         input_states: vec![],
         input_ownership: vec![],
-        programs: vec![utxo_bin.clone(), coord_bin.clone()],
+        programs: vec![utxo_bin.clone(), coord_bin],
         is_utxo: vec![true, false],
         entrypoint: 1,
     };

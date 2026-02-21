@@ -7,7 +7,10 @@ use starstream_interleaving_spec::{
     builder::TransactionBuilder,
 };
 use std::collections::{HashMap, HashSet};
-use wasmtime::{Caller, Config, Engine, Linker, Memory, Store, Val};
+use wasmtime::component::{
+    Component, Instance as ComponentInstance, Linker as ComponentLinker, Val as ComponentVal,
+};
+use wasmtime::{Caller, Config, Engine, Linker, Memory, Store};
 
 mod trace_mermaid;
 pub use trace_mermaid::{
@@ -56,61 +59,6 @@ pub fn poseidon_program_hash(program_bytes: &[u8]) -> [u64; 4] {
     out[3] = hash[0].into_bigint().0[0];
 
     out
-}
-
-fn snapshot_globals(
-    store: &mut Store<RuntimeState>,
-    globals: &[wasmtime::Global],
-) -> Result<Vec<Value>, Error> {
-    let mut values = Vec::with_capacity(globals.len());
-    for global in globals {
-        let val = global.get(&mut *store);
-        let value = match val {
-            Val::I64(v) => Value(v as u64),
-            Val::I32(v) => Value(v as u32 as u64),
-            _ => {
-                return Err(Error::RuntimeError(
-                    "unsupported global type (only i32/i64 supported)".into(),
-                ));
-            }
-        };
-        values.push(value);
-    }
-    Ok(values)
-}
-
-fn restore_globals(
-    store: &mut Store<RuntimeState>,
-    globals: &[wasmtime::Global],
-    values: &[Value],
-) -> Result<(), Error> {
-    if globals.len() != values.len() {
-        return Err(Error::RuntimeError(format!(
-            "global count mismatch: expected {}, got {}",
-            globals.len(),
-            values.len()
-        )));
-    }
-
-    for (global, value) in globals.iter().zip(values.iter()) {
-        if global.ty(&mut *store).mutability().is_const() {
-            continue;
-        }
-        let val = match global.ty(&mut *store).content() {
-            wasmtime::ValType::I64 => Val::I64(value.0 as i64),
-            wasmtime::ValType::I32 => Val::I32(value.0 as i32),
-            _ => {
-                return Err(Error::RuntimeError(
-                    "unsupported global type (only i32/i64 supported)".into(),
-                ));
-            }
-        };
-        global
-            .set(&mut *store, val)
-            .map_err(|e| Error::RuntimeError(e.to_string()))?;
-    }
-
-    Ok(())
 }
 
 fn suspend_with_effect<T>(
@@ -336,6 +284,7 @@ pub struct RuntimeState {
 pub struct Runtime {
     pub engine: Engine,
     pub linker: Linker<RuntimeState>,
+    pub component_linker: ComponentLinker<RuntimeState>,
     pub store: Store<RuntimeState>,
 }
 
@@ -347,9 +296,11 @@ impl Default for Runtime {
 
 impl Runtime {
     pub fn new() -> Self {
-        let config = Config::default();
+        let mut config = Config::default();
+        config.wasm_component_model(true);
         let engine = Engine::new(&config).expect("failed to create wasmtime engine");
         let mut linker = Linker::new(&engine);
+        let mut component_linker = ComponentLinker::new(&engine);
 
         let state = RuntimeState {
             effect_traces: HashMap::new(),
@@ -989,9 +940,536 @@ impl Runtime {
             )
             .unwrap();
 
+        {
+            let mut env = component_linker.instance("env").unwrap();
+
+            env.func_wrap(
+                "starstream-trace",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (discriminant, a0, a1, a2, a3, a4, a5, a6): (
+                    u64,
+                    u64,
+                    u64,
+                    u64,
+                    u64,
+                    u64,
+                    u64,
+                    u64,
+                )|
+                 -> wasmtime::Result<()> {
+                    let effect =
+                        decode_effect_from_commit_abi(discriminant, [a0, a1, a2, a3, a4, a5, a6])
+                            .map_err(trap)?;
+                    let current_pid = store.data().current_process;
+                    store
+                        .data_mut()
+                        .effect_traces
+                        .entry(current_pid)
+                        .or_default()
+                        .push(effect);
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-get-datum",
+                |store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (slot,): (u64,)|
+                 -> wasmtime::Result<(u64,)> {
+                    let current_pid = store.data().current_process;
+                    let slot = usize::try_from(slot).map_err(|_| trap("slot overflow"))?;
+                    let value = store
+                        .data()
+                        .host_data
+                        .get(&current_pid)
+                        .and_then(|slots| slots.get(slot))
+                        .copied()
+                        .unwrap_or(Value(0));
+                    Ok((value.0,))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-set-datum",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (slot, value): (u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let slot = usize::try_from(slot).map_err(|_| trap("slot overflow"))?;
+                    let slots = store.data_mut().host_data.entry(current_pid).or_default();
+                    if slots.len() <= slot {
+                        slots.resize(slot + 1, Value(0));
+                    }
+                    slots[slot] = Value(value);
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-resume",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (target, val): (u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let target = ProcessId(target as usize);
+                    let val = Ref(val);
+                    let ret = WitEffectOutput::Resolved(Ref(0));
+
+                    store
+                        .data_mut()
+                        .pending_activation
+                        .insert(target, (val, current_pid));
+
+                    let curr_is_utxo = store
+                        .data()
+                        .is_utxo
+                        .get(&current_pid)
+                        .copied()
+                        .unwrap_or(false);
+                    let was_on_yield = store.data().on_yield.get(&target).copied().unwrap_or(true);
+                    if !curr_is_utxo && was_on_yield {
+                        store.data_mut().yield_to.insert(target, current_pid);
+                        store.data_mut().on_yield.insert(target, false);
+                    }
+
+                    store.data_mut().pending_host_effect = Some(WitLedgerEffect::Resume {
+                        target,
+                        val,
+                        ret,
+                        caller: WitEffectOutput::Resolved(None),
+                    });
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-yield",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (val,): (u64,)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    store.data_mut().on_yield.insert(current_pid, true);
+                    store.data_mut().pending_host_effect =
+                        Some(WitLedgerEffect::Yield { val: Ref(val) });
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-return",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 _params: ()|
+                 -> wasmtime::Result<()> {
+                    store.data_mut().pending_host_effect = Some(WitLedgerEffect::Return {});
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-new-utxo",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (h0, h1, h2, h3, val): (u64, u64, u64, u64, u64)|
+                 -> wasmtime::Result<(u64,)> {
+                    let current_pid = store.data().current_process;
+                    let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                    let val = Ref(val);
+
+                    let mut found_id = None;
+                    let limit = store.data().process_hashes.len();
+                    for i in 0..limit {
+                        let pid = ProcessId(i);
+                        if !store.data().allocated_processes.contains(&pid)
+                            && let Some(ph) = store.data().process_hashes.get(&pid)
+                            && *ph == h
+                            && let Some(&is_u) = store.data().is_utxo.get(&pid)
+                            && is_u
+                        {
+                            found_id = Some(pid);
+                            break;
+                        }
+                    }
+                    let id = found_id.ok_or(trap("no matching utxo process found"))?;
+                    store.data_mut().allocated_processes.insert(id);
+
+                    store.data_mut().pending_init.insert(id, (val, current_pid));
+                    store.data_mut().n_new += 1;
+                    Ok((id.0 as u64,))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-new-coord",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (h0, h1, h2, h3, val): (u64, u64, u64, u64, u64)|
+                 -> wasmtime::Result<(u64,)> {
+                    let current_pid = store.data().current_process;
+                    let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                    let val = Ref(val);
+
+                    let mut found_id = None;
+                    let limit = store.data().process_hashes.len();
+                    for i in 0..limit {
+                        let pid = ProcessId(i);
+                        if !store.data().allocated_processes.contains(&pid)
+                            && let Some(ph) = store.data().process_hashes.get(&pid)
+                            && *ph == h
+                            && let Some(&is_u) = store.data().is_utxo.get(&pid)
+                            && !is_u
+                        {
+                            found_id = Some(pid);
+                            break;
+                        }
+                    }
+                    let id = found_id.ok_or(trap("no matching coord process found"))?;
+                    store.data_mut().allocated_processes.insert(id);
+
+                    store.data_mut().pending_init.insert(id, (val, current_pid));
+                    store.data_mut().n_coord += 1;
+                    Ok((id.0 as u64,))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-install-handler",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (h0, h1, h2, h3): (u64, u64, u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                    store
+                        .data_mut()
+                        .handler_stack
+                        .entry(interface_id)
+                        .or_default()
+                        .push(current_pid);
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-uninstall-handler",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (h0, h1, h2, h3): (u64, u64, u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                    let stack = store
+                        .data_mut()
+                        .handler_stack
+                        .get_mut(&interface_id)
+                        .ok_or(trap("handler stack not found"))?;
+                    if stack.pop() != Some(current_pid) {
+                        return Err(trap("uninstall handler mismatch").into());
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-get-handler-for",
+                |store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (h0, h1, h2, h3): (u64, u64, u64, u64)|
+                 -> wasmtime::Result<(u64,)> {
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                    let handler_id = {
+                        let stack = store
+                            .data()
+                            .handler_stack
+                            .get(&interface_id)
+                            .ok_or(trap("handler stack not found"))?;
+                        *stack.last().ok_or(trap("handler stack empty"))?
+                    };
+                    Ok((handler_id.0 as u64,))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-call-effect-handler",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (h0, h1, h2, h3, val): (u64, u64, u64, u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                    store.data_mut().pending_host_effect =
+                        Some(WitLedgerEffect::CallEffectHandler {
+                            interface_id,
+                            val: Ref(val),
+                            ret: WitEffectOutput::Resolved(Ref(0)),
+                        });
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-activation",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 _params: ()|
+                 -> wasmtime::Result<((u64, u64),)> {
+                    let current_pid = store.data().current_process;
+                    let (val, caller_id) = store
+                        .data_mut()
+                        .pending_activation
+                        .remove(&current_pid)
+                        .ok_or(trap("no pending activation"))?;
+                    Ok(((val.0, caller_id.0 as u64),))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-untraced-activation",
+                |store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 _params: ()|
+                 -> wasmtime::Result<((u64, u64),)> {
+                    let current_pid = store.data().current_process;
+                    let (val, caller_id) = store
+                        .data()
+                        .pending_activation
+                        .get(&current_pid)
+                        .copied()
+                        .ok_or(trap("no pending activation"))?;
+                    Ok(((val.0, caller_id.0 as u64),))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-init",
+                |store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 _params: ()|
+                 -> wasmtime::Result<((u64, u64),)> {
+                    let current_pid = store.data().current_process;
+                    let (val, caller_id) = {
+                        let (val, caller_id) = store
+                            .data()
+                            .pending_init
+                            .get(&current_pid)
+                            .ok_or(trap("no pending init"))?;
+                        (*val, *caller_id)
+                    };
+                    Ok(((val.0, caller_id.0 as u64),))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-new-ref",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (size,): (u64,)|
+                 -> wasmtime::Result<(u64,)> {
+                    let current_pid = store.data().current_process;
+                    let size_words = size as usize;
+                    let size_elems = size_words
+                        .checked_mul(starstream_interleaving_spec::REF_PUSH_WIDTH)
+                        .ok_or(trap("ref size overflow"))?;
+                    let ref_id = Ref(store.data().next_ref);
+                    store.data_mut().next_ref += size_elems as u64;
+
+                    store
+                        .data_mut()
+                        .ref_store
+                        .insert(ref_id, vec![Value(0); size_elems]);
+                    store.data_mut().ref_sizes.insert(ref_id, size_words);
+                    store
+                        .data_mut()
+                        .ref_state
+                        .insert(current_pid, (ref_id, 0, size_words));
+                    Ok((ref_id.0,))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-ref-push",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (val_0, val_1, val_2, val_3): (u64, u64, u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
+                    let (ref_id, offset, size_words) = *store
+                        .data()
+                        .ref_state
+                        .get(&current_pid)
+                        .ok_or(trap("no ref state"))?;
+
+                    let store_ref = store
+                        .data_mut()
+                        .ref_store
+                        .get_mut(&ref_id)
+                        .ok_or(trap("ref not found"))?;
+
+                    let elem_offset = offset;
+                    for (i, val) in vals.iter().enumerate() {
+                        if let Some(pos) = store_ref.get_mut(elem_offset + i) {
+                            *pos = *val;
+                        }
+                    }
+
+                    store.data_mut().ref_state.insert(
+                        current_pid,
+                        (
+                            ref_id,
+                            elem_offset + starstream_interleaving_spec::REF_PUSH_WIDTH,
+                            size_words,
+                        ),
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-ref-write",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (reff, offset, val_0, val_1, val_2, val_3): (u64, u64, u64, u64, u64, u64)|
+                 -> wasmtime::Result<()> {
+                    let ref_id = Ref(reff);
+                    let offset_words = offset as usize;
+
+                    let size = *store
+                        .data()
+                        .ref_sizes
+                        .get(&ref_id)
+                        .ok_or(trap("ref size not found"))?;
+
+                    if offset_words >= size {
+                        return Err(trap("ref write overflow").into());
+                    }
+
+                    let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
+                    let store_ref = store
+                        .data_mut()
+                        .ref_store
+                        .get_mut(&ref_id)
+                        .ok_or(trap("ref not found"))?;
+
+                    let elem_offset = offset_words * starstream_interleaving_spec::REF_WRITE_WIDTH;
+                    for (i, val) in vals.iter().enumerate() {
+                        store_ref[elem_offset + i] = *val;
+                    }
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-ref-get",
+                |store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (reff, offset): (u64, u64)|
+                 -> wasmtime::Result<((u64, u64, u64, u64),)> {
+                    let ref_id = Ref(reff);
+                    let offset_words = offset as usize;
+                    let store_ref = store
+                        .data()
+                        .ref_store
+                        .get(&ref_id)
+                        .ok_or(trap("ref not found"))?;
+                    let size = *store
+                        .data()
+                        .ref_sizes
+                        .get(&ref_id)
+                        .ok_or(trap("ref size not found"))?;
+                    if offset_words >= size {
+                        return Err(trap("ref get overflow").into());
+                    }
+                    let mut ret = [Value::nil(); starstream_interleaving_spec::REF_GET_WIDTH];
+                    for (i, slot) in ret.iter_mut().enumerate() {
+                        let idx = (offset_words * starstream_interleaving_spec::REF_GET_WIDTH) + i;
+                        if idx < size * starstream_interleaving_spec::REF_GET_WIDTH {
+                            *slot = store_ref[idx];
+                        }
+                    }
+                    Ok(((ret[0].0, ret[1].0, ret[2].0, ret[3].0),))
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-bind",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (owner_id,): (u64,)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let owner_id = ProcessId(owner_id as usize);
+                    store
+                        .data_mut()
+                        .ownership
+                        .insert(current_pid, Some(owner_id));
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-unbind",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (token_id,): (u64,)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    let token_id = ProcessId(token_id as usize);
+                    if store.data().ownership.get(&token_id) != Some(&Some(current_pid)) {
+                        eprintln!(
+                            "unbind called by non-owner: token_id={}, current_pid={}",
+                            token_id.0, current_pid.0
+                        );
+                    }
+                    store.data_mut().ownership.insert(token_id, None);
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-burn",
+                |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (ret,): (u64,)|
+                 -> wasmtime::Result<()> {
+                    let current_pid = store.data().current_process;
+                    store.data_mut().must_burn.insert(current_pid);
+                    store.data_mut().pending_host_effect =
+                        Some(WitLedgerEffect::Burn { ret: Ref(ret) });
+                    Ok(())
+                },
+            )
+            .unwrap();
+
+            env.func_wrap(
+                "starstream-get-program-hash",
+                |store: wasmtime::StoreContextMut<'_, RuntimeState>,
+                 (target_pid,): (u64,)|
+                 -> wasmtime::Result<((u64, u64, u64, u64),)> {
+                    let target = ProcessId(target_pid as usize);
+                    let program_hash = *store
+                        .data()
+                        .process_hashes
+                        .get(&target)
+                        .ok_or(trap("process hash not found"))?;
+                    Ok(((
+                        program_hash.0[0],
+                        program_hash.0[1],
+                        program_hash.0[2],
+                        program_hash.0[3],
+                    ),))
+                },
+            )
+            .unwrap();
+        }
+
         Self {
             engine,
             linker,
+            component_linker,
             store,
         }
     }
@@ -1124,9 +1602,8 @@ impl UnprovenTransaction {
             )));
         }
 
-        let mut instances = Vec::new();
+        let mut instances: Vec<ComponentInstance> = Vec::new();
         let mut process_table = Vec::new();
-        let mut globals_by_pid: Vec<Vec<wasmtime::Global>> = Vec::new();
 
         for (pid, program_bytes) in self.programs.iter().enumerate() {
             let hash = Hash(
@@ -1149,44 +1626,20 @@ impl UnprovenTransaction {
 
             process_table.push(hash);
 
-            let module = wasmtime::Module::new(&runtime.engine, program_bytes)?;
-            let instance = runtime.linker.instantiate(&mut runtime.store, &module)?;
-
-            // Store memory in RuntimeState for hash reading
-            if let Some(extern_) = instance.get_export(&mut runtime.store, "memory")
-                && let Some(memory) = extern_.into_memory()
-            {
-                runtime
-                    .store
-                    .data_mut()
-                    .memories
-                    .insert(ProcessId(pid), memory);
-            }
-
-            let mut globals = Vec::new();
-            for export in instance.exports(&mut runtime.store) {
-                let name = export.name().to_string();
-                if let Some(global) = export.into_global() {
-                    globals.push((name, global));
-                }
-            }
-            globals.sort_by(|a, b| a.0.cmp(&b.0));
-            let globals: Vec<wasmtime::Global> = globals.into_iter().map(|(_, g)| g).collect();
+            let component = Component::new(&runtime.engine, program_bytes)?;
+            let instance = runtime
+                .component_linker
+                .instantiate(&mut runtime.store, &component)?;
 
             if pid < n_inputs && !self.input_states.is_empty() {
                 let values = &self.input_states[pid].globals;
-                if globals.is_empty() {
-                    runtime
-                        .store
-                        .data_mut()
-                        .host_data
-                        .insert(ProcessId(pid), values.clone());
-                } else {
-                    restore_globals(&mut runtime.store, &globals, values)?;
-                }
+                runtime
+                    .store
+                    .data_mut()
+                    .host_data
+                    .insert(ProcessId(pid), values.clone());
             }
 
-            globals_by_pid.push(globals);
             instances.push(instance);
         }
 
@@ -1214,8 +1667,12 @@ impl UnprovenTransaction {
             runtime.store.data_mut().current_process = current_pid;
             runtime.store.data_mut().pending_host_effect = None;
             let instance = instances[current_pid.0];
-            let func = instance.get_typed_func::<(), ()>(&mut runtime.store, "step")?;
-            func.call(&mut runtime.store, ())?;
+            let func = instance
+                .get_func(&mut runtime.store, "step")
+                .ok_or_else(|| Error::RuntimeError("missing component export `step`".into()))?;
+            let mut results: [ComponentVal; 0] = [];
+            func.call(&mut runtime.store, &[], &mut results)?;
+            func.post_return(&mut runtime.store)?;
 
             let Some(last_effect) = runtime.store.data_mut().pending_host_effect.take() else {
                 if current_pid == ProcessId(self.entrypoint) {
@@ -1365,18 +1822,14 @@ impl UnprovenTransaction {
                 .flatten();
         }
 
-        for (pid, globals) in globals_by_pid.iter().enumerate() {
-            let globals = if globals.is_empty() {
-                runtime
-                    .store
-                    .data()
-                    .host_data
-                    .get(&ProcessId(pid))
-                    .cloned()
-                    .unwrap_or_default()
-            } else {
-                snapshot_globals(&mut runtime.store, globals)?
-            };
+        for pid in 0..self.programs.len() {
+            let globals = runtime
+                .store
+                .data()
+                .host_data
+                .get(&ProcessId(pid))
+                .cloned()
+                .unwrap_or_default();
             runtime
                 .store
                 .data_mut()

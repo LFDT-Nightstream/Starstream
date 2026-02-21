@@ -331,6 +331,10 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         }
     });
 
+    print_wat("wrapper/utxo1", &utxo1_bin);
+    print_component_wit("wrapper", &utxo1_bin);
+    print_wat("wrapper/utxo2", &utxo2_bin);
+    print_wat("wrapper/inner", &inner_coord_bin);
     print_wat("wrapper", &wrapper_coord_bin);
 
     let (wrapper_hash_limb_a, wrapper_hash_limb_b, wrapper_hash_limb_c, wrapper_hash_limb_d) =
@@ -444,13 +448,14 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call return_();
         }
     });
+    print_wat("wrapper/driver", &driver_coord_bin);
 
     let programs = vec![
-        utxo1_bin.clone(),
-        utxo2_bin.clone(),
-        inner_coord_bin.clone(),
-        wrapper_coord_bin.clone(),
-        driver_coord_bin.clone(),
+        utxo1_bin,
+        utxo2_bin,
+        inner_coord_bin,
+        wrapper_coord_bin,
+        driver_coord_bin,
     ];
 
     let tx = UnprovenTransaction {
@@ -492,13 +497,30 @@ fn hash_program(utxo_bin: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+        return;
+    }
+
+    match wit_component::decode(wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }
 

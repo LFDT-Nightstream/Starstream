@@ -29,6 +29,7 @@ world runtime {
         starstream-unbind: func(token-id: u64);
         starstream-init: func() -> tuple<u64, u64>;
     }
+    export step: func();
 }
 "#;
 
