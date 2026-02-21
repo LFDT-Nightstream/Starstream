@@ -1,6 +1,8 @@
+use components::componentize;
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
 use starstream_runtime::{
-    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, test_support::wasm_dsl,
+    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder,
+    test_support::{components, wasm_dsl},
     wasm_module,
 };
 use std::marker::PhantomData;
@@ -126,6 +128,29 @@ fn test_runtime_simple_effect_handlers() {
 
     print_wat("simple/utxo", &utxo_bin);
     print_wat("simple/coord", &coord_bin);
+
+    if std::env::var_os("DEBUG_COMPONENT_WAT").is_some() {
+        match componentize(&utxo_bin) {
+            Ok(utxo_component) => {
+                eprintln!("componentized size: utxo={} bytes", utxo_component.len());
+                print_wat("simple/utxo_component", &utxo_component);
+                print_component_wit("simple/utxo_component", &utxo_component);
+            }
+            Err(err) => {
+                eprintln!("componentize simple/utxo failed: {err}");
+            }
+        }
+        match componentize(&coord_bin) {
+            Ok(coord_component) => {
+                eprintln!("componentized size: coord={} bytes", coord_component.len());
+                print_wat("simple/coord_component", &coord_component);
+                print_component_wit("simple/coord_component", &coord_component);
+            }
+            Err(err) => {
+                eprintln!("componentize simple/coord failed: {err}");
+            }
+        }
+    }
 
     let programs = vec![utxo_bin, coord_bin.clone()];
 
@@ -517,5 +542,22 @@ fn print_wat(name: &str, wasm: &[u8]) {
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, component_wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENT_WIT").is_none() {
+        return;
+    }
+
+    match wit_component::decode(component_wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }

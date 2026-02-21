@@ -15,8 +15,11 @@ wasmtime = { version = "39.0", default-features = false, features = ["cranelift"
 ark-ff = { version = "0.5.0", default-features = false }
 ark-poseidon2 = { path = "../../ark-poseidon2" }
 wasm-encoder = { workspace = true }
+wit-component = { workspace = true }
+wasmparser = "0.240.0"
+wit-parser = "0.240.0"
 
 [dev-dependencies]
 imbl = "6.1.0"
 wat = "1.0"
-wasmprinter = "0.2"
+wasmprinter = { workspace = true }
