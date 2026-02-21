@@ -278,7 +278,7 @@ impl ModuleBuilder {
     pub fn import_starstream(&mut self) -> Imports {
         let trace = self.import_func(
             "env",
-            "starstream_trace",
+            "starstream-trace",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -291,28 +291,28 @@ impl ModuleBuilder {
             ],
             &[],
         );
-        let activation = self.import_func("env", "starstream_activation", &[ValType::I32], &[]);
+        let activation = self.import_func("env", "starstream-activation", &[ValType::I32], &[]);
         let untraced_activation = self.import_func(
             "env",
-            "starstream_untraced_activation",
+            "starstream-untraced-activation",
             &[ValType::I32],
             &[],
         );
         let get_program_hash = self.import_func(
             "env",
-            "starstream_get_program_hash",
+            "starstream-get-program-hash",
             &[ValType::I64, ValType::I32],
             &[],
         );
         let get_handler_for = self.import_func(
             "env",
-            "starstream_get_handler_for",
+            "starstream-get-handler-for",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[ValType::I64],
         );
         let call_effect_handler = self.import_func(
             "env",
-            "starstream_call_effect_handler",
+            "starstream-call-effect-handler",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -324,37 +324,37 @@ impl ModuleBuilder {
         );
         let install_handler = self.import_func(
             "env",
-            "starstream_install_handler",
+            "starstream-install-handler",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let uninstall_handler = self.import_func(
             "env",
-            "starstream_uninstall_handler",
+            "starstream-uninstall-handler",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let new_ref = self.import_func(
             "env",
-            "starstream_new_ref",
+            "starstream-new-ref",
             &[ValType::I64],
             &[ValType::I64],
         );
         let ref_push = self.import_func(
             "env",
-            "starstream_ref_push",
+            "starstream-ref-push",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let ref_get = self.import_func(
             "env",
-            "starstream_ref_get",
+            "starstream-ref-get",
             &[ValType::I64, ValType::I64, ValType::I32],
             &[],
         );
         let ref_write = self.import_func(
             "env",
-            "starstream_ref_write",
+            "starstream-ref-write",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -367,15 +367,15 @@ impl ModuleBuilder {
         );
         let resume = self.import_func(
             "env",
-            "starstream_resume",
+            "starstream-resume",
             &[ValType::I64, ValType::I64],
             &[],
         );
-        let yield_ = self.import_func("env", "starstream_yield", &[ValType::I64], &[]);
-        let return_ = self.import_func("env", "starstream_return", &[], &[]);
+        let yield_ = self.import_func("env", "starstream-yield", &[ValType::I64], &[]);
+        let return_ = self.import_func("env", "starstream-return", &[], &[]);
         let new_utxo = self.import_func(
             "env",
-            "starstream_new_utxo",
+            "starstream-new-utxo",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -387,7 +387,7 @@ impl ModuleBuilder {
         );
         let new_coord = self.import_func(
             "env",
-            "starstream_new_coord",
+            "starstream-new-coord",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -397,10 +397,10 @@ impl ModuleBuilder {
             ],
             &[ValType::I64],
         );
-        let burn = self.import_func("env", "starstream_burn", &[ValType::I64], &[]);
-        let bind = self.import_func("env", "starstream_bind", &[ValType::I64], &[]);
-        let unbind = self.import_func("env", "starstream_unbind", &[ValType::I64], &[]);
-        let init = self.import_func("env", "starstream_init", &[ValType::I32], &[]);
+        let burn = self.import_func("env", "starstream-burn", &[ValType::I64], &[]);
+        let bind = self.import_func("env", "starstream-bind", &[ValType::I64], &[]);
+        let unbind = self.import_func("env", "starstream-unbind", &[ValType::I64], &[]);
+        let init = self.import_func("env", "starstream-init", &[ValType::I32], &[]);
 
         Imports {
             trace,

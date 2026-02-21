@@ -381,7 +381,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_trace",
+                "starstream-trace",
                 |mut caller: Caller<'_, RuntimeState>,
                  discriminant: u64,
                  a0: u64,
@@ -410,7 +410,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_resume",
+                "starstream-resume",
                 |mut caller: Caller<'_, RuntimeState>,
                  target: u64,
                  val: u64|
@@ -454,7 +454,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_yield",
+                "starstream-yield",
                 |mut caller: Caller<'_, RuntimeState>, val: u64| -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().on_yield.insert(current_pid, true);
@@ -466,7 +466,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_return",
+                "starstream-return",
                 |mut caller: Caller<'_, RuntimeState>| -> Result<(), wasmtime::Error> {
                     suspend_with_effect(&mut caller, WitLedgerEffect::Return {}, ())
                 },
@@ -476,7 +476,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_new_utxo",
+                "starstream-new-utxo",
                 |mut caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
@@ -519,7 +519,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_new_coord",
+                "starstream-new-coord",
                 |mut caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
@@ -562,7 +562,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_install_handler",
+                "starstream-install-handler",
                 |mut caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
@@ -585,7 +585,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_uninstall_handler",
+                "starstream-uninstall-handler",
                 |mut caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
@@ -610,7 +610,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_get_handler_for",
+                "starstream-get-handler-for",
                 |caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
@@ -634,7 +634,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_call_effect_handler",
+                "starstream-call-effect-handler",
                 |mut caller: Caller<'_, RuntimeState>,
                  h0: u64,
                  h1: u64,
@@ -659,7 +659,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_activation",
+                "starstream-activation",
                 |mut caller: Caller<'_, RuntimeState>,
                  out_ptr: i32|
                  -> Result<(), wasmtime::Error> {
@@ -678,7 +678,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_untraced_activation",
+                "starstream-untraced-activation",
                 |mut caller: Caller<'_, RuntimeState>,
                  out_ptr: i32|
                  -> Result<(), wasmtime::Error> {
@@ -699,7 +699,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_init",
+                "starstream-init",
                 |mut caller: Caller<'_, RuntimeState>,
                  out_ptr: i32|
                  -> Result<(), wasmtime::Error> {
@@ -722,7 +722,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_new_ref",
+                "starstream-new-ref",
                 |mut caller: Caller<'_, RuntimeState>, size: u64| -> Result<u64, wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let size_words = size as usize;
@@ -750,7 +750,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_ref_push",
+                "starstream-ref-push",
                 |mut caller: Caller<'_, RuntimeState>,
                  val_0: u64,
                  val_1: u64,
@@ -795,7 +795,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_ref_write",
+                "starstream-ref-write",
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64,
@@ -837,7 +837,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_ref_get",
+                "starstream-ref-get",
                 |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
                  offset: u64,
@@ -877,7 +877,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_bind",
+                "starstream-bind",
                 |mut caller: Caller<'_, RuntimeState>,
                  owner_id: u64|
                  -> Result<(), wasmtime::Error> {
@@ -895,7 +895,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_unbind",
+                "starstream-unbind",
                 |mut caller: Caller<'_, RuntimeState>,
                  token_id: u64|
                  -> Result<(), wasmtime::Error> {
@@ -916,7 +916,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_burn",
+                "starstream-burn",
                 |mut caller: Caller<'_, RuntimeState>, ret: u64| -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     caller.data_mut().must_burn.insert(current_pid);
@@ -928,7 +928,7 @@ impl Runtime {
         linker
             .func_wrap(
                 "env",
-                "starstream_get_program_hash",
+                "starstream-get-program-hash",
                 |mut caller: Caller<'_, RuntimeState>,
                  target_pid: u64,
                  out_ptr: i32|
