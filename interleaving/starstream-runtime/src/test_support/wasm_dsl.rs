@@ -2,8 +2,8 @@
 
 use wasm_encoder::{
     BlockType, CodeSection, ConstExpr, EntityType, ExportKind, ExportSection, Function,
-    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, Module, TypeSection,
-    ValType,
+    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, MemArg, MemorySection,
+    MemoryType, Module, TypeSection, ValType,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -65,6 +65,23 @@ impl FuncBuilder {
         }
         self.instrs.push(Instruction::Call(func.idx));
         for local in results.iter().rev() {
+            self.instrs.push(Instruction::LocalSet(local.0));
+        }
+    }
+
+    pub fn call_with_retptr(&mut self, func: FuncRef, args: Vec<Value>, results: &[Local]) {
+        for arg in args {
+            arg.emit(&mut self.instrs);
+        }
+        self.instrs.push(Instruction::I32Const(0));
+        self.instrs.push(Instruction::Call(func.idx));
+        for (i, local) in results.iter().enumerate() {
+            self.instrs.push(Instruction::I32Const((i * 8) as i32));
+            self.instrs.push(Instruction::I64Load(MemArg {
+                offset: 0,
+                align: 3,
+                memory_index: 0,
+            }));
             self.instrs.push(Instruction::LocalSet(local.0));
         }
     }
@@ -204,6 +221,7 @@ pub struct ModuleBuilder {
     codes: CodeSection,
     exports: ExportSection,
     globals: GlobalSection,
+    memory: MemorySection,
     type_count: u32,
     import_count: u32,
     starstream: Option<Imports>,
@@ -243,6 +261,7 @@ impl ModuleBuilder {
             codes: CodeSection::new(),
             exports: ExportSection::new(),
             globals: GlobalSection::new(),
+            memory: MemorySection::new(),
             type_count: 0,
             import_count: 0,
             starstream: None,
@@ -272,23 +291,18 @@ impl ModuleBuilder {
             ],
             &[],
         );
-        let activation = self.import_func(
-            "env",
-            "starstream_activation",
-            &[],
-            &[ValType::I64, ValType::I64],
-        );
+        let activation = self.import_func("env", "starstream_activation", &[ValType::I32], &[]);
         let untraced_activation = self.import_func(
             "env",
             "starstream_untraced_activation",
+            &[ValType::I32],
             &[],
-            &[ValType::I64, ValType::I64],
         );
         let get_program_hash = self.import_func(
             "env",
             "starstream_get_program_hash",
-            &[ValType::I64],
-            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+            &[ValType::I64, ValType::I32],
+            &[],
         );
         let get_handler_for = self.import_func(
             "env",
@@ -335,8 +349,8 @@ impl ModuleBuilder {
         let ref_get = self.import_func(
             "env",
             "starstream_ref_get",
-            &[ValType::I64, ValType::I64],
-            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+            &[ValType::I64, ValType::I64, ValType::I32],
+            &[],
         );
         let ref_write = self.import_func(
             "env",
@@ -386,7 +400,7 @@ impl ModuleBuilder {
         let burn = self.import_func("env", "starstream_burn", &[ValType::I64], &[]);
         let bind = self.import_func("env", "starstream_bind", &[ValType::I64], &[]);
         let unbind = self.import_func("env", "starstream_unbind", &[ValType::I64], &[]);
-        let init = self.import_func("env", "starstream_init", &[], &[ValType::I64, ValType::I64]);
+        let init = self.import_func("env", "starstream_init", &[ValType::I32], &[]);
 
         Imports {
             trace,
@@ -461,11 +475,20 @@ impl ModuleBuilder {
         self.codes.function(&func.finish());
         let start_idx = self.import_count;
         self.exports.export("_start", ExportKind::Func, start_idx);
+        self.memory.memory(MemoryType {
+            minimum: 1,
+            maximum: None,
+            memory64: false,
+            shared: false,
+            page_size_log2: None,
+        });
+        self.exports.export("memory", ExportKind::Memory, 0);
 
         let mut module = Module::new();
         module.section(&self.types);
         module.section(&self.imports);
         module.section(&self.functions);
+        module.section(&self.memory);
         if !self.globals.is_empty() {
             module.section(&self.globals);
         }
@@ -665,6 +688,31 @@ macro_rules! wasm_stmt {
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call activation(); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call untraced_activation(); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.untraced_activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call init(); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.init, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident, $c:ident, $d:ident) = call ref_get($x:tt, $y:tt); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.ref_get, $crate::wasm_args!($x, $y), &[$a, $b, $c, $d]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident, $c:ident, $d:ident) = call get_program_hash($x:tt); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.get_program_hash, $crate::wasm_args!($x), &[$a, $b, $c, $d]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
     ($f:ident, $imports:ident, set ($($var:ident),+ $(,)?) = call $func:ident ( $($arg:tt)* ); $($rest:tt)*) => {
         $f.call($imports.$func, $crate::wasm_args!($($arg)*), &[$($var),+]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
@@ -725,6 +773,45 @@ macro_rules! wasm_stmt {
 
     ($f:ident, $imports:ident, set_global $idx:literal = $val:tt; $($rest:tt)*) => {
         $f.global_set($idx as u32, $crate::wasm_value!($val));
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call activation(); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call untraced_activation(); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        $f.call_with_retptr($imports.untraced_activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call init(); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        $f.call_with_retptr($imports.init, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident, $c:ident, $d:ident) = call ref_get($x:tt, $y:tt); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        let $c = $f.local_i64();
+        let $d = $f.local_i64();
+        $f.call_with_retptr($imports.ref_get, $crate::wasm_args!($x, $y), &[$a, $b, $c, $d]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident, $c:ident, $d:ident) = call get_program_hash($x:tt); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        let $c = $f.local_i64();
+        let $d = $f.local_i64();
+        $f.call_with_retptr($imports.get_program_hash, $crate::wasm_args!($x), &[$a, $b, $c, $d]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 

@@ -126,6 +126,25 @@ fn trap(msg: impl Into<String>) -> wasmtime::Error {
     wasmtime::Error::msg(msg.into())
 }
 
+fn write_u64_to_memory(
+    caller: &mut Caller<'_, RuntimeState>,
+    out_ptr: i32,
+    lane: usize,
+    value: u64,
+) -> Result<(), wasmtime::Error> {
+    let out_ptr = usize::try_from(out_ptr).map_err(|_| trap("negative out pointer"))?;
+    let offset = out_ptr
+        .checked_add(lane.saturating_mul(8))
+        .ok_or_else(|| trap("out pointer overflow"))?;
+    let memory = caller
+        .get_export("memory")
+        .and_then(|e| e.into_memory())
+        .ok_or_else(|| trap("missing guest memory export"))?;
+    memory
+        .write(&mut *caller, offset, &value.to_le_bytes())
+        .map_err(|e| trap(e.to_string()))
+}
+
 fn hash4<T>(a0: u64, a1: u64, a2: u64, a3: u64) -> Hash<T> {
     Hash([a0, a1, a2, a3], std::marker::PhantomData)
 }
@@ -641,14 +660,18 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_activation",
-                |mut caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmtime::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 out_ptr: i32|
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = caller
                         .data_mut()
                         .pending_activation
                         .remove(&current_pid)
                         .ok_or(trap("no pending activation"))?;
-                    Ok((val.0, caller_id.0 as u64))
+                    write_u64_to_memory(&mut caller, out_ptr, 0, val.0)?;
+                    write_u64_to_memory(&mut caller, out_ptr, 1, caller_id.0 as u64)?;
+                    Ok(())
                 },
             )
             .unwrap();
@@ -656,7 +679,9 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_untraced_activation",
-                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmtime::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 out_ptr: i32|
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = caller
                         .data()
@@ -664,7 +689,9 @@ impl Runtime {
                         .get(&current_pid)
                         .copied()
                         .ok_or(trap("no pending activation"))?;
-                    Ok((val.0, caller_id.0 as u64))
+                    write_u64_to_memory(&mut caller, out_ptr, 0, val.0)?;
+                    write_u64_to_memory(&mut caller, out_ptr, 1, caller_id.0 as u64)?;
+                    Ok(())
                 },
             )
             .unwrap();
@@ -673,7 +700,9 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_init",
-                |caller: Caller<'_, RuntimeState>| -> Result<(u64, u64), wasmtime::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 out_ptr: i32|
+                 -> Result<(), wasmtime::Error> {
                     let current_pid = caller.data().current_process;
                     let (val, caller_id) = {
                         let (val, caller_id) = caller
@@ -683,7 +712,9 @@ impl Runtime {
                             .ok_or(trap("no pending init"))?;
                         (*val, *caller_id)
                     };
-                    Ok((val.0, caller_id.0 as u64))
+                    write_u64_to_memory(&mut caller, out_ptr, 0, val.0)?;
+                    write_u64_to_memory(&mut caller, out_ptr, 1, caller_id.0 as u64)?;
+                    Ok(())
                 },
             )
             .unwrap();
@@ -807,10 +838,11 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_ref_get",
-                |caller: Caller<'_, RuntimeState>,
+                |mut caller: Caller<'_, RuntimeState>,
                  reff: u64,
-                 offset: u64|
-                 -> Result<(i64, i64, i64, i64), wasmtime::Error> {
+                 offset: u64,
+                 out_ptr: i32|
+                 -> Result<(), wasmtime::Error> {
                     let ref_id = Ref(reff);
                     let offset_words = offset as usize;
                     let store = caller
@@ -833,12 +865,11 @@ impl Runtime {
                             *slot = store[idx];
                         }
                     }
-                    Ok((
-                        ret[0].0 as i64,
-                        ret[1].0 as i64,
-                        ret[2].0 as i64,
-                        ret[3].0 as i64,
-                    ))
+                    write_u64_to_memory(&mut caller, out_ptr, 0, ret[0].0)?;
+                    write_u64_to_memory(&mut caller, out_ptr, 1, ret[1].0)?;
+                    write_u64_to_memory(&mut caller, out_ptr, 2, ret[2].0)?;
+                    write_u64_to_memory(&mut caller, out_ptr, 3, ret[3].0)?;
+                    Ok(())
                 },
             )
             .unwrap();
@@ -898,22 +929,21 @@ impl Runtime {
             .func_wrap(
                 "env",
                 "starstream_get_program_hash",
-                |caller: Caller<'_, RuntimeState>,
-                 target_pid: u64|
-                 -> Result<(u64, u64, u64, u64), wasmtime::Error> {
+                |mut caller: Caller<'_, RuntimeState>,
+                 target_pid: u64,
+                 out_ptr: i32|
+                 -> Result<(), wasmtime::Error> {
                     let target = ProcessId(target_pid as usize);
                     let program_hash = *caller
                         .data()
                         .process_hashes
                         .get(&target)
                         .ok_or(trap("process hash not found"))?;
-
-                    Ok((
-                        program_hash.0[0],
-                        program_hash.0[1],
-                        program_hash.0[2],
-                        program_hash.0[3],
-                    ))
+                    write_u64_to_memory(&mut caller, out_ptr, 0, program_hash.0[0])?;
+                    write_u64_to_memory(&mut caller, out_ptr, 1, program_hash.0[1])?;
+                    write_u64_to_memory(&mut caller, out_ptr, 2, program_hash.0[2])?;
+                    write_u64_to_memory(&mut caller, out_ptr, 3, program_hash.0[3])?;
+                    Ok(())
                 },
             )
             .unwrap();
