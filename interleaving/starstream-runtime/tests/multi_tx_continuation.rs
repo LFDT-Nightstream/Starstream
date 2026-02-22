@@ -128,7 +128,7 @@ fn test_multi_tx_accumulator_global() {
         if pc == 1 {
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
-            let (resp, caller) = call untraced_activation();
+            let (resp, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
@@ -156,7 +156,7 @@ fn test_multi_tx_accumulator_global() {
         if pc == 1 {
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
-            let (resp, caller) = call untraced_activation();
+            let (resp, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
@@ -184,7 +184,7 @@ fn test_multi_tx_accumulator_global() {
         if pc == 1 {
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
-            let (resp, caller) = call untraced_activation();
+            let (resp, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);

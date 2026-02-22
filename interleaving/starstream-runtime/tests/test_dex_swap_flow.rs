@@ -121,7 +121,7 @@ fn test_dex_swap_flow() {
         if pc == 1 {
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
-            let (_resp_start, caller) = call untraced_activation();
+            let (_resp_start, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, _resp_start, caller_enc, 0, 0, 0);
             call set_datum(1, caller);
@@ -138,7 +138,7 @@ fn test_dex_swap_flow() {
         if pc == 2 {
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
-            let (resp_amt, caller_amt) = call untraced_activation();
+            let (resp_amt, caller_amt) = call activation();
             let caller_amt_enc = add caller_amt, 1;
             call trace(0, last_target, last_val, resp_amt, caller_amt_enc, 0, 0, 0);
             let (dy, _b0, _c0, _d0) = call ref_get(resp_amt, 0);
@@ -158,7 +158,7 @@ fn test_dex_swap_flow() {
         if pc == 3 {
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
-            let (_resp_add, caller) = call untraced_activation();
+            let (_resp_add, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, _resp_add, caller_enc, 0, 0, 0);
             call set_datum(1, caller);
@@ -175,7 +175,7 @@ fn test_dex_swap_flow() {
         if pc == 4 {
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
-            let (resp_remove, caller) = call untraced_activation();
+            let (resp_remove, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, resp_remove, caller_enc, 0, 0, 0);
             call set_datum(1, caller);
@@ -194,7 +194,7 @@ fn test_dex_swap_flow() {
         if pc == 5 {
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
-            let (_resp_x, caller_x) = call untraced_activation();
+            let (_resp_x, caller_x) = call activation();
             let caller_x_enc = add caller_x, 1;
             call trace(0, last_target, last_val, _resp_x, caller_x_enc, 0, 0, 0);
 
@@ -211,7 +211,7 @@ fn test_dex_swap_flow() {
         if pc == 6 {
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
-            let (resp_end, caller_end) = call untraced_activation();
+            let (resp_end, caller_end) = call activation();
             let caller_end_enc = add caller_end, 1;
             call trace(0, last_target, last_val, resp_end, caller_end_enc, 0, 0, 0);
             let (_k_val, _b2, _c2, _d2) = call ref_get(resp_end, 0);
@@ -404,7 +404,7 @@ fn test_dex_swap_flow() {
         if pc == 1 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (_resp_bind_y, caller_bind_y) = call untraced_activation();
+            let (_resp_bind_y, caller_bind_y) = call activation();
             let caller_enc = add caller_bind_y, 1;
             call trace(0, last_target, last_val, _resp_bind_y, caller_enc, 0, 0, 0);
 
@@ -422,7 +422,7 @@ fn test_dex_swap_flow() {
         if pc == 2 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (_resp_bind_x, caller_bind_x) = call untraced_activation();
+            let (_resp_bind_x, caller_bind_x) = call activation();
             let caller_enc = add caller_bind_x, 1;
             call trace(0, last_target, last_val, _resp_bind_x, caller_enc, 0, 0, 0);
 
@@ -439,7 +439,7 @@ fn test_dex_swap_flow() {
         if pc == 3 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (_resp_read_y, caller_read_y) = call untraced_activation();
+            let (_resp_read_y, caller_read_y) = call activation();
             let caller_enc = add caller_read_y, 1;
             call trace(0, last_target, last_val, _resp_read_y, caller_enc, 0, 0, 0);
 
@@ -456,7 +456,7 @@ fn test_dex_swap_flow() {
         if pc == 4 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (_resp_read_x, caller_read_x) = call untraced_activation();
+            let (_resp_read_x, caller_read_x) = call activation();
             let caller_enc = add caller_read_x, 1;
             call trace(0, last_target, last_val, _resp_read_x, caller_enc, 0, 0, 0);
 
@@ -473,7 +473,7 @@ fn test_dex_swap_flow() {
         if pc == 5 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (_resp_noop, caller_noop) = call untraced_activation();
+            let (_resp_noop, caller_noop) = call activation();
             let caller_enc = add caller_noop, 1;
             call trace(0, last_target, last_val, _resp_noop, caller_enc, 0, 0, 0);
             call set_datum(0, 6);

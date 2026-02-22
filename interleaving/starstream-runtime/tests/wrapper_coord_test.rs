@@ -101,7 +101,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         }
         if pc == 1 {
             let req = call get_datum(1);
-            let (resp, _caller_effect) = call untraced_activation();
+            let (resp, _caller_effect) = call activation();
             call trace(18, 0, req, resp, 1, 2, 3, 4);
             let done = call new_ref(1);
             call trace(10, 0, 0, done, 1, 0, 0, 0);
@@ -133,7 +133,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         }
         if pc == 1 {
             let req = call get_datum(1);
-            let (resp, _caller_effect) = call untraced_activation();
+            let (resp, _caller_effect) = call activation();
             call trace(18, 0, req, resp, 1, 2, 3, 4);
             let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
             call trace(12, _disc, resp, val, 0, _c2, _d2, 0);
@@ -180,7 +180,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 1 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (resp_new, caller2) = call untraced_activation();
+            let (resp_new, caller2) = call activation();
             let caller2_enc = add caller2, 1;
             call trace(0, last_target, last_val, resp_new, caller2_enc, 0, 0, 0);
             let (_disc, cell_ref, _c2, _d2) = call ref_get(resp_new, 0);
@@ -201,7 +201,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 2 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (ret1, caller3) = call untraced_activation();
+            let (ret1, caller3) = call activation();
             let caller3_enc = add caller3, 1;
             call trace(0, last_target, last_val, ret1, caller3_enc, 0, 0, 0);
             let utxo2_id = call get_datum(2);
@@ -214,7 +214,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 3 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (ret2, caller4) = call untraced_activation();
+            let (ret2, caller4) = call activation();
             let caller4_enc = add caller4, 1;
             call trace(0, last_target, last_val, ret2, caller4_enc, 0, 0, 0);
             let handler_id = call get_datum(3);
@@ -230,7 +230,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 4 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (resp_end, caller5) = call untraced_activation();
+            let (resp_end, caller5) = call activation();
             let caller5_enc = add caller5, 1;
             call trace(0, last_target, last_val, resp_end, caller5_enc, 0, 0, 0);
             call set_datum(0, 5);
@@ -263,7 +263,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 1 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (req, caller) = call untraced_activation();
+            let (req, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, req, caller_enc, 0, 0, 0);
             let (disc, _cell_ref, value, _d2) = call ref_get(req, 0);
@@ -320,7 +320,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 2 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
-            let (ret, caller) = call untraced_activation();
+            let (ret, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
             call uninstall_handler(1, 2, 3, 4);
@@ -440,7 +440,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 1 {
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
-            let (ret, caller) = call untraced_activation();
+            let (ret, caller) = call activation();
             let caller_enc = add caller, 1;
             call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
             call set_datum(0, 2);

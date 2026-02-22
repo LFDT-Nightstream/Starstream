@@ -19,7 +19,7 @@ fn test_runtime_simple_effect_handlers() {
     let utxo_bin = wasm_module!(utxo_builder, {
         let pc = call get_datum(0);
         if pc == 0 {
-            let (_init_ref, caller) = call untraced_activation();
+            let (_init_ref, caller) = call activation();
             call trace(8, 0, _init_ref, 0, caller, 0, 0, 0);
 
             let (caller_hash_a, caller_hash_b, caller_hash_c, caller_hash_d) = call get_program_hash(caller);
@@ -42,7 +42,7 @@ fn test_runtime_simple_effect_handlers() {
         }
         if pc == 1 {
             let req = call get_datum(1);
-            let (resp, _caller_effect) = call untraced_activation();
+            let (resp, _caller_effect) = call activation();
             call trace(18, 0, req, resp, 1, 0, 0, 0);
             let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, resp_val, resp, _b, 0, _c, _d, 0);
@@ -92,7 +92,7 @@ fn test_runtime_simple_effect_handlers() {
         }
         if pc == 1 {
             let init_val = call get_datum(1);
-            let (req, caller_pid) = call untraced_activation();
+            let (req, caller_pid) = call activation();
             let caller_pid_enc = add caller_pid, 1;
             call trace(0, 0, init_val, req, caller_pid_enc, 0, 0, 0);
             let (req_val, _b, _c, _d) = call ref_get(req, 0);
@@ -109,7 +109,7 @@ fn test_runtime_simple_effect_handlers() {
         }
         if pc == 2 {
             let resp = call get_datum(1);
-            let (ret, caller2) = call untraced_activation();
+            let (ret, caller2) = call activation();
             let caller2_enc = add caller2, 1;
             call trace(0, 0, resp, ret, caller2_enc, 0, 0, 0);
             call uninstall_handler(1, 0, 0, 0);
@@ -177,7 +177,7 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // pc=0: boot once, build first forward request, then hand control to coord.
         if pc == 0 {
-            let (init_ref, caller) = call untraced_activation();
+            let (init_ref, caller) = call activation();
             // 8=Activation: a1=init_ref, a3=caller pid.
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
 
@@ -204,7 +204,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         // send next forward request or send a stop request after 5 rounds.
         if pc == 1 {
             let req = call get_datum(3);
-            let (resp, _caller_effect) = call untraced_activation();
+            let (resp, _caller_effect) = call activation();
             // 18=CallEffectHandler: a1=req, a2=resp, a3..a6=interface id.
             call trace(18, 0, req, resp, 1, 2, 3, 4);
             let (y, _b, _c, _d) = call ref_get(resp, 0);
@@ -264,7 +264,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         // pc=2: ack the stop response and yield final control back to coord.
         if pc == 2 {
             let stop = call get_datum(3);
-            let (resp_stop, _caller_effect) = call untraced_activation();
+            let (resp_stop, _caller_effect) = call activation();
             // 18=CallEffectHandler completion for stop request.
             call trace(18, 0, stop, resp_stop, 1, 2, 3, 4);
             // 1=Yield: a1=yielded ref.
@@ -279,7 +279,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         let pc = call get_datum(0);
         // pc=0: first activation, process forwarded value, write y=x+1, yield response.
         if pc == 0 {
-            let (init_ref, caller) = call untraced_activation();
+            let (init_ref, caller) = call activation();
             // 8=Activation: a1=activation ref, a3=caller pid.
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
             call set_datum(1, init_ref);
@@ -299,7 +299,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         }
         // pc=1: steady-state loop for all following forwarded requests.
         if pc == 1 {
-            let (next_req, caller2) = call untraced_activation();
+            let (next_req, caller2) = call activation();
             // 8=Activation for subsequent forwarded request.
             call trace(8, 0, next_req, 0, caller2, 0, 0, 0);
             call set_datum(1, next_req);
@@ -392,7 +392,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         if pc == 1 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (req, caller0) = call untraced_activation();
+            let (req, caller0) = call activation();
             let caller0_enc = add caller0, 1;
             // 0=Resume: a0=target, a1=val, a2=ret, a3=encoded caller.
             call trace(0, last_target, last_val, req, caller0_enc, 0, 0, 0);
@@ -423,7 +423,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         if pc == 2 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (resp2, caller2) = call untraced_activation();
+            let (resp2, caller2) = call activation();
             let caller2_enc = add caller2, 1;
             // 0=Resume return from utxo2.
             call trace(0, last_target, last_val, resp2, caller2_enc, 0, 0, 0);
@@ -439,7 +439,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         if pc == 3 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
-            let (ret_stop, caller_stop) = call untraced_activation();
+            let (ret_stop, caller_stop) = call activation();
             let caller_stop_enc = add caller_stop, 1;
             // 0=Resume return from final stop handoff.
             call trace(0, last_target, last_val, ret_stop, caller_stop_enc, 0, 0, 0);

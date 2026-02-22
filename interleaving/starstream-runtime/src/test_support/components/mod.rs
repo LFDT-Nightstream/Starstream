@@ -9,7 +9,6 @@ world runtime {
         starstream-get-datum: func(slot: u64) -> u64;
         starstream-set-datum: func(slot: u64, val: u64);
         starstream-activation: func() -> tuple<u64, u64>;
-        starstream-untraced-activation: func() -> tuple<u64, u64>;
         starstream-get-program-hash: func(target: u64) -> tuple<u64, u64, u64, u64>;
         starstream-get-handler-for: func(h0: u64, h1: u64, h2: u64, h3: u64) -> u64;
         starstream-call-effect-handler: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64);

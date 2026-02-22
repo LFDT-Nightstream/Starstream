@@ -221,7 +221,6 @@ pub struct Imports {
     pub get_datum: FuncRef,
     pub set_datum: FuncRef,
     pub activation: FuncRef,
-    pub untraced_activation: FuncRef,
     pub get_program_hash: FuncRef,
     pub get_handler_for: FuncRef,
     pub call_effect_handler: FuncRef,
@@ -293,12 +292,6 @@ impl ModuleBuilder {
             &[],
         );
         let activation = self.import_func("env", "starstream-activation", &[ValType::I32], &[]);
-        let untraced_activation = self.import_func(
-            "env",
-            "starstream-untraced-activation",
-            &[ValType::I32],
-            &[],
-        );
         let get_program_hash = self.import_func(
             "env",
             "starstream-get-program-hash",
@@ -408,7 +401,6 @@ impl ModuleBuilder {
             get_datum,
             set_datum,
             activation,
-            untraced_activation,
             get_program_hash,
             get_handler_for,
             call_effect_handler,
@@ -685,7 +677,7 @@ macro_rules! wasm_stmt {
     };
 
     ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call untraced_activation(); $($rest:tt)*) => {
-        $f.call_with_retptr($imports.untraced_activation, $crate::wasm_args!(), &[$a, $b]);
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
@@ -766,7 +758,7 @@ macro_rules! wasm_stmt {
     ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call untraced_activation(); $($rest:tt)*) => {
         let $a = $f.local_i64();
         let $b = $f.local_i64();
-        $f.call_with_retptr($imports.untraced_activation, $crate::wasm_args!(), &[$a, $b]);
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
