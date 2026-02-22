@@ -3253,9 +3253,12 @@ dependencies = [
  "starstream-interleaving-spec",
  "thiserror 2.0.17",
  "wasm-encoder 0.240.0",
- "wasmprinter 0.2.80",
+ "wasmparser 0.240.0",
+ "wasmprinter",
  "wasmtime",
  "wat",
+ "wit-component",
+ "wit-parser",
 ]
 
 [[package]]
@@ -3269,7 +3272,7 @@ dependencies = [
  "starstream-compiler",
  "starstream-to-wasm",
  "termcolor",
- "wasmprinter 0.240.0",
+ "wasmprinter",
  "wit-component",
 ]
 
@@ -3283,7 +3286,7 @@ dependencies = [
  "starstream-types",
  "thiserror 2.0.17",
  "wasm-encoder 0.240.0",
- "wasmprinter 0.240.0",
+ "wasmprinter",
  "wasmtime",
  "wit-component",
 ]
@@ -3919,17 +3922,6 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.121.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dbe55c8f9d0dbd25d9447a5a889ff90c0cc3feaa7395310d3d826b2c703eaab"
-dependencies = [
- "bitflags 2.9.4",
- "indexmap 2.11.4",
- "semver",
-]
-
-[[package]]
-name = "wasmparser"
 version = "0.240.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b722dcf61e0ea47440b53ff83ccb5df8efec57a69d150e4f24882e4eba7e24a4"
@@ -3950,16 +3942,6 @@ dependencies = [
  "bitflags 2.9.4",
  "indexmap 2.11.4",
  "semver",
-]
-
-[[package]]
-name = "wasmprinter"
-version = "0.2.80"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60e73986a6b7fdfedb7c5bf9e7eb71135486507c8fbc4c0c42cffcb6532988b7"
-dependencies = [
- "anyhow",
- "wasmparser 0.121.2",
 ]
 
 [[package]]
@@ -4053,7 +4035,7 @@ dependencies = [
  "target-lexicon",
  "wasm-encoder 0.240.0",
  "wasmparser 0.240.0",
- "wasmprinter 0.240.0",
+ "wasmprinter",
  "wasmtime-internal-component-util",
 ]
 
