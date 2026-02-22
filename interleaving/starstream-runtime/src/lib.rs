@@ -6,6 +6,7 @@ use starstream_interleaving_spec::{
     ProvenTransaction, Ref, UtxoId, Value, WasmModule, WitEffectOutput, WitLedgerEffect,
     builder::TransactionBuilder,
 };
+use starstream_interleaving_spec::{REF_GET_WIDTH, REF_PUSH_WIDTH, REF_WRITE_WIDTH};
 use std::collections::{HashMap, HashSet};
 use wasmtime::component::{
     Component, Instance as ComponentInstance, Linker as ComponentLinker, Val as ComponentVal,
@@ -719,7 +720,7 @@ impl Runtime {
                     let current_pid = caller.data().current_process;
                     let size_words = size as usize;
                     let size_elems = size_words
-                        .checked_mul(starstream_interleaving_spec::REF_PUSH_WIDTH)
+                        .checked_mul(REF_PUSH_WIDTH)
                         .ok_or(trap("ref size overflow"))?;
                     let ref_id = Ref(caller.data().next_ref);
                     caller.data_mut().next_ref += size_elems as u64;
@@ -772,11 +773,7 @@ impl Runtime {
 
                     caller.data_mut().ref_state.insert(
                         current_pid,
-                        (
-                            ref_id,
-                            elem_offset + starstream_interleaving_spec::REF_PUSH_WIDTH,
-                            size_words,
-                        ),
+                        (ref_id, elem_offset + REF_PUSH_WIDTH, size_words),
                     );
 
                     Ok(())
@@ -816,7 +813,7 @@ impl Runtime {
                         .get_mut(&ref_id)
                         .ok_or(trap("ref not found"))?;
 
-                    let elem_offset = offset_words * starstream_interleaving_spec::REF_WRITE_WIDTH;
+                    let elem_offset = offset_words * REF_WRITE_WIDTH;
                     for (i, val) in vals.iter().enumerate() {
                         store[elem_offset + i] = *val;
                     }
@@ -850,10 +847,10 @@ impl Runtime {
                     if offset_words >= size {
                         return Err(trap("ref get overflow"));
                     }
-                    let mut ret = [Value::nil(); starstream_interleaving_spec::REF_GET_WIDTH];
+                    let mut ret = [Value::nil(); REF_GET_WIDTH];
                     for (i, slot) in ret.iter_mut().enumerate() {
-                        let idx = (offset_words * starstream_interleaving_spec::REF_GET_WIDTH) + i;
-                        if idx < size * starstream_interleaving_spec::REF_GET_WIDTH {
+                        let idx = (offset_words * REF_GET_WIDTH) + i;
+                        if idx < size * REF_GET_WIDTH {
                             *slot = store[idx];
                         }
                     }
@@ -1271,8 +1268,9 @@ impl Runtime {
                     let current_pid = store.data().current_process;
                     let size_words = size as usize;
                     let size_elems = size_words
-                        .checked_mul(starstream_interleaving_spec::REF_PUSH_WIDTH)
+                        .checked_mul(REF_PUSH_WIDTH)
                         .ok_or(trap("ref size overflow"))?;
+
                     let ref_id = Ref(store.data().next_ref);
                     store.data_mut().next_ref += size_elems as u64;
 
@@ -1280,11 +1278,14 @@ impl Runtime {
                         .data_mut()
                         .ref_store
                         .insert(ref_id, vec![Value(0); size_elems]);
+
                     store.data_mut().ref_sizes.insert(ref_id, size_words);
+
                     store
                         .data_mut()
                         .ref_state
                         .insert(current_pid, (ref_id, 0, size_words));
+
                     Ok((ref_id.0,))
                 },
             )
@@ -1309,21 +1310,17 @@ impl Runtime {
                         .get_mut(&ref_id)
                         .ok_or(trap("ref not found"))?;
 
-                    let elem_offset = offset;
                     for (i, val) in vals.iter().enumerate() {
-                        if let Some(pos) = store_ref.get_mut(elem_offset + i) {
+                        if let Some(pos) = store_ref.get_mut(offset + i) {
                             *pos = *val;
                         }
                     }
 
-                    store.data_mut().ref_state.insert(
-                        current_pid,
-                        (
-                            ref_id,
-                            elem_offset + starstream_interleaving_spec::REF_PUSH_WIDTH,
-                            size_words,
-                        ),
-                    );
+                    store
+                        .data_mut()
+                        .ref_state
+                        .insert(current_pid, (ref_id, offset + REF_PUSH_WIDTH, size_words));
+
                     Ok(())
                 },
             )
@@ -1337,16 +1334,6 @@ impl Runtime {
                     let ref_id = Ref(reff);
                     let offset_words = offset as usize;
 
-                    let size = *store
-                        .data()
-                        .ref_sizes
-                        .get(&ref_id)
-                        .ok_or(trap("ref size not found"))?;
-
-                    if offset_words >= size {
-                        return Err(trap("ref write overflow").into());
-                    }
-
                     let vals = [Value(val_0), Value(val_1), Value(val_2), Value(val_3)];
                     let store_ref = store
                         .data_mut()
@@ -1354,10 +1341,12 @@ impl Runtime {
                         .get_mut(&ref_id)
                         .ok_or(trap("ref not found"))?;
 
-                    let elem_offset = offset_words * starstream_interleaving_spec::REF_WRITE_WIDTH;
+                    let elem_offset = offset_words * REF_WRITE_WIDTH;
+
                     for (i, val) in vals.iter().enumerate() {
                         store_ref[elem_offset + i] = *val;
                     }
+
                     Ok(())
                 },
             )
@@ -1369,27 +1358,30 @@ impl Runtime {
                  (reff, offset): (u64, u64)|
                  -> wasmtime::Result<((u64, u64, u64, u64),)> {
                     let ref_id = Ref(reff);
+
                     let offset_words = offset as usize;
+
                     let store_ref = store
                         .data()
                         .ref_store
                         .get(&ref_id)
                         .ok_or(trap("ref not found"))?;
+
                     let size = *store
                         .data()
                         .ref_sizes
                         .get(&ref_id)
                         .ok_or(trap("ref size not found"))?;
-                    if offset_words >= size {
-                        return Err(trap("ref get overflow").into());
-                    }
-                    let mut ret = [Value::nil(); starstream_interleaving_spec::REF_GET_WIDTH];
+
+                    let mut ret = [Value::nil(); REF_GET_WIDTH];
+
                     for (i, slot) in ret.iter_mut().enumerate() {
-                        let idx = (offset_words * starstream_interleaving_spec::REF_GET_WIDTH) + i;
-                        if idx < size * starstream_interleaving_spec::REF_GET_WIDTH {
+                        let idx = (offset_words * REF_GET_WIDTH) + i;
+                        if idx < size * REF_GET_WIDTH {
                             *slot = store_ref[idx];
                         }
                     }
+
                     Ok(((ret[0].0, ret[1].0, ret[2].0, ret[3].0),))
                 },
             )
