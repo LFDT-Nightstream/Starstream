@@ -3,48 +3,33 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x = Option::Some(42);\n    let y = match x {\n        Option::Some(v) => {\n            v\n        },\n        Option::None => {\n            0\n        },\n    };\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option<t3>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
-      T-Int: {} ⊢ 42 ⇒ t4
-      Unify-Var: t4 ~ t3 => {t3/t4}
-  T-Let: {x: enum Option<t3> {
-    Some(t3),
-    None,
-}} ⊢ let y = match x {
+  T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option<i64>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t4}
+  T-Let: {x: Option<i64>} ⊢ let y = match x {
     Option::Some(v) => {
         v
     },
     Option::None => {
         0
     },
-}; ⇒ t6
-    T-Match: {x: enum Option<t3> {
-    Some(t3),
-    None,
-}} ⊢ match x {
+}; ⇒ i64
+    T-Match: {x: Option<i64>} ⊢ match x {
     Option::Some(v) => {
         v
     },
     Option::None => {
         0
     },
-} ⇒ t6
-      T-Var: {x: enum Option<t3> {
-    Some(t3),
-    None,
-}} ⊢ x ⇒ Option<t3>
-      Unify-Enum: Option<t3> ~ Option<t5> => {t5/t3}
-        Unify-Var: t3 ~ t5 => {t5/t3}
-      T-Tail: v => t5
-        T-Var: {v: t5, x: enum Option<t3> {
-    Some(t3),
-    None,
-}} ⊢ v ⇒ t5
-      Unify-Enum: Option<t5> ~ Option<t6> => {t6/t5}
-        Unify-Var: t5 ~ t6 => {t6/t5}
-      T-Tail: 0 => t7
-        T-Int: {x: enum Option<t3> {
-    Some(t3),
-    None,
-}} ⊢ 0 ⇒ t7
-      Unify-Var: t7 ~ t6 => t6
+} ⇒ i64
+      T-Var: {x: Option<i64>} ⊢ x ⇒ Option<i64>
+      Unify-Enum: Option<i64> ~ Option<t5> => {i64/t3}
+        Unify-Var: i64 ~ t5 => {i64/t3}
+      T-Tail: v => i64
+        T-Var: {v: i64, x: Option<i64>} ⊢ v ⇒ i64
+      Unify-Enum: Option<i64> ~ Option<t6> => {i64/t5}
+        Unify-Var: i64 ~ t6 => {i64/t5}
+      T-Tail: 0 => i64
+        T-Int: {x: Option<i64>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64

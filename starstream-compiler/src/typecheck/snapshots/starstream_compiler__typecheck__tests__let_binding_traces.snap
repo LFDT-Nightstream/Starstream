@@ -3,14 +3,14 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let answer = 42;\n    let foo: i64 = 10;\n    let bar: bool = false;\n    let baz: _ = 2;\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let answer = 42; ⇒ t3
-    T-Int: {} ⊢ 42 ⇒ t3
-  T-Let: {answer: t3} ⊢ let foo: i64 = 10; ⇒ i64
-    T-Int: {answer: t3} ⊢ 10 ⇒ t4
-    Unify-Var: i64 ~ t4 => {i64/t4}
-  T-Let: {answer: t3, foo: i64} ⊢ let bar: bool = false; ⇒ bool
-    T-Bool: {answer: t3, foo: i64} ⊢ false ⇒ bool
+  T-Let: {} ⊢ let answer = 42; ⇒ i64
+    T-Int: {} ⊢ 42 ⇒ i64
+  T-Let: {answer: i64} ⊢ let foo: i64 = 10; ⇒ i64
+    T-Int: {answer: i64} ⊢ 10 ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t4}
+  T-Let: {answer: i64, foo: i64} ⊢ let bar: bool = false; ⇒ bool
+    T-Bool: {answer: i64, foo: i64} ⊢ false ⇒ bool
     Unify-Const: bool ~ bool => {}
-  T-Let: {answer: t3, bar: bool, foo: i64} ⊢ let baz: _ = 2; ⇒ t5
-    T-Int: {answer: t3, bar: bool, foo: i64} ⊢ 2 ⇒ t5
-    Unify-Var: t6 ~ t5 => {t5/t6}
+  T-Let: {answer: i64, bar: bool, foo: i64} ⊢ let baz: _ = 2; ⇒ i64
+    T-Int: {answer: i64, bar: bool, foo: i64} ⊢ 2 ⇒ i64
+    Unify-Var: t6 ~ i64 => {i64/t6}

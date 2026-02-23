@@ -3,12 +3,12 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let left = 1;\n    let right = 2;\n    let total = left + right;\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let left = 1; ⇒ t3
-    T-Int: {} ⊢ 1 ⇒ t3
-  T-Let: {left: t3} ⊢ let right = 2; ⇒ t4
-    T-Int: {left: t3} ⊢ 2 ⇒ t4
-  T-Let: {left: t3, right: t4} ⊢ let total = left + right; ⇒ t4
-    T-Bin-Add: {left: t3, right: t4} ⊢ left + right ⇒ t4
-      T-Var: {left: t3, right: t4} ⊢ left ⇒ t3
-      T-Var: {left: t3, right: t4} ⊢ right ⇒ t4
-      Unify-Var: t3 ~ t4 => {t4/t3}
+  T-Let: {} ⊢ let left = 1; ⇒ i64
+    T-Int: {} ⊢ 1 ⇒ i64
+  T-Let: {left: i64} ⊢ let right = 2; ⇒ i64
+    T-Int: {left: i64} ⊢ 2 ⇒ i64
+  T-Let: {left: i64, right: i64} ⊢ let total = left + right; ⇒ i64
+    T-Bin-Add: {left: i64, right: i64} ⊢ left + right ⇒ i64
+      T-Var: {left: i64, right: i64} ⊢ left ⇒ i64
+      T-Var: {left: i64, right: i64} ⊢ right ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}

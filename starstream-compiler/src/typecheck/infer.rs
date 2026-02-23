@@ -3785,6 +3785,7 @@ impl Inferencer {
     }
 
     /// Render the current environment snapshot into a deterministic string.
+    /// Resolves int-constrained type vars so traces show concrete types.
     fn format_env(&self, env: &TypeEnv) -> String {
         let snapshot = env.snapshot();
         if snapshot.is_empty() {
@@ -3792,7 +3793,10 @@ impl Inferencer {
         } else {
             let entries = snapshot
                 .iter()
-                .map(|(name, scheme)| format!("{name}: {scheme}"))
+                .map(|(name, scheme)| {
+                    let display_ty = self.apply_for_display(&scheme.ty);
+                    format!("{name}: {}", display_ty.to_compact_string())
+                })
                 .collect::<Vec<_>>();
             format!("{{{}}}", entries.join(", "))
         }
@@ -3859,9 +3863,11 @@ impl Inferencer {
         }
     }
 
-    /// Short helper to format a type compactly for error messages.
+    /// Short helper to format a type compactly for traces and error messages.
+    /// Resolves int-constrained type vars to their default (`i64`) so that
+    /// traces and errors never expose internal variable names like `t3`.
     fn format_type(&self, ty: &Type) -> String {
-        ty.to_compact_string()
+        self.apply_for_display(ty).to_compact_string()
     }
 
     /// Format the difference between the stored substitution map and a prior snapshot.

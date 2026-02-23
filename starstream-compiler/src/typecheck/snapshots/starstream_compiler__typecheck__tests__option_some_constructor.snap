@@ -3,7 +3,7 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x = Option::Some(42);\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option<t3>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
-      T-Int: {} ⊢ 42 ⇒ t4
-      Unify-Var: t4 ~ t3 => {t3/t4}
+  T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option<i64>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t4}

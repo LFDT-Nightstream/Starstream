@@ -4,16 +4,13 @@ description: "Source:\n\nfn test() {\n    let x: Result<i64, bool> = Result::Ok(
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result<i64, bool>
-    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<t3, t4>
-      T-Int: {} ⊢ 42 ⇒ t5
-      Unify-Var: t5 ~ t3 => {t3/t5}
-    Unify-Enum: Result<i64, bool> ~ Result<t3, t4> => {bool/t4, i64/t3}
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<i64, t4>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t5}
+    Unify-Enum: Result<i64, bool> ~ Result<i64, t4> => {bool/t4, i64/t3}
       Unify-Var: bool ~ t4 => {bool/t4}
-      Unify-Var: i64 ~ t3 => {i64/t3}
-  T-Let: {x: enum Result<i64, bool> {
-    Err(bool),
-    Ok(i64),
-}} ⊢ let y = match x {
+      Unify-Var: i64 ~ i64 => {i64/t3}
+  T-Let: {x: Result<i64, bool>} ⊢ let y = match x {
     Result::Ok(v) => {
         v
     },
@@ -21,10 +18,7 @@ T-Fn: test => ()
         0
     },
 }; ⇒ i64
-    T-Match: {x: enum Result<i64, bool> {
-    Err(bool),
-    Ok(i64),
-}} ⊢ match x {
+    T-Match: {x: Result<i64, bool>} ⊢ match x {
     Result::Ok(v) => {
         v
     },
@@ -32,24 +26,15 @@ T-Fn: test => ()
         0
     },
 } ⇒ i64
-      T-Var: {x: enum Result<i64, bool> {
-    Err(bool),
-    Ok(i64),
-}} ⊢ x ⇒ Result<i64, bool>
+      T-Var: {x: Result<i64, bool>} ⊢ x ⇒ Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result<t6, t7> => {bool/t7, i64/t6}
         Unify-Var: bool ~ t7 => {bool/t7}
         Unify-Var: i64 ~ t6 => {i64/t6}
-      T-Tail: v => t6
-        T-Var: {v: t6, x: enum Result<i64, bool> {
-    Err(bool),
-    Ok(i64),
-}} ⊢ v ⇒ t6
+      T-Tail: v => i64
+        T-Var: {v: i64, x: Result<i64, bool>} ⊢ v ⇒ i64
       Unify-Enum: Result<i64, bool> ~ Result<t8, t9> => {bool/t9, i64/t8}
         Unify-Var: bool ~ t9 => {bool/t9}
         Unify-Var: i64 ~ t8 => {i64/t8}
-      T-Tail: 0 => t10
-        T-Int: {e: t9, x: enum Result<i64, bool> {
-    Err(bool),
-    Ok(i64),
-}} ⊢ 0 ⇒ t10
-      Unify-Var: t10 ~ i64 => i64
+      T-Tail: 0 => i64
+        T-Int: {e: bool, x: Result<i64, bool>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64

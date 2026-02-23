@@ -13,37 +13,21 @@ T-Fn: test => ()
     age: 2,
     email: 3,
 } ⇒ User
-      T-Int: {} ⊢ 1 ⇒ t3
-      Unify-Var: t3 ~ i64 => {i64/t3}
-      T-Int: {} ⊢ 2 ⇒ t4
-      Unify-Var: t4 ~ i64 => {i64/t4}
-      T-Int: {} ⊢ 3 ⇒ t5
-      Unify-Var: t5 ~ i64 => {i64/t5}
-  T-Let: {u: struct User {
-    name: i64,
-    age: i64,
-    email: i64,
-}} ⊢ let z = ZOrder {
+      T-Int: {} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}
+      T-Int: {} ⊢ 2 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t4}
+      T-Int: {} ⊢ 3 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t5}
+  T-Let: {u: User} ⊢ let z = ZOrder {
     z: 1,
     a: 2,
 }; ⇒ ZOrder
-    T-StructLit: {u: struct User {
-    name: i64,
-    age: i64,
-    email: i64,
-}} ⊢ ZOrder {
+    T-StructLit: {u: User} ⊢ ZOrder {
     z: 1,
     a: 2,
 } ⇒ ZOrder
-      T-Int: {u: struct User {
-    name: i64,
-    age: i64,
-    email: i64,
-}} ⊢ 1 ⇒ t6
-      Unify-Var: t6 ~ i64 => {i64/t6}
-      T-Int: {u: struct User {
-    name: i64,
-    age: i64,
-    email: i64,
-}} ⊢ 2 ⇒ t7
-      Unify-Var: t7 ~ i64 => {i64/t7}
+      T-Int: {u: User} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t6}
+      T-Int: {u: User} ⊢ 2 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t7}

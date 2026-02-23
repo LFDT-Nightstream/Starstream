@@ -3,20 +3,20 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let mut counter = 0;\n    while (counter < 3) {\n        counter = counter + 1;\n    }\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let mut counter = 0; ⇒ t3
-    T-Int: {} ⊢ 0 ⇒ t3
-  T-While: {counter: t3} ⊢ while (counter < 3) {
+  T-Let: {} ⊢ let mut counter = 0; ⇒ i64
+    T-Int: {} ⊢ 0 ⇒ i64
+  T-While: {counter: i64} ⊢ while (counter < 3) {
     counter = counter + 1;
 } ⇒ ()
-    T-Bin-Lt: {counter: t3} ⊢ counter < 3 ⇒ bool
-      T-Var: {counter: t3} ⊢ counter ⇒ t3
-      T-Int: {counter: t3} ⊢ 3 ⇒ t4
-      Check-Compare: t3 vs t4 => ok (int)
-        Unify-Var: t3 ~ t4 => {t4/t3}
+    T-Bin-Lt: {counter: i64} ⊢ counter < 3 ⇒ bool
+      T-Var: {counter: i64} ⊢ counter ⇒ i64
+      T-Int: {counter: i64} ⊢ 3 ⇒ i64
+      Check-Compare: i64 vs i64 => ok (int)
+        Unify-Var: i64 ~ i64 => {i64/t3}
     Check-Bool: bool => ok
-    T-Assign: {counter: t3} ⊢ counter = counter + 1; ⇒ t3
-      T-Bin-Add: {counter: t3} ⊢ counter + 1 ⇒ t5
-        T-Var: {counter: t3} ⊢ counter ⇒ t3
-        T-Int: {counter: t3} ⊢ 1 ⇒ t5
-        Unify-Var: t4 ~ t5 => {t5/t4}
-      Unify-Var: t5 ~ t5 => {}
+    T-Assign: {counter: i64} ⊢ counter = counter + 1; ⇒ i64
+      T-Bin-Add: {counter: i64} ⊢ counter + 1 ⇒ i64
+        T-Var: {counter: i64} ⊢ counter ⇒ i64
+        T-Int: {counter: i64} ⊢ 1 ⇒ i64
+        Unify-Var: i64 ~ i64 => {i64/t4}
+      Unify-Var: i64 ~ i64 => {}

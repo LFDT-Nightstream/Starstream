@@ -3,9 +3,9 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn greet() -> i64 {\n    42\n}\n\nfn test() {\n    let value = greet();\n}\n"
 ---
 T-Fn: greet => i64
-  T-ReturnTail: 42 => t3
-    T-Int: {} ⊢ 42 ⇒ t3
-    Unify-Var: t3 ~ i64 => {i64/t3}
+  T-ReturnTail: 42 => i64
+    T-Int: {} ⊢ 42 ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t3}
 
 T-Fn: test => ()
   T-Let: {} ⊢ let value = greet(); ⇒ i64
