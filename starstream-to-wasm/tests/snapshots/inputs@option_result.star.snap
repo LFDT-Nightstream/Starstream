@@ -709,15 +709,15 @@ Program {
 
 ==== Inference trace ====
 T-Fn: make_some => Option<i64>
-  T-ReturnTail: Option::Some(42) => Option<t3>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
-      T-Int: {} ⊢ 42 ⇒ t4
-      Unify-Var: t4 ~ t3 => {t3/t4}
-    Unify-Enum: Option<t3> ~ Option<i64> => {i64/t3}
-      Unify-Var: t3 ~ i64 => {i64/t3}
+  T-ReturnTail: Option::Some(42) => Option<i64>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t3 => {i64/t4}
+    Unify-Enum: Option<i64> ~ Option<i64> => {i64/t3}
+      Unify-Var: i64 ~ i64 => {i64/t3}
 
 T-Fn: make_none => Option<i64>
-  T-ReturnTail: Option::None => Option<t5>
+  T-ReturnTail: Option::None => Option<i64>
     T-EnumCtor: {} ⊢ Option::None ⇒ Option<t5>
     Unify-Enum: Option<t5> ~ Option<i64> => {i64/t5}
       Unify-Var: t5 ~ i64 => {i64/t5}
@@ -731,10 +731,7 @@ T-Fn: unwrap_option => i64
         0
     },
 } => i64
-    T-Match: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ match opt {
+    T-Match: {opt: Option<i64>} ⊢ match opt {
     Option::Some(v) => {
         v
     },
@@ -742,39 +739,30 @@ T-Fn: unwrap_option => i64
         0
     },
 } ⇒ i64
-      T-Var: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ opt ⇒ Option<i64>
+      T-Var: {opt: Option<i64>} ⊢ opt ⇒ Option<i64>
       Unify-Enum: Option<i64> ~ Option<t6> => {i64/t6}
         Unify-Var: i64 ~ t6 => {i64/t6}
-      T-Tail: v => t6
-        T-Var: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}, v: t6} ⊢ v ⇒ t6
+      T-Tail: v => i64
+        T-Var: {opt: Option<i64>, v: i64} ⊢ v ⇒ i64
       Unify-Enum: Option<i64> ~ Option<t7> => {i64/t7}
         Unify-Var: i64 ~ t7 => {i64/t7}
-      T-Tail: 0 => t8
-        T-Int: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ 0 ⇒ t8
-      Unify-Var: t8 ~ i64 => i64
+      T-Tail: 0 => i64
+        T-Int: {opt: Option<i64>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: make_ok => Result<i64, bool>
-  T-ReturnTail: Result::Ok(42) => Result<t9, t10>
-    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<t9, t10>
-      T-Int: {} ⊢ 42 ⇒ t11
-      Unify-Var: t11 ~ t9 => {t9/t11}
-    Unify-Enum: Result<t9, t10> ~ Result<i64, bool> => {bool/t10, i64/t9}
+  T-ReturnTail: Result::Ok(42) => Result<i64, bool>
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<i64, t10>
+      T-Int: {} ⊢ 42 ⇒ i64
+      Unify-Var: i64 ~ t9 => {i64/t11}
+    Unify-Enum: Result<i64, t10> ~ Result<i64, bool> => {bool/t10, i64/t9}
       Unify-Var: t10 ~ bool => {bool/t10}
-      Unify-Var: t9 ~ i64 => {i64/t9}
+      Unify-Var: i64 ~ i64 => {i64/t9}
 
 T-Fn: make_err => Result<i64, bool>
-  T-ReturnTail: Result::Err(false) => Result<t12, t13>
-    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t12, t13>
+  T-ReturnTail: Result::Err(false) => Result<i64, bool>
+    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t12, bool>
       T-Bool: {} ⊢ false ⇒ bool
       Unify-Var: bool ~ t13 => {bool/t13}
     Unify-Enum: Result<t12, bool> ~ Result<i64, bool> => {i64/t12}
@@ -790,10 +778,7 @@ T-Fn: unwrap_result => i64
         0
     },
 } => i64
-    T-Match: {res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ match res {
+    T-Match: {res: Result<i64, bool>} ⊢ match res {
     Result::Ok(v) => {
         v
     },
@@ -801,93 +786,34 @@ T-Fn: unwrap_result => i64
         0
     },
 } ⇒ i64
-      T-Var: {res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ res ⇒ Result<i64, bool>
+      T-Var: {res: Result<i64, bool>} ⊢ res ⇒ Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result<t14, t15> => {bool/t15, i64/t14}
         Unify-Var: bool ~ t15 => {bool/t15}
         Unify-Var: i64 ~ t14 => {i64/t14}
-      T-Tail: v => t14
-        T-Var: {res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}, v: t14} ⊢ v ⇒ t14
+      T-Tail: v => i64
+        T-Var: {res: Result<i64, bool>, v: i64} ⊢ v ⇒ i64
       Unify-Enum: Result<i64, bool> ~ Result<t16, t17> => {bool/t17, i64/t16}
         Unify-Var: bool ~ t17 => {bool/t17}
         Unify-Var: i64 ~ t16 => {i64/t16}
-      T-Tail: 0 => t18
-        T-Int: {e: t17, res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ 0 ⇒ t18
-      Unify-Var: t18 ~ i64 => i64
+      T-Tail: 0 => i64
+        T-Int: {e: bool, res: Result<i64, bool>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 
 T-Fn: run => ()
-  T-Expr: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_option(make_some()); ⇒ ()
-    T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_option(make_some()) ⇒ i64
-      T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
-      T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_some() ⇒ Option<i64>
-        T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_some ⇒ fn() -> Option<i64>
+  T-Expr: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()); ⇒ ()
+    T-Call: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()) ⇒ i64
+      T-Var: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
+      T-Call: {x: Thing, y: Result<i64, bool>} ⊢ make_some() ⇒ Option<i64>
+        T-Var: {x: Thing, y: Result<i64, bool>} ⊢ make_some ⇒ fn() -> Option<i64>
       Unify-Enum: Option<i64> ~ Option<i64> => {}
         Unify-Const: i64 ~ i64 => {}
-  T-Expr: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_result(make_ok()); ⇒ ()
-    T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_result(make_ok()) ⇒ i64
-      T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
-      T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_ok() ⇒ Result<i64, bool>
-        T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
+  T-Expr: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()); ⇒ ()
+    T-Call: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()) ⇒ i64
+      T-Var: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
+      T-Call: {x: Thing, y: Result<i64, bool>} ⊢ make_ok() ⇒ Result<i64, bool>
+        T-Var: {x: Thing, y: Result<i64, bool>} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result<i64, bool> => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}

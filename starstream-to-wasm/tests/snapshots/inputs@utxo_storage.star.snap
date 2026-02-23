@@ -134,8 +134,8 @@ T-Fn: increment => i64
   T-Assign: {counter: i64} ⊢ counter = counter + 1; ⇒ i64
     T-Bin-Add: {counter: i64} ⊢ counter + 1 ⇒ i64
       T-Var: {counter: i64} ⊢ counter ⇒ i64
-      T-Int: {counter: i64} ⊢ 1 ⇒ t3
-      Unify-Var: i64 ~ t3 => {i64/t3}
+      T-Int: {counter: i64} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}
     Unify-Const: i64 ~ i64 => {}
   T-ReturnTail: counter => i64
     T-Var: {counter: i64} ⊢ counter ⇒ i64

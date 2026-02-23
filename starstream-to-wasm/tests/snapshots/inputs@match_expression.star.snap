@@ -868,11 +868,7 @@ T-Fn: match_foo => i64
         2
     },
 } => i64
-    T-Match: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ match foo {
+    T-Match: {foo: Foo} ⊢ match foo {
     Foo::Thing(Thing::Wow(ctx)) => {
         ctx.x
     },
@@ -886,11 +882,7 @@ T-Fn: match_foo => i64
         2
     },
 } ⇒ i64
-      T-Var: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ foo ⇒ Foo
+      T-Var: {foo: Foo} ⊢ foo ⇒ Foo
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -901,33 +893,17 @@ T-Fn: match_foo => i64
         Unify-Record: Ctx ~ Ctx => {}
           Unify-Const: i64 ~ i64 => {}
       T-Tail: ctx.x => i64
-        T-FieldAccess: {ctx: struct Ctx {
-    x: i64,
-}, foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ ctx.x ⇒ i64
-          T-Var: {ctx: struct Ctx {
-    x: i64,
-}, foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ ctx ⇒ Ctx
+        T-FieldAccess: {ctx: Ctx, foo: Foo} ⊢ ctx.x ⇒ i64
+          T-Var: {ctx: Ctx, foo: Foo} ⊢ ctx ⇒ Ctx
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Enum: Thing ~ Thing => {}
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
-      T-Tail: 0 => t3
-        T-Int: {b: bool, foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ 0 ⇒ t3
-      Unify-Var: t3 ~ i64 => i64
+      T-Tail: 0 => i64
+        T-Int: {b: bool, foo: Foo} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -935,19 +911,11 @@ T-Fn: match_foo => i64
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
       T-Tail: n => i64
-        T-Var: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}, n: i64} ⊢ n ⇒ i64
+        T-Var: {foo: Foo, n: i64} ⊢ n ⇒ i64
       Unify-Const: i64 ~ i64 => i64
-      T-Tail: 2 => t4
-        T-Int: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ 2 ⇒ t4
-      Unify-Var: t4 ~ i64 => i64
+      T-Tail: 2 => i64
+        T-Int: {foo: Foo} ⊢ 2 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: match_with_wildcard => i64
@@ -958,44 +926,28 @@ T-Fn: match_with_wildcard => i64
     _ => {
         0
     },
-} => t5
-    T-Match: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ match foo {
+} => i64
+    T-Match: {foo: Foo} ⊢ match foo {
     Foo::Bar(b) => {
         1
     },
     _ => {
         0
     },
-} ⇒ t5
-      T-Var: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ foo ⇒ Foo
+} ⇒ i64
+      T-Var: {foo: Foo} ⊢ foo ⇒ Foo
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Enum: Thing ~ Thing => {}
           Unify-Record: Ctx ~ Ctx => {}
             Unify-Const: i64 ~ i64 => {}
-      T-Tail: 1 => t5
-        T-Int: {b: bool, foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ 1 ⇒ t5
-      T-Tail: 0 => t6
-        T-Int: {foo: enum Foo {
-    Bar(bool),
-    Baz(i64),
-    Thing(Thing),
-}} ⊢ 0 ⇒ t6
-      Unify-Var: t6 ~ t5 => t5
-    Unify-Var: t5 ~ i64 => {i64/t5}
+      T-Tail: 1 => i64
+        T-Int: {b: bool, foo: Foo} ⊢ 1 ⇒ i64
+      T-Tail: 0 => i64
+        T-Int: {foo: Foo} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
+    Unify-Var: i64 ~ i64 => {i64/t5}
 
 T-Fn: match_literal => i64
   T-ReturnTail: match x {
@@ -1005,7 +957,7 @@ T-Fn: match_literal => i64
     _ => {
         0
     },
-} => t7
+} => i64
     T-Match: {x: i64} ⊢ match x {
     42 => {
         1
@@ -1013,15 +965,15 @@ T-Fn: match_literal => i64
     _ => {
         0
     },
-} ⇒ t7
+} ⇒ i64
       T-Var: {x: i64} ⊢ x ⇒ i64
       Unify-Const: i64 ~ i64 => {}
-      T-Tail: 1 => t7
-        T-Int: {x: i64} ⊢ 1 ⇒ t7
-      T-Tail: 0 => t8
-        T-Int: {x: i64} ⊢ 0 ⇒ t8
-      Unify-Var: t8 ~ t7 => t7
-    Unify-Var: t7 ~ i64 => {i64/t7}
+      T-Tail: 1 => i64
+        T-Int: {x: i64} ⊢ 1 ⇒ i64
+      T-Tail: 0 => i64
+        T-Int: {x: i64} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
+    Unify-Var: i64 ~ i64 => {i64/t7}
 
 
 T-Fn: match_point => i64
@@ -1033,10 +985,7 @@ T-Fn: match_point => i64
         0
     },
 } => i64
-    T-Match: {msg: enum Message {
-    Ping,
-    Point { x: i64, y: i64 },
-}} ⊢ match msg {
+    T-Match: {msg: Message} ⊢ match msg {
     Message::Point { x, y } => {
         x + y
     },
@@ -1044,33 +993,18 @@ T-Fn: match_point => i64
         0
     },
 } ⇒ i64
-      T-Var: {msg: enum Message {
-    Ping,
-    Point { x: i64, y: i64 },
-}} ⊢ msg ⇒ Message
+      T-Var: {msg: Message} ⊢ msg ⇒ Message
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: x + y => i64
-        T-Bin-Add: {msg: enum Message {
-    Ping,
-    Point { x: i64, y: i64 },
-}, x: i64, y: i64} ⊢ x + y ⇒ i64
-          T-Var: {msg: enum Message {
-    Ping,
-    Point { x: i64, y: i64 },
-}, x: i64, y: i64} ⊢ x ⇒ i64
-          T-Var: {msg: enum Message {
-    Ping,
-    Point { x: i64, y: i64 },
-}, x: i64, y: i64} ⊢ y ⇒ i64
+        T-Bin-Add: {msg: Message, x: i64, y: i64} ⊢ x + y ⇒ i64
+          T-Var: {msg: Message, x: i64, y: i64} ⊢ x ⇒ i64
+          T-Var: {msg: Message, x: i64, y: i64} ⊢ y ⇒ i64
           Unify-Const: i64 ~ i64 => {}
-      T-Tail: 0 => t9
-        T-Int: {msg: enum Message {
-    Ping,
-    Point { x: i64, y: i64 },
-}} ⊢ 0 ⇒ t9
-      Unify-Var: t9 ~ i64 => i64
+      T-Tail: 0 => i64
+        T-Int: {msg: Message} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: get_bar => ()

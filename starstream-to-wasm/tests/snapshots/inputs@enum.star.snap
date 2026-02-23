@@ -247,8 +247,8 @@ T-Fn: get_baz => ()
     T-Call: {} ⊢ accepts_foo(Foo::Baz(2)) ⇒ ()
       T-Var: {} ⊢ accepts_foo ⇒ fn(Foo) -> ()
       T-EnumCtor: {} ⊢ Foo::Baz(2) ⇒ Foo
-        T-Int: {} ⊢ 2 ⇒ t3
-        Unify-Var: t3 ~ i64 => {i64/t3}
+        T-Int: {} ⊢ 2 ⇒ i64
+        Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}

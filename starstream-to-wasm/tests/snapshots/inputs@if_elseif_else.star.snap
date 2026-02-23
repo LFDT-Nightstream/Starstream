@@ -136,14 +136,14 @@ T-Fn: main => ()
       T-Bool: {} ⊢ false ⇒ bool
       Check-Bool: bool => ok
       T-Expr: {} ⊢ 1; ⇒ ()
-        T-Int: {} ⊢ 1 ⇒ t3
+        T-Int: {} ⊢ 1 ⇒ i64
       T-Bool: {} ⊢ true ⇒ bool
       Check-Bool: bool => ok
       T-Expr: {} ⊢ 2; ⇒ ()
-        T-Int: {} ⊢ 2 ⇒ t4
+        T-Int: {} ⊢ 2 ⇒ i64
       Unify-Const: () ~ () => {}
       T-Expr: {} ⊢ 3; ⇒ ()
-        T-Int: {} ⊢ 3 ⇒ t5
+        T-Int: {} ⊢ 3 ⇒ i64
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}
 
