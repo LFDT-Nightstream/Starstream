@@ -29,6 +29,7 @@ pub enum MemoryTag {
     OnYield = 20,
     YieldTo = 21,
     InitCaller = 22,
+    IsToken = 23,
 }
 
 impl From<MemoryTag> for u64 {

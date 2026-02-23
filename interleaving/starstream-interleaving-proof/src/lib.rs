@@ -276,6 +276,7 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayo
         host_calls_roots: vec![],
         process_table: vec![hash],
         is_utxo: vec![false],
+        is_token: vec![false],
         must_burn: vec![false],
         n_inputs: 0,
         n_new: 0,

@@ -18,6 +18,7 @@ pub struct InterleavingInstance {
     /// Process table in canonical order: inputs, new_outputs, coord scripts.
     pub process_table: Vec<Hash<WasmModule>>,
     pub is_utxo: Vec<bool>,
+    pub is_token: Vec<bool>,
 
     /// Burned/continuation mask for inputs (length = #inputs).
     pub must_burn: Vec<bool>,
@@ -61,6 +62,21 @@ impl InterleavingInstance {
 
         if self.is_utxo.len() != n {
             return Err(InterleavingError::Shape("is_utxo len != process_table len"));
+        }
+        if self.is_token.len() != n {
+            return Err(InterleavingError::Shape(
+                "is_token len != process_table len",
+            ));
+        }
+        if self
+            .is_token
+            .iter()
+            .zip(self.is_utxo.iter())
+            .any(|(is_token, is_utxo)| *is_token && !*is_utxo)
+        {
+            return Err(InterleavingError::Shape(
+                "is_token implies is_utxo for every process",
+            ));
         }
 
         if self.ownership_in.len() != self.n_inputs + self.n_new

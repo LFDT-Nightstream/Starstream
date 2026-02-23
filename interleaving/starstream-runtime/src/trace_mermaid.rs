@@ -164,6 +164,11 @@ fn format_replayed_non_control_line(
             let label = format!("new_utxo<br/>{}", format_ref_with_values(ref_store, *val));
             Some(format!("{from} ->> {created}: {label}"))
         }
+        WitLedgerEffect::NewToken { val, id, .. } => {
+            let created = labels.get(id.unwrap().0)?;
+            let label = format!("new_token<br/>{}", format_ref_with_values(ref_store, *val));
+            Some(format!("{from} ->> {created}: {label}"))
+        }
         WitLedgerEffect::NewCoord { val, id, .. } => {
             let created = labels.get(id.unwrap().0)?;
             let label = format!("new_coord<br/>{}", format_ref_with_values(ref_store, *val));
@@ -421,6 +426,15 @@ fn format_edge_line(
             let created = ctx.labels.get(pid.0)?;
             let label = format!(
                 "new_utxo<br/>{}",
+                format_ref_with_values(ctx.ref_store, *val)
+            );
+            Some(format!("{from} ->> {created}: {label}"))
+        }
+        WitLedgerEffect::NewToken { val, id, .. } => {
+            let pid = id.unwrap();
+            let created = ctx.labels.get(pid.0)?;
+            let label = format!(
+                "new_token<br/>{}",
                 format_ref_with_values(ctx.ref_store, *val)
             );
             Some(format!("{from} ->> {created}: {label}"))

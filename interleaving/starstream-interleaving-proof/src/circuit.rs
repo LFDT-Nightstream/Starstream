@@ -97,6 +97,7 @@ pub struct Wires {
     // ROM lookup results
     is_utxo_curr: FpVar<F>,
     is_utxo_target: FpVar<F>,
+    is_token_target: FpVar<F>,
     must_burn_curr: FpVar<F>,
     rom_program_hash: [FpVar<F>; 4],
 
@@ -311,6 +312,14 @@ impl Wires {
             },
         )?[0]
             .clone();
+        let is_token_target = rm.conditional_read(
+            &rom_switches.read_is_token_target,
+            &Address {
+                addr: target_address.clone(),
+                tag: MemoryTag::IsToken.allocate(cs.clone())?,
+            },
+        )?[0]
+            .clone();
 
         let must_burn_curr = rm.conditional_read(
             &rom_switches.read_must_burn_curr,
@@ -385,6 +394,7 @@ impl Wires {
 
             is_utxo_curr,
             is_utxo_target,
+            is_token_target,
             must_burn_curr,
             rom_program_hash,
             ref_arena_read,
@@ -552,6 +562,23 @@ impl LedgerOperation<crate::F> {
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
+                config.rom_switches.read_is_token_target = true;
+                config.rom_switches.read_program_hash_target = true;
+            }
+            LedgerOperation::NewToken { .. } => {
+                config.execution_switches.new_token = true;
+
+                config.mem_switches_target.initialized = true;
+                config.mem_switches_target.init = true;
+                config.mem_switches_target.init_caller = true;
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.on_yield = true;
+                config.mem_switches_target.yield_to = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+                config.rom_switches.read_is_token_target = true;
                 config.rom_switches.read_program_hash_target = true;
             }
             LedgerOperation::NewCoord { .. } => {
@@ -722,6 +749,7 @@ impl LedgerOperation<crate::F> {
                 curr_write.expected_input = OptionalF::new(*ret); // Sets its final return value.
             }
             LedgerOperation::NewUtxo { val, target: _, .. }
+            | LedgerOperation::NewToken { val, target: _, .. }
             | LedgerOperation::NewCoord { val, target: _, .. } => {
                 // The current process is a coordinator creating a new process.
                 // The new process (target) is initialized.
@@ -961,6 +989,15 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     vec![F::from(if *is_utxo { 1u64 } else { 0 })],
                 );
             }
+            for (pid, is_token) in self.instance.is_token.iter().enumerate() {
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: MemoryTag::IsToken.into(),
+                    },
+                    vec![F::from(if *is_token { 1u64 } else { 0 })],
+                );
+            }
 
             for (pid, owner) in self.instance.ownership_in.iter().enumerate() {
                 let encoded_owner = owner
@@ -1069,6 +1106,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
+                LedgerOperation::NewToken { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
                 LedgerOperation::ProgramHash { target, .. } => Some(*target),
                 LedgerOperation::Unbind { token_id } => Some(*token_id),
@@ -1091,6 +1129,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 Address {
                     addr: target_pid.unwrap_or(0),
                     tag: MemoryTag::IsUtxo.into(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_token_target,
+                Address {
+                    addr: target_pid.unwrap_or(0),
+                    tag: MemoryTag::IsToken.into(),
                 },
             );
             mb.conditional_read(
@@ -1304,6 +1349,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             },
             LedgerOperation::NewUtxo { .. } => PreWires {
                 switches: ExecutionSwitches::new_utxo(),
+                ..default
+            },
+            LedgerOperation::NewToken { .. } => PreWires {
+                switches: ExecutionSwitches::new_token(),
                 ..default
             },
             LedgerOperation::NewCoord { .. } => PreWires {
@@ -1717,7 +1766,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_new_process(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.switches.new_utxo | &wires.switches.new_coord;
+        let switch =
+            &wires.switches.new_utxo | &wires.switches.new_token | &wires.switches.new_coord;
 
         // The target is the new process being created.
         // The current process is the coordination script doing the creation.
@@ -1730,9 +1780,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Target type check
         let target_is_utxo = wires.is_utxo_target.is_one()?;
-        // if new_utxo_switch is true, target_is_utxo must be true.
-        // if new_utxo_switch is false (i.e. new_coord_switch is true), target_is_utxo must be false.
-        target_is_utxo.conditional_enforce_equal(&wires.switches.new_utxo, &switch)?;
+        let target_is_token = wires.is_token_target.is_one()?;
+        // new_utxo/new_token must target a UTXO process; new_coord must target a coord process.
+        let expected_target_is_utxo = &wires.switches.new_utxo | &wires.switches.new_token;
+        target_is_utxo.conditional_enforce_equal(&expected_target_is_utxo, &switch)?;
+        // new_token targets token processes; new_utxo/new_coord target non-token processes.
+        target_is_token.conditional_enforce_equal(&wires.switches.new_token, &switch)?;
 
         // 3. Program hash check
         let program_hash_args = [
@@ -2131,6 +2184,7 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         MemType::Ram,
         "RAM_TRACE_COMMITMENTS",
     );
+    mb.register_mem(MemoryTag::IsToken.into(), 1, MemType::Rom, "ROM_IS_TOKEN");
 }
 
 #[tracing::instrument(target = "gr1cs", skip_all)]

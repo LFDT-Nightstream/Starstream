@@ -25,6 +25,7 @@ pub enum EffectDiscriminant {
     RefWrite = 16,
     Return = 17,
     CallEffectHandler = 18,
+    NewToken = 19,
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
@@ -70,6 +71,13 @@ pub enum WitLedgerEffect {
         program_hash: WitEffectOutput<Hash<WasmModule>>,
     },
     NewUtxo {
+        // in
+        program_hash: Hash<WasmModule>,
+        val: Ref,
+        // out
+        id: WitEffectOutput<ProcessId>,
+    },
+    NewToken {
         // in
         program_hash: Hash<WasmModule>,
         val: Ref,
@@ -221,6 +229,7 @@ impl TryFrom<u64> for EffectDiscriminant {
             16 => Ok(EffectDiscriminant::RefWrite),
             17 => Ok(EffectDiscriminant::Return),
             18 => Ok(EffectDiscriminant::CallEffectHandler),
+            19 => Ok(EffectDiscriminant::NewToken),
             _ => Err(EffectDiscriminantError { value }),
         }
     }
