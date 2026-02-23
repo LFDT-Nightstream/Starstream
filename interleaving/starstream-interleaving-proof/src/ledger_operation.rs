@@ -40,6 +40,11 @@ pub enum LedgerOperation<F: PrimeField> {
         val: F,
         target: F,
     },
+    NewToken {
+        program_hash: [F; 4],
+        val: F,
+        target: F,
+    },
     NewCoord {
         program_hash: [F; 4],
         val: F,

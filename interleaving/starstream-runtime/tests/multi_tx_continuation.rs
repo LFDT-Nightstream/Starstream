@@ -1,4 +1,4 @@
-use starstream_interleaving_spec::{Ledger, UtxoId, Value};
+use starstream_interleaving_spec::{CoroutineState, Ledger, UtxoId, Value};
 use starstream_runtime::{
     UnprovenTransaction, poseidon_program_hash, test_support::wasm_dsl, wasm_module,
 };
@@ -47,12 +47,16 @@ fn print_ledger(label: &str, ledger: &Ledger) {
     let mut utxos: Vec<_> = ledger.utxos.iter().collect();
     utxos.sort_by_key(|(id, _)| (id.contract_hash.0, id.nonce));
     for (id, entry) in utxos {
+        let (kind, storage) = match &entry.state {
+            CoroutineState::Utxo { storage } => ("utxo", storage),
+            CoroutineState::Token { storage } => ("token", storage),
+        };
         eprintln!(
-            "  utxo hash={} nonce={} pc={} globals={:?}",
+            "  utxo hash={} nonce={} kind={} storage={:?}",
             format!("{:?}", id.contract_hash),
             id.nonce,
-            entry.state.pc,
-            entry.state.globals
+            kind,
+            storage
         );
     }
     eprintln!("ownership: {:?}", ledger.ownership_registry);
@@ -196,11 +200,11 @@ fn test_multi_tx_accumulator_global() {
         }
     });
 
-    print_wat("globals/utxo", &utxo_bin);
-    print_component_wit("globals", &utxo_bin);
-    print_wat("globals/coord1", &coord_bin);
-    print_wat("globals/coord2", &coord2_bin);
-    print_wat("globals/coord3", &coord3_bin);
+    print_wat("storage/utxo", &utxo_bin);
+    print_component_wit("storage", &utxo_bin);
+    print_wat("storage/coord1", &coord_bin);
+    print_wat("storage/coord2", &coord2_bin);
+    print_wat("storage/coord3", &coord3_bin);
 
     let tx1 = UnprovenTransaction {
         inputs: vec![],
@@ -218,10 +222,10 @@ fn test_multi_tx_accumulator_global() {
 
     let input_id: UtxoId = ledger.utxos.keys().next().cloned().unwrap();
     assert_eq!(input_id.nonce, 0);
-    assert_eq!(
-        ledger.utxos[&input_id].state.globals,
-        vec![Value(1), Value(5)]
-    );
+    let storage = match &ledger.utxos[&input_id].state {
+        CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
+    };
+    assert_eq!(storage, &[Value(1), Value(5)]);
 
     let tx2 = UnprovenTransaction {
         inputs: vec![input_id.clone()],
@@ -238,8 +242,10 @@ fn test_multi_tx_accumulator_global() {
 
     let output_id: UtxoId = ledger.utxos.keys().next().cloned().unwrap();
     assert_eq!(output_id.nonce, 1);
-    let globals = &ledger.utxos[&output_id].state.globals;
-    assert_eq!(globals, &[Value(2), Value(12)]);
+    let storage = match &ledger.utxos[&output_id].state {
+        CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
+    };
+    assert_eq!(storage, &[Value(2), Value(12)]);
 
     let tx3 = UnprovenTransaction {
         inputs: vec![output_id.clone()],
@@ -256,6 +262,8 @@ fn test_multi_tx_accumulator_global() {
 
     let output_id3: UtxoId = ledger.utxos.keys().next().cloned().unwrap();
     assert_eq!(output_id3, output_id);
-    let globals = &ledger.utxos[&output_id3].state.globals;
-    assert_eq!(globals, &[Value(2), Value(12)]);
+    let storage = match &ledger.utxos[&output_id3].state {
+        CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
+    };
+    assert_eq!(storage, &[Value(2), Value(12)]);
 }

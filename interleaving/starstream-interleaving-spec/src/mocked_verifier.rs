@@ -221,6 +221,7 @@ pub struct Rom {
     process_table: Vec<Hash<WasmModule>>,
     must_burn: Vec<bool>,
     is_utxo: Vec<bool>,
+    is_token: Vec<bool>,
 
     // mocked, this should be only a commitment
     traces: Vec<Vec<WitLedgerEffect>>,
@@ -284,6 +285,7 @@ pub fn verify_interleaving_semantics(
         process_table: inst.process_table.clone(),
         must_burn: inst.must_burn.clone(),
         is_utxo: inst.is_utxo.clone(),
+        is_token: inst.is_token.clone(),
         traces: wit.traces.clone(),
     };
 
@@ -587,6 +589,9 @@ pub fn state_transition(
             if !rom.is_utxo[id.0] {
                 return Err(InterleavingError::Shape("NewUtxo id must be utxo"));
             }
+            if rom.is_token[id.0] {
+                return Err(InterleavingError::Shape("NewUtxo id must not be token"));
+            }
             if rom.process_table[id.0] != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target: id,
@@ -597,6 +602,40 @@ pub fn state_transition(
             if state.initialized[id.0] {
                 return Err(InterleavingError::Shape(
                     "NewUtxo requires initialized[id]==false",
+                ));
+            }
+            state.initialized[id.0] = true;
+            state.init[id.0] = Some((val, id_curr));
+            state.expected_input[id.0] = None;
+            state.expected_resumer[id.0] = None;
+            state.on_yield[id.0] = true;
+            state.yield_to[id.0] = None;
+        }
+        WitLedgerEffect::NewToken {
+            program_hash,
+            val,
+            id,
+        } => {
+            let id = id.unwrap();
+            if rom.is_utxo[id_curr.0] {
+                return Err(InterleavingError::CoordOnly(id_curr));
+            }
+            if !rom.is_utxo[id.0] {
+                return Err(InterleavingError::Shape("NewToken id must be utxo"));
+            }
+            if !rom.is_token[id.0] {
+                return Err(InterleavingError::Shape("NewToken id must be token"));
+            }
+            if rom.process_table[id.0] != program_hash {
+                return Err(InterleavingError::ProgramHashMismatch {
+                    target: id,
+                    expected: rom.process_table[id.0],
+                    got: program_hash,
+                });
+            }
+            if state.initialized[id.0] {
+                return Err(InterleavingError::Shape(
+                    "NewToken requires initialized[id]==false",
                 ));
             }
             state.initialized[id.0] = true;

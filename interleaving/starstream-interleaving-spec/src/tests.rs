@@ -42,9 +42,8 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
     ledger.utxos.insert(
         input_utxo_1.clone(),
         UtxoEntry {
-            state: CoroutineState {
-                pc: 0,
-                globals: vec![],
+            state: CoroutineState::Utxo {
+                storage: vec![Value(0)],
             },
             contract_hash: input_hash_1,
         },
@@ -52,9 +51,8 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
     ledger.utxos.insert(
         input_utxo_2.clone(),
         UtxoEntry {
-            state: CoroutineState {
-                pc: 0,
-                globals: vec![],
+            state: CoroutineState::Utxo {
+                storage: vec![Value(0)],
             },
             contract_hash: input_hash_2,
         },
@@ -282,18 +280,16 @@ fn test_transaction_with_coord_and_utxos() {
     let proven_tx = TransactionBuilder::new()
         .with_input(
             input_utxo_1,
-            Some(CoroutineState {
-                pc: 1,
-                globals: vec![],
+            Some(CoroutineState::Utxo {
+                storage: vec![Value(1)],
             }),
             input_1_trace,
         )
         .with_input(input_utxo_2, None, input_2_trace)
         .with_fresh_output(
             NewOutput {
-                state: CoroutineState {
-                    pc: 0,
-                    globals: vec![],
+                state: CoroutineState::Utxo {
+                    storage: vec![Value(0)],
                 },
                 contract_hash: utxo_hash_a,
             },
@@ -301,9 +297,8 @@ fn test_transaction_with_coord_and_utxos() {
         )
         .with_fresh_output(
             NewOutput {
-                state: CoroutineState {
-                    pc: 0,
-                    globals: vec![],
+                state: CoroutineState::Utxo {
+                    storage: vec![Value(0)],
                 },
                 contract_hash: utxo_hash_b,
             },
@@ -405,9 +400,8 @@ fn test_effect_handlers() {
     let proven_tx = TransactionBuilder::new()
         .with_fresh_output(
             NewOutput {
-                state: CoroutineState {
-                    pc: 0,
-                    globals: vec![],
+                state: CoroutineState::Utxo {
+                    storage: vec![Value(0)],
                 },
                 contract_hash: utxo_hash,
             },
@@ -436,9 +430,8 @@ fn test_burn_with_continuation_fails() {
     let tx = TransactionBuilder::new()
         .with_input(
             input_utxo_1,
-            Some(CoroutineState {
-                pc: 1,
-                globals: vec![],
+            Some(CoroutineState::Utxo {
+                storage: vec![Value(0)],
             }),
             vec![
                 WitLedgerEffect::NewRef {
@@ -501,9 +494,8 @@ fn test_continuation_without_yield_fails() {
     let tx = TransactionBuilder::new()
         .with_input(
             input_utxo_1,
-            Some(CoroutineState {
-                pc: 1,
-                globals: vec![],
+            Some(CoroutineState::Utxo {
+                storage: vec![Value(1)],
             }),
             vec![],
         )
@@ -553,9 +545,8 @@ fn test_duplicate_input_utxo_fails() {
     utxos.insert(
         input_id.clone(),
         UtxoEntry {
-            state: CoroutineState {
-                pc: 0,
-                globals: vec![],
+            state: CoroutineState::Utxo {
+                storage: vec![Value(0)],
             },
             contract_hash: h(1),
         },

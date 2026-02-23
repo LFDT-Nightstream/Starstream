@@ -106,6 +106,16 @@ fn decode_effect_from_commit_abi(
             val: Ref(arg(ArgName::Val)),
             id: WitEffectOutput::Resolved(ProcessId(arg(ArgName::Target) as usize)),
         },
+        EffectDiscriminant::NewToken => WitLedgerEffect::NewToken {
+            program_hash: hash4(
+                arg(ArgName::ProgramHash0),
+                arg(ArgName::ProgramHash1),
+                arg(ArgName::ProgramHash2),
+                arg(ArgName::ProgramHash3),
+            ),
+            val: Ref(arg(ArgName::Val)),
+            id: WitEffectOutput::Resolved(ProcessId(arg(ArgName::Target) as usize)),
+        },
         EffectDiscriminant::NewCoord => WitLedgerEffect::NewCoord {
             program_hash: hash4(
                 arg(ArgName::ProgramHash0),
@@ -239,12 +249,13 @@ pub struct RuntimeState {
 
     pub pending_activation: HashMap<ProcessId, (Ref, ProcessId)>,
     pub pending_init: HashMap<ProcessId, (Ref, ProcessId)>,
-    pub globals: HashMap<ProcessId, Vec<Value>>,
+    pub storage: HashMap<ProcessId, Vec<Value>>,
     pub host_data: HashMap<ProcessId, Vec<Value>>,
 
     pub ownership: HashMap<ProcessId, Option<ProcessId>>,
     pub process_hashes: HashMap<ProcessId, Hash<WasmModule>>,
     pub is_utxo: HashMap<ProcessId, bool>,
+    pub token_processes: HashSet<ProcessId>,
     pub allocated_processes: HashSet<ProcessId>,
     pub yield_to: HashMap<ProcessId, ProcessId>,
     pub on_yield: HashMap<ProcessId, bool>,
@@ -287,11 +298,12 @@ impl Runtime {
             next_ref: 0,
             pending_activation: HashMap::new(),
             pending_init: HashMap::new(),
-            globals: HashMap::new(),
+            storage: HashMap::new(),
             host_data: HashMap::new(),
             ownership: HashMap::new(),
             process_hashes: HashMap::new(),
             is_utxo: HashMap::new(),
+            token_processes: HashSet::new(),
             allocated_processes: HashSet::new(),
             yield_to: HashMap::new(),
             on_yield: HashMap::new(),
@@ -457,6 +469,40 @@ impl Runtime {
                 }
                 let id = found_id.ok_or(trap("no matching utxo process found"))?;
                 store.data_mut().allocated_processes.insert(id);
+
+                store.data_mut().pending_init.insert(id, (val, current_pid));
+                store.data_mut().n_new += 1;
+                Ok((id.0 as u64,))
+            },
+        )
+        .unwrap();
+
+        env.func_wrap(
+            "starstream-new-token",
+            |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+             (h0, h1, h2, h3, val): (u64, u64, u64, u64, u64)|
+             -> wasmtime::Result<(u64,)> {
+                let current_pid = store.data().current_process;
+                let h = Hash([h0, h1, h2, h3], std::marker::PhantomData);
+                let val = Ref(val);
+
+                let mut found_id = None;
+                let limit = store.data().process_hashes.len();
+                for i in 0..limit {
+                    let pid = ProcessId(i);
+                    if !store.data().allocated_processes.contains(&pid)
+                        && let Some(ph) = store.data().process_hashes.get(&pid)
+                        && *ph == h
+                        && let Some(&is_u) = store.data().is_utxo.get(&pid)
+                        && is_u
+                    {
+                        found_id = Some(pid);
+                        break;
+                    }
+                }
+                let id = found_id.ok_or(trap("no matching token process found"))?;
+                store.data_mut().allocated_processes.insert(id);
+                store.data_mut().token_processes.insert(id);
 
                 store.data_mut().pending_init.insert(id, (val, current_pid));
                 store.data_mut().n_new += 1;
@@ -813,12 +859,12 @@ impl Runtime {
 }
 
 impl UnprovenTransaction {
-    fn get_globals(&self, pid: usize, state: &RuntimeState) -> Result<Vec<Value>, Error> {
+    fn get_storage(&self, pid: usize, state: &RuntimeState) -> Result<Vec<Value>, Error> {
         state
-            .globals
+            .storage
             .get(&ProcessId(pid))
             .cloned()
-            .ok_or_else(|| Error::RuntimeError(format!("No globals for pid {}", pid)))
+            .ok_or_else(|| Error::RuntimeError(format!("No storage for pid {}", pid)))
     }
 
     pub fn prove(self) -> Result<ProvenTransaction, Error> {
@@ -852,8 +898,13 @@ impl UnprovenTransaction {
             let continuation = if instance.must_burn[i] {
                 None
             } else {
-                let globals = self.get_globals(i, &state)?;
-                Some(CoroutineState { pc: 0, globals })
+                let storage = self.get_storage(i, &state)?;
+                let next_state = if state.token_processes.contains(&ProcessId(i)) {
+                    CoroutineState::Token { storage }
+                } else {
+                    CoroutineState::Utxo { storage }
+                };
+                Some(next_state)
             };
 
             builder = builder.with_input_and_trace_commitment(
@@ -872,13 +923,18 @@ impl UnprovenTransaction {
             .take(instance.n_new)
         {
             let trace = trace.clone();
-            let globals = self.get_globals(i, &state)?;
+            let storage = self.get_storage(i, &state)?;
             let contract_hash = state.process_hashes[&ProcessId(i)];
             let host_calls_root = instance.host_calls_roots[i].clone();
+            let output_state = if state.token_processes.contains(&ProcessId(i)) {
+                CoroutineState::Token { storage }
+            } else {
+                CoroutineState::Utxo { storage }
+            };
 
             builder = builder.with_fresh_output_and_trace_commitment(
                 NewOutput {
-                    state: CoroutineState { pc: 0, globals },
+                    state: output_state,
                     contract_hash,
                 },
                 trace,
@@ -969,12 +1025,23 @@ impl UnprovenTransaction {
                 .instantiate(&mut runtime.store, &component)?;
 
             if pid < n_inputs && !self.input_states.is_empty() {
-                let values = &self.input_states[pid].globals;
+                let values = match &self.input_states[pid] {
+                    CoroutineState::Utxo { storage } => storage.clone(),
+                    CoroutineState::Token { storage } => {
+                        runtime
+                            .store
+                            .data_mut()
+                            .token_processes
+                            .insert(ProcessId(pid));
+                        storage.clone()
+                    }
+                };
+
                 runtime
                     .store
                     .data_mut()
                     .host_data
-                    .insert(ProcessId(pid), values.clone());
+                    .insert(ProcessId(pid), values);
             }
 
             instances.push(instance);
@@ -1118,6 +1185,15 @@ impl UnprovenTransaction {
         let mut traces = Vec::new();
 
         let is_utxo = self.is_utxo.clone();
+        let is_token = (0..self.programs.len())
+            .map(|pid| {
+                runtime
+                    .store
+                    .data()
+                    .token_processes
+                    .contains(&ProcessId(pid))
+            })
+            .collect::<Vec<_>>();
         let n_coords = runtime.store.data().n_coord;
         let n_new = runtime.store.data().n_new;
         let n_inputs = process_table.len() - n_new - n_coords;
@@ -1160,7 +1236,7 @@ impl UnprovenTransaction {
         }
 
         for pid in 0..self.programs.len() {
-            let globals = runtime
+            let storage = runtime
                 .store
                 .data()
                 .host_data
@@ -1170,14 +1246,15 @@ impl UnprovenTransaction {
             runtime
                 .store
                 .data_mut()
-                .globals
-                .insert(ProcessId(pid), globals);
+                .storage
+                .insert(ProcessId(pid), storage);
         }
 
         let instance = InterleavingInstance {
             host_calls_roots,
             process_table,
             is_utxo,
+            is_token,
             must_burn,
             n_inputs,
             n_new,

@@ -1,4 +1,4 @@
-use starstream_interleaving_spec::{Ledger, UtxoId, Value};
+use starstream_interleaving_spec::{CoroutineState, Ledger, UtxoId, Value};
 use starstream_runtime::{
     UnprovenTransaction, poseidon_program_hash, register_mermaid_default_decoder,
     register_mermaid_process_labels, test_support::wasm_dsl, wasm_module,
@@ -42,6 +42,12 @@ fn print_component_wit(name: &str, wasm: &[u8]) {
     }
 }
 
+fn state_storage(state: &CoroutineState) -> &[Value] {
+    match state {
+        CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
+    }
+}
+
 #[test]
 fn test_dex_swap_flow() {
     register_mermaid_default_decoder(|values| {
@@ -70,6 +76,7 @@ fn test_dex_swap_flow() {
             call trace(12, amt, init_ref, _b0, 0, _c0, _d0, 0);
             call set_datum(0, amt);
             call set_datum(1, 1);
+            call set_datum(2, 777);
         }
         let (req, caller_id) = call activation();
         call trace(8, 0, req, 0, caller_id, 0, 0, 0);
@@ -350,7 +357,7 @@ fn test_dex_swap_flow() {
             call trace(10, 0, 0, token_init, 1, 0, 0, 0);
             call ref_push(5, 0, 0, 0);
             call trace(11, 5, 0, 0, 0, 0, 0, 0);
-            let token_y_id = call new_utxo(
+            let token_y_id = call new_token(
                 const(token_hash_a),
                 const(token_hash_b),
                 const(token_hash_c),
@@ -358,7 +365,7 @@ fn test_dex_swap_flow() {
                 token_init
             );
             call trace(
-                2,
+                19,
                 token_y_id,
                 token_init,
                 0,
@@ -373,7 +380,7 @@ fn test_dex_swap_flow() {
             call trace(10, 0, 0, token_x_init, 1, 0, 0, 0);
             call ref_push(2, 0, 0, 0);
             call trace(11, 2, 0, 0, 0, 0, 0, 0);
-            let token_x_id = call new_utxo(
+            let token_x_id = call new_token(
                 const(token_hash_a),
                 const(token_hash_b),
                 const(token_hash_c),
@@ -381,7 +388,7 @@ fn test_dex_swap_flow() {
                 token_x_init
             );
             call trace(
-                2,
+                19,
                 token_x_id,
                 token_x_init,
                 0,
@@ -519,11 +526,12 @@ fn test_dex_swap_flow() {
     let mut token_y_id: Option<UtxoId> = None;
     let mut token_x_id: Option<UtxoId> = None;
     for (id, entry) in &ledger.utxos {
-        if entry.state.globals.len() >= 4 {
+        let storage = state_storage(&entry.state);
+        if storage.len() >= 4 {
             dex_id = Some(id.clone());
-        } else if !entry.state.globals.is_empty() && entry.state.globals[0] == Value(5) {
+        } else if !storage.is_empty() && storage[0] == Value(5) {
             token_y_id = Some(id.clone());
-        } else if !entry.state.globals.is_empty() && entry.state.globals[0] == Value(2) {
+        } else if !storage.is_empty() && storage[0] == Value(2) {
             token_x_id = Some(id.clone());
         }
     }
@@ -551,17 +559,24 @@ fn test_dex_swap_flow() {
 
     assert_eq!(ledger.utxos.len(), 3);
     let utxos: Vec<_> = ledger.utxos.values().collect();
-    let utxo = utxos.iter().find(|u| u.state.globals.len() >= 4).unwrap();
+    let utxo = utxos
+        .iter()
+        .find(|u| state_storage(&u.state).len() >= 4)
+        .unwrap();
+    let utxo_storage = state_storage(&utxo.state);
     assert_eq!(
-        &utxo.state.globals[..4],
+        &utxo_storage[..4],
         &[Value(8), Value(25), Value(200), Value(0)]
     );
     let tokens: Vec<_> = utxos
         .iter()
-        .filter(|u| !u.state.globals.is_empty() && u.state.globals.len() < 4)
+        .filter(|u| {
+            let storage = state_storage(&u.state);
+            !storage.is_empty() && storage.len() < 4
+        })
         .collect();
     assert_eq!(tokens.len(), 2);
-    let mut amounts: Vec<_> = tokens.iter().map(|u| u.state.globals[0]).collect();
+    let mut amounts: Vec<_> = tokens.iter().map(|u| state_storage(&u.state)[0]).collect();
     amounts.sort_by_key(|v| v.0);
     assert_eq!(amounts, vec![Value(2), Value(5)]);
 }

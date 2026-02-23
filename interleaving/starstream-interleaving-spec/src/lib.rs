@@ -61,13 +61,25 @@ fn encode_hash_to_fields<T>(hash: Hash<T>) -> [neo_math::F; 4] {
 pub struct Ref(pub u64);
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct CoroutineState {
-    // For the purpose of this model, we only care *if* the state changed,
-    // not what it is. A simple program counter is sufficient to check if a
-    // coroutine continued execution in the tests.
-    //
-    pub pc: u64,
-    pub globals: Vec<Value>,
+pub enum CoroutineState {
+    Utxo {
+        // For the purpose of this model, we only care *if* the state changed,
+        // not what it is.
+        storage: Vec<Value>,
+    },
+    Token {
+        // For the purpose of this model, we only care *if* the state changed,
+        // not what it is.
+        storage: Vec<Value>,
+    },
+}
+
+impl CoroutineState {
+    pub fn storage(&self) -> &[Value] {
+        match self {
+            CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
+        }
+    }
 }
 
 // pub struct ZkTransactionProof {}
@@ -155,11 +167,20 @@ impl ZkTransactionProof {
                         .all(|(expected, found)| {
                             neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
                         }),
-                    "must burn table mismatch"
+                    "is_utxo table mismatch"
+                );
+                assert!(
+                    inst.is_token
+                        .iter()
+                        .zip(steps_public[0].lut_insts[4].table.iter())
+                        .all(|(expected, found)| {
+                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
+                        }),
+                    "is_token table mismatch"
                 );
 
                 // TODO: check interfaces? but I think this can be private
-                // dbg!(&self.steps_public[0].lut_insts[3].table);
+                // dbg!(&self.steps_public[0].lut_insts[4].table);
 
                 // dbg!(&steps_public[0].mcs_inst.x);
             }
@@ -206,6 +227,15 @@ pub enum VerificationError {
     InterleavingProofError(#[from] mocked_verifier::InterleavingError),
     #[error("Transaction input not found")]
     InputNotFound,
+    #[error("Invalid token storage shape: expected {max}, got {actual}")]
+    InvalidShapeTokenStorage { actual: usize, max: usize },
+    #[error(
+        "Invalid continuation state kind transition (input={input_kind}, output={output_kind})"
+    )]
+    InvalidStateKindTransition {
+        input_kind: &'static str,
+        output_kind: &'static str,
+    },
 }
 
 /// The actual utxo identity.
@@ -352,6 +382,27 @@ pub struct UtxoEntry {
 }
 
 impl Ledger {
+    const TOKEN_STORAGE_SIZE: usize = 3;
+
+    fn state_kind(state: &CoroutineState) -> &'static str {
+        match state {
+            CoroutineState::Utxo { .. } => "utxo",
+            CoroutineState::Token { .. } => "token",
+        }
+    }
+
+    fn validate_token_state(state: &CoroutineState) -> Result<(), VerificationError> {
+        if let CoroutineState::Token { storage } = state
+            && storage.len() != Self::TOKEN_STORAGE_SIZE
+        {
+            return Err(VerificationError::InvalidShapeTokenStorage {
+                actual: storage.len(),
+                max: Self::TOKEN_STORAGE_SIZE,
+            });
+        }
+        Ok(())
+    }
+
     pub fn new() -> Self {
         Ledger {
             utxos: HashMap::new(),
@@ -450,7 +501,7 @@ impl Ledger {
 
             // same state we don't change the nonce
             //
-            let utxo_id = if cont.pc == parent_state.pc && cont.globals == parent_state.globals {
+            let utxo_id = if cont == &parent_state {
                 is_reference_input.insert(i);
                 parent_utxo_id.clone()
             } else {
@@ -594,6 +645,18 @@ impl Ledger {
                 return Err(VerificationError::InputNotFound);
             };
 
+            Self::validate_token_state(&utxo_entry.state)?;
+
+            if let Some(cont_state) = cont {
+                Self::validate_token_state(cont_state)?;
+                if std::mem::discriminant(&utxo_entry.state) != std::mem::discriminant(cont_state) {
+                    return Err(VerificationError::InvalidStateKindTransition {
+                        input_kind: Self::state_kind(&utxo_entry.state),
+                        output_kind: Self::state_kind(cont_state),
+                    });
+                }
+            }
+
             proof.verify(
                 Some(utxo_entry.state.clone()),
                 &utxo_entry.contract_hash,
@@ -606,6 +669,7 @@ impl Ledger {
             .iter()
             .zip(body.new_outputs.iter())
         {
+            Self::validate_token_state(&entry.state)?;
             proof.verify(None, &entry.contract_hash, Some(entry.state.clone()))?;
         }
 
@@ -621,6 +685,17 @@ impl Ledger {
         // Canonical process kind flags (used by the interleaving public instance).
         let is_utxo = (0..n_processes)
             .map(|pid| pid < (n_inputs + n_new))
+            .collect::<Vec<_>>();
+        let is_token = body
+            .inputs
+            .iter()
+            .map(|input| matches!(self.utxos[input].state, CoroutineState::Token { .. }))
+            .chain(
+                body.new_outputs
+                    .iter()
+                    .map(|o| matches!(o.state, CoroutineState::Token { .. })),
+            )
+            .chain(std::iter::repeat_n(false, n_coords))
             .collect::<Vec<_>>();
 
         // 1. for each input, the verification key (wasm module hash) stored in the ledger.
@@ -677,6 +752,7 @@ impl Ledger {
             process_table: process_table.to_vec(),
 
             is_utxo: is_utxo.to_vec(),
+            is_token,
             must_burn: burned.to_vec(),
 
             n_inputs,

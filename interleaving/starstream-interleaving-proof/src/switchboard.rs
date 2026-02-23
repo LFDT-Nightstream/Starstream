@@ -7,6 +7,7 @@ use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 pub struct RomSwitchboard {
     pub read_is_utxo_curr: bool,
     pub read_is_utxo_target: bool,
+    pub read_is_token_target: bool,
     pub read_must_burn_curr: bool,
     pub read_program_hash_target: bool,
 }
@@ -15,6 +16,7 @@ pub struct RomSwitchboard {
 pub struct RomSwitchboardWires {
     pub read_is_utxo_curr: Boolean<F>,
     pub read_is_utxo_target: Boolean<F>,
+    pub read_is_token_target: Boolean<F>,
     pub read_must_burn_curr: Boolean<F>,
     pub read_program_hash_target: Boolean<F>,
 }
@@ -103,6 +105,9 @@ impl RomSwitchboardWires {
             read_is_utxo_curr: Boolean::new_witness(cs.clone(), || Ok(switches.read_is_utxo_curr))?,
             read_is_utxo_target: Boolean::new_witness(cs.clone(), || {
                 Ok(switches.read_is_utxo_target)
+            })?,
+            read_is_token_target: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_is_token_target)
             })?,
             read_must_burn_curr: Boolean::new_witness(cs.clone(), || {
                 Ok(switches.read_must_burn_curr)
