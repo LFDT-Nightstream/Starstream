@@ -56,6 +56,15 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             val: F::from(val.0),
             target: F::from(id.unwrap().0 as u64),
         },
+        WitLedgerEffect::NewToken {
+            program_hash,
+            val,
+            id,
+        } => LedgerOperation::NewToken {
+            program_hash: program_hash.0.map(F::from),
+            val: F::from(val.0),
+            target: F::from(id.unwrap().0 as u64),
+        },
         WitLedgerEffect::NewCoord {
             program_hash,
             val,
@@ -134,6 +143,7 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
         LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
         LedgerOperation::ProgramHash { .. } => F::from(EffectDiscriminant::ProgramHash as u64),
         LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
+        LedgerOperation::NewToken { .. } => F::from(EffectDiscriminant::NewToken as u64),
         LedgerOperation::NewCoord { .. } => F::from(EffectDiscriminant::NewCoord as u64),
         LedgerOperation::Activation { .. } => F::from(EffectDiscriminant::Activation as u64),
         LedgerOperation::Init { .. } => F::from(EffectDiscriminant::Init as u64),
@@ -199,6 +209,11 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::ProgramHash3.idx()] = program_hash[3];
         }
         LedgerOperation::NewUtxo {
+            program_hash,
+            val,
+            target,
+        }
+        | LedgerOperation::NewToken {
             program_hash,
             val,
             target,

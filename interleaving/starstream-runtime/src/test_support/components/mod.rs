@@ -22,6 +22,7 @@ world runtime {
         starstream-yield: func(val: u64);
         starstream-return: func();
         starstream-new-utxo: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64) -> u64;
+        starstream-new-token: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64) -> u64;
         starstream-new-coord: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64) -> u64;
         starstream-burn: func(ret: u64);
         starstream-bind: func(owner-id: u64);

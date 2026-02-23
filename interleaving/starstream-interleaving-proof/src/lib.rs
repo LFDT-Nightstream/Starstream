@@ -8,7 +8,6 @@ mod handler_stack_gadget;
 mod ledger_operation;
 mod logging;
 mod memory;
-mod memory_tags;
 mod neo;
 mod opcode_dsl;
 mod optional;
@@ -141,7 +140,7 @@ pub fn prove(
 
     let prover_output = ZkTransactionProof::NeoProof {
         proof: run,
-        session,
+        session: Box::new(session),
         ccs: prover.ccs().clone(),
         mcss_public,
         steps_public,
@@ -276,6 +275,7 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayo
         host_calls_roots: vec![],
         process_table: vec![hash],
         is_utxo: vec![false],
+        is_token: vec![false],
         must_burn: vec![false],
         n_inputs: 0,
         n_new: 0,

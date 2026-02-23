@@ -1,6 +1,5 @@
 use crate::F;
-use crate::circuit::MemoryTag;
-use crate::memory::{Address, IVCMemory, IVCMemoryAllocated};
+use crate::memory::{Address, IVCMemory, IVCMemoryAllocated, MemoryTag};
 use ark_ff::{AdditiveGroup as _, PrimeField as _};
 use ark_r1cs_std::{
     alloc::AllocVar as _,
@@ -39,16 +38,16 @@ pub trait OpcodeDsl {
         t: &Self::Val,
         f: &Self::Val,
     ) -> Result<Self::Val, Self::Error>;
-    fn read(
+    fn read<Tag: MemoryTag>(
         &mut self,
         cond: &Self::Bool,
-        tag: MemoryTag,
+        tag: Tag,
         addr: &Self::Val,
     ) -> Result<Self::Val, Self::Error>;
-    fn write(
+    fn write<Tag: MemoryTag>(
         &mut self,
         cond: &Self::Bool,
-        tag: MemoryTag,
+        tag: Tag,
         addr: &Self::Val,
         val: &Self::Val,
     ) -> Result<(), Self::Error>;
@@ -88,27 +87,27 @@ impl<'a, M: IVCMemory<F>> OpcodeDsl for OpcodeTraceDsl<'a, M> {
         Ok(if *cond { *t } else { *f })
     }
 
-    fn read(
+    fn read<Tag: MemoryTag>(
         &mut self,
         cond: &Self::Bool,
-        tag: MemoryTag,
+        tag: Tag,
         addr: &Self::Val,
     ) -> Result<Self::Val, Self::Error> {
         let addr_u64 = addr.into_bigint().0[0];
         let read = self.mb.conditional_read(
             *cond,
             Address {
-                tag: tag.into(),
+                tag: tag.memory_tag(),
                 addr: addr_u64,
             },
         );
         Ok(read[0])
     }
 
-    fn write(
+    fn write<Tag: MemoryTag>(
         &mut self,
         cond: &Self::Bool,
-        tag: MemoryTag,
+        tag: Tag,
         addr: &Self::Val,
         val: &Self::Val,
     ) -> Result<(), Self::Error> {
@@ -116,7 +115,7 @@ impl<'a, M: IVCMemory<F>> OpcodeDsl for OpcodeTraceDsl<'a, M> {
         self.mb.conditional_write(
             *cond,
             Address {
-                tag: tag.into(),
+                tag: tag.memory_tag(),
                 addr: addr_u64,
             },
             vec![*val],
@@ -160,10 +159,10 @@ impl<'a, M: IVCMemoryAllocated<F>> OpcodeDsl for OpcodeSynthDsl<'a, M> {
         cond.select(t, f)
     }
 
-    fn read(
+    fn read<Tag: MemoryTag>(
         &mut self,
         cond: &Self::Bool,
-        tag: MemoryTag,
+        tag: Tag,
         addr: &Self::Val,
     ) -> Result<Self::Val, Self::Error> {
         let read = self.rm.conditional_read(
@@ -177,17 +176,17 @@ impl<'a, M: IVCMemoryAllocated<F>> OpcodeDsl for OpcodeSynthDsl<'a, M> {
         Ok(read)
     }
 
-    fn write(
+    fn write<Tag: MemoryTag>(
         &mut self,
         cond: &Self::Bool,
-        tag: MemoryTag,
+        tag: Tag,
         addr: &Self::Val,
         val: &Self::Val,
     ) -> Result<(), Self::Error> {
         self.rm.conditional_write(
             cond,
             &Address {
-                tag: tag.allocate(self.cs.clone())?,
+                tag: FpVar::new_constant(self.cs.clone(), F::from(tag.memory_tag()))?,
                 addr: addr.clone(),
             },
             std::slice::from_ref(val),

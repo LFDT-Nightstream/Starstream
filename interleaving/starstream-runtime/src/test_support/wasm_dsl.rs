@@ -234,6 +234,7 @@ pub struct Imports {
     pub yield_: FuncRef,
     pub return_: FuncRef,
     pub new_utxo: FuncRef,
+    pub new_token: FuncRef,
     pub new_coord: FuncRef,
     pub burn: FuncRef,
     pub bind: FuncRef,
@@ -379,6 +380,18 @@ impl ModuleBuilder {
             ],
             &[ValType::I64],
         );
+        let new_token = self.import_func(
+            "env",
+            "starstream-new-token",
+            &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
+            &[ValType::I64],
+        );
         let new_coord = self.import_func(
             "env",
             "starstream-new-coord",
@@ -414,6 +427,7 @@ impl ModuleBuilder {
             yield_,
             return_,
             new_utxo,
+            new_token,
             new_coord,
             burn,
             bind,

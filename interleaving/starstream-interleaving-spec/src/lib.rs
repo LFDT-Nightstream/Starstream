@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod memory_tags;
 mod mocked_verifier;
 mod transaction_effects;
 
@@ -6,7 +7,9 @@ mod transaction_effects;
 mod tests;
 
 pub use crate::{
-    mocked_verifier::InterleavingWitness, mocked_verifier::LedgerEffectsCommitment,
+    memory_tags::{RamMemoryTag, RomMemoryTag},
+    mocked_verifier::InterleavingWitness,
+    mocked_verifier::LedgerEffectsCommitment,
     transaction_effects::ProcessId,
 };
 use imbl::{HashMap, HashSet};
@@ -61,22 +64,40 @@ fn encode_hash_to_fields<T>(hash: Hash<T>) -> [neo_math::F; 4] {
 pub struct Ref(pub u64);
 
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct CoroutineState {
-    // For the purpose of this model, we only care *if* the state changed,
-    // not what it is. A simple program counter is sufficient to check if a
-    // coroutine continued execution in the tests.
-    //
-    pub pc: u64,
-    pub globals: Vec<Value>,
+pub enum CoroutineState {
+    Utxo {
+        // For the purpose of this model, we only care *if* the state changed,
+        // not what it is.
+        storage: Vec<Value>,
+    },
+    Token {
+        // For the purpose of this model, we only care *if* the state changed,
+        // not what it is.
+        storage: Vec<Value>,
+    },
+}
+
+impl CoroutineState {
+    pub fn storage(&self) -> &[Value] {
+        match self {
+            CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
+        }
+    }
+
+    pub fn state_kind(&self) -> &'static str {
+        match self {
+            CoroutineState::Utxo { .. } => "utxo",
+            CoroutineState::Token { .. } => "token",
+        }
+    }
 }
 
 // pub struct ZkTransactionProof {}
 
-#[allow(clippy::large_enum_variant)]
 pub enum ZkTransactionProof {
     NeoProof {
         // does the verifier need this?
-        session: neo_fold::session::FoldingSession<neo_ajtai::AjtaiSModule>,
+        session: Box<neo_fold::session::FoldingSession<neo_ajtai::AjtaiSModule>>,
         proof: neo_fold::shard::ShardProof,
         mcss_public: Vec<neo_ccs::McsInstance<Commitment, neo_math::F>>,
         steps_public: Vec<neo_memory::StepInstanceBundle<Commitment, neo_math::F, neo_math::K>>,
@@ -88,7 +109,6 @@ pub enum ZkTransactionProof {
 }
 
 impl ZkTransactionProof {
-    #[allow(clippy::result_large_err)]
     pub fn verify(
         &self,
         inst: &InterleavingInstance,
@@ -129,7 +149,9 @@ impl ZkTransactionProof {
                 //
                 // we may need to check the length or something as a new check,
                 // or maybe try to just use a sparse definition?
-                let process_table = &steps_public[0].lut_insts[0].table[0..expected_fields.len()];
+                let process_table = &steps_public[0].lut_insts
+                    [RomMemoryTag::ProcessTable.lut_index()]
+                .table[0..expected_fields.len()];
                 assert!(
                     expected_fields
                         .iter()
@@ -141,7 +163,11 @@ impl ZkTransactionProof {
                 assert!(
                     inst.must_burn
                         .iter()
-                        .zip(steps_public[0].lut_insts[1].table.iter())
+                        .zip(
+                            steps_public[0].lut_insts[RomMemoryTag::MustBurn.lut_index()]
+                                .table
+                                .iter(),
+                        )
                         .all(|(expected, found)| {
                             neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
                         }),
@@ -151,22 +177,62 @@ impl ZkTransactionProof {
                 assert!(
                     inst.is_utxo
                         .iter()
-                        .zip(steps_public[0].lut_insts[2].table.iter())
+                        .zip(
+                            steps_public[0].lut_insts[RomMemoryTag::IsUtxo.lut_index()]
+                                .table
+                                .iter(),
+                        )
                         .all(|(expected, found)| {
                             neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
                         }),
-                    "must burn table mismatch"
+                    "is_utxo table mismatch"
+                );
+
+                assert!(
+                    inst.is_token
+                        .iter()
+                        .zip(
+                            steps_public[0].lut_insts[RomMemoryTag::IsToken.lut_index()]
+                                .table
+                                .iter(),
+                        )
+                        .all(|(expected, found)| {
+                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
+                        }),
+                    "is_token table mismatch"
                 );
 
                 // TODO: check interfaces? but I think this can be private
-                // dbg!(&self.steps_public[0].lut_insts[3].table);
+                // dbg!(&self.steps_public[0].lut_insts[4].table);
 
                 // dbg!(&steps_public[0].mcs_inst.x);
             }
             ZkTransactionProof::Dummy => {}
         }
 
+        Self::verify_live_tokens_bound_in_instance(inst)?;
+
         Ok(mocked_verifier::verify_interleaving_semantics(inst, wit)?)
+    }
+
+    fn verify_live_tokens_bound_in_instance(
+        inst: &InterleavingInstance,
+    ) -> Result<(), VerificationError> {
+        for pid in 0..(inst.n_inputs + inst.n_new) {
+            if !inst.is_token[pid] {
+                continue;
+            }
+
+            // Burned inputs are allowed to end unbound.
+            let burned_input = inst.must_burn.get(pid).copied().unwrap_or(false);
+            if !burned_input && inst.ownership_out[pid].is_none() {
+                return Err(VerificationError::LiveTokenMustBeBoundInInstance {
+                    pid: ProcessId(pid),
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -183,7 +249,6 @@ impl ZkWasmProof {
         }
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn verify(
         &self,
         _input: Option<CoroutineState>,
@@ -206,6 +271,17 @@ pub enum VerificationError {
     InterleavingProofError(#[from] mocked_verifier::InterleavingError),
     #[error("Transaction input not found")]
     InputNotFound,
+    #[error("Invalid token storage shape: expected {expected}, got {actual}")]
+    InvalidShapeTokenStorage { actual: usize, expected: usize },
+    #[error("Token is live at end but unbound in interleaving instance: pid={pid}")]
+    LiveTokenMustBeBoundInInstance { pid: ProcessId },
+    #[error(
+        "Invalid continuation state kind transition (input={input_kind}, output={output_kind})"
+    )]
+    InvalidStateKindTransition {
+        input_kind: &'static str,
+        output_kind: &'static str,
+    },
 }
 
 /// The actual utxo identity.
@@ -352,6 +428,20 @@ pub struct UtxoEntry {
 }
 
 impl Ledger {
+    const TOKEN_STORAGE_SIZE: usize = 3;
+
+    fn validate_token_state(state: &CoroutineState) -> Result<(), VerificationError> {
+        if let CoroutineState::Token { storage } = state
+            && storage.len() != Self::TOKEN_STORAGE_SIZE
+        {
+            return Err(VerificationError::InvalidShapeTokenStorage {
+                actual: storage.len(),
+                expected: Self::TOKEN_STORAGE_SIZE,
+            });
+        }
+        Ok(())
+    }
+
     pub fn new() -> Self {
         Ledger {
             utxos: HashMap::new(),
@@ -391,7 +481,6 @@ impl Ledger {
         ownership
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn apply_transaction(&self, tx: &ProvenTransaction) -> Result<Ledger, VerificationError> {
         let mut new_ledger = self.clone();
 
@@ -450,7 +539,7 @@ impl Ledger {
 
             // same state we don't change the nonce
             //
-            let utxo_id = if cont.pc == parent_state.pc && cont.globals == parent_state.globals {
+            let utxo_id = if cont == &parent_state {
                 is_reference_input.insert(i);
                 parent_utxo_id.clone()
             } else {
@@ -563,7 +652,6 @@ impl Ledger {
         Ok(new_ledger)
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn verify_witness(
         &self,
         body: &TransactionBody,
@@ -594,6 +682,18 @@ impl Ledger {
                 return Err(VerificationError::InputNotFound);
             };
 
+            Self::validate_token_state(&utxo_entry.state)?;
+
+            if let Some(cont_state) = cont {
+                Self::validate_token_state(cont_state)?;
+                if std::mem::discriminant(&utxo_entry.state) != std::mem::discriminant(cont_state) {
+                    return Err(VerificationError::InvalidStateKindTransition {
+                        input_kind: utxo_entry.state.state_kind(),
+                        output_kind: cont_state.state_kind(),
+                    });
+                }
+            }
+
             proof.verify(
                 Some(utxo_entry.state.clone()),
                 &utxo_entry.contract_hash,
@@ -606,6 +706,7 @@ impl Ledger {
             .iter()
             .zip(body.new_outputs.iter())
         {
+            Self::validate_token_state(&entry.state)?;
             proof.verify(None, &entry.contract_hash, Some(entry.state.clone()))?;
         }
 
@@ -621,6 +722,17 @@ impl Ledger {
         // Canonical process kind flags (used by the interleaving public instance).
         let is_utxo = (0..n_processes)
             .map(|pid| pid < (n_inputs + n_new))
+            .collect::<Vec<_>>();
+        let is_token = body
+            .inputs
+            .iter()
+            .map(|input| matches!(self.utxos[input].state, CoroutineState::Token { .. }))
+            .chain(
+                body.new_outputs
+                    .iter()
+                    .map(|o| matches!(o.state, CoroutineState::Token { .. })),
+            )
+            .chain(std::iter::repeat_n(false, n_coords))
             .collect::<Vec<_>>();
 
         // 1. for each input, the verification key (wasm module hash) stored in the ledger.
@@ -677,6 +789,7 @@ impl Ledger {
             process_table: process_table.to_vec(),
 
             is_utxo: is_utxo.to_vec(),
+            is_token,
             must_burn: burned.to_vec(),
 
             n_inputs,
@@ -718,7 +831,6 @@ impl Default for Ledger {
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn build_wasm_instances_in_canonical_order(
     spending: &[ZkWasmProof],
     new_outputs: &[ZkWasmProof],
