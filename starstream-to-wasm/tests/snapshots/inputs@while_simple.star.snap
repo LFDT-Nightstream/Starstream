@@ -14,9 +14,7 @@ Program {
                     ),
                     name: Identifier {
                         name: "main",
-                        span: Some(
-                            10..14,
-                        ),
+                        span: 10..14,
                     },
                     params: [],
                     return_type: None,
@@ -27,9 +25,7 @@ Program {
                                     mutable: true,
                                     name: Identifier {
                                         name: "foo",
-                                        span: Some(
-                                            31..34,
-                                        ),
+                                        span: 31..34,
                                     },
                                     ty: None,
                                     value: Spanned {
@@ -52,9 +48,7 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "foo",
-                                                        span: Some(
-                                                            51..54,
-                                                        ),
+                                                        span: 51..54,
                                                     },
                                                 ),
                                                 span: 51..55,
@@ -76,9 +70,7 @@ Program {
                                                 node: Assignment {
                                                     target: Identifier {
                                                         name: "foo",
-                                                        span: Some(
-                                                            71..74,
-                                                        ),
+                                                        span: 71..74,
                                                     },
                                                     value: Spanned {
                                                         node: Binary {
@@ -87,9 +79,7 @@ Program {
                                                                 node: Identifier(
                                                                     Identifier {
                                                                         name: "foo",
-                                                                        span: Some(
-                                                                            77..80,
-                                                                        ),
+                                                                        span: 77..80,
                                                                     },
                                                                 ),
                                                                 span: 77..81,
@@ -156,9 +146,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "main",
-                    span: Some(
-                        10..14,
-                    ),
+                    span: 10..14,
                 },
                 params: [],
                 return_type: Unit,
@@ -169,9 +157,7 @@ TypedProgram {
                             mutable: true,
                             name: Identifier {
                                 name: "foo",
-                                span: Some(
-                                    31..34,
-                                ),
+                                span: 31..34,
                             },
                             value: Spanned {
                                 node: TypedExpr {
@@ -197,9 +183,7 @@ TypedProgram {
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "foo",
-                                                        span: Some(
-                                                            51..54,
-                                                        ),
+                                                        span: 51..54,
                                                     },
                                                 ),
                                             },
@@ -225,9 +209,7 @@ TypedProgram {
                                     Assignment {
                                         target: Identifier {
                                             name: "foo",
-                                            span: Some(
-                                                71..74,
-                                            ),
+                                            span: 71..74,
                                         },
                                         value: Spanned {
                                             node: TypedExpr {
@@ -240,9 +222,7 @@ TypedProgram {
                                                             kind: Identifier(
                                                                 Identifier {
                                                                     name: "foo",
-                                                                    span: Some(
-                                                                        77..80,
-                                                                    ),
+                                                                    span: 77..80,
                                                                 },
                                                             ),
                                                         },

@@ -10,9 +10,7 @@ Spanned {
                     node: Identifier(
                         Identifier {
                             name: "blockHeight",
-                            span: Some(
-                                6..17,
-                            ),
+                            span: 6..17,
                         },
                     ),
                     span: 6..17,

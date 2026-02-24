@@ -5,9 +5,7 @@ description: "Code:\n\nutxo Counter {\n    storage {\n        let mut count: i64
 UtxoDef {
     name: Identifier {
         name: "Counter",
-        span: Some(
-            5..12,
-        ),
+        span: 5..12,
     },
     parts: [
         Storage(
@@ -15,16 +13,12 @@ UtxoDef {
                 UtxoGlobal {
                     name: Identifier {
                         name: "count",
-                        span: Some(
-                            45..50,
-                        ),
+                        span: 45..50,
                     },
                     ty: TypeAnnotation {
                         name: Identifier {
                             name: "i64",
-                            span: Some(
-                                52..55,
-                            ),
+                            span: 52..55,
                         },
                         generics: [],
                     },

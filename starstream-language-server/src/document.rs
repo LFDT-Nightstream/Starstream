@@ -465,7 +465,7 @@ impl DocumentState {
         match &import.items {
             TypedImportItems::Named(items) => {
                 for item in items {
-                    if let Some(span) = item.local.span {
+                    if let Some(span) = item.local.opt_span() {
                         self.definition_entries.push(DefinitionEntry {
                             usage: span,
                             target: span,
@@ -479,7 +479,7 @@ impl DocumentState {
                 }
             }
             TypedImportItems::Namespace { alias, functions } => {
-                if let Some(alias_span) = alias.span {
+                if let Some(alias_span) = alias.opt_span() {
                     self.definition_entries.push(DefinitionEntry {
                         usage: alias_span,
                         target: alias_span,
@@ -508,7 +508,7 @@ impl DocumentState {
         source: &str,
         doc: Option<String>,
     ) {
-        if let Some(span) = definition.name.span {
+        if let Some(span) = definition.name.opt_span() {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
@@ -543,7 +543,7 @@ impl DocumentState {
                 .entry(definition.name.name.clone())
                 .or_default();
             for field in &definition.fields {
-                if let Some(span) = field.name.span {
+                if let Some(span) = field.name.opt_span() {
                     entry.insert(field.name.name.clone(), span);
                 }
                 type_entry.insert(field.name.name.clone(), field.ty.clone());
@@ -554,7 +554,7 @@ impl DocumentState {
         let untyped_fields = untyped.map(|u| &u.fields[..]).unwrap_or(&[]);
         for (field, untyped_field) in definition.fields.iter().zip(untyped_fields.iter()) {
             let field_doc = self.comment_map.doc_comments(untyped_field.span, source);
-            if let Some(span) = field.name.span {
+            if let Some(span) = field.name.opt_span() {
                 self.add_hover_span_with_doc(span, &field.ty, field_doc.clone());
 
                 // Store field doc for use at field access sites
@@ -575,7 +575,7 @@ impl DocumentState {
         source: &str,
         doc: Option<String>,
     ) {
-        if let Some(span) = definition.name.span {
+        if let Some(span) = definition.name.opt_span() {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
@@ -604,7 +604,7 @@ impl DocumentState {
             entry.clear();
 
             for variant in &definition.variants {
-                if let Some(span) = variant.name.span {
+                if let Some(span) = variant.name.opt_span() {
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
                         target: span,
@@ -645,7 +645,7 @@ impl DocumentState {
                             .or_default();
                         def_entry.clear();
                         for field in fields {
-                            if let Some(span) = field.name.span {
+                            if let Some(span) = field.name.opt_span() {
                                 def_entry.insert(field.name.name.clone(), span);
                                 field_hovers.push((span, field.ty.clone()));
                             }
@@ -665,7 +665,7 @@ impl DocumentState {
                 self.enum_variant_docs.insert(key, doc.clone());
             }
 
-            if let Some(span) = variant.name.span {
+            if let Some(span) = variant.name.opt_span() {
                 self.add_hover_label_with_doc(
                     span,
                     format_enum_variant_hover_from_info(
@@ -685,7 +685,7 @@ impl DocumentState {
                 TypedUtxoPart::Storage(vars) => {
                     let global = scopes.first_mut().unwrap();
                     for var in vars {
-                        if let Some(span) = var.name.span {
+                        if let Some(span) = var.name.opt_span() {
                             global.insert(var.name.name.clone(), span);
                             self.definition_entries.push(DefinitionEntry {
                                 usage: span,
@@ -709,7 +709,7 @@ impl DocumentState {
         _source: &str,
         doc: Option<String>,
     ) {
-        if let Some(span) = definition.name.span {
+        if let Some(span) = definition.name.opt_span() {
             self.definition_entries.push(DefinitionEntry {
                 usage: span,
                 target: span,
@@ -723,7 +723,7 @@ impl DocumentState {
         for part in &definition.parts {
             match part {
                 TypedAbiPart::Event(event) => {
-                    if let Some(span) = event.name.span {
+                    if let Some(span) = event.name.opt_span() {
                         self.definition_entries.push(DefinitionEntry {
                             usage: span,
                             target: span,
@@ -742,7 +742,7 @@ impl DocumentState {
         scopes: &mut Vec<HashMap<String, Span>>,
         doc: Option<String>,
     ) {
-        if let Some(span) = function.name.span {
+        if let Some(span) = function.name.opt_span() {
             self.function_definitions
                 .insert(function.name.name.clone(), span);
 
@@ -785,7 +785,7 @@ impl DocumentState {
 
         if let Some(scope) = scopes.last_mut() {
             for param in &function.params {
-                if let Some(span) = param.name.span {
+                if let Some(span) = param.name.opt_span() {
                     scope.insert(param.name.name.clone(), span);
 
                     self.definition_entries.push(DefinitionEntry {
@@ -816,7 +816,7 @@ impl DocumentState {
             } => {
                 self.collect_expr(value, scopes);
 
-                if let Some(span) = name.span {
+                if let Some(span) = name.opt_span() {
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
                         target: span,
@@ -827,16 +827,16 @@ impl DocumentState {
                     }
                 }
 
-                if let Some(span) = name.span {
+                if let Some(span) = name.opt_span() {
                     self.add_hover_span(span, &value.node.ty);
                 }
             }
             TypedStatement::Assignment { target, value } => {
                 self.collect_expr(value, scopes);
 
-                self.add_usage(target.span, &target.name, scopes);
+                self.add_usage(target.opt_span(), &target.name, scopes);
 
-                if let Some(span) = target.span {
+                if let Some(span) = target.opt_span() {
                     self.add_hover_span(span, &value.node.ty);
                 }
             }
@@ -871,7 +871,7 @@ impl DocumentState {
 
         match &expr.node.kind {
             TypedExprKind::Identifier(identifier) => {
-                let usage_span = identifier.span.unwrap_or(expr.span);
+                let usage_span = identifier.span_or(expr.span);
 
                 self.add_usage(Some(usage_span), &identifier.name, scopes);
             }
@@ -884,10 +884,10 @@ impl DocumentState {
             TypedExprKind::Grouping(inner) => self.collect_expr(inner, scopes),
             TypedExprKind::Literal(_) => {}
             TypedExprKind::StructLiteral { name, fields } => {
-                self.add_type_usage(name.span, &name.name);
+                self.add_type_usage(name.opt_span(), &name.name);
 
                 // Add hover for struct name with doc comment
-                if let Some(span) = name.span
+                if let Some(span) = name.opt_span()
                     && let Some(ty) = self.struct_types.get(&name.name).cloned()
                 {
                     let struct_doc = self.struct_docs.get(&name.name).cloned();
@@ -900,10 +900,10 @@ impl DocumentState {
             }
             TypedExprKind::FieldAccess { target, field } => {
                 self.collect_expr(target, scopes);
-                self.add_field_access_usage(field.span, &target.node.ty, &field.name);
+                self.add_field_access_usage(field.opt_span(), &target.node.ty, &field.name);
 
                 // Add hover with doc comment for field access
-                if let Some(field_span) = field.span {
+                if let Some(field_span) = field.opt_span() {
                     // Find the struct name from the target type
                     if let Some(struct_name) = self.find_struct_name_for_type(&target.node.ty) {
                         // Get field type and doc
@@ -925,10 +925,10 @@ impl DocumentState {
                 variant,
                 payload,
             } => {
-                self.add_type_usage(enum_name.span, &enum_name.name);
+                self.add_type_usage(enum_name.opt_span(), &enum_name.name);
 
                 // Add hover for enum name with doc comment
-                if let Some(span) = enum_name.span {
+                if let Some(span) = enum_name.opt_span() {
                     let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
                     self.add_generic_or_concrete_type_hover(
                         span,
@@ -938,9 +938,9 @@ impl DocumentState {
                     );
                 }
 
-                self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
+                self.add_enum_variant_usage(variant.opt_span(), &enum_name.name, &variant.name);
                 self.add_variant_hover(
-                    variant.span,
+                    variant.opt_span(),
                     &enum_name.name,
                     &variant.name,
                     Some(&expr.node.ty),
@@ -957,7 +957,7 @@ impl DocumentState {
                         for field in fields {
                             self.collect_expr(&field.value, scopes);
                             self.add_enum_variant_field_usage(
-                                field.name.span,
+                                field.name.opt_span(),
                                 &enum_name.name,
                                 &variant.name,
                                 &field.name.name,
@@ -993,7 +993,7 @@ impl DocumentState {
                     if let Some((signature, doc)) =
                         self.function_docs.get(&identifier.name).cloned()
                     {
-                        let usage_span = identifier.span.unwrap_or(callee.span);
+                        let usage_span = identifier.span_or(callee.span);
                         self.add_hover_label_with_doc(usage_span, signature, Some(doc));
                         self.add_usage(Some(usage_span), &identifier.name, scopes);
                     } else {
@@ -1008,7 +1008,7 @@ impl DocumentState {
                 }
             }
             TypedExprKind::Emit { event, args } => {
-                if let Some(span) = event.span {
+                if let Some(span) = event.opt_span() {
                     self.add_hover_label(span, format!("event {}", event.name));
                 }
 
@@ -1048,7 +1048,7 @@ impl DocumentState {
     ) {
         match pattern {
             TypedPattern::Binding(identifier) => {
-                if let Some(span) = identifier.span {
+                if let Some(span) = identifier.opt_span() {
                     self.definition_entries.push(DefinitionEntry {
                         usage: span,
                         target: span,
@@ -1070,10 +1070,10 @@ impl DocumentState {
                 // Literal patterns don't introduce bindings or references
             }
             TypedPattern::Struct { name, fields } => {
-                self.add_type_usage(name.span, &name.name);
+                self.add_type_usage(name.opt_span(), &name.name);
 
                 // Add hover for struct name with doc comment
-                if let Some(span) = name.span
+                if let Some(span) = name.opt_span()
                     && let Some(ty) = self.struct_types.get(&name.name).cloned()
                 {
                     let struct_doc = self.struct_docs.get(&name.name).cloned();
@@ -1081,11 +1081,15 @@ impl DocumentState {
                 }
 
                 for field in fields {
-                    self.add_struct_field_usage(field.name.span, &name.name, &field.name.name);
+                    self.add_struct_field_usage(
+                        field.name.opt_span(),
+                        &name.name,
+                        &field.name.name,
+                    );
 
                     let field_ty = self.lookup_struct_field_type(&name.name, &field.name.name);
 
-                    if let Some(span) = field.name.span
+                    if let Some(span) = field.name.opt_span()
                         && let Some(ty) = field_ty.as_ref()
                     {
                         self.add_hover_span(span, ty);
@@ -1099,9 +1103,9 @@ impl DocumentState {
                 variant,
                 payload,
             } => {
-                self.add_type_usage(enum_name.span, &enum_name.name);
+                self.add_type_usage(enum_name.opt_span(), &enum_name.name);
 
-                if let Some(span) = enum_name.span {
+                if let Some(span) = enum_name.opt_span() {
                     // Include enum doc comment for the enum name in pattern
                     let enum_doc = self.enum_docs.get(&enum_name.name).cloned();
                     self.add_generic_or_concrete_type_hover(
@@ -1112,9 +1116,9 @@ impl DocumentState {
                     );
                 }
 
-                self.add_enum_variant_usage(variant.span, &enum_name.name, &variant.name);
+                self.add_enum_variant_usage(variant.opt_span(), &enum_name.name, &variant.name);
                 self.add_variant_hover(
-                    variant.span,
+                    variant.opt_span(),
                     &enum_name.name,
                     &variant.name,
                     expected_ty.as_ref(),
@@ -1143,7 +1147,7 @@ impl DocumentState {
                     TypedEnumPatternPayload::Struct(fields) => {
                         for field in fields {
                             self.add_enum_variant_field_usage(
-                                field.name.span,
+                                field.name.opt_span(),
                                 &enum_name.name,
                                 &variant.name,
                                 &field.name.name,
@@ -1155,7 +1159,7 @@ impl DocumentState {
                                 &field.name.name,
                             );
 
-                            if let Some(span) = field.name.span
+                            if let Some(span) = field.name.opt_span()
                                 && let Some(ty) = field_ty.as_ref()
                             {
                                 self.add_hover_span(span, ty);
@@ -1177,7 +1181,7 @@ impl DocumentState {
     ) {
         self.collect_expr(&field.value, scopes);
 
-        self.add_struct_field_usage(field.name.span, struct_name, &field.name.name);
+        self.add_struct_field_usage(field.name.opt_span(), struct_name, &field.name.name);
     }
 
     fn add_hover_span(&mut self, span: Span, ty: &Type) {
@@ -1505,9 +1509,9 @@ impl DocumentState {
     }
 
     fn collect_type_annotation_node(&mut self, annotation: &TypeAnnotation) {
-        self.add_type_usage(annotation.name.span, &annotation.name.name);
+        self.add_type_usage(annotation.name.opt_span(), &annotation.name.name);
 
-        if let Some(span) = annotation.name.span
+        if let Some(span) = annotation.name.opt_span()
             && let Some(label) = self.type_label_for_name(&annotation.name.name)
         {
             // Look up doc comment for struct or enum types
@@ -1718,7 +1722,7 @@ impl DocumentState {
     }
 
     fn function_symbol(&self, function: &TypedFunctionDef) -> Option<DocumentSymbol> {
-        let name_span = function.name.span?;
+        let name_span = function.name.opt_span()?;
 
         #[allow(deprecated)]
         let symbol = DocumentSymbol {
@@ -1736,10 +1740,10 @@ impl DocumentState {
     }
 
     fn struct_symbol(&self, definition: &TypedStructDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.span?;
+        let name_span = definition.name.opt_span()?;
         let mut children = Vec::new();
         for field in &definition.fields {
-            if let Some(span) = field.name.span {
+            if let Some(span) = field.name.opt_span() {
                 #[allow(deprecated)]
                 let child = DocumentSymbol {
                     name: field.name.name.clone(),
@@ -1775,10 +1779,10 @@ impl DocumentState {
     }
 
     fn enum_symbol(&self, definition: &TypedEnumDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.span?;
+        let name_span = definition.name.opt_span()?;
         let mut children = Vec::new();
         for variant in &definition.variants {
-            if let Some(span) = variant.name.span {
+            if let Some(span) = variant.name.opt_span() {
                 let detail = match &variant.payload {
                     TypedEnumVariantPayload::Unit => None,
                     TypedEnumVariantPayload::Tuple(types) => {
@@ -1843,13 +1847,13 @@ impl DocumentState {
     }
 
     fn utxo_symbol(&self, definition: &TypedUtxoDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.span?;
+        let name_span = definition.name.opt_span()?;
         let mut children = Vec::new();
         for part in &definition.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
                     for var in vars {
-                        if let Some(span) = var.name.span {
+                        if let Some(span) = var.name.opt_span() {
                             #[allow(deprecated)]
                             let child = DocumentSymbol {
                                 name: var.name.name.clone(),
@@ -1891,13 +1895,13 @@ impl DocumentState {
     }
 
     fn abi_symbol(&self, definition: &TypedAbiDef) -> Option<DocumentSymbol> {
-        let name_span = definition.name.span?;
+        let name_span = definition.name.opt_span()?;
         let mut children = Vec::new();
 
         for part in &definition.parts {
             match part {
                 TypedAbiPart::Event(event) => {
-                    if let Some(span) = event.name.span {
+                    if let Some(span) = event.name.opt_span() {
                         let params = event
                             .params
                             .iter()

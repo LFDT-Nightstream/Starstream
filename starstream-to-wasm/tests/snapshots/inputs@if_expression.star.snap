@@ -14,18 +14,14 @@ Program {
                     ),
                     name: Identifier {
                         name: "main",
-                        span: Some(
-                            10..14,
-                        ),
+                        span: 10..14,
                     },
                     params: [],
                     return_type: Some(
                         TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    20..23,
-                                ),
+                                span: 20..23,
                             },
                             generics: [],
                         },
@@ -154,9 +150,7 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "main",
-                    span: Some(
-                        10..14,
-                    ),
+                    span: 10..14,
                 },
                 params: [],
                 return_type: Int,

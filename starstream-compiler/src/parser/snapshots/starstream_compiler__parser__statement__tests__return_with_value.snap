@@ -8,9 +8,7 @@ Return(
             node: Identifier(
                 Identifier {
                     name: "flag",
-                    span: Some(
-                        7..11,
-                    ),
+                    span: 7..11,
                 },
             ),
             span: 7..11,

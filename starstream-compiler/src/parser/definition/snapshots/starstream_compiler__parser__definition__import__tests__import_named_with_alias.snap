@@ -8,15 +8,11 @@ ImportDef {
             ImportNamedItem {
                 imported: Identifier {
                     name: "blockHeight",
-                    span: Some(
-                        9..20,
-                    ),
+                    span: 9..20,
                 },
                 local: Identifier {
                     name: "height",
-                    span: Some(
-                        24..30,
-                    ),
+                    span: 24..30,
                 },
             },
         ],
@@ -24,22 +20,16 @@ ImportDef {
     from: ImportSource {
         namespace: Identifier {
             name: "starstream",
-            span: Some(
-                38..48,
-            ),
+            span: 38..48,
         },
         package: Identifier {
             name: "std",
-            span: Some(
-                49..52,
-            ),
+            span: 49..52,
         },
         interface: Some(
             Identifier {
                 name: "cardano",
-                span: Some(
-                    53..60,
-                ),
+                span: 53..60,
             },
         ),
     },

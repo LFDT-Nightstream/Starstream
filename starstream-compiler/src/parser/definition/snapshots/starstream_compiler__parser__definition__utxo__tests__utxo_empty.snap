@@ -5,9 +5,7 @@ description: "Code:\n\nutxo Counter {}"
 UtxoDef {
     name: Identifier {
         name: "Counter",
-        span: Some(
-            5..12,
-        ),
+        span: 5..12,
     },
     parts: [],
 }

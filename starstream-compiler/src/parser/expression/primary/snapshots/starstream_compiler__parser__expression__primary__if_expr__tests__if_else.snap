@@ -10,9 +10,7 @@ Spanned {
                     node: Identifier(
                         Identifier {
                             name: "flag",
-                            span: Some(
-                                4..8,
-                            ),
+                            span: 4..8,
                         },
                     ),
                     span: 4..8,
@@ -24,9 +22,7 @@ Spanned {
                                 mutable: false,
                                 name: Identifier {
                                     name: "a",
-                                    span: Some(
-                                        16..17,
-                                    ),
+                                    span: 16..17,
                                 },
                                 ty: None,
                                 value: Spanned {
@@ -53,9 +49,7 @@ Spanned {
                         node: Assignment {
                             target: Identifier {
                                 name: "value",
-                                span: Some(
-                                    32..37,
-                                ),
+                                span: 32..37,
                             },
                             value: Spanned {
                                 node: Binary {
@@ -64,9 +58,7 @@ Spanned {
                                         node: Identifier(
                                             Identifier {
                                                 name: "value",
-                                                span: Some(
-                                                    40..45,
-                                                ),
+                                                span: 40..45,
                                             },
                                         ),
                                         span: 40..46,

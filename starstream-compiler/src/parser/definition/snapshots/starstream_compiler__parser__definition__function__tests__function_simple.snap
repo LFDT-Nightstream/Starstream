@@ -6,9 +6,7 @@ FunctionDef {
     export: None,
     name: Identifier {
         name: "foo",
-        span: Some(
-            3..6,
-        ),
+        span: 3..6,
     },
     params: [],
     return_type: None,

@@ -239,7 +239,7 @@ fn struct_definition_to_doc<'a>(
 ) -> RcDoc<'a, ()> {
     // Use struct name's end position as body_start to avoid picking up
     // comments that belong to the struct definition itself
-    let body_start = definition.name.span.map(|s| s.end).unwrap_or(0);
+    let body_start = definition.name.span().end;
 
     RcDoc::text("struct")
         .append(RcDoc::space())
@@ -304,7 +304,7 @@ fn enum_definition_to_doc<'a>(
 ) -> RcDoc<'a, ()> {
     // Use enum name's end position as body_start to avoid picking up
     // comments that belong to the enum definition itself
-    let body_start = definition.name.span.map(|s| s.end).unwrap_or(0);
+    let body_start = definition.name.span().end;
 
     RcDoc::text("enum")
         .append(RcDoc::space())
@@ -383,7 +383,7 @@ fn enum_variant_to_doc<'a>(
         }
         EnumVariantPayload::Struct(fields) => {
             // Use variant name's end as body_start for struct fields
-            let body_start = variant.name.span.map(|s| s.end).unwrap_or(0);
+            let body_start = variant.name.span().end;
             let body = if fields.len() < 3 {
                 inline_struct_fields_to_doc(fields, source)
             } else {

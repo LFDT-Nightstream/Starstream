@@ -8,9 +8,7 @@ Spanned {
             node: Identifier(
                 Identifier {
                     name: "value",
-                    span: Some(
-                        6..11,
-                    ),
+                    span: 6..11,
                 },
             ),
             span: 6..12,
@@ -20,24 +18,18 @@ Spanned {
                 pattern: EnumVariant {
                     enum_name: Identifier {
                         name: "Result",
-                        span: Some(
-                            18..24,
-                        ),
+                        span: 18..24,
                     },
                     variant: Identifier {
                         name: "Ok",
-                        span: Some(
-                            26..28,
-                        ),
+                        span: 26..28,
                     },
                     payload: Tuple(
                         [
                             Binding(
                                 Identifier {
                                     name: "inner",
-                                    span: Some(
-                                        29..34,
-                                    ),
+                                    span: 29..34,
                                 },
                             ),
                         ],
@@ -50,9 +42,7 @@ Spanned {
                             node: Identifier(
                                 Identifier {
                                     name: "inner",
-                                    span: Some(
-                                        49..54,
-                                    ),
+                                    span: 49..54,
                                 },
                             ),
                             span: 49..59,
@@ -66,24 +56,18 @@ Spanned {
                 pattern: EnumVariant {
                     enum_name: Identifier {
                         name: "Result",
-                        span: Some(
-                            66..72,
-                        ),
+                        span: 66..72,
                     },
                     variant: Identifier {
                         name: "Err",
-                        span: Some(
-                            74..77,
-                        ),
+                        span: 74..77,
                     },
                     payload: Tuple(
                         [
                             Binding(
                                 Identifier {
                                     name: "reason",
-                                    span: Some(
-                                        78..84,
-                                    ),
+                                    span: 78..84,
                                 },
                             ),
                         ],
@@ -96,9 +80,7 @@ Spanned {
                             node: Identifier(
                                 Identifier {
                                     name: "reason",
-                                    span: Some(
-                                        99..105,
-                                    ),
+                                    span: 99..105,
                                 },
                             ),
                             span: 99..110,

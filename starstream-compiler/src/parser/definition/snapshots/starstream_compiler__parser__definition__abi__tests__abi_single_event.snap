@@ -5,33 +5,25 @@ description: "Code:\n\nabi Events {\n    event Transfer(sender: i64, to: i64);\n
 AbiDef {
     name: Identifier {
         name: "Events",
-        span: Some(
-            4..10,
-        ),
+        span: 4..10,
     },
     parts: [
         Event(
             EventDef {
                 name: Identifier {
                     name: "Transfer",
-                    span: Some(
-                        23..31,
-                    ),
+                    span: 23..31,
                 },
                 params: [
                     FunctionParam {
                         name: Identifier {
                             name: "sender",
-                            span: Some(
-                                32..38,
-                            ),
+                            span: 32..38,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    40..43,
-                                ),
+                                span: 40..43,
                             },
                             generics: [],
                         },
@@ -39,16 +31,12 @@ AbiDef {
                     FunctionParam {
                         name: Identifier {
                             name: "to",
-                            span: Some(
-                                45..47,
-                            ),
+                            span: 45..47,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    49..52,
-                                ),
+                                span: 49..52,
                             },
                             generics: [],
                         },

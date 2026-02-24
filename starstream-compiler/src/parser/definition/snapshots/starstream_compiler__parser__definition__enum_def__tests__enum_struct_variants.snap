@@ -5,33 +5,25 @@ description: "Code:\n\nenum Result { Ok { value: i64 }, Err { msg: i64 } }"
 EnumDef {
     name: Identifier {
         name: "Result",
-        span: Some(
-            5..11,
-        ),
+        span: 5..11,
     },
     variants: [
         EnumVariant {
             name: Identifier {
                 name: "Ok",
-                span: Some(
-                    14..16,
-                ),
+                span: 14..16,
             },
             payload: Struct(
                 [
                     StructField {
                         name: Identifier {
                             name: "value",
-                            span: Some(
-                                19..24,
-                            ),
+                            span: 19..24,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    26..29,
-                                ),
+                                span: 26..29,
                             },
                             generics: [],
                         },
@@ -44,25 +36,19 @@ EnumDef {
         EnumVariant {
             name: Identifier {
                 name: "Err",
-                span: Some(
-                    33..36,
-                ),
+                span: 33..36,
             },
             payload: Struct(
                 [
                     StructField {
                         name: Identifier {
                             name: "msg",
-                            span: Some(
-                                39..42,
-                            ),
+                            span: 39..42,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    44..47,
-                                ),
+                                span: 44..47,
                             },
                             generics: [],
                         },

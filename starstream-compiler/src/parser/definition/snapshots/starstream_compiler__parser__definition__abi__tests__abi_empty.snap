@@ -5,9 +5,7 @@ description: "Code:\n\nabi Events {}"
 AbiDef {
     name: Identifier {
         name: "Events",
-        span: Some(
-            4..10,
-        ),
+        span: 4..10,
     },
     parts: [],
 }

@@ -10,18 +10,14 @@ Spanned {
                     node: Identifier(
                         Identifier {
                             name: "obj",
-                            span: Some(
-                                0..3,
-                            ),
+                            span: 0..3,
                         },
                     ),
                     span: 0..3,
                 },
                 field: Identifier {
                     name: "method",
-                    span: Some(
-                        4..10,
-                    ),
+                    span: 4..10,
                 },
             },
             span: 0..10,
@@ -31,9 +27,7 @@ Spanned {
                 node: Identifier(
                     Identifier {
                         name: "x",
-                        span: Some(
-                            11..12,
-                        ),
+                        span: 11..12,
                     },
                 ),
                 span: 11..12,

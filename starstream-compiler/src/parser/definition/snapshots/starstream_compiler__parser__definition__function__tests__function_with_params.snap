@@ -6,24 +6,18 @@ FunctionDef {
     export: None,
     name: Identifier {
         name: "add",
-        span: Some(
-            3..6,
-        ),
+        span: 3..6,
     },
     params: [
         FunctionParam {
             name: Identifier {
                 name: "a",
-                span: Some(
-                    7..8,
-                ),
+                span: 7..8,
             },
             ty: TypeAnnotation {
                 name: Identifier {
                     name: "i64",
-                    span: Some(
-                        10..13,
-                    ),
+                    span: 10..13,
                 },
                 generics: [],
             },
@@ -31,16 +25,12 @@ FunctionDef {
         FunctionParam {
             name: Identifier {
                 name: "b",
-                span: Some(
-                    15..16,
-                ),
+                span: 15..16,
             },
             ty: TypeAnnotation {
                 name: Identifier {
                     name: "i64",
-                    span: Some(
-                        18..21,
-                    ),
+                    span: 18..21,
                 },
                 generics: [],
             },
@@ -50,9 +40,7 @@ FunctionDef {
         TypeAnnotation {
             name: Identifier {
                 name: "i64",
-                span: Some(
-                    26..29,
-                ),
+                span: 26..29,
             },
             generics: [],
         },
@@ -64,9 +52,7 @@ FunctionDef {
                 node: Identifier(
                     Identifier {
                         name: "a",
-                        span: Some(
-                            32..33,
-                        ),
+                        span: 32..33,
                     },
                 ),
                 span: 32..34,

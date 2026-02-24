@@ -11,18 +11,14 @@ Program {
                 AbiDef {
                     name: Identifier {
                         name: "FooAbi",
-                        span: Some(
-                            4..10,
-                        ),
+                        span: 4..10,
                     },
                     parts: [
                         Event(
                             EventDef {
                                 name: Identifier {
                                     name: "HelloEvent",
-                                    span: Some(
-                                        23..33,
-                                    ),
+                                    span: 23..33,
                                 },
                                 params: [],
                             },
@@ -37,9 +33,7 @@ Program {
                 UtxoDef {
                     name: Identifier {
                         name: "MyUtxo",
-                        span: Some(
-                            45..51,
-                        ),
+                        span: 45..51,
                     },
                     parts: [
                         MainFn(
@@ -49,9 +43,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "hello_utxo",
-                                    span: Some(
-                                        66..76,
-                                    ),
+                                    span: 66..76,
                                 },
                                 params: [],
                                 return_type: None,
@@ -63,9 +55,7 @@ Program {
                                                     node: Emit {
                                                         event: Identifier {
                                                             name: "HelloEvent",
-                                                            span: Some(
-                                                                94..104,
-                                                            ),
+                                                            span: 94..104,
                                                         },
                                                         args: [],
                                                     },
@@ -102,18 +92,14 @@ TypedProgram {
             TypedAbiDef {
                 name: Identifier {
                     name: "FooAbi",
-                    span: Some(
-                        4..10,
-                    ),
+                    span: 4..10,
                 },
                 parts: [
                     Event(
                         TypedEventDef {
                             name: Identifier {
                                 name: "HelloEvent",
-                                span: Some(
-                                    23..33,
-                                ),
+                                span: 23..33,
                             },
                             params: [],
                         },
@@ -125,9 +111,7 @@ TypedProgram {
             TypedUtxoDef {
                 name: Identifier {
                     name: "MyUtxo",
-                    span: Some(
-                        45..51,
-                    ),
+                    span: 45..51,
                 },
                 parts: [
                     MainFn(
@@ -137,9 +121,7 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "hello_utxo",
-                                span: Some(
-                                    66..76,
-                                ),
+                                span: 66..76,
                             },
                             params: [],
                             return_type: Unit,
@@ -153,9 +135,7 @@ TypedProgram {
                                                 kind: Emit {
                                                     event: Identifier {
                                                         name: "HelloEvent",
-                                                        span: Some(
-                                                            94..104,
-                                                        ),
+                                                        span: 94..104,
                                                     },
                                                     args: [],
                                                 },

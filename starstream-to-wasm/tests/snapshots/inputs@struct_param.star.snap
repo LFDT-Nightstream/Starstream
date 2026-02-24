@@ -11,24 +11,18 @@ Program {
                 StructDef {
                     name: Identifier {
                         name: "Token",
-                        span: Some(
-                            7..12,
-                        ),
+                        span: 7..12,
                     },
                     fields: [
                         StructField {
                             name: Identifier {
                                 name: "amount",
-                                span: Some(
-                                    19..25,
-                                ),
+                                span: 19..25,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
-                                    span: Some(
-                                        27..30,
-                                    ),
+                                    span: 27..30,
                                 },
                                 generics: [],
                             },
@@ -37,16 +31,12 @@ Program {
                         StructField {
                             name: Identifier {
                                 name: "price",
-                                span: Some(
-                                    36..41,
-                                ),
+                                span: 36..41,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "i64",
-                                    span: Some(
-                                        43..46,
-                                    ),
+                                    span: 43..46,
                                 },
                                 generics: [],
                             },
@@ -65,24 +55,18 @@ Program {
                     ),
                     name: Identifier {
                         name: "total_value",
-                        span: Some(
-                            61..72,
-                        ),
+                        span: 61..72,
                     },
                     params: [
                         FunctionParam {
                             name: Identifier {
                                 name: "token",
-                                span: Some(
-                                    73..78,
-                                ),
+                                span: 73..78,
                             },
                             ty: TypeAnnotation {
                                 name: Identifier {
                                     name: "Token",
-                                    span: Some(
-                                        80..85,
-                                    ),
+                                    span: 80..85,
                                 },
                                 generics: [],
                             },
@@ -92,9 +76,7 @@ Program {
                         TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: Some(
-                                    90..93,
-                                ),
+                                span: 90..93,
                             },
                             generics: [],
                         },
@@ -111,18 +93,14 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "token",
-                                                        span: Some(
-                                                            100..105,
-                                                        ),
+                                                        span: 100..105,
                                                     },
                                                 ),
                                                 span: 100..105,
                                             },
                                             field: Identifier {
                                                 name: "amount",
-                                                span: Some(
-                                                    106..112,
-                                                ),
+                                                span: 106..112,
                                             },
                                         },
                                         span: 100..113,
@@ -133,18 +111,14 @@ Program {
                                                 node: Identifier(
                                                     Identifier {
                                                         name: "token",
-                                                        span: Some(
-                                                            115..120,
-                                                        ),
+                                                        span: 115..120,
                                                     },
                                                 ),
                                                 span: 115..120,
                                             },
                                             field: Identifier {
                                                 name: "price",
-                                                span: Some(
-                                                    121..126,
-                                                ),
+                                                span: 121..126,
                                             },
                                         },
                                         span: 115..127,
@@ -197,26 +171,20 @@ TypedProgram {
             TypedStructDef {
                 name: Identifier {
                     name: "Token",
-                    span: Some(
-                        7..12,
-                    ),
+                    span: 7..12,
                 },
                 fields: [
                     TypedStructField {
                         name: Identifier {
                             name: "amount",
-                            span: Some(
-                                19..25,
-                            ),
+                            span: 19..25,
                         },
                         ty: Int,
                     },
                     TypedStructField {
                         name: Identifier {
                             name: "price",
-                            span: Some(
-                                36..41,
-                            ),
+                            span: 36..41,
                         },
                         ty: Int,
                     },
@@ -245,17 +213,13 @@ TypedProgram {
                 ),
                 name: Identifier {
                     name: "total_value",
-                    span: Some(
-                        61..72,
-                    ),
+                    span: 61..72,
                 },
                 params: [
                     TypedFunctionParam {
                         name: Identifier {
                             name: "token",
-                            span: Some(
-                                73..78,
-                            ),
+                            span: 73..78,
                         },
                         ty: Record(
                             RecordType {
@@ -308,9 +272,7 @@ TypedProgram {
                                                         kind: Identifier(
                                                             Identifier {
                                                                 name: "token",
-                                                                span: Some(
-                                                                    100..105,
-                                                                ),
+                                                                span: 100..105,
                                                             },
                                                         ),
                                                     },
@@ -318,9 +280,7 @@ TypedProgram {
                                                 },
                                                 field: Identifier {
                                                     name: "amount",
-                                                    span: Some(
-                                                        106..112,
-                                                    ),
+                                                    span: 106..112,
                                                 },
                                             },
                                         },
@@ -350,9 +310,7 @@ TypedProgram {
                                                         kind: Identifier(
                                                             Identifier {
                                                                 name: "token",
-                                                                span: Some(
-                                                                    115..120,
-                                                                ),
+                                                                span: 115..120,
                                                             },
                                                         ),
                                                     },
@@ -360,9 +318,7 @@ TypedProgram {
                                                 },
                                                 field: Identifier {
                                                     name: "price",
-                                                    span: Some(
-                                                        121..126,
-                                                    ),
+                                                    span: 121..126,
                                                 },
                                             },
                                         },
