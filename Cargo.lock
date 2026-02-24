@@ -3144,6 +3144,7 @@ dependencies = [
  "starstream-compiler",
  "starstream-language-server",
  "starstream-to-wasm",
+ "starstream-types",
  "thiserror 2.0.17",
  "tokio",
  "tower-lsp-server",
