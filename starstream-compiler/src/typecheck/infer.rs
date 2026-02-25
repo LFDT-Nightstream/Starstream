@@ -7,9 +7,8 @@ use std::{
 
 use starstream_types::{
     AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IntWidth, Scheme, Span,
-    Spanned, Type,
-    TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal,
-    UtxoPart,
+    Spanned, Type, TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
+    UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, Literal,
