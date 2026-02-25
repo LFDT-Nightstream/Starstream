@@ -5,8 +5,7 @@ use crate::handler_stack_gadget::{
     HandlerState, InterfaceResolver, handler_stack_access_wires, trace_handler_stack_ops,
 };
 use crate::ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE};
-use crate::memory::{self, Address, IVCMemory, MemType};
-pub use crate::memory_tags::MemoryTag;
+use crate::memory::{self, Address, IVCMemory, MemType, MemoryTag as _};
 use crate::program_hash_gadget::{program_hash_access_wires, trace_program_hash_ops};
 use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
@@ -29,7 +28,9 @@ use ark_relations::{
     gr1cs::{ConstraintSystemRef, SynthesisError},
     ns,
 };
-use starstream_interleaving_spec::{InterleavingInstance, LedgerEffectsCommitment};
+use starstream_interleaving_spec::{
+    InterleavingInstance, LedgerEffectsCommitment, RamMemoryTag, RomMemoryTag,
+};
 use std::marker::PhantomData;
 use std::ops::Not;
 use tracing::debug_span;
@@ -299,7 +300,7 @@ impl Wires {
             &rom_switches.read_is_utxo_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: MemoryTag::IsUtxo.allocate(cs.clone())?,
+                tag: RomMemoryTag::IsUtxo.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -308,7 +309,7 @@ impl Wires {
             &rom_switches.read_is_utxo_target,
             &Address {
                 addr: target_address.clone(),
-                tag: MemoryTag::IsUtxo.allocate(cs.clone())?,
+                tag: RomMemoryTag::IsUtxo.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -316,7 +317,7 @@ impl Wires {
             &rom_switches.read_is_token_target,
             &Address {
                 addr: target_address.clone(),
-                tag: MemoryTag::IsToken.allocate(cs.clone())?,
+                tag: RomMemoryTag::IsToken.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -325,7 +326,7 @@ impl Wires {
             &rom_switches.read_must_burn_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: MemoryTag::MustBurn.allocate(cs.clone())?,
+                tag: RomMemoryTag::MustBurn.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -866,7 +867,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     mb.init(
                         Address {
                             addr: addr as u64,
-                            tag: MemoryTag::ProcessTable.into(),
+                            tag: RomMemoryTag::ProcessTable.memory_tag(),
                         },
                         vec![*field],
                     );
@@ -875,7 +876,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Initialized.into(),
+                        tag: RamMemoryTag::Initialized.memory_tag(),
                     },
                     vec![F::from(
                         if pid < self.instance.n_inputs || pid == self.instance.entrypoint.0 {
@@ -889,7 +890,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Finalized.into(),
+                        tag: RamMemoryTag::Finalized.memory_tag(),
                     },
                     vec![F::from(0u64)], // false
                 );
@@ -897,7 +898,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::DidBurn.into(),
+                        tag: RamMemoryTag::DidBurn.memory_tag(),
                     },
                     vec![F::from(0u64)], // false
                 );
@@ -905,7 +906,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::ExpectedInput.into(),
+                        tag: RamMemoryTag::ExpectedInput.memory_tag(),
                     },
                     vec![OptionalF::none().encoded()],
                 );
@@ -913,7 +914,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::ExpectedResumer.into(),
+                        tag: RamMemoryTag::ExpectedResumer.memory_tag(),
                     },
                     vec![OptionalF::none().encoded()],
                 );
@@ -921,7 +922,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::OnYield.into(),
+                        tag: RamMemoryTag::OnYield.memory_tag(),
                     },
                     vec![F::ONE], // true
                 );
@@ -929,7 +930,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::YieldTo.into(),
+                        tag: RamMemoryTag::YieldTo.memory_tag(),
                     },
                     vec![OptionalF::none().encoded()],
                 );
@@ -937,7 +938,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Activation.into(),
+                        tag: RamMemoryTag::Activation.memory_tag(),
                     },
                     vec![F::from(0u64)], // None
                 );
@@ -945,14 +946,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Init.into(),
+                        tag: RamMemoryTag::Init.memory_tag(),
                     },
                     vec![F::from(0u64)], // None
                 );
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::InitCaller.into(),
+                        tag: RamMemoryTag::InitCaller.memory_tag(),
                     },
                     vec![F::from(0u64)],
                 );
@@ -963,7 +964,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     mb.init(
                         Address {
                             addr: addr as u64,
-                            tag: MemoryTag::TraceCommitments.into(),
+                            tag: RamMemoryTag::TraceCommitments.memory_tag(),
                         },
                         vec![trace_iv[offset]],
                     );
@@ -974,7 +975,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::MustBurn.into(),
+                        tag: RomMemoryTag::MustBurn.memory_tag(),
                     },
                     vec![F::from(if *must_burn { 1u64 } else { 0 })],
                 );
@@ -984,7 +985,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::IsUtxo.into(),
+                        tag: RomMemoryTag::IsUtxo.memory_tag(),
                     },
                     vec![F::from(if *is_utxo { 1u64 } else { 0 })],
                 );
@@ -993,7 +994,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::IsToken.into(),
+                        tag: RomMemoryTag::IsToken.memory_tag(),
                     },
                     vec![F::from(if *is_token { 1u64 } else { 0 })],
                 );
@@ -1006,7 +1007,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Ownership.into(),
+                        tag: RamMemoryTag::Ownership.memory_tag(),
                     },
                     vec![encoded_owner],
                 );
@@ -1121,28 +1122,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 rom_switches.read_is_utxo_curr,
                 Address {
                     addr: irw.id_curr.into_bigint().0[0],
-                    tag: MemoryTag::IsUtxo.into(),
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_is_utxo_target,
                 Address {
                     addr: target_pid.unwrap_or(0),
-                    tag: MemoryTag::IsUtxo.into(),
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_is_token_target,
                 Address {
                     addr: target_pid.unwrap_or(0),
-                    tag: MemoryTag::IsToken.into(),
+                    tag: RomMemoryTag::IsToken.memory_tag(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_must_burn_curr,
                 Address {
                     addr: irw.id_curr.into_bigint().0[0],
-                    tag: MemoryTag::MustBurn.into(),
+                    tag: RomMemoryTag::MustBurn.memory_tag(),
                 },
             );
             let target_pid_value = target_pid.unwrap_or(0);
@@ -1234,7 +1235,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mem.init(
                     Address {
                         addr: (index * 4 + limb) as u64,
-                        tag: MemoryTag::Interfaces.into(),
+                        tag: RomMemoryTag::Interfaces.memory_tag(),
                     },
                     vec![*field],
                 );
@@ -1243,7 +1244,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mem.init(
                 Address {
                     addr: index as u64,
-                    tag: MemoryTag::HandlerStackHeads.into(),
+                    tag: RamMemoryTag::HandlerStackHeads.memory_tag(),
                 },
                 vec![F::ZERO], // null pointer (empty stack)
             );
@@ -1260,14 +1261,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mem.init(
                 Address {
                     addr: i as u64,
-                    tag: MemoryTag::HandlerStackArenaProcess.into(),
+                    tag: RamMemoryTag::HandlerStackArenaProcess.memory_tag(),
                 },
                 vec![F::ZERO], // process_id
             );
             mem.init(
                 Address {
                     addr: i as u64,
-                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
+                    tag: RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
                 },
                 vec![F::ZERO], // next_ptr
             );
@@ -2099,92 +2100,132 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
 fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
     mb.register_mem(
-        MemoryTag::ProcessTable.into(),
+        RomMemoryTag::ProcessTable.memory_tag(),
         1,
         MemType::Rom,
         "ROM_PROCESS_TABLE",
     );
-    mb.register_mem(MemoryTag::MustBurn.into(), 1, MemType::Rom, "ROM_MUST_BURN");
-    mb.register_mem(MemoryTag::IsUtxo.into(), 1, MemType::Rom, "ROM_IS_UTXO");
     mb.register_mem(
-        MemoryTag::Interfaces.into(),
+        RomMemoryTag::MustBurn.memory_tag(),
+        1,
+        MemType::Rom,
+        "ROM_MUST_BURN",
+    );
+    mb.register_mem(
+        RomMemoryTag::IsUtxo.memory_tag(),
+        1,
+        MemType::Rom,
+        "ROM_IS_UTXO",
+    );
+    mb.register_mem(
+        RomMemoryTag::Interfaces.memory_tag(),
         1,
         MemType::Rom,
         "ROM_INTERFACES",
     );
-    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Ram, "RAM_REF_ARENA");
-    mb.register_mem(MemoryTag::RefSizes.into(), 1, MemType::Ram, "RAM_REF_SIZES");
     mb.register_mem(
-        MemoryTag::ExpectedInput.into(),
+        RamMemoryTag::RefArena.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_REF_ARENA",
+    );
+    mb.register_mem(
+        RamMemoryTag::RefSizes.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_REF_SIZES",
+    );
+    mb.register_mem(
+        RamMemoryTag::ExpectedInput.memory_tag(),
         1,
         MemType::Ram,
         "RAM_EXPECTED_INPUT",
     );
     mb.register_mem(
-        MemoryTag::ExpectedResumer.into(),
+        RamMemoryTag::ExpectedResumer.memory_tag(),
         1,
         MemType::Ram,
         "RAM_EXPECTED_RESUMER",
     );
-    mb.register_mem(MemoryTag::OnYield.into(), 1, MemType::Ram, "RAM_ON_YIELD");
-    mb.register_mem(MemoryTag::YieldTo.into(), 1, MemType::Ram, "RAM_YIELD_TO");
     mb.register_mem(
-        MemoryTag::Activation.into(),
+        RamMemoryTag::OnYield.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_ON_YIELD",
+    );
+    mb.register_mem(
+        RamMemoryTag::YieldTo.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_YIELD_TO",
+    );
+    mb.register_mem(
+        RamMemoryTag::Activation.memory_tag(),
         1,
         MemType::Ram,
         "RAM_ACTIVATION",
     );
-    mb.register_mem(MemoryTag::Init.into(), 1, MemType::Ram, "RAM_INIT");
+    mb.register_mem(RamMemoryTag::Init.memory_tag(), 1, MemType::Ram, "RAM_INIT");
     mb.register_mem(
-        MemoryTag::InitCaller.into(),
+        RamMemoryTag::InitCaller.memory_tag(),
         1,
         MemType::Ram,
         "RAM_INIT_CALLER",
     );
     mb.register_mem(
-        MemoryTag::Initialized.into(),
+        RamMemoryTag::Initialized.memory_tag(),
         1,
         MemType::Ram,
         "RAM_INITIALIZED",
     );
     mb.register_mem(
-        MemoryTag::Finalized.into(),
+        RamMemoryTag::Finalized.memory_tag(),
         1,
         MemType::Ram,
         "RAM_FINALIZED",
     );
-    mb.register_mem(MemoryTag::DidBurn.into(), 1, MemType::Ram, "RAM_DID_BURN");
     mb.register_mem(
-        MemoryTag::Ownership.into(),
+        RamMemoryTag::DidBurn.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_DID_BURN",
+    );
+    mb.register_mem(
+        RamMemoryTag::Ownership.memory_tag(),
         1,
         MemType::Ram,
         "RAM_OWNERSHIP",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackArenaProcess.into(),
+        RamMemoryTag::HandlerStackArenaProcess.memory_tag(),
         1,
         MemType::Ram,
         "RAM_HANDLER_STACK_ARENA_PROCESS",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackArenaNextPtr.into(),
+        RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
         1,
         MemType::Ram,
         "RAM_HANDLER_STACK_ARENA_NEXT_PTR",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackHeads.into(),
+        RamMemoryTag::HandlerStackHeads.memory_tag(),
         1,
         MemType::Ram,
         "RAM_HANDLER_STACK_HEADS",
     );
     mb.register_mem(
-        MemoryTag::TraceCommitments.into(),
+        RamMemoryTag::TraceCommitments.memory_tag(),
         1,
         MemType::Ram,
         "RAM_TRACE_COMMITMENTS",
     );
-    mb.register_mem(MemoryTag::IsToken.into(), 1, MemType::Rom, "ROM_IS_TOKEN");
+    mb.register_mem(
+        RomMemoryTag::IsToken.memory_tag(),
+        1,
+        MemType::Rom,
+        "ROM_IS_TOKEN",
+    );
 }
 
 #[tracing::instrument(target = "gr1cs", skip_all)]
@@ -2287,7 +2328,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         *slot = mb.conditional_read(
             true,
             Address {
-                tag: MemoryTag::TraceCommitments.into(),
+                tag: RamMemoryTag::TraceCommitments.memory_tag(),
                 addr: addr as u64,
             },
         )[0];
@@ -2305,7 +2346,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
             true,
             Address {
                 addr: addr as u64,
-                tag: MemoryTag::TraceCommitments.into(),
+                tag: RamMemoryTag::TraceCommitments.memory_tag(),
             },
             vec![*elem],
         );
@@ -2328,7 +2369,7 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
         let addr = &(id_curr.clone() * FpVar::new_constant(cs.clone(), F::from(4))?) + &offset;
         let address = Address {
-            tag: MemoryTag::TraceCommitments.allocate(cs.clone())?,
+            tag: RamMemoryTag::TraceCommitments.allocate(cs.clone())?,
             addr,
         };
 

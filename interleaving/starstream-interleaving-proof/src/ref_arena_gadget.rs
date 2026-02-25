@@ -1,4 +1,3 @@
-use crate::circuit::MemoryTag;
 use crate::opcode_dsl::{OpcodeDsl, OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::switchboard::{RefArenaSwitchboard, RefArenaSwitchboardWires};
 use crate::{
@@ -16,6 +15,7 @@ use ark_r1cs_std::{
     prelude::Boolean,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use starstream_interleaving_spec::RamMemoryTag;
 use std::ops::Not;
 
 fn ref_sizes_access_ops<D: OpcodeDsl>(
@@ -26,8 +26,8 @@ fn ref_sizes_access_ops<D: OpcodeDsl>(
     read_cond: &D::Bool,
     read_addr: &D::Val,
 ) -> Result<D::Val, D::Error> {
-    dsl.write(write_cond, MemoryTag::RefSizes, write_addr, write_val)?;
-    dsl.read(read_cond, MemoryTag::RefSizes, read_addr)
+    dsl.write(write_cond, RamMemoryTag::RefSizes, write_addr, write_val)?;
+    dsl.read(read_cond, RamMemoryTag::RefSizes, read_addr)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -50,7 +50,7 @@ fn ref_arena_access_ops<D: OpcodeDsl>(
     for i in 0..REF_GET_BATCH_SIZE {
         let off = dsl.const_u64(i as u64)?;
         let addr = dsl.add(&get_base_addr, &off)?;
-        let read = dsl.read(read_cond, MemoryTag::RefArena, &addr)?;
+        let read = dsl.read(read_cond, RamMemoryTag::RefArena, &addr)?;
         ref_arena_read_vec.push(read);
     }
 
@@ -66,7 +66,7 @@ fn ref_arena_access_ops<D: OpcodeDsl>(
         let addr = dsl.add(&write_base, &off)?;
         let val_sel = dsl.select(write_is_push, &push_vals[i], &write_vals[i])?;
         let val = dsl.select(write_cond, &val_sel, &zero)?;
-        dsl.write(write_cond, MemoryTag::RefArena, &addr, &val)?;
+        dsl.write(write_cond, RamMemoryTag::RefArena, &addr, &val)?;
     }
 
     let ref_arena_read: [D::Val; REF_GET_BATCH_SIZE] = ref_arena_read_vec
