@@ -15,3 +15,7 @@ pub use comments::*;
 pub use error::*;
 pub use typed_ast::*;
 pub use types::*;
+
+// For `error_code!`.
+#[doc(hidden)]
+pub use inventory as __inventory;

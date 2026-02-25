@@ -22,6 +22,7 @@ similar = "2.7.0"
 starstream-compiler = { workspace = true }
 starstream-language-server = { workspace = true }
 starstream-to-wasm = { workspace = true }
+starstream-types = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1.47.1", features = ["full"] }
 tower-lsp-server = { workspace = true }
