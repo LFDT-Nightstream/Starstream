@@ -190,6 +190,8 @@ pub enum InterleavingError {
         expected: Option<ProcessId>,
         got: Option<ProcessId>,
     },
+    #[error("verification: token is live at end but unbound (pid={pid})")]
+    LiveTokenMustBeBound { pid: ProcessId },
     #[error("a process was not initialized {pid}")]
     ProcessNotInitialized { pid: ProcessId },
 
@@ -378,6 +380,15 @@ pub fn verify_interleaving_semantics(
                 pid: ProcessId(pid),
                 expected,
                 got,
+            });
+        }
+    }
+
+    // 6) every live token must be bound to an owner at transaction end
+    for pid in 0..(inst.n_inputs + inst.n_new) {
+        if rom.is_token[pid] && !state.did_burn[pid] && state.ownership[pid].is_none() {
+            return Err(InterleavingError::LiveTokenMustBeBound {
+                pid: ProcessId(pid),
             });
         }
     }

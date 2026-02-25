@@ -189,6 +189,7 @@ impl ZkTransactionProof {
                         }),
                     "is_utxo table mismatch"
                 );
+
                 assert!(
                     inst.is_token
                         .iter()
@@ -211,7 +212,30 @@ impl ZkTransactionProof {
             ZkTransactionProof::Dummy => {}
         }
 
+        Self::verify_live_tokens_bound_in_instance(inst)?;
+
         Ok(mocked_verifier::verify_interleaving_semantics(inst, wit)?)
+    }
+
+    #[allow(clippy::result_large_err)]
+    fn verify_live_tokens_bound_in_instance(
+        inst: &InterleavingInstance,
+    ) -> Result<(), VerificationError> {
+        for pid in 0..(inst.n_inputs + inst.n_new) {
+            if !inst.is_token[pid] {
+                continue;
+            }
+
+            // Burned inputs are allowed to end unbound.
+            let burned_input = inst.must_burn.get(pid).copied().unwrap_or(false);
+            if !burned_input && inst.ownership_out[pid].is_none() {
+                return Err(VerificationError::LiveTokenMustBeBoundInInstance {
+                    pid: ProcessId(pid),
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -253,6 +277,8 @@ pub enum VerificationError {
     InputNotFound,
     #[error("Invalid token storage shape: expected {expected}, got {actual}")]
     InvalidShapeTokenStorage { actual: usize, expected: usize },
+    #[error("Token is live at end but unbound in interleaving instance: pid={pid}")]
+    LiveTokenMustBeBoundInInstance { pid: ProcessId },
     #[error(
         "Invalid continuation state kind transition (input={input_kind}, output={output_kind})"
     )]
