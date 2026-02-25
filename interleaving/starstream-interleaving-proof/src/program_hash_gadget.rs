@@ -1,8 +1,9 @@
 use crate::F;
 use crate::opcode_dsl::{OpcodeDsl, OpcodeSynthDsl, OpcodeTraceDsl};
-use crate::{circuit::MemoryTag, memory::IVCMemory, memory::IVCMemoryAllocated};
+use crate::{memory::IVCMemory, memory::IVCMemoryAllocated};
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use starstream_interleaving_spec::RomMemoryTag;
 
 fn program_hash_ops<D: OpcodeDsl>(
     dsl: &mut D,
@@ -14,7 +15,7 @@ fn program_hash_ops<D: OpcodeDsl>(
     for i in 0..4 {
         let offset = dsl.const_u64(i as u64)?;
         let addr = dsl.add(&dsl.mul(target, &stride)?, &offset)?;
-        let value = dsl.read(read_cond, MemoryTag::ProcessTable, &addr)?;
+        let value = dsl.read(read_cond, RomMemoryTag::ProcessTable, &addr)?;
         out.push(value);
     }
     Ok(out.try_into().expect("program hash length"))

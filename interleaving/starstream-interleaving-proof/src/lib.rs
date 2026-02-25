@@ -8,7 +8,6 @@ mod handler_stack_gadget;
 mod ledger_operation;
 mod logging;
 mod memory;
-mod memory_tags;
 mod neo;
 mod opcode_dsl;
 mod optional;

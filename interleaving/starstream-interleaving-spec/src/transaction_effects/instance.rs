@@ -4,7 +4,7 @@ use neo_memory::ProgramIO;
 use p3_field::PrimeCharacteristicRing;
 
 use crate::{
-    CoroutineState, Hash, WasmModule, mocked_verifier::InterleavingError,
+    CoroutineState, Hash, RamMemoryTag, WasmModule, mocked_verifier::InterleavingError,
     mocked_verifier::LedgerEffectsCommitment, transaction_effects::ProcessId,
 };
 
@@ -117,8 +117,7 @@ impl InterleavingInstance {
 
         // TraceCommitments RAM index in the sorted twist_id list (see proof MemoryTag ordering).
         //
-        // TODO: de-harcode the 12
-        // it's supposed to be the twist index of the TraceCommitments memory
-        OutputBindingConfig::new(num_bits, program_io).with_mem_idx(12)
+        OutputBindingConfig::new(num_bits, program_io)
+            .with_mem_idx(RamMemoryTag::TraceCommitments.mem_index())
     }
 }

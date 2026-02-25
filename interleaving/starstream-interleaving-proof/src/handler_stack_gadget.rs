@@ -3,11 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::opcode_dsl::{OpcodeDsl, OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::switchboard::{HandlerSwitchboard, HandlerSwitchboardWires};
 use crate::{F, LedgerOperation};
-use crate::{circuit::MemoryTag, memory::IVCMemory, memory::IVCMemoryAllocated};
+use crate::{memory::IVCMemory, memory::IVCMemoryAllocated};
 use ark_ff::AdditiveGroup as _;
 use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use starstream_interleaving_spec::{RamMemoryTag, RomMemoryTag};
 
 #[derive(Clone)]
 pub struct HandlerSwitches<B> {
@@ -59,7 +60,7 @@ fn handler_stack_ops<D: OpcodeDsl>(
     let read_interface_limb = |dsl: &mut D, limb: u64| -> Result<D::Val, D::Error> {
         let offset = dsl.const_u64(limb)?;
         let addr = dsl.add(&interface_base_addr, &offset)?;
-        dsl.read(&switches.read_interface, MemoryTag::Interfaces, &addr)
+        dsl.read(&switches.read_interface, RomMemoryTag::Interfaces, &addr)
     };
     let interface_rom_read = [
         read_interface_limb(dsl, 0)?,
@@ -69,17 +70,17 @@ fn handler_stack_ops<D: OpcodeDsl>(
     ];
     let handler_stack_head_read = dsl.read(
         &switches.read_head,
-        MemoryTag::HandlerStackHeads,
+        RamMemoryTag::HandlerStackHeads,
         interface_index,
     )?;
     let handler_stack_node_process = dsl.read(
         &switches.read_node,
-        MemoryTag::HandlerStackArenaProcess,
+        RamMemoryTag::HandlerStackArenaProcess,
         &handler_stack_head_read,
     )?;
     let handler_stack_node_next = dsl.read(
         &switches.read_node,
-        MemoryTag::HandlerStackArenaNextPtr,
+        RamMemoryTag::HandlerStackArenaNextPtr,
         &handler_stack_head_read,
     )?;
 
@@ -87,7 +88,7 @@ fn handler_stack_ops<D: OpcodeDsl>(
     let node_process = dsl.select(&switches.write_node, id_curr, &zero)?;
     dsl.write(
         &switches.write_node,
-        MemoryTag::HandlerStackArenaProcess,
+        RamMemoryTag::HandlerStackArenaProcess,
         handler_stack_counter,
         &node_process,
     )?;
@@ -95,7 +96,7 @@ fn handler_stack_ops<D: OpcodeDsl>(
     let node_next = dsl.select(&switches.write_node, &handler_stack_head_read, &zero)?;
     dsl.write(
         &switches.write_node,
-        MemoryTag::HandlerStackArenaNextPtr,
+        RamMemoryTag::HandlerStackArenaNextPtr,
         handler_stack_counter,
         &node_next,
     )?;
@@ -107,7 +108,7 @@ fn handler_stack_ops<D: OpcodeDsl>(
     )?;
     dsl.write(
         &switches.write_head,
-        MemoryTag::HandlerStackHeads,
+        RamMemoryTag::HandlerStackHeads,
         interface_index,
         &head_val,
     )?;

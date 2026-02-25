@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod memory_tags;
 mod mocked_verifier;
 mod transaction_effects;
 
@@ -6,7 +7,9 @@ mod transaction_effects;
 mod tests;
 
 pub use crate::{
-    mocked_verifier::InterleavingWitness, mocked_verifier::LedgerEffectsCommitment,
+    memory_tags::{RamMemoryTag, RomMemoryTag},
+    mocked_verifier::InterleavingWitness,
+    mocked_verifier::LedgerEffectsCommitment,
     transaction_effects::ProcessId,
 };
 use imbl::{HashMap, HashSet};
@@ -80,6 +83,13 @@ impl CoroutineState {
             CoroutineState::Utxo { storage } | CoroutineState::Token { storage } => storage,
         }
     }
+
+    pub fn state_kind(&self) -> &'static str {
+        match self {
+            CoroutineState::Utxo { .. } => "utxo",
+            CoroutineState::Token { .. } => "token",
+        }
+    }
 }
 
 // pub struct ZkTransactionProof {}
@@ -141,7 +151,9 @@ impl ZkTransactionProof {
                 //
                 // we may need to check the length or something as a new check,
                 // or maybe try to just use a sparse definition?
-                let process_table = &steps_public[0].lut_insts[0].table[0..expected_fields.len()];
+                let process_table = &steps_public[0].lut_insts
+                    [RomMemoryTag::ProcessTable.lut_index()]
+                .table[0..expected_fields.len()];
                 assert!(
                     expected_fields
                         .iter()
@@ -153,7 +165,11 @@ impl ZkTransactionProof {
                 assert!(
                     inst.must_burn
                         .iter()
-                        .zip(steps_public[0].lut_insts[1].table.iter())
+                        .zip(
+                            steps_public[0].lut_insts[RomMemoryTag::MustBurn.lut_index()]
+                                .table
+                                .iter(),
+                        )
                         .all(|(expected, found)| {
                             neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
                         }),
@@ -163,7 +179,11 @@ impl ZkTransactionProof {
                 assert!(
                     inst.is_utxo
                         .iter()
-                        .zip(steps_public[0].lut_insts[2].table.iter())
+                        .zip(
+                            steps_public[0].lut_insts[RomMemoryTag::IsUtxo.lut_index()]
+                                .table
+                                .iter(),
+                        )
                         .all(|(expected, found)| {
                             neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
                         }),
@@ -172,7 +192,11 @@ impl ZkTransactionProof {
                 assert!(
                     inst.is_token
                         .iter()
-                        .zip(steps_public[0].lut_insts[4].table.iter())
+                        .zip(
+                            steps_public[0].lut_insts[RomMemoryTag::IsToken.lut_index()]
+                                .table
+                                .iter(),
+                        )
                         .all(|(expected, found)| {
                             neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
                         }),
@@ -227,8 +251,8 @@ pub enum VerificationError {
     InterleavingProofError(#[from] mocked_verifier::InterleavingError),
     #[error("Transaction input not found")]
     InputNotFound,
-    #[error("Invalid token storage shape: expected {max}, got {actual}")]
-    InvalidShapeTokenStorage { actual: usize, max: usize },
+    #[error("Invalid token storage shape: expected {expected}, got {actual}")]
+    InvalidShapeTokenStorage { actual: usize, expected: usize },
     #[error(
         "Invalid continuation state kind transition (input={input_kind}, output={output_kind})"
     )]
@@ -384,20 +408,13 @@ pub struct UtxoEntry {
 impl Ledger {
     const TOKEN_STORAGE_SIZE: usize = 3;
 
-    fn state_kind(state: &CoroutineState) -> &'static str {
-        match state {
-            CoroutineState::Utxo { .. } => "utxo",
-            CoroutineState::Token { .. } => "token",
-        }
-    }
-
     fn validate_token_state(state: &CoroutineState) -> Result<(), VerificationError> {
         if let CoroutineState::Token { storage } = state
             && storage.len() != Self::TOKEN_STORAGE_SIZE
         {
             return Err(VerificationError::InvalidShapeTokenStorage {
                 actual: storage.len(),
-                max: Self::TOKEN_STORAGE_SIZE,
+                expected: Self::TOKEN_STORAGE_SIZE,
             });
         }
         Ok(())
@@ -651,8 +668,8 @@ impl Ledger {
                 Self::validate_token_state(cont_state)?;
                 if std::mem::discriminant(&utxo_entry.state) != std::mem::discriminant(cont_state) {
                     return Err(VerificationError::InvalidStateKindTransition {
-                        input_kind: Self::state_kind(&utxo_entry.state),
-                        output_kind: Self::state_kind(cont_state),
+                        input_kind: utxo_entry.state.state_kind(),
+                        output_kind: cont_state.state_kind(),
                     });
                 }
             }

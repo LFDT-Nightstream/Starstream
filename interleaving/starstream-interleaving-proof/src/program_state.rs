@@ -1,7 +1,6 @@
 use crate::F;
 use crate::coroutine_args_gadget::coroutine_args_ops;
 use crate::memory::{IVCMemory, IVCMemoryAllocated};
-use crate::memory_tags::MemoryTag;
 use crate::opcode_dsl::{OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::optional::{OptionalF, OptionalFpVar};
 use crate::switchboard::{MemSwitchboardBool, MemSwitchboardWires};
@@ -10,6 +9,7 @@ use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::fields::{FieldVar, fp::FpVar};
 use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use starstream_interleaving_spec::RamMemoryTag;
 
 #[derive(Clone, Debug)]
 pub struct ProgramState {
@@ -61,17 +61,20 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     switches: &crate::switchboard::MemSwitchboard<D::Bool>,
     addr: &D::Val,
 ) -> Result<RawProgramState<D::Val>, D::Error> {
-    let expected_input = dsl.read(&switches.expected_input, MemoryTag::ExpectedInput, addr)?;
-    let expected_resumer =
-        dsl.read(&switches.expected_resumer, MemoryTag::ExpectedResumer, addr)?;
-    let on_yield = dsl.read(&switches.on_yield, MemoryTag::OnYield, addr)?;
-    let yield_to = dsl.read(&switches.yield_to, MemoryTag::YieldTo, addr)?;
+    let expected_input = dsl.read(&switches.expected_input, RamMemoryTag::ExpectedInput, addr)?;
+    let expected_resumer = dsl.read(
+        &switches.expected_resumer,
+        RamMemoryTag::ExpectedResumer,
+        addr,
+    )?;
+    let on_yield = dsl.read(&switches.on_yield, RamMemoryTag::OnYield, addr)?;
+    let yield_to = dsl.read(&switches.yield_to, RamMemoryTag::YieldTo, addr)?;
     let (activation, init) = coroutine_args_ops(dsl, &switches.activation, &switches.init, addr)?;
-    let init_caller = dsl.read(&switches.init_caller, MemoryTag::InitCaller, addr)?;
-    let initialized = dsl.read(&switches.initialized, MemoryTag::Initialized, addr)?;
-    let finalized = dsl.read(&switches.finalized, MemoryTag::Finalized, addr)?;
-    let did_burn = dsl.read(&switches.did_burn, MemoryTag::DidBurn, addr)?;
-    let ownership = dsl.read(&switches.ownership, MemoryTag::Ownership, addr)?;
+    let init_caller = dsl.read(&switches.init_caller, RamMemoryTag::InitCaller, addr)?;
+    let initialized = dsl.read(&switches.initialized, RamMemoryTag::Initialized, addr)?;
+    let finalized = dsl.read(&switches.finalized, RamMemoryTag::Finalized, addr)?;
+    let did_burn = dsl.read(&switches.did_burn, RamMemoryTag::DidBurn, addr)?;
+    let ownership = dsl.read(&switches.ownership, RamMemoryTag::Ownership, addr)?;
 
     Ok(RawProgramState {
         expected_input,
@@ -96,62 +99,62 @@ fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
 ) -> Result<(), D::Error> {
     dsl.write(
         &switches.expected_input,
-        MemoryTag::ExpectedInput,
+        RamMemoryTag::ExpectedInput,
         addr,
         &state.expected_input,
     )?;
     dsl.write(
         &switches.expected_resumer,
-        MemoryTag::ExpectedResumer,
+        RamMemoryTag::ExpectedResumer,
         addr,
         &state.expected_resumer,
     )?;
     dsl.write(
         &switches.on_yield,
-        MemoryTag::OnYield,
+        RamMemoryTag::OnYield,
         addr,
         &state.on_yield,
     )?;
     dsl.write(
         &switches.yield_to,
-        MemoryTag::YieldTo,
+        RamMemoryTag::YieldTo,
         addr,
         &state.yield_to,
     )?;
     dsl.write(
         &switches.activation,
-        MemoryTag::Activation,
+        RamMemoryTag::Activation,
         addr,
         &state.activation,
     )?;
-    dsl.write(&switches.init, MemoryTag::Init, addr, &state.init)?;
+    dsl.write(&switches.init, RamMemoryTag::Init, addr, &state.init)?;
     dsl.write(
         &switches.init_caller,
-        MemoryTag::InitCaller,
+        RamMemoryTag::InitCaller,
         addr,
         &state.init_caller,
     )?;
     dsl.write(
         &switches.initialized,
-        MemoryTag::Initialized,
+        RamMemoryTag::Initialized,
         addr,
         &state.initialized,
     )?;
     dsl.write(
         &switches.finalized,
-        MemoryTag::Finalized,
+        RamMemoryTag::Finalized,
         addr,
         &state.finalized,
     )?;
     dsl.write(
         &switches.did_burn,
-        MemoryTag::DidBurn,
+        RamMemoryTag::DidBurn,
         addr,
         &state.did_burn,
     )?;
     dsl.write(
         &switches.ownership,
-        MemoryTag::Ownership,
+        RamMemoryTag::Ownership,
         addr,
         &state.ownership,
     )?;

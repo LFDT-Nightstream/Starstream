@@ -6,7 +6,9 @@ use std::fmt;
 
 pub mod dummy;
 pub mod nebula;
+pub mod tag;
 pub mod twist_and_shout;
+pub use tag::MemoryTag;
 
 #[derive(PartialOrd, Ord, PartialEq, Eq, Debug, Clone)]
 pub struct Address<A = u64, T = u64> {
