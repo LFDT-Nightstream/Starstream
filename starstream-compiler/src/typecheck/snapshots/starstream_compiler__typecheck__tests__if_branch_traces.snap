@@ -15,13 +15,13 @@ T-Fn: test => ()
         T-Var: {score: i64} ⊢ score ⇒ i64
         T-Int: {score: i64} ⊢ 5 ⇒ i64
         Check-Compare: i64 vs i64 => ok (int)
+          Unify-Var: i64 ~ i64 => {i64/t3}
       Check-Bool: bool => ok
       T-Assign: {score: i64} ⊢ score = score + 1; ⇒ i64
         T-Bin-Add: {score: i64} ⊢ score + 1 ⇒ i64
           T-Var: {score: i64} ⊢ score ⇒ i64
           T-Int: {score: i64} ⊢ 1 ⇒ i64
-          Unify-Const: i64 ~ i64 => {}
-          Unify-Const: i64 ~ i64 => {}
-        Unify-Const: i64 ~ i64 => {}
+          Unify-Var: i64 ~ i64 => {i64/t4}
+        Unify-Var: i64 ~ i64 => {}
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}

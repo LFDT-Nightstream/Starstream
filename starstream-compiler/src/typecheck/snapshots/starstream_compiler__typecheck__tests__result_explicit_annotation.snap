@@ -4,9 +4,9 @@ description: "Source:\n\nfn test() {\n    let x: Result<i64, bool> = Result::Ok(
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result<i64, bool>
-    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<t3, t4>
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<i64, t4>
       T-Int: {} ⊢ 42 ⇒ i64
-      Unify-Var: i64 ~ t3 => {i64/t3}
-    Unify-Enum: Result<i64, bool> ~ Result<i64, t4> => {bool/t4}
+      Unify-Var: i64 ~ t3 => {i64/t5}
+    Unify-Enum: Result<i64, bool> ~ Result<i64, t4> => {bool/t4, i64/t3}
       Unify-Var: bool ~ t4 => {bool/t4}
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t3}

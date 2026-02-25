@@ -4,13 +4,10 @@ description: "Source:\n\nfn test() {\n    let x = Option::Some(42);\n    let y =
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option<i64>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
       T-Int: {} ⊢ 42 ⇒ i64
-      Unify-Var: i64 ~ t3 => {i64/t3}
-  T-Let: {x: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ let y = match x {
+      Unify-Var: i64 ~ t3 => {i64/t4}
+  T-Let: {x: Option<i64>} ⊢ let y = match x {
     Option::Some(v) => {
         v
     },
@@ -18,10 +15,7 @@ T-Fn: test => ()
         0
     },
 }; ⇒ i64
-    T-Match: {x: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ match x {
+    T-Match: {x: Option<i64>} ⊢ match x {
     Option::Some(v) => {
         v
     },
@@ -29,22 +23,13 @@ T-Fn: test => ()
         0
     },
 } ⇒ i64
-      T-Var: {x: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ x ⇒ Option<i64>
-      Unify-Enum: Option<i64> ~ Option<t4> => {i64/t4}
-        Unify-Var: i64 ~ t4 => {i64/t4}
-      T-Tail: v => t4
-        T-Var: {v: t4, x: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ v ⇒ t4
-      Unify-Enum: Option<i64> ~ Option<t5> => {i64/t5}
-        Unify-Var: i64 ~ t5 => {i64/t5}
+      T-Var: {x: Option<i64>} ⊢ x ⇒ Option<i64>
+      Unify-Enum: Option<i64> ~ Option<t5> => {i64/t3}
+        Unify-Var: i64 ~ t5 => {i64/t3}
+      T-Tail: v => i64
+        T-Var: {v: i64, x: Option<i64>} ⊢ v ⇒ i64
+      Unify-Enum: Option<i64> ~ Option<t6> => {i64/t5}
+        Unify-Var: i64 ~ t6 => {i64/t5}
       T-Tail: 0 => i64
-        T-Int: {x: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+        T-Int: {x: Option<i64>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64

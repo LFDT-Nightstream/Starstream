@@ -134,11 +134,11 @@ T-Fn: main => i64
       Check-Bool: bool => ok
       T-Tail: 2 => i64
         T-Int: {} ⊢ 2 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t3}
       T-Tail: 3 => i64
         T-Int: {} ⊢ 3 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
-    Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t4}
+    Unify-Var: i64 ~ i64 => {i64/t5}
 
 ==== Typed AST ====
 TypedProgram {
@@ -153,14 +153,18 @@ TypedProgram {
                     span: 10..14,
                 },
                 params: [],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: If {
                                     branches: [
                                         (
@@ -180,7 +184,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     1,
@@ -209,7 +215,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     2,
@@ -228,7 +236,9 @@ TypedProgram {
                                             tail_expression: Some(
                                                 Spanned {
                                                     node: TypedExpr {
-                                                        ty: Int,
+                                                        ty: Int(
+                                                            I64,
+                                                        ),
                                                         kind: Literal(
                                                             Integer(
                                                                 3,

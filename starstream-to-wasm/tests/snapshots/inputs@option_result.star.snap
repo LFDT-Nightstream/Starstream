@@ -709,18 +709,18 @@ Program {
 
 ==== Inference trace ====
 T-Fn: make_some => Option<i64>
-  T-ReturnTail: Option::Some(42) => Option<t3>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<t3>
+  T-ReturnTail: Option::Some(42) => Option<i64>
+    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
       T-Int: {} ⊢ 42 ⇒ i64
-      Unify-Var: i64 ~ t3 => {i64/t3}
-    Unify-Enum: Option<i64> ~ Option<i64> => {}
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ t3 => {i64/t4}
+    Unify-Enum: Option<i64> ~ Option<i64> => {i64/t3}
+      Unify-Var: i64 ~ i64 => {i64/t3}
 
 T-Fn: make_none => Option<i64>
-  T-ReturnTail: Option::None => Option<t4>
-    T-EnumCtor: {} ⊢ Option::None ⇒ Option<t4>
-    Unify-Enum: Option<t4> ~ Option<i64> => {i64/t4}
-      Unify-Var: t4 ~ i64 => {i64/t4}
+  T-ReturnTail: Option::None => Option<i64>
+    T-EnumCtor: {} ⊢ Option::None ⇒ Option<t5>
+    Unify-Enum: Option<t5> ~ Option<i64> => {i64/t5}
+      Unify-Var: t5 ~ i64 => {i64/t5}
 
 T-Fn: unwrap_option => i64
   T-ReturnTail: match opt {
@@ -731,10 +731,7 @@ T-Fn: unwrap_option => i64
         0
     },
 } => i64
-    T-Match: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ match opt {
+    T-Match: {opt: Option<i64>} ⊢ match opt {
     Option::Some(v) => {
         v
     },
@@ -742,44 +739,35 @@ T-Fn: unwrap_option => i64
         0
     },
 } ⇒ i64
-      T-Var: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ opt ⇒ Option<i64>
-      Unify-Enum: Option<i64> ~ Option<t5> => {i64/t5}
-        Unify-Var: i64 ~ t5 => {i64/t5}
-      T-Tail: v => t5
-        T-Var: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}, v: t5} ⊢ v ⇒ t5
+      T-Var: {opt: Option<i64>} ⊢ opt ⇒ Option<i64>
       Unify-Enum: Option<i64> ~ Option<t6> => {i64/t6}
         Unify-Var: i64 ~ t6 => {i64/t6}
+      T-Tail: v => i64
+        T-Var: {opt: Option<i64>, v: i64} ⊢ v ⇒ i64
+      Unify-Enum: Option<i64> ~ Option<t7> => {i64/t7}
+        Unify-Var: i64 ~ t7 => {i64/t7}
       T-Tail: 0 => i64
-        T-Int: {opt: enum Option<i64> {
-    Some(i64),
-    None,
-}} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+        T-Int: {opt: Option<i64>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: make_ok => Result<i64, bool>
-  T-ReturnTail: Result::Ok(42) => Result<t7, t8>
-    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<t7, t8>
+  T-ReturnTail: Result::Ok(42) => Result<i64, bool>
+    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<i64, t10>
       T-Int: {} ⊢ 42 ⇒ i64
-      Unify-Var: i64 ~ t7 => {i64/t7}
-    Unify-Enum: Result<i64, t8> ~ Result<i64, bool> => {bool/t8}
-      Unify-Var: t8 ~ bool => {bool/t8}
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ t9 => {i64/t11}
+    Unify-Enum: Result<i64, t10> ~ Result<i64, bool> => {bool/t10, i64/t9}
+      Unify-Var: t10 ~ bool => {bool/t10}
+      Unify-Var: i64 ~ i64 => {i64/t9}
 
 T-Fn: make_err => Result<i64, bool>
-  T-ReturnTail: Result::Err(false) => Result<t9, t10>
-    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t9, t10>
+  T-ReturnTail: Result::Err(false) => Result<i64, bool>
+    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t12, bool>
       T-Bool: {} ⊢ false ⇒ bool
-      Unify-Var: bool ~ t10 => {bool/t10}
-    Unify-Enum: Result<t9, bool> ~ Result<i64, bool> => {i64/t9}
+      Unify-Var: bool ~ t13 => {bool/t13}
+    Unify-Enum: Result<t12, bool> ~ Result<i64, bool> => {i64/t12}
       Unify-Const: bool ~ bool => {}
-      Unify-Var: t9 ~ i64 => {i64/t9}
+      Unify-Var: t12 ~ i64 => {i64/t12}
 
 T-Fn: unwrap_result => i64
   T-ReturnTail: match res {
@@ -790,10 +778,7 @@ T-Fn: unwrap_result => i64
         0
     },
 } => i64
-    T-Match: {res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ match res {
+    T-Match: {res: Result<i64, bool>} ⊢ match res {
     Result::Ok(v) => {
         v
     },
@@ -801,93 +786,34 @@ T-Fn: unwrap_result => i64
         0
     },
 } ⇒ i64
-      T-Var: {res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ res ⇒ Result<i64, bool>
-      Unify-Enum: Result<i64, bool> ~ Result<t11, t12> => {bool/t12, i64/t11}
-        Unify-Var: bool ~ t12 => {bool/t12}
-        Unify-Var: i64 ~ t11 => {i64/t11}
-      T-Tail: v => t11
-        T-Var: {res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}, v: t11} ⊢ v ⇒ t11
-      Unify-Enum: Result<i64, bool> ~ Result<t13, t14> => {bool/t14, i64/t13}
-        Unify-Var: bool ~ t14 => {bool/t14}
-        Unify-Var: i64 ~ t13 => {i64/t13}
+      T-Var: {res: Result<i64, bool>} ⊢ res ⇒ Result<i64, bool>
+      Unify-Enum: Result<i64, bool> ~ Result<t14, t15> => {bool/t15, i64/t14}
+        Unify-Var: bool ~ t15 => {bool/t15}
+        Unify-Var: i64 ~ t14 => {i64/t14}
+      T-Tail: v => i64
+        T-Var: {res: Result<i64, bool>, v: i64} ⊢ v ⇒ i64
+      Unify-Enum: Result<i64, bool> ~ Result<t16, t17> => {bool/t17, i64/t16}
+        Unify-Var: bool ~ t17 => {bool/t17}
+        Unify-Var: i64 ~ t16 => {i64/t16}
       T-Tail: 0 => i64
-        T-Int: {e: t14, res: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ 0 ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+        T-Int: {e: bool, res: Result<i64, bool>} ⊢ 0 ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}
 
 
 T-Fn: run => ()
-  T-Expr: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_option(make_some()); ⇒ ()
-    T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_option(make_some()) ⇒ i64
-      T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
-      T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_some() ⇒ Option<i64>
-        T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_some ⇒ fn() -> Option<i64>
+  T-Expr: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()); ⇒ ()
+    T-Call: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_option(make_some()) ⇒ i64
+      T-Var: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_option ⇒ fn(Option<i64>) -> i64
+      T-Call: {x: Thing, y: Result<i64, bool>} ⊢ make_some() ⇒ Option<i64>
+        T-Var: {x: Thing, y: Result<i64, bool>} ⊢ make_some ⇒ fn() -> Option<i64>
       Unify-Enum: Option<i64> ~ Option<i64> => {}
         Unify-Const: i64 ~ i64 => {}
-  T-Expr: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_result(make_ok()); ⇒ ()
-    T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_result(make_ok()) ⇒ i64
-      T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
-      T-Call: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_ok() ⇒ Result<i64, bool>
-        T-Var: {x: struct Thing {
-    x: Option<i64>,
-}, y: enum Result<i64, bool> {
-    Ok(i64),
-    Err(bool),
-}} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
+  T-Expr: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()); ⇒ ()
+    T-Call: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_result(make_ok()) ⇒ i64
+      T-Var: {x: Thing, y: Result<i64, bool>} ⊢ unwrap_result ⇒ fn(Result<i64, bool>) -> i64
+      T-Call: {x: Thing, y: Result<i64, bool>} ⊢ make_ok() ⇒ Result<i64, bool>
+        T-Var: {x: Thing, y: Result<i64, bool>} ⊢ make_ok ⇒ fn() -> Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result<i64, bool> => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -911,7 +837,9 @@ TypedProgram {
                                 name: "Some",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },
@@ -921,7 +849,9 @@ TypedProgram {
                             },
                         ],
                         type_args: [
-                            Int,
+                            Int(
+                                I64,
+                            ),
                         ],
                     },
                 ),
@@ -939,7 +869,9 @@ TypedProgram {
                                                 name: "Some",
                                                 kind: Tuple(
                                                     [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                     ],
                                                 ),
                                             },
@@ -949,7 +881,9 @@ TypedProgram {
                                             },
                                         ],
                                         type_args: [
-                                            Int,
+                                            Int(
+                                                I64,
+                                            ),
                                         ],
                                     },
                                 ),
@@ -966,7 +900,9 @@ TypedProgram {
                                         [
                                             Spanned {
                                                 node: TypedExpr {
-                                                    ty: Int,
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
                                                     kind: Literal(
                                                         Integer(
                                                             42,
@@ -1001,7 +937,9 @@ TypedProgram {
                                 name: "Some",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },
@@ -1011,7 +949,9 @@ TypedProgram {
                             },
                         ],
                         type_args: [
-                            Int,
+                            Int(
+                                I64,
+                            ),
                         ],
                     },
                 ),
@@ -1029,7 +969,9 @@ TypedProgram {
                                                 name: "Some",
                                                 kind: Tuple(
                                                     [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                     ],
                                                 ),
                                             },
@@ -1039,7 +981,9 @@ TypedProgram {
                                             },
                                         ],
                                         type_args: [
-                                            Int,
+                                            Int(
+                                                I64,
+                                            ),
                                         ],
                                     },
                                 ),
@@ -1082,7 +1026,9 @@ TypedProgram {
                                         name: "Some",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -1092,20 +1038,26 @@ TypedProgram {
                                     },
                                 ],
                                 type_args: [
-                                    Int,
+                                    Int(
+                                        I64,
+                                    ),
                                 ],
                             },
                         ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Match {
                                     scrutinee: Spanned {
                                         node: TypedExpr {
@@ -1117,7 +1069,9 @@ TypedProgram {
                                                             name: "Some",
                                                             kind: Tuple(
                                                                 [
-                                                                    Int,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
                                                                 ],
                                                             ),
                                                         },
@@ -1127,7 +1081,9 @@ TypedProgram {
                                                         },
                                                     ],
                                                     type_args: [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                     ],
                                                 },
                                             ),
@@ -1167,7 +1123,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Identifier(
                                                                 Identifier {
                                                                     name: "v",
@@ -1197,7 +1155,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     0,
@@ -1234,7 +1194,9 @@ TypedProgram {
                                 name: "Ok",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },
@@ -1248,7 +1210,9 @@ TypedProgram {
                             },
                         ],
                         type_args: [
-                            Int,
+                            Int(
+                                I64,
+                            ),
                             Bool,
                         ],
                     },
@@ -1267,7 +1231,9 @@ TypedProgram {
                                                 name: "Ok",
                                                 kind: Tuple(
                                                     [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                     ],
                                                 ),
                                             },
@@ -1281,7 +1247,9 @@ TypedProgram {
                                             },
                                         ],
                                         type_args: [
-                                            Int,
+                                            Int(
+                                                I64,
+                                            ),
                                             Bool,
                                         ],
                                     },
@@ -1299,7 +1267,9 @@ TypedProgram {
                                         [
                                             Spanned {
                                                 node: TypedExpr {
-                                                    ty: Int,
+                                                    ty: Int(
+                                                        I64,
+                                                    ),
                                                     kind: Literal(
                                                         Integer(
                                                             42,
@@ -1334,7 +1304,9 @@ TypedProgram {
                                 name: "Ok",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },
@@ -1348,7 +1320,9 @@ TypedProgram {
                             },
                         ],
                         type_args: [
-                            Int,
+                            Int(
+                                I64,
+                            ),
                             Bool,
                         ],
                     },
@@ -1367,7 +1341,9 @@ TypedProgram {
                                                 name: "Ok",
                                                 kind: Tuple(
                                                     [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                     ],
                                                 ),
                                             },
@@ -1381,7 +1357,9 @@ TypedProgram {
                                             },
                                         ],
                                         type_args: [
-                                            Int,
+                                            Int(
+                                                I64,
+                                            ),
                                             Bool,
                                         ],
                                     },
@@ -1439,7 +1417,9 @@ TypedProgram {
                                         name: "Ok",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -1453,21 +1433,27 @@ TypedProgram {
                                     },
                                 ],
                                 type_args: [
-                                    Int,
+                                    Int(
+                                        I64,
+                                    ),
                                     Bool,
                                 ],
                             },
                         ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Match {
                                     scrutinee: Spanned {
                                         node: TypedExpr {
@@ -1479,7 +1465,9 @@ TypedProgram {
                                                             name: "Ok",
                                                             kind: Tuple(
                                                                 [
-                                                                    Int,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
                                                                 ],
                                                             ),
                                                         },
@@ -1493,7 +1481,9 @@ TypedProgram {
                                                         },
                                                     ],
                                                     type_args: [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                         Bool,
                                                     ],
                                                 },
@@ -1534,7 +1524,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Identifier(
                                                                 Identifier {
                                                                     name: "v",
@@ -1573,7 +1565,9 @@ TypedProgram {
                                                 tail_expression: Some(
                                                     Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     0,
@@ -1614,7 +1608,9 @@ TypedProgram {
                                         name: "Some",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -1624,7 +1620,9 @@ TypedProgram {
                                     },
                                 ],
                                 type_args: [
-                                    Int,
+                                    Int(
+                                        I64,
+                                    ),
                                 ],
                             },
                         ),
@@ -1644,7 +1642,9 @@ TypedProgram {
                                                 name: "Some",
                                                 kind: Tuple(
                                                     [
-                                                        Int,
+                                                        Int(
+                                                            I64,
+                                                        ),
                                                     ],
                                                 ),
                                             },
@@ -1654,7 +1654,9 @@ TypedProgram {
                                             },
                                         ],
                                         type_args: [
-                                            Int,
+                                            Int(
+                                                I64,
+                                            ),
                                         ],
                                     },
                                 ),
@@ -1693,7 +1695,9 @@ TypedProgram {
                                                         name: "Some",
                                                         kind: Tuple(
                                                             [
-                                                                Int,
+                                                                Int(
+                                                                    I64,
+                                                                ),
                                                             ],
                                                         ),
                                                     },
@@ -1703,7 +1707,9 @@ TypedProgram {
                                                     },
                                                 ],
                                                 type_args: [
-                                                    Int,
+                                                    Int(
+                                                        I64,
+                                                    ),
                                                 ],
                                             },
                                         ),
@@ -1725,7 +1731,9 @@ TypedProgram {
                                         name: "Ok",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -1739,7 +1747,9 @@ TypedProgram {
                                     },
                                 ],
                                 type_args: [
-                                    Int,
+                                    Int(
+                                        I64,
+                                    ),
                                     Bool,
                                 ],
                             },
@@ -1753,7 +1763,9 @@ TypedProgram {
                         Expression(
                             Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
@@ -1767,7 +1779,9 @@ TypedProgram {
                                                                         name: "Some",
                                                                         kind: Tuple(
                                                                             [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                             ],
                                                                         ),
                                                                     },
@@ -1777,12 +1791,16 @@ TypedProgram {
                                                                     },
                                                                 ],
                                                                 type_args: [
-                                                                    Int,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
                                                                 ],
                                                             },
                                                         ),
                                                     ],
-                                                    result: Int,
+                                                    result: Int(
+                                                        I64,
+                                                    ),
                                                     effect: Pure,
                                                 },
                                                 kind: Identifier(
@@ -1805,7 +1823,9 @@ TypedProgram {
                                                                     name: "Some",
                                                                     kind: Tuple(
                                                                         [
-                                                                            Int,
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
                                                                         ],
                                                                     ),
                                                                 },
@@ -1815,7 +1835,9 @@ TypedProgram {
                                                                 },
                                                             ],
                                                             type_args: [
-                                                                Int,
+                                                                Int(
+                                                                    I64,
+                                                                ),
                                                             ],
                                                         },
                                                     ),
@@ -1832,7 +1854,9 @@ TypedProgram {
                                                                                     name: "Some",
                                                                                     kind: Tuple(
                                                                                         [
-                                                                                            Int,
+                                                                                            Int(
+                                                                                                I64,
+                                                                                            ),
                                                                                         ],
                                                                                     ),
                                                                                 },
@@ -1842,7 +1866,9 @@ TypedProgram {
                                                                                 },
                                                                             ],
                                                                             type_args: [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                             ],
                                                                         },
                                                                     ),
@@ -1871,7 +1897,9 @@ TypedProgram {
                         Expression(
                             Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Call {
                                         callee: Spanned {
                                             node: TypedExpr {
@@ -1885,7 +1913,9 @@ TypedProgram {
                                                                         name: "Ok",
                                                                         kind: Tuple(
                                                                             [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                             ],
                                                                         ),
                                                                     },
@@ -1899,13 +1929,17 @@ TypedProgram {
                                                                     },
                                                                 ],
                                                                 type_args: [
-                                                                    Int,
+                                                                    Int(
+                                                                        I64,
+                                                                    ),
                                                                     Bool,
                                                                 ],
                                                             },
                                                         ),
                                                     ],
-                                                    result: Int,
+                                                    result: Int(
+                                                        I64,
+                                                    ),
                                                     effect: Pure,
                                                 },
                                                 kind: Identifier(
@@ -1928,7 +1962,9 @@ TypedProgram {
                                                                     name: "Ok",
                                                                     kind: Tuple(
                                                                         [
-                                                                            Int,
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
                                                                         ],
                                                                     ),
                                                                 },
@@ -1942,7 +1978,9 @@ TypedProgram {
                                                                 },
                                                             ],
                                                             type_args: [
-                                                                Int,
+                                                                Int(
+                                                                    I64,
+                                                                ),
                                                                 Bool,
                                                             ],
                                                         },
@@ -1960,7 +1998,9 @@ TypedProgram {
                                                                                     name: "Ok",
                                                                                     kind: Tuple(
                                                                                         [
-                                                                                            Int,
+                                                                                            Int(
+                                                                                                I64,
+                                                                                            ),
                                                                                         ],
                                                                                     ),
                                                                                 },
@@ -1974,7 +2014,9 @@ TypedProgram {
                                                                                 },
                                                                             ],
                                                                             type_args: [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                                 Bool,
                                                                             ],
                                                                         },

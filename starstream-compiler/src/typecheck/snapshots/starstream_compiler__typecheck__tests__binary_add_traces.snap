@@ -1,6 +1,5 @@
 ---
 source: starstream-compiler/src/typecheck/tests.rs
-assertion_line: 102
 description: "Source:\n\nfn test() {\n    let left = 1;\n    let right = 2;\n    let total = left + right;\n}\n"
 ---
 T-Fn: test => ()
@@ -12,5 +11,4 @@ T-Fn: test => ()
     T-Bin-Add: {left: i64, right: i64} ⊢ left + right ⇒ i64
       T-Var: {left: i64, right: i64} ⊢ left ⇒ i64
       T-Var: {left: i64, right: i64} ⊢ right ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t3}

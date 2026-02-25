@@ -194,9 +194,8 @@ T-Fn: compute => i64
     T-Bin-Add: {base: i64} ⊢ base + 1 ⇒ i64
       T-Var: {base: i64} ⊢ base ⇒ i64
       T-Int: {base: i64} ⊢ 1 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
-    Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t3}
+    Unify-Var: i64 ~ i64 => {i64/t4}
 
 ==== Typed AST ====
 TypedProgram {
@@ -287,7 +286,9 @@ TypedProgram {
                     span: 106..113,
                 },
                 params: [],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [
@@ -299,7 +300,9 @@ TypedProgram {
                             },
                             value: Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Literal(
                                         Integer(
                                             41,
@@ -313,12 +316,16 @@ TypedProgram {
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Binary {
                                     op: Add,
                                     left: Spanned {
                                         node: TypedExpr {
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                             kind: Identifier(
                                                 Identifier {
                                                     name: "base",
@@ -330,7 +337,9 @@ TypedProgram {
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                             kind: Literal(
                                                 Integer(
                                                     1,

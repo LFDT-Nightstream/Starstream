@@ -4,6 +4,6 @@ description: "Source:\n\nfn test() {\n    let x = Result::Err(false);\n}\n"
 ---
 T-Fn: test => ()
   T-Let: {} ⊢ let x = Result::Err(false); ⇒ Result<t3, bool>
-    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t3, t4>
+    T-EnumCtor: {} ⊢ Result::Err(false) ⇒ Result<t3, bool>
       T-Bool: {} ⊢ false ⇒ bool
       Unify-Var: bool ~ t4 => {bool/t4}

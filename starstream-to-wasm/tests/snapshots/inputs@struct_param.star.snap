@@ -140,27 +140,11 @@ Program {
 
 T-Fn: total_value => i64
   T-ReturnTail: token.amount * token.price => i64
-    T-Bin-Mul: {token: struct Token {
-    amount: i64,
-    price: i64,
-}} ⊢ token.amount * token.price ⇒ i64
-      T-FieldAccess: {token: struct Token {
-    amount: i64,
-    price: i64,
-}} ⊢ token.amount ⇒ i64
-        T-Var: {token: struct Token {
-    amount: i64,
-    price: i64,
-}} ⊢ token ⇒ Token
-      T-FieldAccess: {token: struct Token {
-    amount: i64,
-    price: i64,
-}} ⊢ token.price ⇒ i64
-        T-Var: {token: struct Token {
-    amount: i64,
-    price: i64,
-}} ⊢ token ⇒ Token
-      Unify-Const: i64 ~ i64 => {}
+    T-Bin-Mul: {token: Token} ⊢ token.amount * token.price ⇒ i64
+      T-FieldAccess: {token: Token} ⊢ token.amount ⇒ i64
+        T-Var: {token: Token} ⊢ token ⇒ Token
+      T-FieldAccess: {token: Token} ⊢ token.price ⇒ i64
+        T-Var: {token: Token} ⊢ token ⇒ Token
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
@@ -179,14 +163,18 @@ TypedProgram {
                             name: "amount",
                             span: 19..25,
                         },
-                        ty: Int,
+                        ty: Int(
+                            I64,
+                        ),
                     },
                     TypedStructField {
                         name: Identifier {
                             name: "price",
                             span: 36..41,
                         },
-                        ty: Int,
+                        ty: Int(
+                            I64,
+                        ),
                     },
                 ],
                 ty: Record(
@@ -195,11 +183,15 @@ TypedProgram {
                         fields: [
                             RecordFieldType {
                                 name: "amount",
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                             RecordFieldType {
                                 name: "price",
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                         ],
                     },
@@ -227,30 +219,40 @@ TypedProgram {
                                 fields: [
                                     RecordFieldType {
                                         name: "amount",
-                                        ty: Int,
+                                        ty: Int(
+                                            I64,
+                                        ),
                                     },
                                     RecordFieldType {
                                         name: "price",
-                                        ty: Int,
+                                        ty: Int(
+                                            I64,
+                                        ),
                                     },
                                 ],
                             },
                         ),
                     },
                 ],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Binary {
                                     op: Multiply,
                                     left: Spanned {
                                         node: TypedExpr {
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                             kind: FieldAccess {
                                                 target: Spanned {
                                                     node: TypedExpr {
@@ -260,11 +262,15 @@ TypedProgram {
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: "amount",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                     RecordFieldType {
                                                                         name: "price",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                 ],
                                                             },
@@ -288,7 +294,9 @@ TypedProgram {
                                     },
                                     right: Spanned {
                                         node: TypedExpr {
-                                            ty: Int,
+                                            ty: Int(
+                                                I64,
+                                            ),
                                             kind: FieldAccess {
                                                 target: Spanned {
                                                     node: TypedExpr {
@@ -298,11 +306,15 @@ TypedProgram {
                                                                 fields: [
                                                                     RecordFieldType {
                                                                         name: "amount",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                     RecordFieldType {
                                                                         name: "price",
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                     },
                                                                 ],
                                                             },

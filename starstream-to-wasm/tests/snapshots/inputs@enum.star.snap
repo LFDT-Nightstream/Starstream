@@ -248,7 +248,7 @@ T-Fn: get_baz => ()
       T-Var: {} ⊢ accepts_foo ⇒ fn(Foo) -> ()
       T-EnumCtor: {} ⊢ Foo::Baz(2) ⇒ Foo
         T-Int: {} ⊢ 2 ⇒ i64
-        Unify-Const: i64 ~ i64 => {}
+        Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Enum: Foo ~ Foo => {}
         Unify-Const: bool ~ bool => {}
         Unify-Const: i64 ~ i64 => {}
@@ -281,7 +281,9 @@ TypedProgram {
                         },
                         payload: Tuple(
                             [
-                                Int,
+                                Int(
+                                    I64,
+                                ),
                             ],
                         ),
                     },
@@ -302,7 +304,9 @@ TypedProgram {
                                 name: "Baz",
                                 kind: Tuple(
                                     [
-                                        Int,
+                                        Int(
+                                            I64,
+                                        ),
                                     ],
                                 ),
                             },
@@ -341,7 +345,9 @@ TypedProgram {
                                         name: "Baz",
                                         kind: Tuple(
                                             [
-                                                Int,
+                                                Int(
+                                                    I64,
+                                                ),
                                             ],
                                         ),
                                     },
@@ -398,7 +404,9 @@ TypedProgram {
                                                                         name: "Baz",
                                                                         kind: Tuple(
                                                                             [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                             ],
                                                                         ),
                                                                     },
@@ -438,7 +446,9 @@ TypedProgram {
                                                                     name: "Baz",
                                                                     kind: Tuple(
                                                                         [
-                                                                            Int,
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
                                                                         ],
                                                                     ),
                                                                 },
@@ -524,7 +534,9 @@ TypedProgram {
                                                                         name: "Baz",
                                                                         kind: Tuple(
                                                                             [
-                                                                                Int,
+                                                                                Int(
+                                                                                    I64,
+                                                                                ),
                                                                             ],
                                                                         ),
                                                                     },
@@ -564,7 +576,9 @@ TypedProgram {
                                                                     name: "Baz",
                                                                     kind: Tuple(
                                                                         [
-                                                                            Int,
+                                                                            Int(
+                                                                                I64,
+                                                                            ),
                                                                         ],
                                                                     ),
                                                                 },
@@ -585,7 +599,9 @@ TypedProgram {
                                                             [
                                                                 Spanned {
                                                                     node: TypedExpr {
-                                                                        ty: Int,
+                                                                        ty: Int(
+                                                                            I64,
+                                                                        ),
                                                                         kind: Literal(
                                                                             Integer(
                                                                                 2,

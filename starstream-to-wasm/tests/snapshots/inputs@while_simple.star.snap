@@ -127,14 +127,14 @@ T-Fn: main => ()
       T-Var: {foo: i64} ⊢ foo ⇒ i64
       T-Int: {foo: i64} ⊢ 10 ⇒ i64
       Check-Compare: i64 vs i64 => ok (int)
+        Unify-Var: i64 ~ i64 => {i64/t3}
     Check-Bool: bool => ok
     T-Assign: {foo: i64} ⊢ foo = foo + 1; ⇒ i64
       T-Bin-Add: {foo: i64} ⊢ foo + 1 ⇒ i64
         T-Var: {foo: i64} ⊢ foo ⇒ i64
         T-Int: {foo: i64} ⊢ 1 ⇒ i64
-        Unify-Const: i64 ~ i64 => {}
-        Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
+        Unify-Var: i64 ~ i64 => {i64/t4}
+      Unify-Var: i64 ~ i64 => {}
 
 ==== Typed AST ====
 TypedProgram {
@@ -161,7 +161,9 @@ TypedProgram {
                             },
                             value: Spanned {
                                 node: TypedExpr {
-                                    ty: Int,
+                                    ty: Int(
+                                        I64,
+                                    ),
                                     kind: Literal(
                                         Integer(
                                             0,
@@ -179,7 +181,9 @@ TypedProgram {
                                         op: Less,
                                         left: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Identifier(
                                                     Identifier {
                                                         name: "foo",
@@ -191,7 +195,9 @@ TypedProgram {
                                         },
                                         right: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Literal(
                                                     Integer(
                                                         10,
@@ -213,12 +219,16 @@ TypedProgram {
                                         },
                                         value: Spanned {
                                             node: TypedExpr {
-                                                ty: Int,
+                                                ty: Int(
+                                                    I64,
+                                                ),
                                                 kind: Binary {
                                                     op: Add,
                                                     left: Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Identifier(
                                                                 Identifier {
                                                                     name: "foo",
@@ -230,7 +240,9 @@ TypedProgram {
                                                     },
                                                     right: Spanned {
                                                         node: TypedExpr {
-                                                            ty: Int,
+                                                            ty: Int(
+                                                                I64,
+                                                            ),
                                                             kind: Literal(
                                                                 Integer(
                                                                     1,

@@ -8,7 +8,6 @@ T-Fn: add => i64
       T-Var: {a: i64, b: i64} ⊢ a ⇒ i64
       T-Var: {a: i64, b: i64} ⊢ b ⇒ i64
       Unify-Const: i64 ~ i64 => {}
-      Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: test => ()
@@ -16,6 +15,6 @@ T-Fn: test => ()
     T-Call: {} ⊢ add(1, 2) ⇒ i64
       T-Var: {} ⊢ add ⇒ fn(i64, i64) -> i64
       T-Int: {} ⊢ 1 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t3}
       T-Int: {} ⊢ 2 ⇒ i64
-      Unify-Const: i64 ~ i64 => {}
+      Unify-Var: i64 ~ i64 => {i64/t4}

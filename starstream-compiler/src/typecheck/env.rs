@@ -116,7 +116,7 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
                 }
             }
         }
-        Type::Int | Type::Bool | Type::Unit => {}
+        Type::Int(_) | Type::Bool | Type::Unit => {}
     }
 }
 

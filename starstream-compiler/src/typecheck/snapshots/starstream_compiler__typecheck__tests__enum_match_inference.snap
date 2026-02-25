@@ -11,10 +11,7 @@ T-Fn: respond => i64
         value
     },
 } => i64
-    T-Match: {msg: enum Message {
-    Ping,
-    Pong(i64),
-}} ⊢ match msg {
+    T-Match: {msg: Message} ⊢ match msg {
     Message::Ping => {
         0
     },
@@ -22,23 +19,14 @@ T-Fn: respond => i64
         value
     },
 } ⇒ i64
-      T-Var: {msg: enum Message {
-    Ping,
-    Pong(i64),
-}} ⊢ msg ⇒ Message
+      T-Var: {msg: Message} ⊢ msg ⇒ Message
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: 0 => i64
-        T-Int: {msg: enum Message {
-    Ping,
-    Pong(i64),
-}} ⊢ 0 ⇒ i64
+        T-Int: {msg: Message} ⊢ 0 ⇒ i64
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: value => i64
-        T-Var: {msg: enum Message {
-    Ping,
-    Pong(i64),
-}, value: i64} ⊢ value ⇒ i64
-      Unify-Const: i64 ~ i64 => i64
+        T-Var: {msg: Message, value: i64} ⊢ value ⇒ i64
+      Unify-Var: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

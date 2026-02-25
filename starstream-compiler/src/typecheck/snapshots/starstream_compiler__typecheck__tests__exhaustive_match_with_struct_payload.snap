@@ -11,10 +11,7 @@ T-Fn: test => i64
         width + height
     },
 } => i64
-    T-Match: {s: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}} ⊢ match s {
+    T-Match: {s: Shape} ⊢ match s {
     Shape::Circle(radius) => {
         radius
     },
@@ -22,37 +19,21 @@ T-Fn: test => i64
         width + height
     },
 } ⇒ i64
-      T-Var: {s: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}} ⊢ s ⇒ Shape
+      T-Var: {s: Shape} ⊢ s ⇒ Shape
       Unify-Enum: Shape ~ Shape => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: radius => i64
-        T-Var: {radius: i64, s: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}} ⊢ radius ⇒ i64
+        T-Var: {radius: i64, s: Shape} ⊢ radius ⇒ i64
       Unify-Enum: Shape ~ Shape => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: width + height => i64
-        T-Bin-Add: {height: i64, s: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}, width: i64} ⊢ width + height ⇒ i64
-          T-Var: {height: i64, s: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}, width: i64} ⊢ width ⇒ i64
-          T-Var: {height: i64, s: enum Shape {
-    Circle(i64),
-    Rectangle { width: i64, height: i64 },
-}, width: i64} ⊢ height ⇒ i64
-          Unify-Const: i64 ~ i64 => {}
+        T-Bin-Add: {height: i64, s: Shape, width: i64} ⊢ width + height ⇒ i64
+          T-Var: {height: i64, s: Shape, width: i64} ⊢ width ⇒ i64
+          T-Var: {height: i64, s: Shape, width: i64} ⊢ height ⇒ i64
           Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

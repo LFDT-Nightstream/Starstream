@@ -11,12 +11,7 @@ T-Fn: add => i64
         x + a.x
     },
 } => i64
-    T-Match: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}} ⊢ match b {
+    T-Match: {a: Point, b: Message} ⊢ match b {
     Message::Ping => {
         a.x
     },
@@ -24,55 +19,19 @@ T-Fn: add => i64
         x + a.x
     },
 } ⇒ i64
-      T-Var: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}} ⊢ b ⇒ Message
+      T-Var: {a: Point, b: Message} ⊢ b ⇒ Message
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: a.x => i64
-        T-FieldAccess: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}} ⊢ a.x ⇒ i64
-          T-Var: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}} ⊢ a ⇒ Point
+        T-FieldAccess: {a: Point, b: Message} ⊢ a.x ⇒ i64
+          T-Var: {a: Point, b: Message} ⊢ a ⇒ Point
       Unify-Enum: Message ~ Message => {}
         Unify-Const: i64 ~ i64 => {}
       T-Tail: x + a.x => i64
-        T-Bin-Add: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}, x: i64} ⊢ x + a.x ⇒ i64
-          T-Var: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}, x: i64} ⊢ x ⇒ i64
-          T-FieldAccess: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}, x: i64} ⊢ a.x ⇒ i64
-            T-Var: {a: struct Point {
-    x: i64,
-}, b: enum Message {
-    Ping,
-    Pong { x: i64 },
-}, x: i64} ⊢ a ⇒ Point
-          Unify-Const: i64 ~ i64 => {}
+        T-Bin-Add: {a: Point, b: Message, x: i64} ⊢ x + a.x ⇒ i64
+          T-Var: {a: Point, b: Message, x: i64} ⊢ x ⇒ i64
+          T-FieldAccess: {a: Point, b: Message, x: i64} ⊢ a.x ⇒ i64
+            T-Var: {a: Point, b: Message, x: i64} ⊢ a ⇒ Point
           Unify-Const: i64 ~ i64 => {}
       Unify-Const: i64 ~ i64 => i64
     Unify-Const: i64 ~ i64 => {}

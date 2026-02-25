@@ -408,7 +408,7 @@ pub enum Expr {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Literal {
-    Integer(i64),
+    Integer(i128),
     Boolean(bool),
     Unit,
 }

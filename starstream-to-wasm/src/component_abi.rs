@@ -211,18 +211,31 @@ impl ComponentAbiType {
                     i.i32_store8(mem_arg);
                 }));
             }
-            ComponentAbiType::S8 => todo!(),
-            ComponentAbiType::U8 => todo!(),
-            ComponentAbiType::S16 => todo!(),
-            ComponentAbiType::U16 => todo!(),
-            ComponentAbiType::S32 => todo!(),
-            ComponentAbiType::U32 => todo!(),
+            ComponentAbiType::S8 | ComponentAbiType::U8 => {
+                out.push(Box::new(move |mut i| {
+                    i.i32_store8(mem_arg);
+                }));
+            }
+            ComponentAbiType::S16 | ComponentAbiType::U16 => {
+                out.push(Box::new(move |mut i| {
+                    i.i32_store16(mem_arg);
+                }));
+            }
+            ComponentAbiType::S32 | ComponentAbiType::U32 => {
+                out.push(Box::new(move |mut i| {
+                    i.i32_store(mem_arg);
+                }));
+            }
             ComponentAbiType::S64 => {
                 out.push(Box::new(move |mut i: InstructionSink<'_>| {
                     i.i64_store(mem_arg);
                 }));
             }
-            ComponentAbiType::U64 => todo!(),
+            ComponentAbiType::U64 => {
+                out.push(Box::new(move |mut i: InstructionSink<'_>| {
+                    i.i64_store(mem_arg);
+                }));
+            }
             ComponentAbiType::F32 => todo!(),
             ComponentAbiType::F64 => todo!(),
             ComponentAbiType::Char => todo!(),

@@ -5,7 +5,7 @@ description: "Source:\n\nfn greet() -> i64 {\n    42\n}\n\nfn test() {\n    let 
 T-Fn: greet => i64
   T-ReturnTail: 42 => i64
     T-Int: {} ⊢ 42 ⇒ i64
-    Unify-Const: i64 ~ i64 => {}
+    Unify-Var: i64 ~ i64 => {i64/t3}
 
 T-Fn: test => ()
   T-Let: {} ⊢ let value = greet(); ⇒ i64

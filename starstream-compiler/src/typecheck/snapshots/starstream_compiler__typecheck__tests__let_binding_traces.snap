@@ -7,10 +7,10 @@ T-Fn: test => ()
     T-Int: {} ⊢ 42 ⇒ i64
   T-Let: {answer: i64} ⊢ let foo: i64 = 10; ⇒ i64
     T-Int: {answer: i64} ⊢ 10 ⇒ i64
-    Unify-Const: i64 ~ i64 => {}
+    Unify-Var: i64 ~ i64 => {i64/t4}
   T-Let: {answer: i64, foo: i64} ⊢ let bar: bool = false; ⇒ bool
     T-Bool: {answer: i64, foo: i64} ⊢ false ⇒ bool
     Unify-Const: bool ~ bool => {}
   T-Let: {answer: i64, bar: bool, foo: i64} ⊢ let baz: _ = 2; ⇒ i64
     T-Int: {answer: i64, bar: bool, foo: i64} ⊢ 2 ⇒ i64
-    Unify-Var: t3 ~ i64 => {i64/t3}
+    Unify-Var: t6 ~ i64 => {i64/t6}

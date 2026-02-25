@@ -103,7 +103,9 @@ TypedProgram {
                                     name: "counter",
                                     span: 44..51,
                                 },
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                             },
                         ],
                     ),
@@ -120,14 +122,18 @@ TypedProgram {
                     span: 77..80,
                 },
                 params: [],
-                return_type: Int,
+                return_type: Int(
+                    I64,
+                ),
                 effect: Pure,
                 body: TypedBlock {
                     statements: [],
                     tail_expression: Some(
                         Spanned {
                             node: TypedExpr {
-                                ty: Int,
+                                ty: Int(
+                                    I64,
+                                ),
                                 kind: Identifier(
                                     Identifier {
                                         name: "counter",
