@@ -959,14 +959,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 );
 
                 let trace_iv = LedgerEffectsCommitment::iv().0;
-                for offset in 0..4 {
+                for (offset, limb) in trace_iv.iter().enumerate() {
                     let addr = (pid * 4) + offset;
                     mb.init(
                         Address {
                             addr: addr as u64,
                             tag: RamMemoryTag::TraceCommitments.memory_tag(),
                         },
-                        vec![trace_iv[offset]],
+                        vec![*limb],
                     );
                 }
             }

@@ -52,7 +52,6 @@ pub struct InterleavingInstance {
 }
 
 impl InterleavingInstance {
-    #[allow(clippy::result_large_err)]
     pub fn check_shape(&self) -> Result<(), InterleavingError> {
         // ---------- shape checks ----------
         // TODO: a few of these may be redundant

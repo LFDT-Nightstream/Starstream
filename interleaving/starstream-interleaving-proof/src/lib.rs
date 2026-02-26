@@ -140,7 +140,7 @@ pub fn prove(
 
     let prover_output = ZkTransactionProof::NeoProof {
         proof: run,
-        session,
+        session: Box::new(session),
         ccs: prover.ccs().clone(),
         mcss_public,
         steps_public,

@@ -264,7 +264,6 @@ pub struct InterleavingState {
     handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
 }
 
-#[allow(clippy::result_large_err)]
 pub fn verify_interleaving_semantics(
     inst: &InterleavingInstance,
     wit: &InterleavingWitness,
@@ -408,7 +407,6 @@ pub fn verify_interleaving_semantics(
     Ok(())
 }
 
-#[allow(clippy::result_large_err)]
 pub fn state_transition(
     mut state: InterleavingState,
     rom: &Rom,

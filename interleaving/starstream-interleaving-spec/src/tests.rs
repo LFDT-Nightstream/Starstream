@@ -81,7 +81,6 @@ fn mock_genesis() -> (Ledger, UtxoId, UtxoId, CoroutineId, CoroutineId) {
     )
 }
 
-#[allow(clippy::result_large_err)]
 fn mock_genesis_and_apply_tx(proven_tx: ProvenTransaction) -> Result<Ledger, VerificationError> {
     let (ledger, _, _, _, _) = mock_genesis();
     ledger.apply_transaction(&proven_tx)
