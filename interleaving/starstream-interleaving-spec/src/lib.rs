@@ -94,11 +94,10 @@ impl CoroutineState {
 
 // pub struct ZkTransactionProof {}
 
-#[allow(clippy::large_enum_variant)]
 pub enum ZkTransactionProof {
     NeoProof {
         // does the verifier need this?
-        session: neo_fold::session::FoldingSession<neo_ajtai::AjtaiSModule>,
+        session: Box<neo_fold::session::FoldingSession<neo_ajtai::AjtaiSModule>>,
         proof: neo_fold::shard::ShardProof,
         mcss_public: Vec<neo_ccs::McsInstance<Commitment, neo_math::F>>,
         steps_public: Vec<neo_memory::StepInstanceBundle<Commitment, neo_math::F, neo_math::K>>,
@@ -110,7 +109,6 @@ pub enum ZkTransactionProof {
 }
 
 impl ZkTransactionProof {
-    #[allow(clippy::result_large_err)]
     pub fn verify(
         &self,
         inst: &InterleavingInstance,
@@ -217,7 +215,6 @@ impl ZkTransactionProof {
         Ok(mocked_verifier::verify_interleaving_semantics(inst, wit)?)
     }
 
-    #[allow(clippy::result_large_err)]
     fn verify_live_tokens_bound_in_instance(
         inst: &InterleavingInstance,
     ) -> Result<(), VerificationError> {
@@ -252,7 +249,6 @@ impl ZkWasmProof {
         }
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn verify(
         &self,
         _input: Option<CoroutineState>,
@@ -485,7 +481,6 @@ impl Ledger {
         ownership
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn apply_transaction(&self, tx: &ProvenTransaction) -> Result<Ledger, VerificationError> {
         let mut new_ledger = self.clone();
 
@@ -657,7 +652,6 @@ impl Ledger {
         Ok(new_ledger)
     }
 
-    #[allow(clippy::result_large_err)]
     pub fn verify_witness(
         &self,
         body: &TransactionBody,
@@ -762,7 +756,7 @@ impl Ledger {
         //
         // (The circuit enforces that ownership_out is derived legally from this.)
         let mut ownership_in = self.input_ownership_for_inputs(&body.inputs);
-        ownership_in.extend(std::iter::repeat(None).take(n_new));
+        ownership_in.extend(std::iter::repeat_n(None, n_new));
 
         // Build wasm instances in the same canonical order as process_table:
         // inputs ++ new_outputs ++ coord scripts
@@ -837,7 +831,6 @@ impl Default for Ledger {
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn build_wasm_instances_in_canonical_order(
     spending: &[ZkWasmProof],
     new_outputs: &[ZkWasmProof],
