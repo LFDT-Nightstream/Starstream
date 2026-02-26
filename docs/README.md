@@ -6,18 +6,18 @@ sidebar_position: 0
 
 <!-- Keep this section in sync with `../../README.md`. -->
 
-Starstream is a VM concept that uses delimited continuations as its core primitive.
+Starstream is a language that uses coroutines as its core primitive that is optimised to run in a zkVM (such as [Nightstream](https://github.com/LFDT-Nightstream/Nightstream)).
 The end goal is a language and VM that can be used across any blockchain that chooses to include it.
 
 Unique features of Starstream:
 
 - Native folding scheme support for both on variable updates & function application (only VM that provides both)
-- UTXO-based (only zkVM in development with this property)
-- Delimited continuations as its core primitive (only blockchain VM that does this)
+- UTXO-based (only zkVM-optimized language development with this property)
+- Coroutines as its core primitive (only blockchain VM that does this)
 
-Basic overview: [video](https://www.youtube.com/watch?v=zzk-hVfNW1A) and [slides](https://docs.google.com/presentation/d/1_o9lHQJqFQtUOJovLLBF7E--C73ikaRDpPurZPt1-q8/edit).
-
-Technical overview: [video](https://www.youtube.com/watch?v=qjoSF7EV0BQ) and [slides](https://docs.google.com/presentation/d/127mS6K3XBkWJOmctxfDi2HrSQl3Zbr3JBBwWay9xHGo/edit).
+Learn more:
+- Basic overview: [video](https://www.youtube.com/watch?v=zzk-hVfNW1A) and [slides](https://docs.google.com/presentation/d/1_o9lHQJqFQtUOJovLLBF7E--C73ikaRDpPurZPt1-q8/edit).
+- Technical overview: [video](https://www.youtube.com/watch?v=qjoSF7EV0BQ) and [slides](https://docs.google.com/presentation/d/127mS6K3XBkWJOmctxfDi2HrSQl3Zbr3JBBwWay9xHGo/edit).
 
 Starstream working group on Discord: https://discord.gg/9eZaheySZE.
 

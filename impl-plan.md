@@ -41,44 +41,60 @@ Language features:
 - [x] make `let` const and add `let mut`
 - [x] type annotations on `let` bindings
 - [x] coordination script exports
-- [x] `storage` blocks to declare UTXO state (Wasm globals)
-  - [ ] scope to only the `utxo` block rather than whole program
 - [ ] mock ledger
   - [ ] sandbox shows current "input" ledger state (starts empty)
   - [ ] sandbox allows calling coordination scripts with arguments, can pass existing UTXOs as input (JS console?)
   - [ ] sandbox shows "output" ledger state after running, with "save" button that copies it to the "input"
-- [ ] "event" support
-  - WASI? or custom component imports?
-  - [ ] visible on sandbox a tab
-- [ ] Base-level ABI stuff
-  - [ ] underlying callable ABI
-- [ ] `abi` interface exports for utxo
-  - errors, effects, methods, tokens
+- [x] base-level ABI stuff
+  - [x] underlying callable ABI
+- [ ] `abi` elements
+  - [ ] plain methods
+  - [ ] errors
+    - [ ] throw(?) expr
+    - [ ] fail the transaction
+  - [x] events
+    - [x] declarations
+    - [x] emit expr
+    - [ ] displayed as part of run output in sandbox and elsewhere
+  - [ ] effects
+    - [ ] declarations
+    - [ ] raise expr
+    - [ ] try/with blocks
+- [x] `runtime` expr for system imports
+- [ ] UTXO elements
+  - [x] `storage` blocks to declare UTXO state (Wasm globals)
+  - [x] basic `main fn`s
+  - [ ] private method `fn`s
+  - [ ] public method `pub fn`s ?
+  - [ ] abi impl blocks
+  - [ ] coroutine support (yield/resume)
+- [ ] UTXO handles
+  - [ ] generic `Utxo` handle
+  - [ ] `utxo UtxoName` handle types
+  - [ ] `abi AbiName` handle types
+  - [ ] table-driven provable downcasting
+- [ ] tokens stuff
+- [ ] standard integer primitive types
+  - [x] `bool`
+  - [x] (i|u)(8|16|32|64)
+  - [ ] `char` (is it u32 or `Field<21>`?)
+  - ~~`f32` and `f64`~~ (determinism/proving trouble)
+  - [x] literals infer their type from context
 - [ ] variable privacy
   - [ ] `disclose` builtin
   - [ ] check that `if` conditions are disclosed
   - [ ] check that variables across yield points are disclosed
-- [ ] integer primitive types
-  - `Int<N>`, `UInt<N>` primitives
-    - for now, Wasm backend errors if a type is too big for Wasm
-    - eventually want to surface target-specific errors on check, not just build
-  - literals have some pseudo-type that's convertible to primitives
-  - `bool`, (i|u)(8|16|32|64) are aliases
-  - `char` is an alias for `UInt<21>`?
-  - no floats because of determinism/proving trouble
+- [ ] typedefs
+  - [ ] basic `type A = B;`
+  - [ ] export `pub type A = B;` to WIT
+- [ ] linear/affine typing
 - [x] struct types
   - remember structural typing (see spec)
-  - [ ] codegen/interpreter support for struct values
-- [ ] typedefs
-- [ ] UTXO and token stuff
-- [ ] linear/affine types
-- [ ] builtin container `List<T>` ?
-- [ ] coroutine support (yield/resume)
-- [ ] algebraic effects and effect handlers
+  - [x] tuples
+  - [x] wasm codegen support as WIT records
 - [x] enum (tagged union) types
-  - [x] builtin `Option<T>`, `Result<T, E>`
-  - [ ] support in interpreter/wasm codegen
-- [ ] string type & string literals
+  - [x] wasm codegen support as WIT variants
+  - [x] builtin `Option<T>`, `Result<T, E>` (WIT support)
 - [x] patterns and pattern matching
   - exhaustive patterns in arguments?
   - [x] support literals in pattern
@@ -86,10 +102,26 @@ Language features:
   - [x] exhaustiveness checking for `match`
   - [ ] improve diagnostics for pattern/type mismatches
   - [ ] flag inconsistent `match` arm return values (fallthrough semantics)
+- [ ] heap types
+  - maybe defer until components support GC?
+  - [ ] `string` and string literals (WIT support)
+  - [ ] builtin container `List<T>` (WIT support)
+- [ ] extra WIT functionality
+  - [ ] owned and borrowed resource handles
+  - [ ] flags types
+  - [ ] declare intent to export a particular WIT world, compiler errors if it's not satisfied
+- [ ] imports
+  - [x] import hardcoded WIT declarations for runtime functions
+  - [ ] import externals from arbitrary .wit files
+    - how to advertise the need for these to be fulfilled by a runtime extension?
+    - [ ] by path
+    - [ ] by WIT package expression, follows standard(?) search path
+  - [ ] embed library code from component .wasm
+  - [ ] import utxo, tokens, and script fns from other Starstream contracts
+  - [ ] embed `library fn`s from other `.star` files
 - [ ] fields and foreign field arithmetic (important for interop)
-  - `Field<X>`
-  - may require targetting Nightstream directly w/o Wasm intermediate
-- [x] hover/go-to-definition for struct fields, enum variants, pattern bindings
+  - maybe `Field<N>` or `Int<N>`, `UInt<N>`
+  - how to implement?
 
 Research:
 
