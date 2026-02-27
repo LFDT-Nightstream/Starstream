@@ -6,6 +6,7 @@ use clap::Parser;
 mod check;
 mod diagnostics;
 mod docs;
+mod explain;
 mod format;
 mod lsp;
 mod style;
@@ -13,6 +14,7 @@ mod wasm;
 
 pub use check::Check;
 pub use docs::Docs;
+pub use explain::Explain;
 pub use format::Format;
 pub use lsp::Lsp;
 pub use wasm::Wasm;
@@ -25,6 +27,7 @@ pub enum Command {
     #[clap(visible_alias("fmt"))]
     Format(Format),
     Check(Check),
+    Explain(Explain),
     #[clap(hide = true)]
     Lsp(Lsp),
 }
@@ -45,6 +48,7 @@ impl Cli {
             Command::Wasm(w) => w.exec(),
             Command::Format(f) => f.exec(),
             Command::Check(c) => c.exec(),
+            Command::Explain(e) => e.exec(),
             Command::Lsp(l) => l.exec(),
         }
     }

@@ -17,3 +17,7 @@ pub use error::*;
 pub use filesystem::*;
 pub use typed_ast::*;
 pub use types::*;
+
+// For `error_code!`.
+#[doc(hidden)]
+pub use inventory as __inventory;
