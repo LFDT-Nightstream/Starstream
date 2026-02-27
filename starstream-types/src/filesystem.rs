@@ -8,7 +8,7 @@ pub struct FileSystem {
 }
 
 impl FileSystem {
-    pub fn std() -> FileSystem {
+    pub fn new() -> FileSystem {
         FileSystem {
             dependencies: Vec::new(),
             outputs: Vec::new(),

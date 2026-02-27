@@ -33,7 +33,7 @@ pub struct Wasm {
 impl Wasm {
     /// Parse, type-check, and compile the requested source file into a Wasm module.
     pub fn exec(self) -> miette::Result<()> {
-        let mut fs = FileSystem::std();
+        let mut fs = FileSystem::new();
 
         let source_text = fs.read_to_string(&self.compile_file).into_diagnostic()?;
         let named = NamedSource::new(self.compile_file.display().to_string(), source_text.clone());
