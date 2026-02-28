@@ -27,6 +27,12 @@ pub enum EffectDiscriminant {
     CallEffectHandler = 18,
 }
 
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+#[error("invalid effect discriminant {value}")]
+pub struct EffectDiscriminantError {
+    pub value: u64,
+}
+
 pub const REF_PUSH_WIDTH: usize = 4;
 pub const REF_GET_WIDTH: usize = 4;
 pub const REF_WRITE_WIDTH: usize = 4;
@@ -36,7 +42,6 @@ pub const REF_WRITE_WIDTH: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WitEffectOutput<T> {
     Resolved(T),
-    Thunk,
 }
 
 /// One entry in the per-process trace.
@@ -172,18 +177,16 @@ impl<T> WitEffectOutput<T> {
     pub fn unwrap(self) -> T {
         match self {
             WitEffectOutput::Resolved(v) => v,
-            WitEffectOutput::Thunk => panic!("Called unwrap on a Thunk"),
         }
     }
 
     pub fn is_resolved(&self) -> bool {
-        matches!(self, WitEffectOutput::Resolved(_))
+        true
     }
 
     pub fn to_option(self) -> Option<T> {
         match self {
             WitEffectOutput::Resolved(t) => Some(t),
-            WitEffectOutput::Thunk => None,
         }
     }
 }
@@ -194,38 +197,31 @@ impl<T> From<T> for WitEffectOutput<T> {
     }
 }
 
-impl<T> From<Option<T>> for WitEffectOutput<T> {
-    fn from(value: Option<T>) -> WitEffectOutput<T> {
-        match value {
-            Some(t) => WitEffectOutput::Resolved(t),
-            None => WitEffectOutput::Thunk,
-        }
-    }
-}
+impl TryFrom<u64> for EffectDiscriminant {
+    type Error = EffectDiscriminantError;
 
-impl From<u64> for EffectDiscriminant {
-    fn from(value: u64) -> Self {
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
         match value {
-            0 => EffectDiscriminant::Resume,
-            1 => EffectDiscriminant::Yield,
-            2 => EffectDiscriminant::NewUtxo,
-            3 => EffectDiscriminant::NewCoord,
-            4 => EffectDiscriminant::InstallHandler,
-            5 => EffectDiscriminant::UninstallHandler,
-            6 => EffectDiscriminant::GetHandlerFor,
-            7 => EffectDiscriminant::Burn,
-            8 => EffectDiscriminant::Activation,
-            9 => EffectDiscriminant::Init,
-            10 => EffectDiscriminant::NewRef,
-            11 => EffectDiscriminant::RefPush,
-            12 => EffectDiscriminant::RefGet,
-            13 => EffectDiscriminant::Bind,
-            14 => EffectDiscriminant::Unbind,
-            15 => EffectDiscriminant::ProgramHash,
-            16 => EffectDiscriminant::RefWrite,
-            17 => EffectDiscriminant::Return,
-            18 => EffectDiscriminant::CallEffectHandler,
-            _ => todo!(),
+            0 => Ok(EffectDiscriminant::Resume),
+            1 => Ok(EffectDiscriminant::Yield),
+            2 => Ok(EffectDiscriminant::NewUtxo),
+            3 => Ok(EffectDiscriminant::NewCoord),
+            4 => Ok(EffectDiscriminant::InstallHandler),
+            5 => Ok(EffectDiscriminant::UninstallHandler),
+            6 => Ok(EffectDiscriminant::GetHandlerFor),
+            7 => Ok(EffectDiscriminant::Burn),
+            8 => Ok(EffectDiscriminant::Activation),
+            9 => Ok(EffectDiscriminant::Init),
+            10 => Ok(EffectDiscriminant::NewRef),
+            11 => Ok(EffectDiscriminant::RefPush),
+            12 => Ok(EffectDiscriminant::RefGet),
+            13 => Ok(EffectDiscriminant::Bind),
+            14 => Ok(EffectDiscriminant::Unbind),
+            15 => Ok(EffectDiscriminant::ProgramHash),
+            16 => Ok(EffectDiscriminant::RefWrite),
+            17 => Ok(EffectDiscriminant::Return),
+            18 => Ok(EffectDiscriminant::CallEffectHandler),
+            _ => Err(EffectDiscriminantError { value }),
         }
     }
 }

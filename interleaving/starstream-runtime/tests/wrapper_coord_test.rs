@@ -1,6 +1,7 @@
 use starstream_interleaving_spec::{Hash, InterfaceId, Ledger};
 use starstream_runtime::{
-    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, wasm_module,
+    UnprovenTransaction, poseidon_program_hash, register_mermaid_decoder, test_support::wasm_dsl,
+    wasm_module,
 };
 use std::marker::PhantomData;
 
@@ -80,34 +81,72 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         Some(label)
     });
 
-    let utxo1_bin = wasm_module!({
-        let (init_ref, _caller) = call activation();
-        let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
+    let utxo1_builder = wasm_dsl::ModuleBuilder::new();
+    let utxo1_bin = wasm_module!(utxo1_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let (init_ref, caller) = call activation();
+            call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
+            let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
+            call trace(12, cell_ref, init_ref, _b, 0, _c, _d, 0);
 
-        let req = call new_ref(1);
-        call ref_push(2, cell_ref, 42, 0);
+            let req = call new_ref(1);
+            call trace(10, 0, 0, req, 1, 0, 0, 0);
+            call ref_push(2, cell_ref, 42, 0);
+            call trace(11, 2, cell_ref, 42, 0, 0, 0, 0);
 
-        let _resp = call call_effect_handler(1, 2, 3, 4, req);
-
-        let done = call new_ref(1);
-        call ref_push(0, 0, 0, 0);
-        call yield_(done);
+            call set_datum(1, req);
+            call set_datum(0, 1);
+            call call_effect_handler(1, 2, 3, 4, req);
+        }
+        if pc == 1 {
+            let req = call get_datum(1);
+            let (resp, _caller_effect) = call activation();
+            call trace(18, 0, req, resp, 1, 2, 3, 4);
+            let done = call new_ref(1);
+            call trace(10, 0, 0, done, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+            call set_datum(0, 2);
+            call trace(1, 0, done, 0, 0, 0, 0, 0);
+            call yield_(done);
+        }
     });
 
-    let utxo2_bin = wasm_module!({
-        let (init_ref, _caller) = call activation();
-        let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
+    let utxo2_builder = wasm_dsl::ModuleBuilder::new();
+    let utxo2_bin = wasm_module!(utxo2_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let (init_ref, caller) = call activation();
+            call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
+            let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
+            call trace(12, cell_ref, init_ref, _b, 0, _c, _d, 0);
 
-        let req = call new_ref(1);
-        call ref_push(3, cell_ref, 0, 0);
+            let req = call new_ref(1);
+            call trace(10, 0, 0, req, 1, 0, 0, 0);
+            call ref_push(3, cell_ref, 0, 0);
+            call trace(11, 3, cell_ref, 0, 0, 0, 0, 0);
 
-        let resp = call call_effect_handler(1, 2, 3, 4, req);
-        let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
-        assert_eq val, 42;
+            call set_datum(1, req);
+            call set_datum(0, 1);
+            call call_effect_handler(1, 2, 3, 4, req);
+        }
+        if pc == 1 {
+            let req = call get_datum(1);
+            let (resp, _caller_effect) = call activation();
+            call trace(18, 0, req, resp, 1, 2, 3, 4);
+            let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
+            call trace(12, _disc, resp, val, 0, _c2, _d2, 0);
+            assert_eq val, 42;
 
-        let done = call new_ref(1);
-        call ref_push(0, 0, 0, 0);
-        call yield_(done);
+            let done = call new_ref(1);
+            call trace(10, 0, 0, done, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+            call set_datum(0, 2);
+            call trace(1, 0, done, 0, 0, 0, 0, 0);
+            call yield_(done);
+        }
     });
 
     let (utxo1_hash_limb_a, utxo1_hash_limb_b, utxo1_hash_limb_c, utxo1_hash_limb_d) =
@@ -115,159 +154,308 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let (utxo2_hash_limb_a, utxo2_hash_limb_b, utxo2_hash_limb_c, utxo2_hash_limb_d) =
         hash_program(&utxo2_bin);
 
-    let inner_coord_bin = wasm_module!({
-        let (init_ref, _caller) = call init();
-        let (utxo1_id, utxo2_id, _c, _d) = call ref_get(init_ref, 0);
+    let inner_builder = wasm_dsl::ModuleBuilder::new();
+    let inner_coord_bin = wasm_module!(inner_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let (init_ref, caller) = call init();
+            call trace(9, 0, init_ref, 0, caller, 0, 0, 0);
+            let (utxo1_id, utxo2_id, _c, _d) = call ref_get(init_ref, 0);
+            call trace(12, utxo1_id, init_ref, utxo2_id, 0, _c, _d, 0);
+            let handler_id = call get_handler_for(1, 2, 3, 4);
+            call trace(6, handler_id, 0, 0, 1, 2, 3, 4);
+            call set_datum(1, utxo1_id);
+            call set_datum(2, utxo2_id);
+            call set_datum(3, handler_id);
 
-        let handler_id = call get_handler_for(1, 2, 3, 4);
+            let req_new = call new_ref(1);
+            call trace(10, 0, 0, req_new, 1, 0, 0, 0);
+            call ref_push(1, 0, 0, 0);
+            call trace(11, 1, 0, 0, 0, 0, 0, 0);
+            call set_datum(5, handler_id);
+            call set_datum(6, req_new);
+            call set_datum(0, 1);
+            call resume(handler_id, req_new);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
+            let (resp_new, caller2) = call activation();
+            let caller2_enc = add caller2, 1;
+            call trace(0, last_target, last_val, resp_new, caller2_enc, 0, 0, 0);
+            let (_disc, cell_ref, _c2, _d2) = call ref_get(resp_new, 0);
+            call trace(12, _disc, resp_new, cell_ref, 0, _c2, _d2, 0);
 
-        // new_cell
-        let req_new = call new_ref(1);
-        call ref_push(1, 0, 0, 0);
-        let (resp_new, _caller2) = call resume(handler_id, req_new);
-        let (_disc, cell_ref, _c2, _d2) = call ref_get(resp_new, 0);
+            let cell_init = call new_ref(1);
+            call trace(10, 0, 0, cell_init, 1, 0, 0, 0);
+            call ref_push(cell_ref, 0, 0, 0);
+            call trace(11, cell_ref, 0, 0, 0, 0, 0, 0);
+            call set_datum(4, cell_init);
 
-        let cell_init = call new_ref(1);
-        call ref_push(cell_ref, 0, 0, 0);
-
-        // utxo1 writes 42
-        let (_ret1, _caller3) = call resume(utxo1_id, cell_init);
-
-        // utxo2 reads 42
-        let (_ret2, _caller4) = call resume(utxo2_id, cell_init);
-
-        // end
-        let req_end = call new_ref(1);
-        call ref_push(4, 0, 0, 0);
-        let (_resp_end, _caller5) = call resume(handler_id, req_end);
-
-        call return_();
+            let utxo1_id = call get_datum(1);
+            call set_datum(5, utxo1_id);
+            call set_datum(6, cell_init);
+            call set_datum(0, 2);
+            call resume(utxo1_id, cell_init);
+        }
+        if pc == 2 {
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
+            let (ret1, caller3) = call activation();
+            let caller3_enc = add caller3, 1;
+            call trace(0, last_target, last_val, ret1, caller3_enc, 0, 0, 0);
+            let utxo2_id = call get_datum(2);
+            let cell_init = call get_datum(4);
+            call set_datum(5, utxo2_id);
+            call set_datum(6, cell_init);
+            call set_datum(0, 3);
+            call resume(utxo2_id, cell_init);
+        }
+        if pc == 3 {
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
+            let (ret2, caller4) = call activation();
+            let caller4_enc = add caller4, 1;
+            call trace(0, last_target, last_val, ret2, caller4_enc, 0, 0, 0);
+            let handler_id = call get_datum(3);
+            let req_end = call new_ref(1);
+            call trace(10, 0, 0, req_end, 1, 0, 0, 0);
+            call ref_push(4, 0, 0, 0);
+            call trace(11, 4, 0, 0, 0, 0, 0, 0);
+            call set_datum(5, handler_id);
+            call set_datum(6, req_end);
+            call set_datum(0, 4);
+            call resume(handler_id, req_end);
+        }
+        if pc == 4 {
+            let last_target = call get_datum(5);
+            let last_val = call get_datum(6);
+            let (resp_end, caller5) = call activation();
+            let caller5_enc = add caller5, 1;
+            call trace(0, last_target, last_val, resp_end, caller5_enc, 0, 0, 0);
+            call set_datum(0, 5);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
     let (inner_hash_limb_a, inner_hash_limb_b, inner_hash_limb_c, inner_hash_limb_d) =
         hash_program(&inner_coord_bin);
 
-    let wrapper_coord_bin = wasm_module!({
-        let (init_ref, _caller) = call init();
-        let (inner_id, inner_init, _c, _d) = call ref_get(init_ref, 0);
+    let wrapper_builder = wasm_dsl::ModuleBuilder::new();
+    let wrapper_coord_bin = wasm_module!(wrapper_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let (init_ref, caller) = call init();
+            call trace(9, 0, init_ref, 0, caller, 0, 0, 0);
+            let (inner_id, _inner_init, _c, _d) = call ref_get(init_ref, 0);
+            call trace(12, inner_id, init_ref, _inner_init, 0, _c, _d, 0);
+            call set_datum(1, inner_id);
+            call set_datum(2, 0);
+            call install_handler(1, 2, 3, 4);
+            call trace(4, 0, 0, 0, 1, 2, 3, 4);
+            call set_datum(4, inner_id);
+            call set_datum(5, 0);
+            call set_datum(0, 1);
+            call resume(inner_id, 0);
+        }
 
-        call install_handler(1, 2, 3, 4);
-
-        let (req0, caller0) = call resume(inner_id, 0);
-        let req = req0;
-        let caller = caller0;
-        let handled = const(0);
-        let cell_val = const(0);
-        // Single-cell wrapper for this test: ignore cell_ref and return a fixed cell id.
-        let cell_id = const(1);
-
-        loop {
-            set handled = const(0);
-            let (disc, cell_ref, value, _d2) = call ref_get(req, 0);
+        if pc == 1 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (req, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, req, caller_enc, 0, 0, 0);
+            let (disc, _cell_ref, value, _d2) = call ref_get(req, 0);
+            call trace(12, disc, req, _cell_ref, 0, value, _d2, 0);
 
             if disc == 4 {
                 let resp = call new_ref(1);
+                call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(13, 0, 0, 0);
-                let (_req_next, _caller_next) = call resume(caller, resp);
-                set handled = const(2);
+                call trace(11, 13, 0, 0, 0, 0, 0, 0);
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 2);
+                call resume(caller, resp);
             }
 
             if disc == 1 {
+                let cell_id = call get_datum(3);
                 let resp = call new_ref(1);
+                call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(11, cell_id, 0, 0);
-
-                let (req_next, caller_next) = call resume(caller, resp);
-                set req = req_next;
-                set caller = caller_next;
-                set handled = const(1);
+                call trace(11, 11, cell_id, 0, 0, 0, 0, 0);
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 1);
+                call resume(caller, resp);
             }
 
             if disc == 2 {
-                set cell_val = value;
+                call set_datum(2, value);
                 let resp = call new_ref(1);
+                call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(10, 0, 0, 0);
-                let (req_next, caller_next) = call resume(caller, resp);
-                set req = req_next;
-                set caller = caller_next;
-                set handled = const(1);
+                call trace(11, 10, 0, 0, 0, 0, 0, 0);
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 1);
+                call resume(caller, resp);
             }
 
-            // disc == 3 (read)
-            if handled == 0 {
+            if disc == 3 {
+                let cell_val = call get_datum(2);
                 let resp = call new_ref(1);
+                call trace(10, 0, 0, resp, 1, 0, 0, 0);
                 call ref_push(12, cell_val, 0, 0);
-                let (req_next, caller_next) = call resume(caller, resp);
-                set req = req_next;
-                set caller = caller_next;
-                set handled = const(1);
+                call trace(11, 12, cell_val, 0, 0, 0, 0, 0);
+                call set_datum(4, caller);
+                call set_datum(5, resp);
+                call set_datum(0, 1);
+                call resume(caller, resp);
             }
-
-            break_if handled == 2;
-            continue_if handled == 1;
         }
 
-        call uninstall_handler(1, 2, 3, 4);
-        call return_();
+        if pc == 2 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (ret, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
+            call uninstall_handler(1, 2, 3, 4);
+            call trace(5, 0, 0, 0, 1, 2, 3, 4);
+            call set_datum(0, 3);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
+    print_wat("wrapper/utxo1", &utxo1_bin);
+    print_component_wit("wrapper", &utxo1_bin);
+    print_wat("wrapper/utxo2", &utxo2_bin);
+    print_wat("wrapper/inner", &inner_coord_bin);
     print_wat("wrapper", &wrapper_coord_bin);
 
     let (wrapper_hash_limb_a, wrapper_hash_limb_b, wrapper_hash_limb_c, wrapper_hash_limb_d) =
         hash_program(&wrapper_coord_bin);
 
     // Patch wrapper hash constants into driver.
-    let driver_coord_bin = wasm_module!({
-        let init_val = call new_ref(1);
-        call ref_push(0, 0, 0, 0);
+    let driver_builder = wasm_dsl::ModuleBuilder::new();
+    let driver_coord_bin = wasm_module!(driver_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let init_val = call new_ref(1);
+            call trace(10, 0, 0, init_val, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
 
-        let utxo1_id = call new_utxo(
-            const(utxo1_hash_limb_a),
-            const(utxo1_hash_limb_b),
-            const(utxo1_hash_limb_c),
-            const(utxo1_hash_limb_d),
-            init_val
-        );
+            let utxo1_id = call new_utxo(
+                const(utxo1_hash_limb_a),
+                const(utxo1_hash_limb_b),
+                const(utxo1_hash_limb_c),
+                const(utxo1_hash_limb_d),
+                init_val
+            );
+            call trace(
+                2,
+                utxo1_id,
+                init_val,
+                0,
+                const(utxo1_hash_limb_a),
+                const(utxo1_hash_limb_b),
+                const(utxo1_hash_limb_c),
+                const(utxo1_hash_limb_d)
+            );
 
-        let utxo2_id = call new_utxo(
-            const(utxo2_hash_limb_a),
-            const(utxo2_hash_limb_b),
-            const(utxo2_hash_limb_c),
-            const(utxo2_hash_limb_d),
-            init_val
-        );
+            let utxo2_id = call new_utxo(
+                const(utxo2_hash_limb_a),
+                const(utxo2_hash_limb_b),
+                const(utxo2_hash_limb_c),
+                const(utxo2_hash_limb_d),
+                init_val
+            );
+            call trace(
+                2,
+                utxo2_id,
+                init_val,
+                0,
+                const(utxo2_hash_limb_a),
+                const(utxo2_hash_limb_b),
+                const(utxo2_hash_limb_c),
+                const(utxo2_hash_limb_d)
+            );
 
-        let inner_init = call new_ref(1);
-        call ref_push(utxo1_id, utxo2_id, 0, 0);
+            let inner_init = call new_ref(1);
+            call trace(10, 0, 0, inner_init, 1, 0, 0, 0);
+            call ref_push(utxo1_id, utxo2_id, 0, 0);
+            call trace(11, utxo1_id, utxo2_id, 0, 0, 0, 0, 0);
 
-        let inner_id = call new_coord(
-            const(inner_hash_limb_a),
-            const(inner_hash_limb_b),
-            const(inner_hash_limb_c),
-            const(inner_hash_limb_d),
-            inner_init
-        );
+            let inner_id = call new_coord(
+                const(inner_hash_limb_a),
+                const(inner_hash_limb_b),
+                const(inner_hash_limb_c),
+                const(inner_hash_limb_d),
+                inner_init
+            );
+            call trace(
+                3,
+                inner_id,
+                inner_init,
+                0,
+                const(inner_hash_limb_a),
+                const(inner_hash_limb_b),
+                const(inner_hash_limb_c),
+                const(inner_hash_limb_d)
+            );
 
-        let wrapper_init = call new_ref(1);
-        call ref_push(inner_id, inner_init, 0, 0);
+            let wrapper_init = call new_ref(1);
+            call trace(10, 0, 0, wrapper_init, 1, 0, 0, 0);
+            call ref_push(inner_id, inner_init, 0, 0);
+            call trace(11, inner_id, inner_init, 0, 0, 0, 0, 0);
 
-        let wrapper_id = call new_coord(
-            const(wrapper_hash_limb_a),
-            const(wrapper_hash_limb_b),
-            const(wrapper_hash_limb_c),
-            const(wrapper_hash_limb_d),
-            wrapper_init
-        );
+            let wrapper_id = call new_coord(
+                const(wrapper_hash_limb_a),
+                const(wrapper_hash_limb_b),
+                const(wrapper_hash_limb_c),
+                const(wrapper_hash_limb_d),
+                wrapper_init
+            );
+            call trace(
+                3,
+                wrapper_id,
+                wrapper_init,
+                0,
+                const(wrapper_hash_limb_a),
+                const(wrapper_hash_limb_b),
+                const(wrapper_hash_limb_c),
+                const(wrapper_hash_limb_d)
+            );
 
-        let (_ret, _caller) = call resume(wrapper_id, wrapper_init);
-        call return_();
+            call set_datum(1, wrapper_id);
+            call set_datum(2, wrapper_init);
+            call set_datum(0, 1);
+            call resume(wrapper_id, wrapper_init);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
+            let (ret, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
+            call set_datum(0, 2);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
+    print_wat("wrapper/driver", &driver_coord_bin);
 
     let programs = vec![
-        utxo1_bin.clone(),
-        utxo2_bin.clone(),
-        inner_coord_bin.clone(),
-        wrapper_coord_bin.clone(),
-        driver_coord_bin.clone(),
+        utxo1_bin,
+        utxo2_bin,
+        inner_coord_bin,
+        wrapper_coord_bin,
+        driver_coord_bin,
     ];
 
     let tx = UnprovenTransaction {
@@ -309,13 +497,30 @@ fn hash_program(utxo_bin: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+        return;
+    }
+
+    match wit_component::decode(wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }
 

@@ -1,8 +1,7 @@
 use crate::{F, OptionalF, ledger_operation::LedgerOperation};
 use ark_ff::Zero;
+pub use starstream_interleaving_spec::{ArgName, OPCODE_ARG_COUNT};
 use starstream_interleaving_spec::{EffectDiscriminant, LedgerEffectsCommitment, WitLedgerEffect};
-
-pub const OPCODE_ARG_COUNT: usize = 7;
 
 pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffectsCommitment {
     let ledger_op = ledger_operation_from_wit(&op);
@@ -17,64 +16,6 @@ pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffec
     let compressed =
         ark_poseidon2::compress_12_trace(&concat).expect("poseidon2 compress_12_trace");
     LedgerEffectsCommitment(compressed)
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum ArgName {
-    Target,
-    Val,
-    Ret,
-    Caller,
-    Offset,
-    Size,
-    ProgramHash0,
-    ProgramHash1,
-    ProgramHash2,
-    ProgramHash3,
-    ActivationCaller,
-    OwnerId,
-    TokenId,
-    InterfaceId0,
-    InterfaceId1,
-    InterfaceId2,
-    InterfaceId3,
-
-    PackedRef0,
-    PackedRef1,
-    PackedRef2,
-    PackedRef3,
-    PackedRef4,
-    PackedRef5,
-}
-
-impl ArgName {
-    // maps argument names to positional indices
-    //
-    // these need to match the order in the ABI used by the wasm/program vm.
-    pub const fn idx(self) -> usize {
-        match self {
-            ArgName::Target | ArgName::OwnerId | ArgName::TokenId => 0,
-            ArgName::Val => 1,
-            ArgName::Ret => 2,
-            ArgName::Caller | ArgName::Offset | ArgName::Size | ArgName::ActivationCaller => 3,
-            ArgName::InterfaceId0 => 3,
-            ArgName::InterfaceId1 => 4,
-            ArgName::InterfaceId2 => 5,
-            ArgName::InterfaceId3 => 6,
-            ArgName::ProgramHash0 => 3,
-            ArgName::ProgramHash1 => 4,
-            ArgName::ProgramHash2 => 5,
-            ArgName::ProgramHash3 => 6,
-
-            // Packed ref args for RefPush/RefGet/RefWrite.
-            ArgName::PackedRef0 => 0,
-            ArgName::PackedRef1 => 1,
-            ArgName::PackedRef2 => 2,
-            ArgName::PackedRef3 => 3,
-            ArgName::PackedRef4 => 4,
-            ArgName::PackedRef5 => 5,
-        }
-    }
 }
 
 pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation<F> {

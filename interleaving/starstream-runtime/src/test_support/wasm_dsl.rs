@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 
 use wasm_encoder::{
-    BlockType, CodeSection, ConstExpr, EntityType, ExportKind, ExportSection, Function,
-    FunctionSection, GlobalSection, GlobalType, ImportSection, Instruction, Module, TypeSection,
-    ValType,
+    BlockType, CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection,
+    ImportSection, Instruction, MemArg, MemorySection, MemoryType, Module, TypeSection, ValType,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -69,6 +68,23 @@ impl FuncBuilder {
         }
     }
 
+    pub fn call_with_retptr(&mut self, func: FuncRef, args: Vec<Value>, results: &[Local]) {
+        for arg in args {
+            arg.emit(&mut self.instrs);
+        }
+        self.instrs.push(Instruction::I32Const(0));
+        self.instrs.push(Instruction::Call(func.idx));
+        for (i, local) in results.iter().enumerate() {
+            self.instrs.push(Instruction::I32Const((i * 8) as i32));
+            self.instrs.push(Instruction::I64Load(MemArg {
+                offset: 0,
+                align: 3,
+                memory_index: 0,
+            }));
+            self.instrs.push(Instruction::LocalSet(local.0));
+        }
+    }
+
     pub fn assert_eq(&mut self, lhs: Value, rhs: Value) {
         lhs.emit(&mut self.instrs);
         rhs.emit(&mut self.instrs);
@@ -104,16 +120,6 @@ impl FuncBuilder {
         b.emit(&mut self.instrs);
         self.instrs.push(Instruction::I64DivS);
         self.instrs.push(Instruction::LocalSet(dst.0));
-    }
-
-    pub fn global_get(&mut self, global: u32, dst: Local) {
-        self.instrs.push(Instruction::GlobalGet(global));
-        self.instrs.push(Instruction::LocalSet(dst.0));
-    }
-
-    pub fn global_set(&mut self, global: u32, val: Value) {
-        val.emit(&mut self.instrs);
-        self.instrs.push(Instruction::GlobalSet(global));
     }
 
     pub fn emit_eq_i64(&mut self, a: Value, b: Value) {
@@ -159,6 +165,18 @@ impl FuncBuilder {
         self.instrs.push(Instruction::End);
     }
 
+    pub fn if_lt<F>(&mut self, lhs: Value, rhs: Value, f: F)
+    where
+        F: FnOnce(&mut FuncBuilder),
+    {
+        lhs.emit(&mut self.instrs);
+        rhs.emit(&mut self.instrs);
+        self.instrs.push(Instruction::I64LtS);
+        self.instrs.push(Instruction::If(BlockType::Empty));
+        f(self);
+        self.instrs.push(Instruction::End);
+    }
+
     fn finish(self) -> Function {
         let mut groups: Vec<(u32, ValType)> = Vec::new();
         for ty in self.locals {
@@ -191,7 +209,7 @@ pub struct ModuleBuilder {
     functions: FunctionSection,
     codes: CodeSection,
     exports: ExportSection,
-    globals: GlobalSection,
+    memory: MemorySection,
     type_count: u32,
     import_count: u32,
     starstream: Option<Imports>,
@@ -199,6 +217,9 @@ pub struct ModuleBuilder {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Imports {
+    pub trace: FuncRef,
+    pub get_datum: FuncRef,
+    pub set_datum: FuncRef,
     pub activation: FuncRef,
     pub get_program_hash: FuncRef,
     pub get_handler_for: FuncRef,
@@ -228,7 +249,7 @@ impl ModuleBuilder {
             functions: FunctionSection::new(),
             codes: CodeSection::new(),
             exports: ExportSection::new(),
-            globals: GlobalSection::new(),
+            memory: MemorySection::new(),
             type_count: 0,
             import_count: 0,
             starstream: None,
@@ -243,27 +264,49 @@ impl ModuleBuilder {
     }
 
     pub fn import_starstream(&mut self) -> Imports {
-        let activation = self.import_func(
+        let trace = self.import_func(
             "env",
-            "starstream_activation",
+            "starstream-trace",
+            &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
             &[],
-            &[ValType::I64, ValType::I64],
         );
+        let get_datum = self.import_func(
+            "env",
+            "starstream-get-datum",
+            &[ValType::I64],
+            &[ValType::I64],
+        );
+        let set_datum = self.import_func(
+            "env",
+            "starstream-set-datum",
+            &[ValType::I64, ValType::I64],
+            &[],
+        );
+        let activation = self.import_func("env", "starstream-activation", &[ValType::I32], &[]);
         let get_program_hash = self.import_func(
             "env",
-            "starstream_get_program_hash",
-            &[ValType::I64],
-            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+            "starstream-get-program-hash",
+            &[ValType::I64, ValType::I32],
+            &[],
         );
         let get_handler_for = self.import_func(
             "env",
-            "starstream_get_handler_for",
+            "starstream-get-handler-for",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[ValType::I64],
         );
         let call_effect_handler = self.import_func(
             "env",
-            "starstream_call_effect_handler",
+            "starstream-call-effect-handler",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -271,41 +314,41 @@ impl ModuleBuilder {
                 ValType::I64,
                 ValType::I64,
             ],
-            &[ValType::I64],
+            &[],
         );
         let install_handler = self.import_func(
             "env",
-            "starstream_install_handler",
+            "starstream-install-handler",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let uninstall_handler = self.import_func(
             "env",
-            "starstream_uninstall_handler",
+            "starstream-uninstall-handler",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let new_ref = self.import_func(
             "env",
-            "starstream_new_ref",
+            "starstream-new-ref",
             &[ValType::I64],
             &[ValType::I64],
         );
         let ref_push = self.import_func(
             "env",
-            "starstream_ref_push",
+            "starstream-ref-push",
             &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
             &[],
         );
         let ref_get = self.import_func(
             "env",
-            "starstream_ref_get",
-            &[ValType::I64, ValType::I64],
-            &[ValType::I64, ValType::I64, ValType::I64, ValType::I64],
+            "starstream-ref-get",
+            &[ValType::I64, ValType::I64, ValType::I32],
+            &[],
         );
         let ref_write = self.import_func(
             "env",
-            "starstream_ref_write",
+            "starstream-ref-write",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -318,15 +361,15 @@ impl ModuleBuilder {
         );
         let resume = self.import_func(
             "env",
-            "starstream_resume",
+            "starstream-resume",
             &[ValType::I64, ValType::I64],
-            &[ValType::I64, ValType::I64],
+            &[],
         );
-        let yield_ = self.import_func("env", "starstream_yield", &[ValType::I64], &[]);
-        let return_ = self.import_func("env", "starstream_return", &[], &[]);
+        let yield_ = self.import_func("env", "starstream-yield", &[ValType::I64], &[]);
+        let return_ = self.import_func("env", "starstream-return", &[], &[]);
         let new_utxo = self.import_func(
             "env",
-            "starstream_new_utxo",
+            "starstream-new-utxo",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -338,7 +381,7 @@ impl ModuleBuilder {
         );
         let new_coord = self.import_func(
             "env",
-            "starstream_new_coord",
+            "starstream-new-coord",
             &[
                 ValType::I64,
                 ValType::I64,
@@ -348,12 +391,15 @@ impl ModuleBuilder {
             ],
             &[ValType::I64],
         );
-        let burn = self.import_func("env", "starstream_burn", &[ValType::I64], &[]);
-        let bind = self.import_func("env", "starstream_bind", &[ValType::I64], &[]);
-        let unbind = self.import_func("env", "starstream_unbind", &[ValType::I64], &[]);
-        let init = self.import_func("env", "starstream_init", &[], &[ValType::I64, ValType::I64]);
+        let burn = self.import_func("env", "starstream-burn", &[ValType::I64], &[]);
+        let bind = self.import_func("env", "starstream-bind", &[ValType::I64], &[]);
+        let unbind = self.import_func("env", "starstream-unbind", &[ValType::I64], &[]);
+        let init = self.import_func("env", "starstream-init", &[ValType::I32], &[]);
 
         Imports {
+            trace,
+            get_datum,
+            set_datum,
             activation,
             get_program_hash,
             get_handler_for,
@@ -402,20 +448,6 @@ impl ModuleBuilder {
         FuncBuilder::new()
     }
 
-    pub fn add_global_i64(&mut self, initial: i64, mutable: bool) -> u32 {
-        let global_type = GlobalType {
-            val_type: ValType::I64,
-            mutable,
-            shared: false,
-        };
-        self.globals
-            .global(global_type, &ConstExpr::i64_const(initial));
-        let idx = self.globals.len() - 1;
-        let name = format!("__global_{}", idx);
-        self.exports.export(&name, ExportKind::Global, idx);
-        idx
-    }
-
     pub fn finish(mut self, func: FuncBuilder) -> Vec<u8> {
         let type_idx = self.type_count;
         self.type_count += 1;
@@ -423,15 +455,22 @@ impl ModuleBuilder {
         self.functions.function(type_idx);
         self.codes.function(&func.finish());
         let start_idx = self.import_count;
-        self.exports.export("_start", ExportKind::Func, start_idx);
+        // `step` is the stable runtime entrypoint we want to lift into components.
+        self.exports.export("step", ExportKind::Func, start_idx);
+        self.memory.memory(MemoryType {
+            minimum: 1,
+            maximum: None,
+            memory64: false,
+            shared: false,
+            page_size_log2: None,
+        });
+        self.exports.export("memory", ExportKind::Memory, 0);
 
         let mut module = Module::new();
         module.section(&self.types);
         module.section(&self.imports);
         module.section(&self.functions);
-        if !self.globals.is_empty() {
-            module.section(&self.globals);
-        }
+        module.section(&self.memory);
         module.section(&self.exports);
         module.section(&self.codes);
         module.finish()
@@ -451,13 +490,17 @@ macro_rules! wasm_module {
         let __imports = __builder.starstream();
         let mut __func = __builder.func();
         $crate::wasm!(__func, __imports, { $($body)* });
-        __builder.finish(__func)
+        let __core = __builder.finish(__func);
+        $crate::test_support::components::componentize(&__core)
+            .expect("failed to componentize wasm_module output")
     }};
     ($builder:expr, { $($body:tt)* }) => {{
         let __imports = $builder.starstream();
         let mut __func = $builder.func();
         $crate::wasm!(__func, __imports, { $($body)* });
-        $builder.finish(__func)
+        let __core = $builder.finish(__func);
+        $crate::test_support::components::componentize(&__core)
+            .expect("failed to componentize wasm_module output")
     }};
 }
 
@@ -628,6 +671,31 @@ macro_rules! wasm_stmt {
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call activation(); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call untraced_activation(); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident) = call init(); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.init, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident, $c:ident, $d:ident) = call ref_get($x:tt, $y:tt); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.ref_get, $crate::wasm_args!($x, $y), &[$a, $b, $c, $d]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, set ($a:ident, $b:ident, $c:ident, $d:ident) = call get_program_hash($x:tt); $($rest:tt)*) => {
+        $f.call_with_retptr($imports.get_program_hash, $crate::wasm_args!($x), &[$a, $b, $c, $d]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
     ($f:ident, $imports:ident, set ($($var:ident),+ $(,)?) = call $func:ident ( $($arg:tt)* ); $($rest:tt)*) => {
         $f.call($imports.$func, $crate::wasm_args!($($arg)*), &[$($var),+]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
@@ -680,14 +748,42 @@ macro_rules! wasm_stmt {
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
-    ($f:ident, $imports:ident, let $var:ident = global_get $idx:literal; $($rest:tt)*) => {
-        let $var = $f.local_i64();
-        $f.global_get($idx as u32, $var);
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call activation(); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
-    ($f:ident, $imports:ident, set_global $idx:literal = $val:tt; $($rest:tt)*) => {
-        $f.global_set($idx as u32, $crate::wasm_value!($val));
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call untraced_activation(); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        $f.call_with_retptr($imports.activation, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident) = call init(); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        $f.call_with_retptr($imports.init, $crate::wasm_args!(), &[$a, $b]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident, $c:ident, $d:ident) = call ref_get($x:tt, $y:tt); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        let $c = $f.local_i64();
+        let $d = $f.local_i64();
+        $f.call_with_retptr($imports.ref_get, $crate::wasm_args!($x, $y), &[$a, $b, $c, $d]);
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, let ($a:ident, $b:ident, $c:ident, $d:ident) = call get_program_hash($x:tt); $($rest:tt)*) => {
+        let $a = $f.local_i64();
+        let $b = $f.local_i64();
+        let $c = $f.local_i64();
+        let $d = $f.local_i64();
+        $f.call_with_retptr($imports.get_program_hash, $crate::wasm_args!($x), &[$a, $b, $c, $d]);
         $crate::wasm_stmt!($f, $imports, $($rest)*);
     };
 
@@ -715,6 +811,13 @@ macro_rules! wasm_stmt {
 
     ($f:ident, $imports:ident, if $lhs:ident == $rhs:tt { $($body:tt)* } $($rest:tt)*) => {
         $f.if_eq($crate::wasm_value!($lhs), $crate::wasm_value!($rhs), |$f| {
+            $crate::wasm_stmt!($f, $imports, $($body)*);
+        });
+        $crate::wasm_stmt!($f, $imports, $($rest)*);
+    };
+
+    ($f:ident, $imports:ident, if $lhs:ident < $rhs:tt { $($body:tt)* } $($rest:tt)*) => {
+        $f.if_lt($crate::wasm_value!($lhs), $crate::wasm_value!($rhs), |$f| {
             $crate::wasm_stmt!($f, $imports, $($body)*);
         });
         $crate::wasm_stmt!($f, $imports, $($rest)*);

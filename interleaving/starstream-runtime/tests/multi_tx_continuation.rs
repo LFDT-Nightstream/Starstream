@@ -14,13 +14,30 @@ fn hash_program(wasm: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+        return;
+    }
+
+    match wit_component::decode(wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }
 
@@ -44,77 +61,152 @@ fn print_ledger(label: &str, ledger: &Ledger) {
 
 #[test]
 fn test_multi_tx_accumulator_global() {
-    let mut builder = wasm_dsl::ModuleBuilder::new();
+    let builder = wasm_dsl::ModuleBuilder::new();
     // global 0 = gpc, global 1 = acc
-    builder.add_global_i64(0, true);
-    builder.add_global_i64(0, true);
     let utxo_bin = wasm_module!(builder, {
-        let (state_ref, _caller) = call activation();
+        let (state_ref, caller) = call activation();
+        call trace(8, 0, state_ref, 0, caller, 0, 0, 0);
         let (disc, arg, _b, _c) = call ref_get(state_ref, 0);
+        call trace(12, disc, state_ref, arg, 0, _b, _c, 0);
         if disc == 1 {
-            let curr = global_get 1;
+            let curr = call get_datum(1);
             let next = add curr, arg;
-            set_global 1 = next;
-            let pc = global_get 0;
+            call set_datum(1, next);
+            let pc = call get_datum(0);
             let next_pc = add pc, 1;
-            set_global 0 = next_pc;
+            call set_datum(0, next_pc);
             call ref_write(state_ref, 0, next, 0, 0, 0);
+            call trace(16, next, state_ref, 0, 0, 0, 0, 0);
         }
         let resp = call new_ref(1);
-        let acc = global_get 1;
+        call trace(10, 0, 0, resp, 1, 0, 0, 0);
+        let acc = call get_datum(1);
         call ref_push(acc, 0, 0, 0);
+        call trace(11, acc, 0, 0, 0, 0, 0, 0);
+        call trace(1, 0, resp, 0, 0, 0, 0, 0);
         call yield_(resp);
     });
 
     let (utxo_hash_a, utxo_hash_b, utxo_hash_c, utxo_hash_d) = hash_program(&utxo_bin);
 
-    let coord_bin = wasm_module!({
-        let init_ref = call new_ref(1);
-        call ref_push(0, 0, 0, 0);
+    let coord_builder = wasm_dsl::ModuleBuilder::new();
+    let coord_bin = wasm_module!(coord_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let init_ref = call new_ref(1);
+            call trace(10, 0, 0, init_ref, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
 
-        let utxo_id = call new_utxo(
-            const(utxo_hash_a),
-            const(utxo_hash_b),
-            const(utxo_hash_c),
-            const(utxo_hash_d),
-            init_ref
-        );
+            let utxo_id = call new_utxo(
+                const(utxo_hash_a),
+                const(utxo_hash_b),
+                const(utxo_hash_c),
+                const(utxo_hash_d),
+                init_ref
+            );
+            call trace(
+                2,
+                utxo_id,
+                init_ref,
+                0,
+                const(utxo_hash_a),
+                const(utxo_hash_b),
+                const(utxo_hash_c),
+                const(utxo_hash_d)
+            );
 
-        let req = call new_ref(1);
-        call ref_push(1, 5, 0, 0);
-        let (resp, _caller) = call resume(utxo_id, req);
-        let (val, _b, _c, _d) = call ref_get(resp, 0);
-        assert_eq val, 5;
-        call return_();
+            let req = call new_ref(1);
+            call trace(10, 0, 0, req, 1, 0, 0, 0);
+            call ref_push(1, 5, 0, 0);
+            call trace(11, 1, 5, 0, 0, 0, 0, 0);
+            call set_datum(1, utxo_id);
+            call set_datum(2, req);
+            call set_datum(0, 1);
+            call resume(utxo_id, req);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
+            let (resp, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
+            let (val, _b, _c, _d) = call ref_get(resp, 0);
+            call trace(12, val, resp, _b, 0, _c, _d, 0);
+            assert_eq val, 5;
+            call set_datum(0, 2);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
-    let coord2_bin = wasm_module!({
-        let req = call new_ref(1);
-        call ref_push(1, 7, 0, 0);
-        let (resp, _caller) = call resume(0, req);
-        let (val, _b, _c, _d) = call ref_get(resp, 0);
-        assert_eq val, 12;
-        call return_();
+    let coord2_builder = wasm_dsl::ModuleBuilder::new();
+    let coord2_bin = wasm_module!(coord2_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let req = call new_ref(1);
+            call trace(10, 0, 0, req, 1, 0, 0, 0);
+            call ref_push(1, 7, 0, 0);
+            call trace(11, 1, 7, 0, 0, 0, 0, 0);
+            call set_datum(1, 0);
+            call set_datum(2, req);
+            call set_datum(0, 1);
+            call resume(0, req);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
+            let (resp, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
+            let (val, _b, _c, _d) = call ref_get(resp, 0);
+            call trace(12, val, resp, _b, 0, _c, _d, 0);
+            assert_eq val, 12;
+            call set_datum(0, 2);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
-    let coord3_bin = wasm_module!({
-        let req = call new_ref(1);
-        call ref_push(2, 0, 0, 0);
-        let (resp, _caller) = call resume(0, req);
-        let (val, _b, _c, _d) = call ref_get(resp, 0);
-        assert_eq val, 12;
-        call return_();
+    let coord3_builder = wasm_dsl::ModuleBuilder::new();
+    let coord3_bin = wasm_module!(coord3_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let req = call new_ref(1);
+            call trace(10, 0, 0, req, 1, 0, 0, 0);
+            call ref_push(2, 0, 0, 0);
+            call trace(11, 2, 0, 0, 0, 0, 0, 0);
+            call set_datum(1, 0);
+            call set_datum(2, req);
+            call set_datum(0, 1);
+            call resume(0, req);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(1);
+            let last_val = call get_datum(2);
+            let (resp, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
+            let (val, _b, _c, _d) = call ref_get(resp, 0);
+            call trace(12, val, resp, _b, 0, _c, _d, 0);
+            assert_eq val, 12;
+            call set_datum(0, 2);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
     print_wat("globals/utxo", &utxo_bin);
+    print_component_wit("globals", &utxo_bin);
     print_wat("globals/coord1", &coord_bin);
     print_wat("globals/coord2", &coord2_bin);
+    print_wat("globals/coord3", &coord3_bin);
 
     let tx1 = UnprovenTransaction {
         inputs: vec![],
         input_states: vec![],
         input_ownership: vec![],
-        programs: vec![utxo_bin.clone(), coord_bin.clone()],
+        programs: vec![utxo_bin.clone(), coord_bin],
         is_utxo: vec![true, false],
         entrypoint: 1,
     };

@@ -15,13 +15,30 @@ fn hash_program(wasm: &Vec<u8>) -> (i64, i64, i64, i64) {
 }
 
 fn print_wat(name: &str, wasm: &[u8]) {
-    if std::env::var_os("DEBUG_WAT").is_none() {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
         return;
     }
 
     match wasmprinter::print_bytes(wasm) {
         Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
         Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+    }
+}
+
+fn print_component_wit(name: &str, wasm: &[u8]) {
+    if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+        return;
+    }
+
+    match wit_component::decode(wasm) {
+        Ok(decoded) => {
+            let mut printer = wit_component::WitPrinter::default();
+            match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+            }
+        }
+        Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
     }
 }
 
@@ -43,238 +60,430 @@ fn test_dex_swap_flow() {
         Some(label)
     });
 
-    let mut token_builder = wasm_dsl::ModuleBuilder::new();
-    token_builder.add_global_i64(-1, true);
+    let token_builder = wasm_dsl::ModuleBuilder::new();
     let token_bin = wasm_module!(token_builder, {
-        let uninit = const(-1);
-        let curr = global_get 0;
-        if curr == uninit {
-            let (init_ref, _init_caller) = call init();
+        let initialized = call get_datum(1);
+        if initialized == 0 {
+            let (init_ref, init_caller) = call init();
+            call trace(9, 0, init_ref, 0, init_caller, 0, 0, 0);
             let (amt, _b0, _c0, _d0) = call ref_get(init_ref, 0);
-            set_global 0 = amt;
+            call trace(12, amt, init_ref, _b0, 0, _c0, _d0, 0);
+            call set_datum(0, amt);
+            call set_datum(1, 1);
         }
-        let (req, _caller_id) = call activation();
+        let (req, caller_id) = call activation();
+        call trace(8, 0, req, 0, caller_id, 0, 0, 0);
+        let (disc, arg, _b, _c) = call ref_get(req, 0);
+        call trace(12, disc, req, arg, 0, _b, _c, 0);
 
-        loop {
-            let (disc, arg, _b, _c) = call ref_get(req, 0);
-
-            if disc == 102 {
-                call bind(arg);
-            }
-
-            let resp = call new_ref(1);
-
-            if disc == 101 {
-                let amt = global_get 0;
-                call ref_push(amt, 0, 0, 0);
-            }
-
-            if disc == 102 {
-                call ref_push(0, 0, 0, 0);
-            }
-
-            call yield_(resp);
-            let (next_req, _caller2) = call activation();
-            set req = next_req;
-            continue;
+        if disc == 102 {
+            call bind(arg);
+            call trace(13, arg, 0, 0, 0, 0, 0, 0);
         }
+
+        let resp = call new_ref(1);
+        call trace(10, 0, 0, resp, 1, 0, 0, 0);
+
+        if disc == 101 {
+            let amt = call get_datum(0);
+            call ref_push(amt, 0, 0, 0);
+            call trace(11, amt, 0, 0, 0, 0, 0, 0);
+        }
+
+        if disc == 102 {
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        call trace(1, 0, resp, 0, 0, 0, 0, 0);
+        call yield_(resp);
     });
 
     let (token_hash_a, token_hash_b, token_hash_c, token_hash_d) = hash_program(&token_bin);
 
-    let coord_swap_bin = wasm_module!({
+    let coord_swap_builder = wasm_dsl::ModuleBuilder::new();
+    let coord_swap_bin = wasm_module!(coord_swap_builder, {
+        let pc = call get_datum(0);
         let utxo_id = const(0);
         let token_y_id = const(1);
         let token_x_id = const(2);
 
-        // start_swap
-        let start = call new_ref(1);
-        call ref_push(1, 0, 0, 0);
-        let (resp_start, caller) = call resume(utxo_id, start);
-        let caller_next = caller;
+        if pc == 0 {
+            let start = call new_ref(1);
+            call trace(10, 0, 0, start, 1, 0, 0, 0);
+            call ref_push(1, 0, 0, 0);
+            call trace(11, 1, 0, 0, 0, 0, 0, 0);
+            call set_datum(3, utxo_id);
+            call set_datum(4, start);
+            call set_datum(0, 1);
+            call resume(utxo_id, start);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
+            let (_resp_start, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, _resp_start, caller_enc, 0, 0, 0);
+            call set_datum(1, caller);
 
-        // read token_y amount
-        let get_amt = call new_ref(1);
-        call ref_push(101, 0, 0, 0);
-        let (resp_amt, _caller_amt) = call resume(token_y_id, get_amt);
-        let (dy, _b0, _c0, _d0) = call ref_get(resp_amt, 0);
+            let get_amt = call new_ref(1);
+            call trace(10, 0, 0, get_amt, 1, 0, 0, 0);
+            call ref_push(101, 0, 0, 0);
+            call trace(11, 101, 0, 0, 0, 0, 0, 0);
+            call set_datum(3, token_y_id);
+            call set_datum(4, get_amt);
+            call set_datum(0, 2);
+            call resume(token_y_id, get_amt);
+        }
+        if pc == 2 {
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
+            let (resp_amt, caller_amt) = call activation();
+            let caller_amt_enc = add caller_amt, 1;
+            call trace(0, last_target, last_val, resp_amt, caller_amt_enc, 0, 0, 0);
+            let (dy, _b0, _c0, _d0) = call ref_get(resp_amt, 0);
+            call trace(12, dy, resp_amt, _b0, 0, _c0, _d0, 0);
+            call set_datum(2, dy);
 
-        // add_token(token_y_id, dy)
-        let add = call new_ref(1);
-        call ref_push(2, token_y_id, dy, 0);
-        let (resp_add, caller) = call resume(caller_next, add);
-        let caller_next = caller;
+            let caller_next = call get_datum(1);
+            let add = call new_ref(1);
+            call trace(10, 0, 0, add, 1, 0, 0, 0);
+            call ref_push(2, token_y_id, dy, 0);
+            call trace(11, 2, token_y_id, dy, 0, 0, 0, 0);
+            call set_datum(3, caller_next);
+            call set_datum(4, add);
+            call set_datum(0, 3);
+            call resume(caller_next, add);
+        }
+        if pc == 3 {
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
+            let (_resp_add, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, _resp_add, caller_enc, 0, 0, 0);
+            call set_datum(1, caller);
 
-        // remove_token(token_x_id) -> dx
-        let remove = call new_ref(1);
-        call ref_push(3, token_x_id, 0, 0);
-        let (resp_remove, caller) = call resume(caller_next, remove);
-        let caller_next = caller;
-        let (dx, _b1, _c1, _d1) = call ref_get(resp_remove, 0);
+            let remove = call new_ref(1);
+            call trace(10, 0, 0, remove, 1, 0, 0, 0);
+            call ref_push(3, token_x_id, 0, 0);
+            call trace(11, 3, token_x_id, 0, 0, 0, 0, 0);
+            call set_datum(3, caller);
+            call set_datum(4, remove);
+            call set_datum(0, 4);
+            call resume(caller, remove);
+        }
+        if pc == 4 {
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
+            let (resp_remove, caller) = call activation();
+            let caller_enc = add caller, 1;
+            call trace(0, last_target, last_val, resp_remove, caller_enc, 0, 0, 0);
+            call set_datum(1, caller);
+            let (dx, _b1, _c1, _d1) = call ref_get(resp_remove, 0);
+            call trace(12, dx, resp_remove, _b1, 0, _c1, _d1, 0);
 
-        // finalize token_x process in tx_swap without mutating it
-        let read_x = call new_ref(1);
-        call ref_push(101, 0, 0, 0);
-        let (_resp_x, _caller_x) = call resume(token_x_id, read_x);
+            let read_x = call new_ref(1);
+            call trace(10, 0, 0, read_x, 1, 0, 0, 0);
+            call ref_push(101, 0, 0, 0);
+            call trace(11, 101, 0, 0, 0, 0, 0, 0);
+            call set_datum(3, token_x_id);
+            call set_datum(4, read_x);
+            call set_datum(0, 5);
+            call resume(token_x_id, read_x);
+        }
+        if pc == 5 {
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
+            let (_resp_x, caller_x) = call activation();
+            let caller_x_enc = add caller_x, 1;
+            call trace(0, last_target, last_val, _resp_x, caller_x_enc, 0, 0, 0);
 
-        // end_swap (k must match)
-        let end = call new_ref(1);
-        call ref_push(4, 0, 0, 0);
-        let (resp_end, _caller_end) = call resume(caller_next, end);
-        let (_k_val, _b2, _c2, _d2) = call ref_get(resp_end, 0);
-        call return_();
+            let caller_next = call get_datum(1);
+            let end = call new_ref(1);
+            call trace(10, 0, 0, end, 1, 0, 0, 0);
+            call ref_push(4, 0, 0, 0);
+            call trace(11, 4, 0, 0, 0, 0, 0, 0);
+            call set_datum(3, caller_next);
+            call set_datum(4, end);
+            call set_datum(0, 6);
+            call resume(caller_next, end);
+        }
+        if pc == 6 {
+            let last_target = call get_datum(3);
+            let last_val = call get_datum(4);
+            let (resp_end, caller_end) = call activation();
+            let caller_end_enc = add caller_end, 1;
+            call trace(0, last_target, last_val, resp_end, caller_end_enc, 0, 0, 0);
+            let (_k_val, _b2, _c2, _d2) = call ref_get(resp_end, 0);
+            call trace(12, _k_val, resp_end, _b2, 0, _c2, _d2, 0);
+            call set_datum(0, 7);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
     let (coord_hash_a, coord_hash_b, coord_hash_c, coord_hash_d) = hash_program(&coord_swap_bin);
 
-    let mut builder = wasm_dsl::ModuleBuilder::new();
-    // global 0 = x, global 1 = y, global 2 = k_saved, global 3 = in_swap
-    // global 4..7 = coord hash limbs
-    builder.add_global_i64(10, true);
-    builder.add_global_i64(20, true);
-    builder.add_global_i64(0, true);
-    builder.add_global_i64(0, true);
-    builder.add_global_i64(coord_hash_a, false);
-    builder.add_global_i64(coord_hash_b, false);
-    builder.add_global_i64(coord_hash_c, false);
-    builder.add_global_i64(coord_hash_d, false);
+    let builder = wasm_dsl::ModuleBuilder::new();
     let utxo_bin = wasm_module!(builder, {
-        let (state_ref, caller_id) = call activation();
-        let req = state_ref;
-        let caller = caller_id;
-        let caller_auth = caller_id;
-
-        loop {
-            let (disc, token_id, dy, _c) = call ref_get(req, 0);
-
-            if disc == 1 {
-                let (_ch_a, _ch_b, _ch_c, _ch_d) = call get_program_hash(caller_auth);
-                let _exp_a = global_get 4;
-                let _exp_b = global_get 5;
-                let _exp_c = global_get 6;
-                let _exp_d = global_get 7;
-
-                set_global 3 = 1;
-
-                let x = global_get 0;
-                let y = global_get 1;
-                let k = mul x, y;
-                set_global 2 = k;
-            }
-
-            if disc == 2 {
-                let y = global_get 1;
-                let next_y = add y, dy;
-                set_global 1 = next_y;
-            }
-
-            if disc == 3 {
-                call unbind(token_id);
-            }
-
-            let resp = call new_ref(1);
-
-            if disc == 1 {
-                call ref_push(0, 0, 0, 0);
-            }
-
-            if disc == 2 {
-                call ref_push(0, 0, 0, 0);
-            }
-
-            if disc == 0 {
-                call ref_push(0, 0, 0, 0);
-            }
-
-            if disc == 3 {
-                let x = global_get 0;
-                let y = global_get 1;
-                let k = global_get 2;
-                let next_x = div k, y;
-                let dx = sub x, next_x;
-                set_global 0 = next_x;
-                call ref_push(dx, 0, 0, 0);
-            }
-
-            if disc == 4 {
-                let x = global_get 0;
-                let y = global_get 1;
-                let k = global_get 2;
-                let k_curr = mul x, y;
-                call ref_push(k_curr, 0, 0, 0);
-                set_global 3 = 0;
-            }
-
-            call yield_(resp);
-            let (next_req, _caller_next) = call activation();
-            set req = next_req;
-            continue;
+        // datum 0 = x, 1 = y, 2 = k_saved, 3 = in_swap
+        // datum 4..7 = expected coord hash limbs, 8 = init flag
+        let initialized = call get_datum(8);
+        if initialized == 0 {
+            call set_datum(0, 10);
+            call set_datum(1, 20);
+            call set_datum(2, 0);
+            call set_datum(3, 0);
+            call set_datum(4, const(coord_hash_a));
+            call set_datum(5, const(coord_hash_b));
+            call set_datum(6, const(coord_hash_c));
+            call set_datum(7, const(coord_hash_d));
+            call set_datum(8, 1);
         }
+
+        let (state_ref, caller_id) = call activation();
+        call trace(8, 0, state_ref, 0, caller_id, 0, 0, 0);
+        let (disc, token_id, dy, _c) = call ref_get(state_ref, 0);
+        call trace(12, disc, state_ref, token_id, 0, dy, _c, 0);
+
+        if disc == 1 {
+            let (_ch_a, _ch_b, _ch_c, _ch_d) = call get_program_hash(caller_id);
+            call trace(15, caller_id, 0, 0, _ch_a, _ch_b, _ch_c, _ch_d);
+            let _exp_a = call get_datum(4);
+            let _exp_b = call get_datum(5);
+            let _exp_c = call get_datum(6);
+            let _exp_d = call get_datum(7);
+
+            call set_datum(3, 1);
+
+            let x = call get_datum(0);
+            let y = call get_datum(1);
+            let k = mul x, y;
+            call set_datum(2, k);
+        }
+
+        if disc == 2 {
+            let y = call get_datum(1);
+            let next_y = add y, dy;
+            call set_datum(1, next_y);
+        }
+
+        if disc == 3 {
+            call unbind(token_id);
+            call trace(14, token_id, 0, 0, 0, 0, 0, 0);
+        }
+
+        let resp = call new_ref(1);
+        call trace(10, 0, 0, resp, 1, 0, 0, 0);
+
+        if disc == 1 {
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        if disc == 2 {
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        if disc == 0 {
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+        }
+
+        if disc == 3 {
+            let x = call get_datum(0);
+            let y = call get_datum(1);
+            let k = call get_datum(2);
+            let next_x = div k, y;
+            let dx = sub x, next_x;
+            call set_datum(0, next_x);
+            call ref_push(dx, 0, 0, 0);
+            call trace(11, dx, 0, 0, 0, 0, 0, 0);
+        }
+
+        if disc == 4 {
+            let x = call get_datum(0);
+            let y = call get_datum(1);
+            let k = call get_datum(2);
+            let k_curr = mul x, y;
+            call ref_push(k_curr, 0, 0, 0);
+            call trace(11, k_curr, 0, 0, 0, 0, 0, 0);
+            call set_datum(3, 0);
+        }
+
+        call trace(1, 0, resp, 0, 0, 0, 0, 0);
+        call yield_(resp);
     });
 
     let (utxo_hash_a, utxo_hash_b, utxo_hash_c, utxo_hash_d) = hash_program(&utxo_bin);
 
-    let coord_create_bin = wasm_module!({
-        let init_ref = call new_ref(1);
-        call ref_push(0, 0, 0, 0);
+    let coord_create_builder = wasm_dsl::ModuleBuilder::new();
+    let coord_create_bin = wasm_module!(coord_create_builder, {
+        let pc = call get_datum(0);
+        if pc == 0 {
+            let init_ref = call new_ref(1);
+            call trace(10, 0, 0, init_ref, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
 
-        let utxo_id = call new_utxo(
-            const(utxo_hash_a),
-            const(utxo_hash_b),
-            const(utxo_hash_c),
-            const(utxo_hash_d),
-            init_ref
-        );
+            let utxo_id = call new_utxo(
+                const(utxo_hash_a),
+                const(utxo_hash_b),
+                const(utxo_hash_c),
+                const(utxo_hash_d),
+                init_ref
+            );
+            call trace(
+                2,
+                utxo_id,
+                init_ref,
+                0,
+                const(utxo_hash_a),
+                const(utxo_hash_b),
+                const(utxo_hash_c),
+                const(utxo_hash_d)
+            );
+            call set_datum(1, utxo_id);
 
-        // create token_y with amount=5
-        let token_init = call new_ref(1);
-        call ref_push(5, 0, 0, 0);
-        let token_y_id = call new_utxo(
-            const(token_hash_a),
-            const(token_hash_b),
-            const(token_hash_c),
-            const(token_hash_d),
-            token_init
-        );
+            let token_init = call new_ref(1);
+            call trace(10, 0, 0, token_init, 1, 0, 0, 0);
+            call ref_push(5, 0, 0, 0);
+            call trace(11, 5, 0, 0, 0, 0, 0, 0);
+            let token_y_id = call new_utxo(
+                const(token_hash_a),
+                const(token_hash_b),
+                const(token_hash_c),
+                const(token_hash_d),
+                token_init
+            );
+            call trace(
+                2,
+                token_y_id,
+                token_init,
+                0,
+                const(token_hash_a),
+                const(token_hash_b),
+                const(token_hash_c),
+                const(token_hash_d)
+            );
+            call set_datum(2, token_y_id);
 
-        // create token_x with amount=2
-        let token_x_init = call new_ref(1);
-        call ref_push(2, 0, 0, 0);
-        let token_x_id = call new_utxo(
-            const(token_hash_a),
-            const(token_hash_b),
-            const(token_hash_c),
-            const(token_hash_d),
-            token_x_init
-        );
+            let token_x_init = call new_ref(1);
+            call trace(10, 0, 0, token_x_init, 1, 0, 0, 0);
+            call ref_push(2, 0, 0, 0);
+            call trace(11, 2, 0, 0, 0, 0, 0, 0);
+            let token_x_id = call new_utxo(
+                const(token_hash_a),
+                const(token_hash_b),
+                const(token_hash_c),
+                const(token_hash_d),
+                token_x_init
+            );
+            call trace(
+                2,
+                token_x_id,
+                token_x_init,
+                0,
+                const(token_hash_a),
+                const(token_hash_b),
+                const(token_hash_c),
+                const(token_hash_d)
+            );
+            call set_datum(3, token_x_id);
 
-        // pre-bind both tokens to DEX in tx_init_pool
-        let bind_y = call new_ref(1);
-        call ref_push(102, utxo_id, 0, 0);
-        let (_resp_bind_y, _caller_bind_y) = call resume(token_y_id, bind_y);
+            let bind_y = call new_ref(1);
+            call trace(10, 0, 0, bind_y, 1, 0, 0, 0);
+            call ref_push(102, utxo_id, 0, 0);
+            call trace(11, 102, utxo_id, 0, 0, 0, 0, 0);
+            call set_datum(4, token_y_id);
+            call set_datum(5, bind_y);
+            call set_datum(0, 1);
+            call resume(token_y_id, bind_y);
+        }
+        if pc == 1 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (_resp_bind_y, caller_bind_y) = call activation();
+            let caller_enc = add caller_bind_y, 1;
+            call trace(0, last_target, last_val, _resp_bind_y, caller_enc, 0, 0, 0);
 
-        let bind_x = call new_ref(1);
-        call ref_push(102, utxo_id, 0, 0);
-        let (_resp_bind_x, _caller_bind_x) = call resume(token_x_id, bind_x);
+            let utxo_id = call get_datum(1);
+            let token_x_id = call get_datum(3);
+            let bind_x = call new_ref(1);
+            call trace(10, 0, 0, bind_x, 1, 0, 0, 0);
+            call ref_push(102, utxo_id, 0, 0);
+            call trace(11, 102, utxo_id, 0, 0, 0, 0, 0);
+            call set_datum(4, token_x_id);
+            call set_datum(5, bind_x);
+            call set_datum(0, 2);
+            call resume(token_x_id, bind_x);
+        }
+        if pc == 2 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (_resp_bind_x, caller_bind_x) = call activation();
+            let caller_enc = add caller_bind_x, 1;
+            call trace(0, last_target, last_val, _resp_bind_x, caller_enc, 0, 0, 0);
 
-        // finalize token_y once in tx_init_pool without changing state
-        let read_y = call new_ref(1);
-        call ref_push(101, 0, 0, 0);
-        let (_resp_read_y, _caller_read_y) = call resume(token_y_id, read_y);
+            let token_y_id = call get_datum(2);
+            let read_y = call new_ref(1);
+            call trace(10, 0, 0, read_y, 1, 0, 0, 0);
+            call ref_push(101, 0, 0, 0);
+            call trace(11, 101, 0, 0, 0, 0, 0, 0);
+            call set_datum(4, token_y_id);
+            call set_datum(5, read_y);
+            call set_datum(0, 3);
+            call resume(token_y_id, read_y);
+        }
+        if pc == 3 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (_resp_read_y, caller_read_y) = call activation();
+            let caller_enc = add caller_read_y, 1;
+            call trace(0, last_target, last_val, _resp_read_y, caller_enc, 0, 0, 0);
 
-        // finalize token_x once in tx_init_pool without changing state
-        let read_x = call new_ref(1);
-        call ref_push(101, 0, 0, 0);
-        let (_resp_read_x, _caller_read_x) = call resume(token_x_id, read_x);
+            let token_x_id = call get_datum(3);
+            let read_x = call new_ref(1);
+            call trace(10, 0, 0, read_x, 1, 0, 0, 0);
+            call ref_push(101, 0, 0, 0);
+            call trace(11, 101, 0, 0, 0, 0, 0, 0);
+            call set_datum(4, token_x_id);
+            call set_datum(5, read_x);
+            call set_datum(0, 4);
+            call resume(token_x_id, read_x);
+        }
+        if pc == 4 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (_resp_read_x, caller_read_x) = call activation();
+            let caller_enc = add caller_read_x, 1;
+            call trace(0, last_target, last_val, _resp_read_x, caller_enc, 0, 0, 0);
 
-        // finalize DEX once in tx_init_pool without changing state
-        let noop = call new_ref(1);
-        call ref_push(0, 0, 0, 0);
-        let (_resp_noop, _caller_noop) = call resume(utxo_id, noop);
-        call return_();
+            let utxo_id = call get_datum(1);
+            let noop = call new_ref(1);
+            call trace(10, 0, 0, noop, 1, 0, 0, 0);
+            call ref_push(0, 0, 0, 0);
+            call trace(11, 0, 0, 0, 0, 0, 0, 0);
+            call set_datum(4, utxo_id);
+            call set_datum(5, noop);
+            call set_datum(0, 5);
+            call resume(utxo_id, noop);
+        }
+        if pc == 5 {
+            let last_target = call get_datum(4);
+            let last_val = call get_datum(5);
+            let (_resp_noop, caller_noop) = call activation();
+            let caller_enc = add caller_noop, 1;
+            call trace(0, last_target, last_val, _resp_noop, caller_enc, 0, 0, 0);
+            call set_datum(0, 6);
+            call trace(17, 0, 0, 0, 0, 0, 0, 0);
+            call return_();
+        }
     });
 
     print_wat("dex/token", &token_bin);
+    print_component_wit("dex", &token_bin);
     print_wat("dex/utxo", &utxo_bin);
     print_wat("dex/coord_create", &coord_create_bin);
     print_wat("dex/coord_swap", &coord_swap_bin);
@@ -312,9 +521,9 @@ fn test_dex_swap_flow() {
     for (id, entry) in &ledger.utxos {
         if entry.state.globals.len() >= 4 {
             dex_id = Some(id.clone());
-        } else if entry.state.globals.len() == 1 && entry.state.globals[0] == Value(5) {
+        } else if !entry.state.globals.is_empty() && entry.state.globals[0] == Value(5) {
             token_y_id = Some(id.clone());
-        } else if entry.state.globals.len() == 1 && entry.state.globals[0] == Value(2) {
+        } else if !entry.state.globals.is_empty() && entry.state.globals[0] == Value(2) {
             token_x_id = Some(id.clone());
         }
     }
@@ -349,7 +558,7 @@ fn test_dex_swap_flow() {
     );
     let tokens: Vec<_> = utxos
         .iter()
-        .filter(|u| u.state.globals.len() == 1)
+        .filter(|u| !u.state.globals.is_empty() && u.state.globals.len() < 4)
         .collect();
     assert_eq!(tokens.len(), 2);
     let mut amounts: Vec<_> = tokens.iter().map(|u| u.state.globals[0]).collect();
