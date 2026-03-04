@@ -768,6 +768,8 @@ impl Compiler {
             }
             Type::Function { .. } => todo!(),
             Type::Tuple(_) => todo!(),
+            // Utxo handles are always borrowed for now. The ledger is the "owner".
+            Type::UtxoAny | Type::UtxoNamed(_) => ComponentAbiType::Borrow,
             Type::Record(record) => {
                 let fields = record
                     .fields
@@ -1011,6 +1013,7 @@ impl Compiler {
             Type::Unit => 0,
             Type::Bool => 1,
             Type::Int(_) => 1,
+            Type::UtxoAny | Type::UtxoNamed(_) => 1,
             Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
             Type::Record(record) => record
                 .fields

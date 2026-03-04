@@ -3569,6 +3569,8 @@ impl Inferencer {
             Type::Int(w) => Type::Int(*w),
             Type::Bool => Type::Bool,
             Type::Unit => Type::Unit,
+            Type::UtxoAny => Type::UtxoAny,
+            Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
         }
     }
 
@@ -4443,6 +4445,8 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Int(w) => Type::Int(*w),
         Type::Bool => Type::Bool,
         Type::Unit => Type::Unit,
+        Type::UtxoAny => Type::UtxoAny,
+        Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
     }
 }
 
@@ -4479,7 +4483,7 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
                     fields.iter().any(|field| occurs_in(var, &field.ty, subst))
                 }
             }),
-        Type::Int(_) | Type::Bool | Type::Unit => false,
+        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => false,
     }
 }
 
@@ -4529,7 +4533,7 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
                 }
             }
         }
-        Type::Int(_) | Type::Bool | Type::Unit => {}
+        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => {}
     }
 }
 

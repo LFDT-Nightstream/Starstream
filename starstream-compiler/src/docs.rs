@@ -33,6 +33,8 @@ pub enum TypeRef {
     Struct { name: String, kind: TypeKind },
     /// Reference to an enum type
     Enum { name: String, kind: TypeKind },
+    /// Reference to a resource type
+    Resource { name: String, kind: TypeKind },
     /// Tuple type
     Tuple { tuple: Vec<TypeRef> },
     /// Function type
@@ -50,6 +52,7 @@ pub enum TypeRef {
 pub enum TypeKind {
     Struct,
     Enum,
+    Resource,
 }
 
 impl From<&Type> for TypeRef {
@@ -82,6 +85,14 @@ impl From<&Type> for TypeRef {
                     EffectKind::Effectful => "effectful".to_string(),
                     EffectKind::Runtime => "runtime".to_string(),
                 },
+            },
+            Type::UtxoAny => TypeRef::Resource {
+                name: "Utxo".to_owned(),
+                kind: TypeKind::Resource,
+            },
+            Type::UtxoNamed(name) => TypeRef::Resource {
+                name: name.to_owned(),
+                kind: TypeKind::Resource,
             },
         }
     }

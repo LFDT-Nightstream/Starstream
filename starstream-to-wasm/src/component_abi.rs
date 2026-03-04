@@ -216,7 +216,10 @@ impl ComponentAbiType {
                     i.i32_store8(mem_arg);
                 }));
             }
-            ComponentAbiType::S16 | ComponentAbiType::U16 => {
+            ComponentAbiType::S16
+            | ComponentAbiType::U16
+            | ComponentAbiType::Own
+            | ComponentAbiType::Borrow => {
                 out.push(Box::new(move |mut i| {
                     i.i32_store16(mem_arg);
                 }));
@@ -262,8 +265,6 @@ impl ComponentAbiType {
             ComponentAbiType::Option { .. } => todo!(),
             ComponentAbiType::Result { .. } => todo!(),
             ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own => todo!(),
-            ComponentAbiType::Borrow => todo!(),
             ComponentAbiType::Stream => todo!(),
             ComponentAbiType::Future => todo!(),
         }
