@@ -122,6 +122,7 @@ struct TypeEntry {
 enum TypeEntryKind {
     Struct { fields: Vec<StructFieldInfo> },
     Enum { variants: Vec<EnumVariantInfo> },
+    Handle,
 }
 
 #[derive(Clone)]
@@ -475,7 +476,7 @@ impl Inferencer {
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
-                Definition::Utxo(_) => {}
+                Definition::Utxo(def) => self.register_utxo(def)?,
                 Definition::Abi(def) => self.register_abi(def)?,
             }
         }
@@ -828,6 +829,22 @@ impl Inferencer {
             TypeEntry {
                 ty,
                 kind: TypeEntryKind::Enum { variants },
+                span: def.name.span(),
+                type_params: vec![],
+                doc: None,
+                variant_docs: HashMap::new(),
+            },
+        );
+        Ok(())
+    }
+
+    fn register_utxo(&mut self, def: &UtxoDef) -> Result<(), TypeError> {
+        let ty = Type::UtxoNamed(def.name.to_string());
+        self.types.insert(
+            def.name.to_string(),
+            TypeEntry {
+                ty,
+                kind: TypeEntryKind::Handle,
                 span: def.name.span(),
                 type_params: vec![],
                 doc: None,
@@ -3241,6 +3258,7 @@ impl Inferencer {
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
+            "Utxo" => Ok(Type::UtxoAny),
             other => match self.types.get(other) {
                 Some(entry) if !entry.type_params.is_empty() => Err(TypeError::new(
                     TypeErrorKind::WrongGenericArity {
