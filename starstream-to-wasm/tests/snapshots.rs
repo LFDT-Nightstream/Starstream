@@ -113,7 +113,9 @@ fn inputs() {
                         let component_wasm = wit_component::ComponentEncoder::default()
                             .validate(true)
                             .module(&wasm)
-                            .expect("ComponentEncoder::module failed")
+                            .unwrap_or_else(|err| {
+                                panic!("{output}ComponentEncoder::module failed: {err:?}")
+                            })
                             .encode()
                             .expect("ComponentEncoder::encode failed");
                         let decoded = wit_component::decode(&component_wasm).unwrap();

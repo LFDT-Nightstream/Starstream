@@ -260,6 +260,7 @@ impl Compiler {
         fields: Vec<TypedStructField>,
     ) {
         if !fields.is_empty() {
+            let resource_name = to_kebab_case(name.as_str());
             let storage_name = format!("{}Storage", name);
             let storage_struct = Type::Record(RecordType {
                 name: storage_name.clone(),
@@ -277,6 +278,7 @@ impl Compiler {
                 ty: storage_struct.clone(),
             });
             self.visit_function(
+                &format!("{}-get-storage", resource_name),
                 &TypedFunctionDef {
                     export: Some(FunctionExport::Script),
                     name: Identifier::anon(format!("{name}::get_storage")),
@@ -303,6 +305,7 @@ impl Compiler {
                 scope,
             );
             self.visit_function(
+                &format!("{}-set-storage", resource_name),
                 &TypedFunctionDef {
                     export: Some(FunctionExport::Script),
                     name: Identifier::anon(format!("{name}::set_storage")),
@@ -630,20 +633,19 @@ impl Compiler {
 
     fn export_component_fn(
         &mut self,
+        wit_name: &str,
         function: &TypedFunctionDef,
         func_idx: u32,
         params: &[ValType],
         core_results: &[ValType],
     ) {
-        let name = to_kebab_case(function.name.as_str());
-
         if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
-            self.export_core_fn(&name, func_idx);
+            self.export_core_fn(wit_name, func_idx);
             let type_idx = self.encode_component_func_type(function);
             self.world_type
                 .inner
-                .export(&name, ComponentTypeRef::Func(type_idx));
+                .export(wit_name, ComponentTypeRef::Func(type_idx));
         } else if params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
             let result = self.star_to_component_type(&function.return_type).unwrap();
@@ -668,11 +670,11 @@ impl Compiler {
                 wrapper_func,
             );
 
-            self.export_core_fn(&name, wrapper_func_idx);
+            self.export_core_fn(wit_name, wrapper_func_idx);
             let type_idx = self.encode_component_func_type(function);
             self.world_type
                 .inner
-                .export(&name, ComponentTypeRef::Func(type_idx));
+                .export(wit_name, ComponentTypeRef::Func(type_idx));
         } else {
             self.push_error(
                 function.name.span(),
@@ -772,7 +774,14 @@ impl Compiler {
             Type::Function { .. } => todo!(),
             Type::Tuple(_) => todo!(),
             // Utxo handles are always borrowed for now. The ledger is the "owner".
-            Type::UtxoAny | Type::UtxoNamed(_) => ComponentAbiType::Borrow,
+            Type::UtxoAny => todo!(),
+            Type::UtxoNamed(name) => {
+                if let Some(idx) = self.resources.get(name) {
+                    ComponentAbiType::Borrow { resource: *idx }
+                } else {
+                    return None;
+                }
+            }
             Type::Record(record) => {
                 let fields = record
                     .fields
@@ -1068,7 +1077,9 @@ impl Compiler {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
 
-                TypedDefinition::Function(func) => self.visit_function(func, &()),
+                TypedDefinition::Function(func) => {
+                    self.visit_function(&to_kebab_case(func.name.as_str()), func, &())
+                }
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
                 TypedDefinition::Enum(enum_) => self.visit_enum(enum_),
@@ -1179,7 +1190,7 @@ impl Compiler {
         }
     }
 
-    fn visit_function(&mut self, function: &TypedFunctionDef, parent: &dyn Locals) {
+    fn visit_function(&mut self, wit_name: &str, function: &TypedFunctionDef, parent: &dyn Locals) {
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
@@ -1207,10 +1218,10 @@ impl Compiler {
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.export_component_fn(function, idx, &params, &results);
+                self.export_component_fn(wit_name, function, idx, &params, &results);
             }
             Some(FunctionExport::UtxoMain) => {
-                self.export_component_fn(function, idx, &params, &results);
+                self.export_component_fn(wit_name, function, idx, &params, &results);
             }
             None => {}
         }
@@ -1226,9 +1237,10 @@ impl Compiler {
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
         // Declare the resource type.
+        let resource_name = to_kebab_case(utxo.name.as_str());
         let resource = self.world_type.inner.type_count();
         self.world_type.inner.import(
-            &to_kebab_case(utxo.name.as_str()),
+            &resource_name,
             ComponentTypeRef::Type(TypeBounds::SubResource),
         );
         self.resources.insert(utxo.name.to_string(), resource);
@@ -1251,7 +1263,11 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::MainFn(function) => {
-                    self.visit_function(function, &(&() as &dyn Locals, &utxo_storage));
+                    self.visit_function(
+                        &to_kebab_case(function.name.as_str()),
+                        function,
+                        &(&() as &dyn Locals, &utxo_storage),
+                    );
                 }
             }
         }

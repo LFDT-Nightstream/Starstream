@@ -51,8 +51,12 @@ pub enum ComponentAbiType {
     Flags {
         labels: Vec<String>,
     },
-    Own,
-    Borrow,
+    Own {
+        resource: u32,
+    },
+    Borrow {
+        resource: u32,
+    },
     Stream,
     Future,
 }
@@ -92,7 +96,7 @@ impl ComponentAbiType {
                 ("error".to_string(), err.clone()),
             ]),
             ComponentAbiType::Flags { labels } => todo!(),
-            ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
+            ComponentAbiType::Own { .. } | ComponentAbiType::Borrow { .. } => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
         }
     }
@@ -165,7 +169,7 @@ impl ComponentAbiType {
                 ("error".to_string(), err.clone()),
             ]),
             ComponentAbiType::Flags { labels } => todo!(),
-            ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
+            ComponentAbiType::Own { .. } | ComponentAbiType::Borrow { .. } => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
         }
     }
@@ -218,8 +222,8 @@ impl ComponentAbiType {
             }
             ComponentAbiType::S16
             | ComponentAbiType::U16
-            | ComponentAbiType::Own
-            | ComponentAbiType::Borrow => {
+            | ComponentAbiType::Own { .. }
+            | ComponentAbiType::Borrow { .. } => {
                 out.push(Box::new(move |mut i| {
                     i.i32_store16(mem_arg);
                 }));
@@ -379,8 +383,16 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own => todo!(),
-            ComponentAbiType::Borrow => todo!(),
+            ComponentAbiType::Own { resource } => {
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().own(*resource);
+                ComponentValType::Type(idx)
+            }
+            ComponentAbiType::Borrow { resource } => {
+                let (idx, ty) = self.inner.ty();
+                ty.defined_type().borrow(*resource);
+                ComponentValType::Type(idx)
+            }
             ComponentAbiType::Stream => todo!(),
             ComponentAbiType::Future => todo!(),
         };
