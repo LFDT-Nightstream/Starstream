@@ -172,15 +172,16 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (type (;0;) (func))
-              (export (;0;) "hello-utxo" (func (type 0)))
-              (type (;1;)
+              (import "my-utxo" (type (;0;) (sub resource)))
+              (type (;1;) (func))
+              (export (;0;) "hello-utxo" (func (type 1)))
+              (type (;2;)
                 (instance
                   (type (;0;) (func))
                   (export (;0;) "hello-event" (func (type 0)))
                 )
               )
-              (import "foo-abi" (instance (;0;) (type 1)))
+              (import "foo-abi" (instance (;0;) (type 2)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -198,6 +199,8 @@ world root {
   import foo-abi: interface {
     hello-event: func();
   }
+
+  resource my-utxo;
 
   export hello-utxo: func();
 }

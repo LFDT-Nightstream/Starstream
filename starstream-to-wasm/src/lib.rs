@@ -107,6 +107,8 @@ struct Compiler {
     core_func_type_cache: HashMap<FuncType, u32>,
     /// Map from name to function index.
     callables: HashMap<String, u32>,
+    /// Map from name to resource index.
+    resources: HashMap<String, u32>,
 
     // Memory building.
     bump_ptr: u32,
@@ -1223,7 +1225,15 @@ impl Compiler {
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
-        // TODO: use the utxo name to declare the type, etc.
+        // Declare the resource type.
+        let resource = self.world_type.inner.type_count();
+        self.world_type.inner.import(
+            &to_kebab_case(utxo.name.as_str()),
+            ComponentTypeRef::Type(TypeBounds::SubResource),
+        );
+        self.resources.insert(utxo.name.to_string(), resource);
+
+        // Visit each Utxo part.
         let mut utxo_storage = HashMap::new();
         let mut utxo_record_type = Vec::new();
         for part in &utxo.parts {
@@ -1245,6 +1255,8 @@ impl Compiler {
                 }
             }
         }
+
+        // Generate storage exports.
         self.generate_storage_exports(
             &utxo.name,
             &(&() as &dyn Locals, &utxo_storage),
