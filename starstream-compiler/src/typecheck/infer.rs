@@ -1054,6 +1054,7 @@ impl Inferencer {
             TypedUtxoDef {
                 name: def.name.clone(),
                 parts,
+                ty: Type::UtxoNamed(def.name.to_string()),
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))

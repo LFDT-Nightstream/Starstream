@@ -149,6 +149,9 @@ TypedProgram {
                         },
                     ),
                 ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
             },
         ),
     ],

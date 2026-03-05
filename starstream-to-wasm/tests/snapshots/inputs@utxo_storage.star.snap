@@ -330,6 +330,9 @@ TypedProgram {
                         },
                     ),
                 ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
             },
         ),
     ],
@@ -429,7 +432,7 @@ TypedProgram {
               (type (;1;) (func))
               (export (;1;) "increment-mult" (func (type 1)))
               (type (;2;) (record (field "counter" s64) (field "multiplier" s64)))
-              (import "my-utxo" (type (;3;) (eq 2)))
+              (import "my-utxo-storage" (type (;3;) (eq 2)))
               (type (;4;) (func (result 3)))
               (export (;2;) "my-utxo-get-storage" (func (type 4)))
               (type (;5;) (func (param "storage" 3)))
@@ -448,13 +451,13 @@ TypedProgram {
 package root:component;
 
 world root {
-  record my-utxo {
+  record my-utxo-storage {
     counter: s64,
     multiplier: s64,
   }
 
   export increment: func();
   export increment-mult: func();
-  export my-utxo-get-storage: func() -> my-utxo;
-  export my-utxo-set-storage: func(storage: my-utxo);
+  export my-utxo-get-storage: func() -> my-utxo-storage;
+  export my-utxo-set-storage: func(storage: my-utxo-storage);
 }

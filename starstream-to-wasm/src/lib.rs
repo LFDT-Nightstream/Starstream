@@ -258,8 +258,9 @@ impl Compiler {
         fields: Vec<TypedStructField>,
     ) {
         if !fields.is_empty() {
+            let storage_name = format!("{}Storage", name);
             let storage_struct = Type::Record(RecordType {
-                name: name.name.clone(),
+                name: storage_name.clone(),
                 fields: fields
                     .iter()
                     .map(|f| RecordFieldType {
@@ -269,7 +270,7 @@ impl Compiler {
                     .collect(),
             });
             self.visit_struct(&TypedStructDef {
-                name: name.clone(),
+                name: Identifier::new(storage_name.clone(), name.span()),
                 fields: fields.clone(),
                 ty: storage_struct.clone(),
             });

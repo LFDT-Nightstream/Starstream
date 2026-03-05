@@ -110,6 +110,9 @@ TypedProgram {
                         ],
                     ),
                 ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
             },
         ),
         Function(
