@@ -16,6 +16,7 @@ AbiDef {
                 },
                 params: [
                     FunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "sender",
                             span: 32..38,
@@ -29,6 +30,7 @@ AbiDef {
                         },
                     },
                     FunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "to",
                             span: 45..47,
@@ -42,6 +44,7 @@ AbiDef {
                         },
                     },
                     FunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "amount",
                             span: 54..60,
@@ -65,6 +68,7 @@ AbiDef {
                 },
                 params: [
                     FunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "message",
                             span: 82..89,

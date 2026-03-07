@@ -7,6 +7,7 @@
 ; Strict keywords that cannot be identifiers (see parser/primitives.rs)
 [
   "let"
+  "pub"
   "mut"
   "if"
   "else"
@@ -26,6 +27,7 @@
   "as"
   "raise"
   "runtime"
+  "disclose"
 ] @keyword
 
 ; Literals
@@ -62,6 +64,7 @@
 (function_definition (identifier) @function.definition)
 (main_fn_utxo_part (identifier) @function.definition)
 (function_export "script" @keyword)
+(function_parameter (identifier) @parameter)
 (parameter (identifier) @parameter)
 (parameter ":" @operator)
 (variable_declaration (identifier) @variable.declaration)
@@ -121,6 +124,9 @@
 
 ; Runtime expression
 (runtime_expression "runtime" @keyword)
+
+; Disclose expression
+(disclose_expression "disclose" @keyword)
 
 (comment) @comment
 (doc_comment) @comment.documentation

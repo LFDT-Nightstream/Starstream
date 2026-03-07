@@ -7,6 +7,7 @@
 ; Strict keywords that cannot be identifiers (see parser/primitives.rs)
 [
   "let"
+  "pub"
   "mut"
   "if"
   "else"
@@ -26,6 +27,7 @@
   "as"
   "raise"
   "runtime"
+  "disclose"
 ] @keyword
 
 ; Literals
@@ -120,6 +122,9 @@
 
 ; Runtime expression
 (runtime_expression "runtime" @keyword)
+
+; Disclose expression
+(disclose_expression "disclose" @keyword)
 
 (comment) @comment
 (doc_comment) @comment.documentation

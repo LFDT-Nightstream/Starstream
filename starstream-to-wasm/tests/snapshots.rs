@@ -72,16 +72,34 @@ fn inputs() {
                     capture_traces: true,
                 },
             ) {
-                Err(errors) => {
+                Err(failure) => {
+                    if !failure.warnings.is_empty() {
+                        writeln!(output, "==== Type warnings ====").unwrap();
+                        for warning in failure.warnings {
+                            let report = Report::new(warning).with_source_code(source.clone());
+                            GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                                .render_report(&mut output, report.as_ref())
+                                .expect("failed to render diagnostic");
+                        }
+                    }
                     writeln!(output, "==== Type error ====").unwrap();
-                    for error in errors {
+                    for error in failure.errors {
                         let report = Report::new(error).with_source_code(source.clone());
                         GraphicalReportHandler::new_themed(GraphicalTheme::none())
                             .render_report(&mut output, report.as_ref())
                             .expect("failed to render diagnostic");
                     }
                 }
-                Ok(success) => {
+                Ok(mut success) => {
+                    if !success.warnings.is_empty() {
+                        writeln!(output, "==== Type warnings ====").unwrap();
+                        for warning in success.warnings.drain(..) {
+                            let report = Report::new(warning).with_source_code(source.clone());
+                            GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                                .render_report(&mut output, report.as_ref())
+                                .expect("failed to render diagnostic");
+                        }
+                    }
                     writeln!(
                         output,
                         "==== Inference trace ====\n{}",

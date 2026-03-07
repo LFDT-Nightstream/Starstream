@@ -55,12 +55,13 @@ function_export ::=
 
 function ::=
   "fn" identifier
-  "(" ( parameter ( "," parameter )* )? ")"
+  "(" ( function_parameter ( "," function_parameter )* )? ")"
   ( "->" type_annotation )?
   block
 
-parameter ::= identifier ":" type_annotation
+function_parameter ::= ("pub")? identifier ":" type_annotation
 
+parameter ::= identifier ":" type_annotation
 struct_definition ::=
   "struct" identifier "{" ( struct_field ( "," struct_field )* )? "}"
 
@@ -112,7 +113,7 @@ statement ::=
   | return_statement
   | expression_statement
 
-variable_declaration ::= "let" ("mut")? identifier (":" type_annotation)? "=" expression ";"
+variable_declaration ::= "let" ("pub")? ("mut")? identifier (":" type_annotation)? "=" expression ";"
 
 assignment ::= identifier "=" expression ";"
 
@@ -150,12 +151,15 @@ primary_expression ::=
   | struct_literal
   | enum_construction
   | namespace_call
+  | disclose_expression
   | emit_expression
   | raise_expression
   | runtime_expression
   | block
   | if_expression
   | match_expression
+
+disclose_expression ::= "disclose" "(" expression ")"
 
 emit_expression ::= "emit" identifier "(" ( expression ( "," expression )* )? ")"
 
@@ -242,6 +246,7 @@ variable subject to inference.
 The following reserved words may not be used as identifiers:
 
 - `let`
+- `pub`
 - `mut`
 - `if`
 - `else`
@@ -261,6 +266,7 @@ The following reserved words may not be used as identifiers:
 - `as`
 - `raise`
 - `runtime`
+- `disclose`
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -381,6 +387,7 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 - Function calls `f(arg1, arg2, ...)` evaluate the callee (which must be a function name), then evaluate arguments left-to-right, then execute the function body with parameters bound to argument values. The call expression evaluates to the function's return value.
 - Emit expressions `emit EventName(arg1, arg2, ...)` emit an event declared in an `abi` block. The event name must refer to an event definition in scope. Arguments are evaluated left-to-right and typechecked against the event's parameter types. The expression's type is always `()` (Unit). Unknown event names are type errors.
 - Namespace-qualified calls `namespace::function(args...)` call a function from an imported namespace. The namespace must have been imported via `import namespace from ...;`.
+- `disclose(expr)` converts `expr` to the public visibility side without changing its static type. If `expr` is already public, the wrapper is redundant and should be removed.
 - `raise expr` wraps an effectful function call. The inner expression must be a call to an effectful function. Using `raise` on a non-effectful call is a type error.
 - `runtime expr` wraps a runtime function call. Runtime functions access runtime-only information (e.g., block height) and must be explicitly marked at the call site. Using `runtime` on a non-runtime call is a type error.
 - Variable names refer to a `let` declaration earlier in the current scope or
@@ -441,6 +448,7 @@ In the rules above, $Int$ stands for any single integer type from `{i8, i16, i32
 | expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
 | expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
 | f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$ | Function call             |
+| disclose(e)                 | $\dfrac{Γ ⊢ e : T}{Γ ⊢ disclose(e) : T}$                                   | Converts `e` to public visibility |
 | emit E(e₁, ..., eₙ)         | $\dfrac{E : event(T_1, ..., T_n) ∧ Γ ⊢ e_i : T_i}{Γ ⊢ emit\ E(e_1, ..., e_n) : ()}$ | Event emission            |
 
 ### Structural typing rules
@@ -489,7 +497,10 @@ The remainder always has the sign of the right-hand side.
 - `let` statements add a new variable binding to the current scope and give it
   an initial value based on its expression.
   - Variables may be integers (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`), booleans, structs, or enums.
+  - `let pub name = expr;` and `let pub mut name = expr;` require `expr` to already be public, or explicitly disclosed via `disclose(expr)`.
 - Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
+  - Assigning to any public target (including `storage`) requires a public RHS; use `disclose(...)` when assigning private values into a public binding.
+- Reads from `storage` bindings are already on the public side.
 
 # Not Yet Implemented
 
@@ -511,7 +522,7 @@ The remainder always has the sign of the right-hand side.
 ### Functions
 
 - Functions are first-class **definitions** that bind a name to a parameterized block at module scope.
-- All parameters **must** carry an explicit type annotation (`identifier: Type`).
+- All parameters must carry an explicit type annotation. Function parameters may optionally be marked `pub` (`pub name: Type`) to indicate public visibility.
 - The declared return type is optional; when omitted the function returns the `Unit` type (`()`).
 - The body block may terminate with a tail expression (no trailing semicolon). That expression becomes the implicit return value when no explicit `return` is executed.
 - `return` statements exit the current function early. `return;` returns the unit value, while `return <expr>;` yields the expression's value.

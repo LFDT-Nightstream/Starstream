@@ -304,6 +304,7 @@ impl Compiler {
                     export: Some(FunctionExport::Script),
                     name: Identifier::anon(format!("{name}::set_storage")),
                     params: vec![TypedFunctionParam {
+                        public: false,
                         name: Identifier::anon("storage"),
                         ty: storage_struct.clone(),
                     }],
@@ -1264,6 +1265,7 @@ impl Compiler {
                     self.visit_expr_drop(func, &(parent, &locals), expr.span, &expr.node)?;
                 }
                 TypedStatement::VariableDeclaration {
+                    public: _,
                     mutable: _,
                     name,
                     value,
@@ -1475,6 +1477,9 @@ impl Compiler {
                 }
                 // End.
                 func.instructions().end();
+            }
+            TypedExprKind::Disclose { expr: inner } => {
+                self.visit_expr_drop(func, locals, inner.span, &inner.node)?;
             }
             // Function calls
             TypedExprKind::Call { .. }
@@ -2053,6 +2058,9 @@ impl Compiler {
                     func.instructions().local_get(first_local + (i as u32));
                 }
                 Ok(())
+            }
+            TypedExprKind::Disclose { expr: inner } => {
+                self.visit_expr_stack(func, locals, inner.span, &inner.node)
             }
             // Data constructors
             TypedExprKind::StructLiteral { name: _, fields } => {

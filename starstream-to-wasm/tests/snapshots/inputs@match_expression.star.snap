@@ -149,6 +149,7 @@ Program {
                     },
                     params: [
                         FunctionParam {
+                            public: false,
                             name: Identifier {
                                 name: "foo",
                                 span: 141..144,
@@ -363,6 +364,7 @@ Program {
                     },
                     params: [
                         FunctionParam {
+                            public: false,
                             name: Identifier {
                                 name: "foo",
                                 span: 418..421,
@@ -478,6 +480,7 @@ Program {
                     },
                     params: [
                         FunctionParam {
+                            public: false,
                             name: Identifier {
                                 name: "x",
                                 span: 569..570,
@@ -639,6 +642,7 @@ Program {
                     },
                     params: [
                         FunctionParam {
+                            public: false,
                             name: Identifier {
                                 name: "msg",
                                 span: 763..766,
@@ -1278,6 +1282,7 @@ TypedProgram {
                 },
                 params: [
                     TypedFunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "foo",
                             span: 141..144,
@@ -1638,6 +1643,7 @@ TypedProgram {
                 },
                 params: [
                     TypedFunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "foo",
                             span: 418..421,
@@ -1878,6 +1884,7 @@ TypedProgram {
                 },
                 params: [
                     TypedFunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "x",
                             span: 569..570,
@@ -2055,6 +2062,7 @@ TypedProgram {
                 },
                 params: [
                     TypedFunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "msg",
                             span: 763..766,

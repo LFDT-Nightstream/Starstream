@@ -1,0 +1,15 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Counter {\n    storage {\n        let mut multiplier: i64;\n    }\n\n    main fn update(x: i64, y: i64) {\n        let w = x + y;\n        multiplier = disclose(w);\n    }\n}\n"
+---
+T-Utxo: Counter => 
+  T-Fn: update => ()
+    T-Let: {multiplier: i64, x: i64, y: i64} ⊢ let w = x + y; ⇒ i64
+      T-Bin-Add: {multiplier: i64, x: i64, y: i64} ⊢ x + y ⇒ i64
+        T-Var: {multiplier: i64, x: i64, y: i64} ⊢ x ⇒ i64
+        T-Var: {multiplier: i64, x: i64, y: i64} ⊢ y ⇒ i64
+        Unify-Const: i64 ~ i64 => {}
+    T-Assign: {multiplier: i64, w: i64, x: i64, y: i64} ⊢ multiplier = disclose(w); ⇒ i64
+      T-Disclose: {multiplier: i64, w: i64, x: i64, y: i64} ⊢ disclose(w) ⇒ i64
+        T-Var: {multiplier: i64, w: i64, x: i64, y: i64} ⊢ w ⇒ i64
+      Unify-Const: i64 ~ i64 => {}

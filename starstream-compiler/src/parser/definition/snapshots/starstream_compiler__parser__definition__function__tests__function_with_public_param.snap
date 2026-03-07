@@ -1,0 +1,51 @@
+---
+source: starstream-compiler/src/parser/definition/function.rs
+description: "Code:\n\nfn reveal(pub value: i64) -> i64 { value }"
+---
+FunctionDef {
+    export: None,
+    name: Identifier {
+        name: "reveal",
+        span: 3..9,
+    },
+    params: [
+        FunctionParam {
+            public: true,
+            name: Identifier {
+                name: "value",
+                span: 14..19,
+            },
+            ty: TypeAnnotation {
+                name: Identifier {
+                    name: "i64",
+                    span: 21..24,
+                },
+                generics: [],
+            },
+        },
+    ],
+    return_type: Some(
+        TypeAnnotation {
+            name: Identifier {
+                name: "i64",
+                span: 29..32,
+            },
+            generics: [],
+        },
+    ),
+    body: Block {
+        statements: [],
+        tail_expression: Some(
+            Spanned {
+                node: Identifier(
+                    Identifier {
+                        name: "value",
+                        span: 35..40,
+                    },
+                ),
+                span: 35..41,
+            },
+        ),
+        span: 33..42,
+    },
+}

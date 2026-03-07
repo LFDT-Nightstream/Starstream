@@ -72,12 +72,14 @@ module.exports = grammar({
         "fn",
         $.identifier,
         "(",
-        optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        optional(seq($.function_parameter, repeat(seq(",", $.function_parameter)))),
         ")",
         optional(seq("->", $.type_annotation)),
         $.block,
       ),
 
+    function_parameter: ($) =>
+      seq(optional("pub"), $.identifier, ":", $.type_annotation),
     parameter: ($) => seq($.identifier, ":", $.type_annotation),
 
     struct_definition: ($) =>
@@ -179,6 +181,7 @@ module.exports = grammar({
     variable_declaration: ($) =>
       seq(
         "let",
+        optional("pub"),
         optional("mut"),
         $.identifier,
         optional(seq(":", $.type_annotation)),
@@ -280,6 +283,7 @@ module.exports = grammar({
         $.unit_literal,
         $.struct_literal,
         $.enum_constructor,
+        $.disclose_expression,
         $.emit_expression,
         $.raise_expression,
         $.runtime_expression,
@@ -292,6 +296,9 @@ module.exports = grammar({
     raise_expression: ($) => seq("raise", field("call", $.call_expression)),
 
     runtime_expression: ($) => seq("runtime", field("call", $.call_expression)),
+
+    disclose_expression: ($) =>
+      seq("disclose", "(", field("value", $.expression), ")"),
 
     emit_expression: ($) =>
       seq(

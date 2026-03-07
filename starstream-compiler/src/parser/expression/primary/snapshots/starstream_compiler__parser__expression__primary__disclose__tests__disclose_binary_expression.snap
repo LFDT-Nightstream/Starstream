@@ -1,0 +1,33 @@
+---
+source: starstream-compiler/src/parser/expression/primary/disclose.rs
+description: "Code:\n\ndisclose(a + b)"
+---
+Spanned {
+    node: Disclose {
+        expr: Spanned {
+            node: Binary {
+                op: Add,
+                left: Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "a",
+                            span: 9..10,
+                        },
+                    ),
+                    span: 9..11,
+                },
+                right: Spanned {
+                    node: Identifier(
+                        Identifier {
+                            name: "b",
+                            span: 13..14,
+                        },
+                    ),
+                    span: 13..14,
+                },
+            },
+            span: 9..14,
+        },
+    },
+    span: 0..15,
+}

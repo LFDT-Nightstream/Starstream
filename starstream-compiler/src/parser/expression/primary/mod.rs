@@ -3,6 +3,7 @@ use starstream_types::ast::{Block, Expr, Spanned};
 
 use crate::parser::{ParserExt, context::Extra};
 
+mod disclose;
 mod emit;
 mod enum_constructor;
 mod if_expr;
@@ -12,6 +13,7 @@ mod raise;
 mod runtime;
 mod struct_literal;
 
+pub use disclose::parser as disclose;
 pub use emit::parser as emit;
 pub use enum_constructor::parser as enum_constructor;
 pub use if_expr::parser as if_expr;
@@ -41,6 +43,7 @@ pub fn parser<'a>(
         unit(),
         struct_literal(expression.clone()),
         enum_constructor(expression.clone()),
+        disclose(expression.clone()),
         emit(expression.clone()),
         raise(expression.clone()),
         runtime(expression.clone()),

@@ -2,11 +2,25 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use starstream_types::{Scheme, Span, Type, TypeVarId, types::EnumVariantKind};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindingClass {
+    Local,
+    Storage,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindingVisibility {
+    Private,
+    Public,
+}
+
 #[derive(Clone, Debug)]
 pub struct Binding {
     pub decl_span: Span,
     pub mutable: bool,
     pub scheme: Scheme,
+    pub class: BindingClass,
+    pub visibility: BindingVisibility,
 }
 
 #[derive(Debug)]

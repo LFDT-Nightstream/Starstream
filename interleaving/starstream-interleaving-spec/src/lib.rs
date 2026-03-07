@@ -644,7 +644,7 @@ impl Ledger {
         //
         // (The circuit enforces that ownership_out is derived legally from this.)
         let mut ownership_in = self.input_ownership_for_inputs(&body.inputs);
-        ownership_in.extend(std::iter::repeat(None).take(n_new));
+        ownership_in.extend(std::iter::repeat_n(None, n_new));
 
         // Build wasm instances in the same canonical order as process_table:
         // inputs ++ new_outputs ++ coord scripts

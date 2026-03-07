@@ -1,0 +1,24 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Counter {\n    storage {\n        let mut counter: i64;\n    }\n\n    main fn update(nextCounter: i64) {\n        let _tmp = disclose(counter);\n        counter = nextCounter;\n    }\n}\n"
+---
+W0001 (https://starstream.nightstream.dev/warnings/W0001)
+
+  ! `disclose(...)` is unnecessary because the wrapped value is already public
+   ,-[test.star:7:20]
+ 6 |     main fn update(nextCounter: i64) {
+ 7 |         let _tmp = disclose(counter);
+   :                    ^^^^^^^^^^^^^^^^^
+ 8 |         counter = nextCounter;
+   `----
+  help: `disclose(...)` is redundant because the wrapped value is already public.
+E0045 (https://starstream.nightstream.dev/errors/E0045)
+
+  x public binding `counter` requires a public RHS; wrap private values with `disclose(...)`
+   ,-[test.star:8:19]
+ 7 |         let _tmp = disclose(counter);
+ 8 |         counter = nextCounter;
+   :                   ^^^^^^^^^^^
+ 9 |     }
+   `----
+  help: `nextCounter` is a private parameter; declare it as `pub nextCounter: ...` in the function signature if callers should provide a public value here.

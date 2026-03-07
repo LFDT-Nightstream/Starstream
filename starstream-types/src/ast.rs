@@ -223,6 +223,7 @@ pub enum FunctionExport {
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct FunctionParam {
+    pub public: bool,
     pub name: Identifier,
     pub ty: TypeAnnotation,
 }
@@ -330,6 +331,7 @@ pub struct Block {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Statement {
     VariableDeclaration {
+        public: bool,
         mutable: bool,
         name: Identifier,
         ty: Option<TypeAnnotation>,
@@ -390,6 +392,10 @@ pub enum Expr {
     Call {
         callee: Box<Spanned<Expr>>,
         args: Vec<Spanned<Expr>>,
+    },
+    /// Visibility-lifting expression: `disclose(expr)`
+    Disclose {
+        expr: Box<Spanned<Expr>>,
     },
     /// Event emission expression: `emit EventName(args...)`
     Emit {

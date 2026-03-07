@@ -21,10 +21,17 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
 fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
     let type_parser = type_annotation::parser().boxed();
 
-    let parameter = primitives::identifier()
+    let parameter = just("pub")
+        .padded()
+        .or_not()
+        .then(primitives::identifier())
         .then_ignore(just(':').padded())
         .then(type_parser)
-        .map(|(name, ty)| FunctionParam { name, ty });
+        .map(|((public, name), ty)| FunctionParam {
+            public: public.is_some(),
+            name,
+            ty,
+        });
 
     just("event")
         .padded()
@@ -96,6 +103,17 @@ mod tests {
             r#"
             abi Events {
                 event Ping();
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_event_with_public_param() {
+        assert_abi_snapshot!(
+            r#"
+            abi Events {
+                event Transfer(pub sender: i64, to: i64);
             }
             "#
         );

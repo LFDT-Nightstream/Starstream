@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Counter {\n    storage {\n        let mut counter: i64;\n    }\n\n    main fn update(nextCounter: i64) {\n        counter = nextCounter;\n    }\n}\n"
+---
+E0045 (https://starstream.nightstream.dev/errors/E0045)
+
+  x public binding `counter` requires a public RHS; wrap private values with `disclose(...)`
+   ,-[test.star:7:19]
+ 6 |     main fn update(nextCounter: i64) {
+ 7 |         counter = nextCounter;
+   :                   ^^^^^^^^^^^
+ 8 |     }
+   `----
+  help: `nextCounter` is a private parameter; declare it as `pub nextCounter: ...` in the function signature if callers should provide a public value here.

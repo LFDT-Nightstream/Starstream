@@ -81,6 +81,7 @@ pub struct TypedFunctionDef {
 
 #[derive(Clone, Debug)]
 pub struct TypedFunctionParam {
+    pub public: bool,
     pub name: Identifier,
     pub ty: Type,
 }
@@ -150,6 +151,7 @@ pub struct TypedEventDef {
 #[derive(Clone, Debug)]
 pub enum TypedStatement {
     VariableDeclaration {
+        public: bool,
         mutable: bool,
         name: Identifier,
         value: Spanned<TypedExpr>,
@@ -238,6 +240,10 @@ pub enum TypedExprKind {
     Call {
         callee: Box<Spanned<TypedExpr>>,
         args: Vec<Spanned<TypedExpr>>,
+    },
+    /// Visibility-lifting expression: `disclose(expr)`
+    Disclose {
+        expr: Box<Spanned<TypedExpr>>,
     },
     /// Event emission expression: `emit EventName(args...)`
     Emit {
