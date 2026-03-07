@@ -2,6 +2,8 @@
 
 This section documents all Starstream compiler error codes. Each error code links to a detailed explanation with examples and suggestions for how to fix the issue.
 
+Looking for non-fatal diagnostics? See [Warning Codes](../warnings/README.md).
+
 ## Type Errors
 
 | Code | Description |
@@ -37,3 +39,4 @@ This section documents all Starstream compiler error codes. Each error code link
 | [E0029](./E0029.md) | Not a function |
 | [E0030](./E0030.md) | Wrong number of arguments |
 | [E0031](./E0031.md) | Argument type mismatch |
+| [E0045](./E0045.md) | Explicit disclosure required for public binding |

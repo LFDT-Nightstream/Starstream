@@ -35,14 +35,16 @@ pub(super) fn parser_with_block<'a>(
 ) -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
     let variable_declaration = just("let")
         .padded()
-        .ignore_then(just("mut").padded().or_not())
+        .ignore_then(just("pub").padded().or_not())
+        .then(just("mut").padded().or_not())
         .then(primitives::identifier())
         .then(just(":").ignore_then(type_annotation::parser()).or_not())
         .then_ignore(just('=').padded())
         .then(expr.clone())
         .then_ignore(just(';').padded())
         .map(
-            |(((mutable, name), ty), value)| Statement::VariableDeclaration {
+            |((((public, mutable), name), ty), value)| Statement::VariableDeclaration {
+                public: public.is_some(),
                 mutable: mutable.is_some(),
                 name,
                 ty,
@@ -150,6 +152,15 @@ mod tests {
         assert_statement_snapshot!("let mut answer = 42;");
     }
 
+    #[test]
+    fn let_pub_binding() {
+        assert_statement_snapshot!("let pub answer = 42;");
+    }
+
+    #[test]
+    fn let_pub_mut_binding() {
+        assert_statement_snapshot!("let pub mut answer = 42;");
+    }
     #[test]
     fn assignment() {
         assert_statement_snapshot!("value = value + 1;");

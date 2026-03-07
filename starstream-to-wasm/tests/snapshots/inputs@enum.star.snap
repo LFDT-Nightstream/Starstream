@@ -65,6 +65,7 @@ Program {
                     },
                     params: [
                         FunctionParam {
+                            public: false,
                             name: Identifier {
                                 name: "foo",
                                 span: 58..61,
@@ -325,6 +326,7 @@ TypedProgram {
                 },
                 params: [
                     TypedFunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "foo",
                             span: 58..61,

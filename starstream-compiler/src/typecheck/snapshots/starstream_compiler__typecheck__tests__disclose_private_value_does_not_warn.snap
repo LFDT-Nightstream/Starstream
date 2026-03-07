@@ -1,0 +1,10 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main() {\n    let x = 1;\n    let _y = disclose(x);\n}\n"
+---
+T-Fn: main => ()
+  T-Let: {} ⊢ let x = 1; ⇒ i64
+    T-Int: {} ⊢ 1 ⇒ i64
+  T-Let: {x: i64} ⊢ let _y = disclose(x); ⇒ i64
+    T-Disclose: {x: i64} ⊢ disclose(x) ⇒ i64
+      T-Var: {x: i64} ⊢ x ⇒ i64

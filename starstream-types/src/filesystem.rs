@@ -7,6 +7,12 @@ pub struct FileSystem {
     pub outputs: Vec<PathBuf>,
 }
 
+impl Default for FileSystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FileSystem {
     pub fn new() -> FileSystem {
         FileSystem {

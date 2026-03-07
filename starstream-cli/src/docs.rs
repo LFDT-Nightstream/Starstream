@@ -41,9 +41,17 @@ impl Docs {
         };
 
         let typed = match typecheck_program(program, TypecheckOptions::default()) {
-            Ok(success) => success.program,
-            Err(errors) => {
-                for error in errors {
+            Ok(mut success) => {
+                for warning in success.warnings.drain(..) {
+                    print_diagnostic(named.clone(), warning)?;
+                }
+                success.program
+            }
+            Err(failure) => {
+                for warning in failure.warnings {
+                    print_diagnostic(named.clone(), warning)?;
+                }
+                for error in failure.errors {
                     print_diagnostic(named.clone(), error)?;
                 }
                 std::process::exit(1);

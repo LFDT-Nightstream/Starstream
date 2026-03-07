@@ -123,6 +123,10 @@
             "named": true
           },
           {
+            "type": "disclose_expression",
+            "named": true
+          },
+          {
             "type": "emit_expression",
             "named": true
           },
@@ -168,6 +172,22 @@
           },
           {
             "type": "unit_literal",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "disclose_expression",
+    "named": true,
+    "fields": {
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expression",
             "named": true
           }
         ]
@@ -418,6 +438,10 @@
           "named": true
         },
         {
+          "type": "disclose_expression",
+          "named": true
+        },
+        {
           "type": "emit_expression",
           "named": true
         },
@@ -507,6 +531,10 @@
             "named": true
           },
           {
+            "type": "disclose_expression",
+            "named": true
+          },
+          {
             "type": "emit_expression",
             "named": true
           },
@@ -575,11 +603,11 @@
           "named": true
         },
         {
-          "type": "identifier",
+          "type": "function_parameter",
           "named": true
         },
         {
-          "type": "parameter",
+          "type": "identifier",
           "named": true
         },
         {
@@ -593,6 +621,25 @@
     "type": "function_export",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "function_parameter",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "if_expression",
@@ -764,11 +811,11 @@
           "named": true
         },
         {
-          "type": "identifier",
+          "type": "function_parameter",
           "named": true
         },
         {
-          "type": "parameter",
+          "type": "identifier",
           "named": true
         },
         {
@@ -1300,6 +1347,10 @@
     "extra": true
   },
   {
+    "type": "disclose",
+    "named": false
+  },
+  {
     "type": "doc_comment",
     "named": true,
     "extra": true
@@ -1362,6 +1413,10 @@
   },
   {
     "type": "mut",
+    "named": false
+  },
+  {
+    "type": "pub",
     "named": false
   },
   {

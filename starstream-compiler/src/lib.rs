@@ -10,6 +10,8 @@ pub mod typecheck;
 
 pub use docs::{DocsOutput, generate_docs};
 pub use parser::parse_program;
-pub use typecheck::{TypecheckOptions, typecheck_program};
+pub use typecheck::{
+    TypeWarning, TypeWarningKind, TypecheckFailure, TypecheckOptions, typecheck_program,
+};
 
 pub const FILE_EXTENSION: &str = "star";

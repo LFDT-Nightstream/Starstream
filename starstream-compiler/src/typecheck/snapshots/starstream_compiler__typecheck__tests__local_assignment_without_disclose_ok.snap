@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main() {\n    let mut counter: i64 = 0;\n    counter = 1;\n}\n"
+---
+T-Fn: main => ()
+  T-Let: {} ⊢ let mut counter: i64 = 0; ⇒ i64
+    T-Int: {} ⊢ 0 ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t3}
+  T-Assign: {counter: i64} ⊢ counter = 1; ⇒ i64
+    T-Int: {counter: i64} ⊢ 1 ⇒ i64
+    Unify-Var: i64 ~ i64 => {i64/t4}

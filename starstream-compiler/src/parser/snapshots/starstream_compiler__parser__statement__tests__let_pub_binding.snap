@@ -1,0 +1,21 @@
+---
+source: starstream-compiler/src/parser/statement.rs
+description: "Code:\n\nlet pub answer = 42;"
+---
+VariableDeclaration {
+    public: true,
+    mutable: false,
+    name: Identifier {
+        name: "answer",
+        span: 8..14,
+    },
+    ty: None,
+    value: Spanned {
+        node: Literal(
+            Integer(
+                42,
+            ),
+        ),
+        span: 17..19,
+    },
+}

@@ -14,7 +14,7 @@ use starstream_compiler::{
     formatter, parse_program,
     parser::ParseError,
     typecheck::typecheck_program,
-    typecheck::{TypeError, TypecheckOptions, TypecheckSuccess},
+    typecheck::{TypeError, TypeWarning, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
     CommentMap, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef, TypedUtxoPart,
@@ -41,7 +41,7 @@ pub struct DocumentState {
     program: Option<Arc<Program>>,
     /// Typed AST and inference results, if type-checking succeeded.
     typed: Option<TypecheckSuccess>,
-    /// Parse and type errors converted to LSP diagnostics.
+    /// Parse and type diagnostics converted to LSP diagnostics.
     diagnostics: Vec<tower_lsp_server::lsp_types::Diagnostic>,
     /// Hover information indexed by source span.
     hover_entries: Vec<HoverEntry>,
@@ -214,6 +214,10 @@ impl DocumentState {
         if let Some(program) = self.program.as_ref() {
             match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                 Ok(typed) => {
+                    for warning in &typed.warnings {
+                        self.push_type_warning(uri, warning.clone());
+                    }
+
                     self.generic_types = typed.generic_types.clone();
 
                     let program_ast = self.program.clone();
@@ -221,8 +225,11 @@ impl DocumentState {
 
                     self.typed = Some(typed);
                 }
-                Err(type_errors) => {
-                    for error in type_errors {
+                Err(failure) => {
+                    for warning in failure.warnings {
+                        self.push_type_warning(uri, warning);
+                    }
+                    for error in failure.errors {
                         self.push_type_error(uri, error);
                     }
                 }
@@ -238,6 +245,12 @@ impl DocumentState {
 
     fn push_type_error(&mut self, uri: &Uri, error: TypeError) {
         let diag = diagnostic_to_lsp(&self.rope, uri, &error);
+
+        self.diagnostics.push(diag);
+    }
+
+    fn push_type_warning(&mut self, uri: &Uri, warning: TypeWarning) {
+        let diag = diagnostic_to_lsp(&self.rope, uri, &warning);
 
         self.diagnostics.push(diag);
     }
@@ -810,6 +823,7 @@ impl DocumentState {
     ) {
         match statement {
             TypedStatement::VariableDeclaration {
+                public: _,
                 mutable: _,
                 name,
                 value,
@@ -1015,6 +1029,9 @@ impl DocumentState {
                 for arg in args {
                     self.collect_expr(arg, scopes);
                 }
+            }
+            TypedExprKind::Disclose { expr: inner } => {
+                self.collect_expr(inner, scopes);
             }
             TypedExprKind::Raise { expr: inner } => {
                 self.collect_expr(inner, scopes);
@@ -1503,6 +1520,9 @@ impl DocumentState {
                 for arm in arms {
                     self.collect_block_annotations_from_ast(&arm.body);
                 }
+            }
+            untyped_ast::Expr::Disclose { expr } => {
+                self.collect_expr_annotations_from_ast(&expr.node);
             }
             _ => {}
         }

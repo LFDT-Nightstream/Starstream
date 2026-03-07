@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main(pub x: i64, y: i64) {\n    let pub mut w = x;\n    w = y;\n}\n"
+---
+E0045 (https://starstream.nightstream.dev/errors/E0045)
+
+  x public binding `w` requires a public RHS; wrap private values with `disclose(...)`
+   ,-[test.star:3:9]
+ 2 |     let pub mut w = x;
+ 3 |     w = y;
+   :         ^
+ 4 | }
+   `----
+  help: `y` is a private parameter; declare it as `pub y: ...` in the function signature if callers should provide a public value here.

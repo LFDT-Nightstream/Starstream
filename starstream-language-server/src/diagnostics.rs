@@ -69,10 +69,11 @@ where
         code: diagnostic
             .code()
             .map(|code| NumberOrString::String(format!("star-{}", code))),
-        code_description: diagnostic.code().and_then(|code| {
-            let code_str = code.to_string();
-            let url_str = format!("https://starstream.nightstream.dev/errors/{code_str}");
-            url_str.parse().ok().map(|href| CodeDescription { href })
+        code_description: diagnostic.url().and_then(|url| {
+            url.to_string()
+                .parse()
+                .ok()
+                .map(|href| CodeDescription { href })
         }),
         source: None,
         message,

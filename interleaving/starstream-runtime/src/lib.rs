@@ -529,7 +529,7 @@ impl Runtime {
                     .get_mut(&interface_id)
                     .ok_or(trap("handler stack not found"))?;
                 if stack.pop() != Some(current_pid) {
-                    return Err(trap("uninstall handler mismatch").into());
+                    return Err(trap("uninstall handler mismatch"));
                 }
                 Ok(())
             },

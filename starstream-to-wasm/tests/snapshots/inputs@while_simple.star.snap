@@ -22,6 +22,7 @@ Program {
                         statements: [
                             Spanned {
                                 node: VariableDeclaration {
+                                    public: false,
                                     mutable: true,
                                     name: Identifier {
                                         name: "foo",
@@ -154,6 +155,7 @@ TypedProgram {
                 body: TypedBlock {
                     statements: [
                         VariableDeclaration {
+                            public: false,
                             mutable: true,
                             name: Identifier {
                                 name: "foo",
