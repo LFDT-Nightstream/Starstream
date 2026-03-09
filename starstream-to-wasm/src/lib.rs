@@ -649,21 +649,16 @@ impl Compiler {
         self.world_type.encode_value(ty)
     }
 
-    fn export_component_fn(
+    fn make_component_export_wrapper_fn(
         &mut self,
-        wit_name: &str,
         function: &TypedFunctionDef,
         func_idx: u32,
         params: &[ValType],
         core_results: &[ValType],
-    ) {
+    ) -> Option<u32> {
         if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
-            self.export_core_fn(wit_name, func_idx);
-            let type_idx = self.encode_component_func_type(function);
-            self.world_type
-                .inner
-                .export(wit_name, ComponentTypeRef::Func(type_idx));
+            Some(func_idx)
         } else if params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
             let result = self.star_to_component_type(&function.return_type).unwrap();
@@ -688,16 +683,32 @@ impl Compiler {
                 wrapper_func,
             );
 
-            self.export_core_fn(wit_name, wrapper_func_idx);
-            let type_idx = self.encode_component_func_type(function);
-            self.world_type
-                .inner
-                .export(wit_name, ComponentTypeRef::Func(type_idx));
+            Some(wrapper_func_idx)
         } else {
             self.push_error(
                 function.name.span(),
                 "TODO: Component ABI for function with too many params",
             );
+            None
+        }
+    }
+
+    fn export_component_fn(
+        &mut self,
+        wit_name: &str,
+        function: &TypedFunctionDef,
+        func_idx: u32,
+        params: &[ValType],
+        core_results: &[ValType],
+    ) {
+        if let Some(func_idx) =
+            self.make_component_export_wrapper_fn(function, func_idx, params, core_results)
+        {
+            self.export_core_fn(wit_name, func_idx);
+            let type_idx = self.encode_component_func_type(function);
+            self.world_type
+                .inner
+                .export(wit_name, ComponentTypeRef::Func(type_idx));
         }
     }
 
