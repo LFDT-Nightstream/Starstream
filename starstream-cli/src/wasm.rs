@@ -21,6 +21,10 @@ pub struct Wasm {
     #[arg(long)]
     output_component: Option<PathBuf>,
 
+    /// Output a binary WIT representation to this file.
+    #[arg(long)]
+    output_binary_wit: Option<PathBuf>,
+
     /// Output component WIT text to this file.
     #[arg(long)]
     output_wit: Option<PathBuf>,
@@ -68,6 +72,14 @@ impl Wasm {
         if let Some(output_core) = &self.output_core {
             fs.write(output_core, &wasm)
                 .expect("Error writing Wasm output");
+        }
+
+        if let Some(output_binary_wit) = self.output_binary_wit {
+            let binary_wit = compile_result
+                .binary_wit
+                .expect("Strange: compilation succeeded, but there was no binary WIT");
+            fs.write(&output_binary_wit, &binary_wit)
+                .expect("Error writing binary WIT output");
         }
 
         // Componentize
