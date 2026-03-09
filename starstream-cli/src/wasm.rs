@@ -58,11 +58,11 @@ impl Wasm {
         };
 
         // Wasm
-        let (wasm, errors) = starstream_to_wasm::compile(&typed.program);
-        for error in errors {
+        let compile_result = starstream_to_wasm::compile(&typed.program);
+        for error in compile_result.errors {
             print_diagnostic(named.clone(), error)?;
         }
-        let Some(wasm) = wasm else {
+        let Some(wasm) = compile_result.wasm else {
             std::process::exit(1);
         };
         if let Some(output_core) = &self.output_core {

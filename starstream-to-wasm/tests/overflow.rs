@@ -16,10 +16,14 @@ fn compile_program(source: &str) -> Vec<u8> {
     )
     .expect("Typecheck failed");
 
-    let (wasm, errors) = starstream_to_wasm::compile(&success.program);
-    assert!(errors.is_empty(), "Compile errors: {:?}", errors);
+    let compile_result = starstream_to_wasm::compile(&success.program);
+    assert!(
+        errors.is_empty(),
+        "Compile errors: {:?}",
+        compile_result.errors
+    );
 
-    wasm.expect("No WASM generated")
+    compile_result.wasm.expect("No WASM generated")
 }
 
 /// Helper to execute WASM and check if it traps

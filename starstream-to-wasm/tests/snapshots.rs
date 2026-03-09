@@ -89,15 +89,15 @@ fn inputs() {
                     )
                     .unwrap();
                     writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
-                    let (wasm, errors) = starstream_to_wasm::compile(&success.program);
+                    let compile_result = starstream_to_wasm::compile(&success.program);
                     writeln!(output, "==== Core WebAssembly ====").unwrap();
-                    for error in errors {
+                    for error in compile_result.errors {
                         let report = Report::new(error).with_source_code(source.clone());
                         GraphicalReportHandler::new_themed(GraphicalTheme::none())
                             .render_report(&mut output, report.as_ref())
                             .expect("failed to render diagnostic");
                     }
-                    if let Some(wasm) = wasm {
+                    if let Some(wasm) = compile_result.wasm {
                         wasmprinter::Config::new()
                             .fold_instructions(true)
                             .print(
