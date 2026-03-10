@@ -5,11 +5,13 @@ use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
 
-use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS, TypeBuilder};
+use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
+use crate::encoder::TypeBuilder;
 
 mod component_abi;
 mod decision_tree;
+mod encoder;
 
 /*
     The entry point [compile] is responsible for the overall AST-to-WASM-module
@@ -645,10 +647,6 @@ impl Compiler {
             .encode_func(params.into_iter(), result.as_ref())
     }
 
-    fn encode_component_type(&mut self, ty: &Rc<ComponentAbiType>) -> ComponentValType {
-        self.world_type.encode_value(ty)
-    }
-
     fn make_component_export_wrapper_fn(
         &mut self,
         function: &TypedFunctionDef,
@@ -714,7 +712,7 @@ impl Compiler {
 
     fn export_component_ty(&mut self, name: &str, ty: &Type) {
         let component_ty = self.star_to_component_type(ty).unwrap();
-        let ComponentValType::Type(idx) = self.encode_component_type(&component_ty) else {
+        let ComponentValType::Type(idx) = self.world_type.encode_value(&component_ty) else {
             unreachable!()
         };
         // "Exporting" a type consists of importing it with an equality constraint.
