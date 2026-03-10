@@ -186,8 +186,8 @@ impl Compiler {
         */
 
         for (interface_name, instance) in self.imported_interfaces {
-            let i = self.world_type.inner.type_count();
-            self.world_type.inner.ty().instance(&instance.inner);
+            let (i, ty) = self.world_type.ty();
+            ty.instance(&instance.inner);
             self.world_type
                 .inner
                 .import(&interface_name, ComponentTypeRef::Instance(i));

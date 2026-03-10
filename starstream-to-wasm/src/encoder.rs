@@ -14,6 +14,11 @@ pub struct TypeBuilder<T: ?Sized> {
 }
 
 impl<T: TypeRegistry> TypeBuilder<T> {
+    pub fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
+        let idx = self.inner.type_count();
+        (idx, self.inner.ty())
+    }
+
     pub fn encode_func<'a>(
         &mut self,
         params: impl Iterator<Item = (&'a str, Rc<ComponentAbiType>)>,
@@ -24,8 +29,8 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             .collect::<Vec<_>>();
         let result = result.map(|r| self.encode_value(r));
 
-        let (idx, enc) = self.inner.ty();
-        enc.function().params(params).result(result);
+        let (idx, ty) = self.ty();
+        ty.function().params(params).result(result);
         idx
     }
 
@@ -57,13 +62,13 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                     .iter()
                     .map(|f| (f.0.as_str(), self.encode_value(&f.1)))
                     .collect();
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().record(fields);
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Tuple { fields } => {
                 let fields: Vec<_> = fields.iter().map(|f| self.encode_value(f)).collect();
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().tuple(fields);
                 ComponentValType::Type(idx)
             }
@@ -78,31 +83,31 @@ impl<T: TypeRegistry> TypeBuilder<T> {
                         )
                     })
                     .collect();
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().variant(cases);
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Option { inner } => {
                 let inner_val = self.encode_value(inner);
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().option(inner_val);
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Result { ok, err } => {
                 let ok_val = ok.as_ref().map(|t| self.encode_value(t));
                 let err_val = err.as_ref().map(|t| self.encode_value(t));
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().result(ok_val, err_val);
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Flags { .. } => todo!(),
             ComponentAbiType::Own { resource } => {
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().own(*resource);
                 ComponentValType::Type(idx)
             }
             ComponentAbiType::Borrow { resource } => {
-                let (idx, ty) = self.inner.ty();
+                let (idx, ty) = self.ty();
                 ty.defined_type().borrow(*resource);
                 ComponentValType::Type(idx)
             }
@@ -116,8 +121,9 @@ impl<T: TypeRegistry> TypeBuilder<T> {
 }
 
 /// Abstraction over [ComponentType] and [InstanceType].
+#[allow(dead_code)]
 pub trait TypeRegistry {
-    fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>);
+    fn ty(&mut self) -> ComponentTypeEncoder<'_>;
     fn alias(&mut self, alias: Alias<'_>);
     fn export(&mut self, name: &str, ty: ComponentTypeRef);
     fn type_count(&self) -> u32;
@@ -126,9 +132,8 @@ pub trait TypeRegistry {
 
 // ComponentType also has `export`.
 impl TypeRegistry for ComponentType {
-    fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.type_count();
-        (idx, self.ty())
+    fn ty(&mut self) -> ComponentTypeEncoder<'_> {
+        self.ty()
     }
 
     fn alias(&mut self, alias: Alias<'_>) {
@@ -149,9 +154,8 @@ impl TypeRegistry for ComponentType {
 }
 
 impl TypeRegistry for InstanceType {
-    fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.type_count();
-        (idx, self.ty())
+    fn ty(&mut self) -> ComponentTypeEncoder<'_> {
+        self.ty()
     }
 
     fn alias(&mut self, alias: Alias<'_>) {
