@@ -1,11 +1,12 @@
 use std::{collections::HashMap, rc::Rc};
 
+use starstream_types::TypedFunctionDef;
 use wasm_encoder::{
     Alias, ComponentType, ComponentTypeEncoder, ComponentTypeRef, ComponentValType, InstanceType,
     PrimitiveValType,
 };
 
-use crate::component_abi::ComponentAbiType;
+use crate::{StarTypeCache, component_abi::ComponentAbiType};
 
 #[derive(Default)]
 pub struct TypeBuilder<T: ?Sized> {
@@ -17,6 +18,35 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     pub fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
         let idx = self.inner.type_count();
         (idx, self.inner.ty())
+    }
+
+    pub fn export_star_func(
+        &mut self,
+        star_to_component: &mut StarTypeCache,
+        wit_name: &str,
+        function: &TypedFunctionDef,
+    ) {
+        let type_idx = self.encode_star_func(star_to_component, function);
+        self.inner
+            .export(wit_name, ComponentTypeRef::Func(type_idx));
+    }
+
+    pub fn encode_star_func(
+        &mut self,
+        star_to_component: &mut StarTypeCache,
+        function: &TypedFunctionDef,
+    ) -> u32 {
+        let params = function
+            .params
+            .iter()
+            .flat_map(|p| {
+                star_to_component
+                    .convert(&p.ty)
+                    .map(|t| (p.name.as_str(), t))
+            })
+            .collect::<Vec<_>>();
+        let result = star_to_component.convert(&function.return_type);
+        self.encode_func(params.into_iter(), result.as_ref())
     }
 
     pub fn encode_func<'a>(

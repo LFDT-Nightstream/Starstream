@@ -350,8 +350,8 @@ TypedProgram {
   (global (;1;) (mut i64) (i64.const 0))
   (export "increment" (func 1))
   (export "increment-mult" (func 2))
-  (export "my-utxo-get-storage" (func 4))
-  (export "my-utxo-set-storage" (func 5))
+  (export "[static]my-utxo.get-storage" (func 4))
+  (export "[static]my-utxo.set-storage" (func 5))
   (export "memory" (memory 0))
   (func (;0;) (type 0) (param i64 i64) (result i64)
     (local i64)
@@ -435,9 +435,9 @@ TypedProgram {
               (type (;3;) (record (field "counter" s64) (field "multiplier" s64)))
               (import "my-utxo-storage" (type (;4;) (eq 3)))
               (type (;5;) (func (result 4)))
-              (export (;2;) "my-utxo-get-storage" (func (type 5)))
+              (import "[static]my-utxo.get-storage" (func (;2;) (type 5)))
               (type (;6;) (func (param "storage" 4)))
-              (export (;3;) "my-utxo-set-storage" (func (type 6)))
+              (import "[static]my-utxo.set-storage" (func (;3;) (type 6)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -461,6 +461,4 @@ world root {
 
   export increment: func();
   export increment-mult: func();
-  export my-utxo-get-storage: func() -> my-utxo-storage;
-  export my-utxo-set-storage: func(storage: my-utxo-storage);
 }

@@ -108,7 +108,7 @@ struct Compiler {
 
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
-    star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
+    star_to_component: StarTypeCache,
     imported_interfaces: HashMap<String, TypeBuilder<InstanceType>>,
 
     // Diagnostics.
@@ -119,8 +119,6 @@ struct Compiler {
     core_func_type_cache: HashMap<FuncType, u32>,
     /// Map from name to function index.
     callables: HashMap<String, u32>,
-    /// Map from name to resource index.
-    resources: HashMap<String, u32>,
 
     // Memory building.
     bump_ptr: u32,
@@ -275,6 +273,7 @@ impl Compiler {
 
     fn generate_storage_exports(
         &mut self,
+        interface: &mut TypeBuilder<InstanceType>,
         name: &Identifier,
         scope: &dyn Locals,
         fields: Vec<TypedStructField>,
@@ -297,10 +296,11 @@ impl Compiler {
                 fields: fields.clone(),
                 ty: storage_struct.clone(),
             });
-            self.visit_function(
-                &format!("{}-get-storage", resource_name),
+            self.visit_interface_function(
+                interface,
+                &format!("[static]{}.get-storage", resource_name),
                 &TypedFunctionDef {
-                    export: Some(FunctionExport::Script),
+                    export: None,
                     name: Identifier::anon(format!("{name}::get_storage")),
                     params: Vec::new(),
                     return_type: storage_struct.clone(),
@@ -324,10 +324,11 @@ impl Compiler {
                 },
                 scope,
             );
-            self.visit_function(
-                &format!("{}-set-storage", resource_name),
+            self.visit_interface_function(
+                interface,
+                &format!("[static]{}.set-storage", resource_name),
                 &TypedFunctionDef {
-                    export: Some(FunctionExport::Script),
+                    export: None,
                     name: Identifier::anon(format!("{name}::set_storage")),
                     params: vec![TypedFunctionParam {
                         name: Identifier::anon("storage"),
@@ -633,20 +634,6 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Component table management
 
-    fn encode_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
-        let params = function
-            .params
-            .iter()
-            .flat_map(|p| {
-                self.star_to_component_type(&p.ty)
-                    .map(|t| (p.name.as_str(), t))
-            })
-            .collect::<Vec<_>>();
-        let result = self.star_to_component_type(&function.return_type);
-        self.world_type
-            .encode_func(params.into_iter(), result.as_ref())
-    }
-
     fn make_component_export_wrapper_fn(
         &mut self,
         function: &TypedFunctionDef,
@@ -659,7 +646,10 @@ impl Compiler {
             Some(func_idx)
         } else if params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
-            let result = self.star_to_component_type(&function.return_type).unwrap();
+            let result = self
+                .star_to_component
+                .convert(&function.return_type)
+                .unwrap();
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
@@ -703,19 +693,35 @@ impl Compiler {
             self.make_component_export_wrapper_fn(function, func_idx, params, core_results)
         {
             self.export_core_fn(wit_name, func_idx);
-            let type_idx = self.encode_component_func_type(function);
             self.world_type
-                .inner
-                .export(wit_name, ComponentTypeRef::Func(type_idx));
+                .export_star_func(&mut self.star_to_component, wit_name, function);
+        }
+    }
+
+    fn export_interface_fn(
+        &mut self,
+        interface: &mut TypeBuilder<InstanceType>,
+        wit_name: &str,
+        function: &TypedFunctionDef,
+        func_idx: u32,
+        params: &[ValType],
+        core_results: &[ValType],
+    ) {
+        if let Some(func_idx) =
+            self.make_component_export_wrapper_fn(function, func_idx, params, core_results)
+        {
+            self.export_core_fn(wit_name, func_idx);
+            interface.export_star_func(&mut self.star_to_component, wit_name, function);
         }
     }
 
     fn export_component_ty(&mut self, name: &str, ty: &Type) {
-        let component_ty = self.star_to_component_type(ty).unwrap();
+        let component_ty = self.star_to_component.convert(ty).unwrap();
         let ComponentValType::Type(idx) = self.world_type.encode_value(&component_ty) else {
             unreachable!()
         };
-        // "Exporting" a type consists of importing it with an equality constraint.
+        // "Exporting" a type *at the world root* consists of importing it with an equality constraint.
+        // Exports on imported interfaces are normal.
         let new_idx = self.world_type.inner.type_count();
         self.world_type.inner.import(
             &to_kebab_case(name),
@@ -776,136 +782,6 @@ impl Compiler {
 
     // ------------------------------------------------------------------------
     // Type conversion
-
-    fn star_to_component_type(&mut self, ty: &Type) -> Option<Rc<ComponentAbiType>> {
-        if let Some(cat) = self.star_to_component.get(ty) {
-            return Some(cat.clone());
-        }
-
-        let cat = match ty {
-            Type::Var(_) => todo!(),
-            Type::Int(w) => match w {
-                IntWidth::I8 => ComponentAbiType::S8,
-                IntWidth::I16 => ComponentAbiType::S16,
-                IntWidth::I32 => ComponentAbiType::S32,
-                IntWidth::I64 => ComponentAbiType::S64,
-                IntWidth::U8 => ComponentAbiType::U8,
-                IntWidth::U16 => ComponentAbiType::U16,
-                IntWidth::U32 => ComponentAbiType::U32,
-                IntWidth::U64 => ComponentAbiType::U64,
-            },
-            Type::Bool => ComponentAbiType::Bool,
-            Type::Unit => {
-                return None;
-            }
-            Type::Function { .. } => todo!(),
-            Type::Tuple(_) => todo!(),
-            // Utxo handles are always borrowed for now. The ledger is the "owner".
-            Type::UtxoAny => todo!(),
-            Type::UtxoNamed(name) => {
-                if let Some(idx) = self.resources.get(name) {
-                    ComponentAbiType::Borrow { resource: *idx }
-                } else {
-                    return None;
-                }
-            }
-            Type::Record(record) => {
-                let fields = record
-                    .fields
-                    .iter()
-                    .flat_map(|f| {
-                        self.star_to_component_type(&f.ty)
-                            .map(|ty| (f.name.as_str().to_owned(), ty))
-                    })
-                    .collect();
-                ComponentAbiType::Record { fields }
-            }
-            Type::Enum(enum_variant_types) => {
-                // Detect builtin Option type
-                if enum_variant_types.name == "Option"
-                    && enum_variant_types.variants.len() == 2
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Some")
-                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
-                    && let Some(some_variant) = enum_variant_types
-                        .variants
-                        .iter()
-                        .find(|v| v.name == "Some")
-                    && let EnumVariantKind::Tuple(fields) = &some_variant.kind
-                    && let Some(inner) = self.star_to_component_type(&fields[0])
-                {
-                    return Some(Rc::new(ComponentAbiType::Option { inner }));
-                }
-
-                // Detect builtin Result type
-                if enum_variant_types.name == "Result"
-                    && enum_variant_types.variants.len() == 2
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Ok")
-                    && enum_variant_types.variants.iter().any(|v| v.name == "Err")
-                {
-                    let ok_variant = enum_variant_types.variants.iter().find(|v| v.name == "Ok");
-                    let err_variant = enum_variant_types.variants.iter().find(|v| v.name == "Err");
-                    if let (Some(ok_v), Some(err_v)) = (ok_variant, err_variant) {
-                        let ok = match &ok_v.kind {
-                            EnumVariantKind::Tuple(fields) => {
-                                Some(self.star_to_component_type(&fields[0])?)
-                            }
-                            EnumVariantKind::Unit => None,
-                            _ => None,
-                        };
-                        let err = match &err_v.kind {
-                            EnumVariantKind::Tuple(fields) => {
-                                Some(self.star_to_component_type(&fields[0])?)
-                            }
-                            EnumVariantKind::Unit => None,
-                            _ => None,
-                        };
-                        return Some(Rc::new(ComponentAbiType::Result { ok, err }));
-                    }
-                }
-
-                // Generic variant conversion
-                let cases = enum_variant_types
-                    .variants
-                    .iter()
-                    .map(|v| {
-                        (
-                            to_kebab_case(&v.name),
-                            match &v.kind {
-                                EnumVariantKind::Unit => None,
-                                EnumVariantKind::Tuple(fields) => {
-                                    let fields: Vec<_> = fields
-                                        .iter()
-                                        .flat_map(|f| self.star_to_component_type(f))
-                                        .collect();
-                                    if fields.is_empty() {
-                                        None
-                                    } else {
-                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
-                                    }
-                                }
-                                EnumVariantKind::Struct(fields) => {
-                                    let fields: Vec<_> = fields
-                                        .iter()
-                                        .flat_map(|f| self.star_to_component_type(&f.ty))
-                                        .collect();
-                                    if fields.is_empty() {
-                                        None
-                                    } else {
-                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
-                                    }
-                                }
-                            },
-                        )
-                    })
-                    .collect();
-                ComponentAbiType::Variant { cases }
-            }
-        };
-
-        let cat = Rc::new(cat);
-        self.star_to_component.insert(ty.clone(), cat.clone());
-        Some(cat)
-    }
 
     fn star_to_core_types(&mut self, span: Span, dest: &mut Vec<ValType>, ty: &Type) -> Result<()> {
         let mut ok = Ok(());
@@ -1105,7 +981,7 @@ impl Compiler {
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
 
                 TypedDefinition::Function(func) => {
-                    self.visit_function(&to_kebab_case(func.name.as_str()), func, &())
+                    self.visit_function(&to_kebab_case(func.name.as_str()), func, &());
                 }
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
@@ -1158,9 +1034,9 @@ impl Compiler {
                     // Component import
                     let comp_params = params
                         .iter()
-                        .flat_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                        .flat_map(|p| self.star_to_component.convert(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
-                    let comp_result = self.star_to_component_type(result);
+                    let comp_result = self.star_to_component.convert(result);
                     let iface = self
                         .imported_interfaces
                         .entry(def.from.to_string())
@@ -1203,7 +1079,7 @@ impl Compiler {
                     let comp_params = event
                         .params
                         .iter()
-                        .flat_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .flat_map(|p| self.star_to_component.convert(&p.ty).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
                     let comp_result = None;
                     let iface = self.imported_interfaces.entry(interface).or_default();
@@ -1217,7 +1093,12 @@ impl Compiler {
         }
     }
 
-    fn visit_function(&mut self, wit_name: &str, function: &TypedFunctionDef, parent: &dyn Locals) {
+    fn visit_function(
+        &mut self,
+        wit_name: &str,
+        function: &TypedFunctionDef,
+        parent: &dyn Locals,
+    ) -> (u32, Vec<ValType>, Vec<ValType>) {
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
@@ -1252,6 +1133,19 @@ impl Compiler {
             }
             None => {}
         }
+
+        (idx, params, results)
+    }
+
+    fn visit_interface_function(
+        &mut self,
+        interface: &mut TypeBuilder<InstanceType>,
+        wit_name: &str,
+        function: &TypedFunctionDef,
+        parent: &dyn Locals,
+    ) {
+        let (idx, params, results) = self.visit_function(wit_name, function, parent);
+        self.export_interface_fn(interface, wit_name, function, idx, &params, &results);
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
@@ -1263,14 +1157,21 @@ impl Compiler {
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        // Prepare an interior WIT interface for the Utxo type.
+        // This seems to be necessary in that bare functions can be exported
+        // by a world, but resources defined directly in a world can only be
+        // imports; exported resources must be defined in an interface and the
+        // whole interface exported.
+        let mut interface: TypeBuilder<InstanceType> = Default::default();
+
         // Declare the resource type.
         let resource_name = to_kebab_case(utxo.name.as_str());
-        let resource = self.world_type.inner.type_count();
-        self.world_type.inner.import(
+        let interface_resource_type_id = interface.inner.type_count();
+        debug_assert_eq!(interface_resource_type_id, 0); // Sanity check.
+        interface.inner.export(
             &resource_name,
             ComponentTypeRef::Type(TypeBounds::SubResource),
         );
-        self.resources.insert(utxo.name.to_string(), resource);
 
         // Visit each Utxo part.
         let mut utxo_storage = HashMap::new();
@@ -1301,10 +1202,28 @@ impl Compiler {
 
         // Generate storage exports.
         self.generate_storage_exports(
+            &mut interface,
             &utxo.name,
             &(&() as &dyn Locals, &utxo_storage),
             utxo_record_type,
         );
+
+        // Import the interior interface.
+        let instance_ty_idx = self.world_type.inner.type_count();
+        self.world_type.inner.ty().instance(&interface.inner);
+        let instance_idx = self.world_type.inner.instance_count();
+        self.world_type
+            .inner
+            .import(&resource_name, ComponentTypeRef::Instance(instance_ty_idx));
+        self.world_type.inner.alias(Alias::InstanceExport {
+            instance: instance_idx,
+            kind: ComponentExportKind::Type,
+            name: &resource_name,
+        });
+        let resource = self.world_type.inner.type_count();
+        self.star_to_component
+            .resources
+            .insert(utxo.name.to_string(), resource);
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -2890,6 +2809,137 @@ impl Compiler {
         }
         func.instructions().call(core_fn_idx);
         Ok(())
+    }
+}
+
+#[derive(Default)]
+struct StarTypeCache {
+    star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
+    /// Map from name to resource index.
+    resources: HashMap<String, u32>,
+}
+
+impl StarTypeCache {
+    fn convert(&mut self, ty: &Type) -> Option<Rc<ComponentAbiType>> {
+        if let Some(cat) = self.star_to_component.get(ty) {
+            return Some(cat.clone());
+        }
+
+        let cat = match ty {
+            Type::Var(_) => todo!(),
+            Type::Int(w) => match w {
+                IntWidth::I8 => ComponentAbiType::S8,
+                IntWidth::I16 => ComponentAbiType::S16,
+                IntWidth::I32 => ComponentAbiType::S32,
+                IntWidth::I64 => ComponentAbiType::S64,
+                IntWidth::U8 => ComponentAbiType::U8,
+                IntWidth::U16 => ComponentAbiType::U16,
+                IntWidth::U32 => ComponentAbiType::U32,
+                IntWidth::U64 => ComponentAbiType::U64,
+            },
+            Type::Bool => ComponentAbiType::Bool,
+            Type::Unit => {
+                return None;
+            }
+            Type::Function { .. } => todo!(),
+            Type::Tuple(_) => todo!(),
+            // Utxo handles are always borrowed for now. The ledger is the "owner".
+            Type::UtxoAny => todo!(),
+            Type::UtxoNamed(name) => {
+                if let Some(idx) = self.resources.get(name) {
+                    ComponentAbiType::Borrow { resource: *idx }
+                } else {
+                    return None;
+                }
+            }
+            Type::Record(record) => {
+                let fields = record
+                    .fields
+                    .iter()
+                    .flat_map(|f: &RecordFieldType| {
+                        self.convert(&f.ty)
+                            .map(|ty| (f.name.as_str().to_owned(), ty))
+                    })
+                    .collect();
+                ComponentAbiType::Record { fields }
+            }
+            Type::Enum(enum_variant_types) => {
+                // Detect builtin Option type
+                if enum_variant_types.name == "Option"
+                    && enum_variant_types.variants.len() == 2
+                    && enum_variant_types.variants.iter().any(|v| v.name == "Some")
+                    && enum_variant_types.variants.iter().any(|v| v.name == "None")
+                    && let Some(some_variant) = enum_variant_types
+                        .variants
+                        .iter()
+                        .find(|v| v.name == "Some")
+                    && let EnumVariantKind::Tuple(fields) = &some_variant.kind
+                    && let Some(inner) = self.convert(&fields[0])
+                {
+                    return Some(Rc::new(ComponentAbiType::Option { inner }));
+                }
+
+                // Detect builtin Result type
+                if enum_variant_types.name == "Result"
+                    && enum_variant_types.variants.len() == 2
+                    && enum_variant_types.variants.iter().any(|v| v.name == "Ok")
+                    && enum_variant_types.variants.iter().any(|v| v.name == "Err")
+                {
+                    let ok_variant = enum_variant_types.variants.iter().find(|v| v.name == "Ok");
+                    let err_variant = enum_variant_types.variants.iter().find(|v| v.name == "Err");
+                    if let (Some(ok_v), Some(err_v)) = (ok_variant, err_variant) {
+                        let ok = match &ok_v.kind {
+                            EnumVariantKind::Tuple(fields) => Some(self.convert(&fields[0])?),
+                            EnumVariantKind::Unit => None,
+                            _ => None,
+                        };
+                        let err = match &err_v.kind {
+                            EnumVariantKind::Tuple(fields) => Some(self.convert(&fields[0])?),
+                            EnumVariantKind::Unit => None,
+                            _ => None,
+                        };
+                        return Some(Rc::new(ComponentAbiType::Result { ok, err }));
+                    }
+                }
+
+                // Generic variant conversion
+                let cases = enum_variant_types
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        (
+                            to_kebab_case(&v.name),
+                            match &v.kind {
+                                EnumVariantKind::Unit => None,
+                                EnumVariantKind::Tuple(fields) => {
+                                    let fields: Vec<_> =
+                                        fields.iter().flat_map(|f| self.convert(f)).collect();
+                                    if fields.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
+                                    }
+                                }
+                                EnumVariantKind::Struct(fields) => {
+                                    let fields: Vec<_> =
+                                        fields.iter().flat_map(|f| self.convert(&f.ty)).collect();
+                                    if fields.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Rc::new(ComponentAbiType::Tuple { fields }))
+                                    }
+                                }
+                            },
+                        )
+                    })
+                    .collect();
+                ComponentAbiType::Variant { cases }
+            }
+        };
+
+        let cat = Rc::new(cat);
+        self.star_to_component.insert(ty.clone(), cat.clone());
+        Some(cat)
     }
 }
 

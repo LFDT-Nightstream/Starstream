@@ -58,6 +58,11 @@ pub enum ComponentAbiType {
     Future,
 }
 
+pub struct ComponentFunctionType<'a> {
+    params: Vec<(&'a str, Rc<ComponentAbiType>)>,
+    result: Option<Rc<ComponentAbiType>>,
+}
+
 impl ComponentAbiType {
     pub fn size_align(&self) -> (u32, u32) {
         (self.elem_size(), self.alignment())
