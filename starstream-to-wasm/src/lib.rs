@@ -639,9 +639,11 @@ impl Compiler {
             .iter()
             .flat_map(|p| {
                 self.star_to_component_type(&p.ty)
-                    .map(|t| (p.name.as_str(), t))
+                    .map(|t| (to_kebab_case(p.name.as_str()), t))
             })
             .collect::<Vec<_>>();
+        // Annoying clone, maybe fixable? At least it's just an Rc
+        let params = params.iter().map(|(a, b)| (a.as_str(), b.clone()));
         let result = self.star_to_component_type(&function.return_type);
         self.world_type
             .encode_func(params.into_iter(), result.as_ref())
@@ -801,7 +803,19 @@ impl Compiler {
             Type::Function { .. } => todo!(),
             Type::Tuple(_) => todo!(),
             // Utxo handles are always borrowed for now. The ledger is the "owner".
-            Type::UtxoAny => todo!(),
+            Type::UtxoAny => {
+                if let Some(idx) = self.resources.get("Utxo") {
+                    ComponentAbiType::Borrow { resource: *idx }
+                } else {
+                    let idx = self.world_type.inner.type_count();
+                    // TODO: this should properly be an import from some starstream/std, not our own export.
+                    self.world_type
+                        .inner
+                        .import("utxo", ComponentTypeRef::Type(TypeBounds::SubResource));
+                    self.resources.insert("Utxo".to_owned(), idx);
+                    ComponentAbiType::Borrow { resource: idx }
+                }
+            }
             Type::UtxoNamed(name) => {
                 if let Some(idx) = self.resources.get(name) {
                     ComponentAbiType::Borrow { resource: *idx }
@@ -970,6 +984,7 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
+            Type::UtxoAny | Type::UtxoNamed(_) => dest.push(ValType::I32),
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
         }
         ok
