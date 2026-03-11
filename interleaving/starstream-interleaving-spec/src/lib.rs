@@ -17,7 +17,7 @@ use neo_ajtai::Commitment;
 use p3_field::PrimeCharacteristicRing;
 use std::{hash::Hasher, marker::PhantomData};
 pub use transaction_effects::{
-    InterfaceId,
+    FunctionId, InterfaceId,
     abi::{ArgName, OPCODE_ARG_COUNT},
     instance::InterleavingInstance,
     witness::{

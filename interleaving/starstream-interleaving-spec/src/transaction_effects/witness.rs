@@ -1,6 +1,6 @@
 use crate::{
     Hash, Ref, Value, WasmModule,
-    transaction_effects::{InterfaceId, ProcessId},
+    transaction_effects::{FunctionId, InterfaceId, ProcessId},
 };
 
 // Discriminants for host calls
@@ -54,6 +54,7 @@ pub enum WitLedgerEffect {
     Resume {
         // in
         target: ProcessId,
+        f_id: FunctionId,
         val: Ref,
         // out
         ret: WitEffectOutput<Ref>,

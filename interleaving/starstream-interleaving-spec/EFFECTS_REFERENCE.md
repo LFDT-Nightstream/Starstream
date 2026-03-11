@@ -94,7 +94,7 @@ change `yield_to` unless the process yields again.
 ```text
 Rule: Resume
 ============
-    op = Resume(target, val_ref) -> (ret_ref, caller)
+    op = Resume(target, f_id, val_ref) -> (ret_ref, caller)
 
     1. id_curr ≠ target
 
@@ -117,7 +117,7 @@ Rule: Resume
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
     1. expected_input[id_curr]   <- ret_ref   (Claim, needs to be checked later by future resumer)
-    2. expected_resumer[id_curr] <- caller   (Claim, needs to be checked later by future resumer)
+    2. expected_resumer[id_curr] <- caller    (Claim, needs to be checked later by future resumer)
     3. expected_input[target]    <- None      (Target claim consumed by this resume)
     4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
     5. id_prev'                  <- id_curr   (Trace-local previous id)

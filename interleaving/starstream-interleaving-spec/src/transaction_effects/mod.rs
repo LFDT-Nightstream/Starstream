@@ -12,6 +12,9 @@ pub type InterfaceId = Hash<Blob>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ProcessId(pub usize);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FunctionId(pub usize);
+
 impl std::fmt::Display for ProcessId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)

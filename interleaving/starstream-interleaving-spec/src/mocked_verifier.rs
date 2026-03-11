@@ -443,6 +443,7 @@ pub fn state_transition(
             val,
             ret,
             caller,
+            ..
         } => {
             if id_curr == target {
                 return Err(InterleavingError::SelfResume(id_curr));
