@@ -64,9 +64,17 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
     // Typecheck.
     let typed = match starstream_compiler::typecheck_program(&program, Default::default()) {
-        Ok(program) => program,
-        Err(errors) => {
-            for error in errors {
+        Ok(mut program) => {
+            for warning in program.warnings.drain(..) {
+                write_report(&warning.into());
+            }
+            program
+        }
+        Err(failure) => {
+            for warning in failure.warnings {
+                write_report(&warning.into());
+            }
+            for error in failure.errors {
                 write_report(&error.into());
             }
             return;

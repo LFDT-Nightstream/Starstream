@@ -7,10 +7,17 @@ use starstream_types::{
 use crate::parser::{context::Extra, primitives, statement, type_annotation};
 
 fn parameter<'a>() -> impl Parser<'a, &'a str, FunctionParam, Extra<'a>> {
-    primitives::identifier()
+    just("pub")
+        .padded()
+        .or_not()
+        .then(primitives::identifier())
         .then_ignore(just(':').padded())
         .then(type_annotation::parser().boxed())
-        .map(|(name, ty)| FunctionParam { name, ty })
+        .map(|((public, name), ty)| FunctionParam {
+            public: public.is_some(),
+            name,
+            ty,
+        })
 }
 
 fn parameter_list<'a>() -> impl Parser<'a, &'a str, Vec<FunctionParam>, Extra<'a>> {
@@ -93,6 +100,10 @@ mod tests {
         assert_function_snapshot!("fn add(a: i64, b: i64) -> i64 { a }");
     }
 
+    #[test]
+    fn function_with_public_param() {
+        assert_function_snapshot!("fn reveal(pub value: i64) -> i64 { value }");
+    }
     #[test]
     fn function_script_export() {
         assert_function_snapshot!("script fn main() {}");

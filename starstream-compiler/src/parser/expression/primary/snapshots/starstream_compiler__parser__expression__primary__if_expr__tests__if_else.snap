@@ -19,6 +19,7 @@ Spanned {
                     statements: [
                         Spanned {
                             node: VariableDeclaration {
+                                public: false,
                                 mutable: false,
                                 name: Identifier {
                                     name: "a",

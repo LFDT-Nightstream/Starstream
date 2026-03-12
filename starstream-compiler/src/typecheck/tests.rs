@@ -26,10 +26,24 @@ macro_rules! assert_typecheck_snapshot {
 
                 match typecheck_program(&program, TypecheckOptions { capture_traces: true }) {
                     Ok(success) => {
-                        write!(rendered, "{}", success.display_traces()).unwrap();
+                        for warning in &success.warnings {
+                            let report =
+                                Report::new(warning.clone()).with_source_code(named.clone());
+                            rendered.push_str(&render_report(&report)?);
+                            rendered.push('\n');
+                        }
+                        if success.warnings.is_empty() {
+                            write!(rendered, "{}", success.display_traces()).unwrap();
+                        }
                     }
-                    Err(errors) => {
-                        for error in errors {
+                    Err(failure) => {
+                        for warning in failure.warnings {
+                            let report =
+                                Report::new(warning).with_source_code(named.clone());
+                            rendered.push_str(&render_report(&report)?);
+                            rendered.push('\n');
+                        }
+                        for error in failure.errors {
                             let report =
                                 Report::new(error).with_source_code(named.clone());
                             rendered.push_str(&render_report(&report)?);
@@ -1063,6 +1077,226 @@ fn namespace_unknown_function_error() {
 
         fn main() {
             let x = cardano::nonexistent();
+        }
+        "#
+    );
+}
+
+#[test]
+fn local_assignment_without_disclose_ok() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main() {
+            let mut counter: i64 = 0;
+            counter = 1;
+        }
+        "#
+    );
+}
+
+#[test]
+fn storage_assignment_with_disclose_ok() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update(nextCounter: i64) {
+                counter = disclose(nextCounter);
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn storage_assignment_without_disclose_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update(nextCounter: i64) {
+                counter = nextCounter;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn storage_assignment_literal_without_disclose_ok() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update() {
+                counter = 1;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn disclose_private_value_does_not_warn() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main() {
+            let x = 1;
+            let _y = disclose(x);
+        }
+        "#
+    );
+}
+
+#[test]
+fn disclose_public_value_warns() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update() {
+                counter = disclose(counter + 1);
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn required_storage_disclose_does_not_warn() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update(nextCounter: i64) {
+                counter = (disclose(nextCounter));
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn nested_storage_disclose_warns_once() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update(nextCounter: i64) {
+                counter = disclose(disclose(nextCounter));
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn warning_and_error_are_both_returned() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update(nextCounter: i64) {
+                let _tmp = disclose(counter);
+                counter = nextCounter;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn storage_assignment_from_storage_expression_without_disclose_ok() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut counter: i64;
+            }
+
+            main fn update() {
+                counter = counter + 1;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn storage_assignment_from_private_local_with_disclose_ok() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut multiplier: i64;
+            }
+
+            main fn update(x: i64, y: i64) {
+                let w = x + y;
+                multiplier = disclose(w);
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn storage_assignment_from_public_local_without_disclose_ok() {
+    assert_typecheck_snapshot!(
+        r#"
+        utxo Counter {
+            storage {
+                let mut multiplier: i64;
+            }
+
+            main fn update(x: i64, y: i64) {
+                let pub w = disclose(x + y);
+                multiplier = w;
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn public_local_requires_public_initializer_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main(x: i64, y: i64) {
+            let pub w = x + y;
+        }
+        "#
+    );
+}
+
+#[test]
+fn assignment_to_public_local_from_private_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn main(pub x: i64, y: i64) {
+            let pub mut w = x;
+            w = y;
         }
         "#
     );

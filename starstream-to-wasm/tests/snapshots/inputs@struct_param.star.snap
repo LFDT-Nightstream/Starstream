@@ -59,6 +59,7 @@ Program {
                     },
                     params: [
                         FunctionParam {
+                            public: false,
                             name: Identifier {
                                 name: "token",
                                 span: 73..78,
@@ -209,6 +210,7 @@ TypedProgram {
                 },
                 params: [
                     TypedFunctionParam {
+                        public: false,
                         name: Identifier {
                             name: "token",
                             span: 73..78,

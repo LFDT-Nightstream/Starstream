@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/parser/expression/primary/disclose.rs
+description: "Code:\n\ndisclose(x)"
+---
+Spanned {
+    node: Disclose {
+        expr: Spanned {
+            node: Identifier(
+                Identifier {
+                    name: "x",
+                    span: 9..10,
+                },
+            ),
+            span: 9..10,
+        },
+    },
+    span: 0..11,
+}

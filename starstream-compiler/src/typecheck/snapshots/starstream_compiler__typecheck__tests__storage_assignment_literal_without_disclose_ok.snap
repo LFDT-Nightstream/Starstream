@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Counter {\n    storage {\n        let mut counter: i64;\n    }\n\n    main fn update() {\n        counter = 1;\n    }\n}\n"
+---
+T-Utxo: Counter => 
+  T-Fn: update => ()
+    T-Assign: {counter: i64} ⊢ counter = 1; ⇒ i64
+      T-Int: {counter: i64} ⊢ 1 ⇒ i64
+      Unify-Var: i64 ~ i64 => {i64/t3}

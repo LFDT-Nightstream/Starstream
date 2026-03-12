@@ -37,6 +37,7 @@ fn eval_block(block: &TypedBlock, locals: &Locals) -> ControlFlow<Value, Value> 
     for statement in &block.statements {
         match statement {
             TypedStatement::VariableDeclaration {
+                public: _,
                 mutable: _,
                 name,
                 value,
@@ -181,6 +182,7 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
         }
         // Nesting
         TypedExprKind::Grouping(expr) => eval(&expr.node, locals)?,
+        TypedExprKind::Disclose { expr } => eval(&expr.node, locals)?,
         TypedExprKind::Block(block) => eval_block(block, locals)?,
         TypedExprKind::If {
             branches,
@@ -241,6 +243,7 @@ fn eval_locals() {
     let block = TypedBlock {
         statements: vec![
             TypedStatement::VariableDeclaration {
+                public: false,
                 mutable: true,
                 name: foo.clone(),
                 value: Spanned::none(TypedExpr::new(

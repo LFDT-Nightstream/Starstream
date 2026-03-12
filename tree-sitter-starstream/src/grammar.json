@@ -292,7 +292,7 @@
               "members": [
                 {
                   "type": "SYMBOL",
-                  "name": "parameter"
+                  "name": "function_parameter"
                 },
                 {
                   "type": "REPEAT",
@@ -305,7 +305,7 @@
                       },
                       {
                         "type": "SYMBOL",
-                        "name": "parameter"
+                        "name": "function_parameter"
                       }
                     ]
                   }
@@ -345,6 +345,35 @@
         {
           "type": "SYMBOL",
           "name": "block"
+        }
+      ]
+    },
+    "function_parameter": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "pub"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "STRING",
+          "value": ":"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "type_annotation"
         }
       ]
     },
@@ -975,6 +1004,18 @@
         {
           "type": "STRING",
           "value": "let"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "STRING",
+              "value": "pub"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
         },
         {
           "type": "CHOICE",
@@ -1698,6 +1739,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "disclose_expression"
+        },
+        {
+          "type": "SYMBOL",
           "name": "emit_expression"
         },
         {
@@ -1753,6 +1798,31 @@
             "type": "SYMBOL",
             "name": "call_expression"
           }
+        }
+      ]
+    },
+    "disclose_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "disclose"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "FIELD",
+          "name": "value",
+          "content": {
+            "type": "SYMBOL",
+            "name": "expression"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ")"
         }
       ]
     },

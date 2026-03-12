@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nutxo Counter {\n    storage {\n        let mut counter: i64;\n    }\n\n    main fn update(nextCounter: i64) {\n        counter = disclose(disclose(nextCounter));\n    }\n}\n"
+---
+W0001 (https://starstream.nightstream.dev/warnings/W0001)
+
+  ! `disclose(...)` is unnecessary because the wrapped value is already public
+   ,-[test.star:7:19]
+ 6 |     main fn update(nextCounter: i64) {
+ 7 |         counter = disclose(disclose(nextCounter));
+   :                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 8 |     }
+   `----
+  help: `disclose(...)` is redundant because the wrapped value is already public.

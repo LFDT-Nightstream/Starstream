@@ -30,9 +30,10 @@ use starstream_types::{
 
 use super::{
     builtins::BuiltinRegistry,
-    env::{Binding, TypeEnv},
+    env::{Binding, BindingClass, BindingVisibility, TypeEnv},
     errors::{ConditionContext, EnumPayloadKind, TypeError, TypeErrorKind},
     tree::InferenceTree,
+    warnings::{TypeWarning, TypeWarningKind},
 };
 use crate::formatter;
 
@@ -48,6 +49,7 @@ pub struct TypecheckSuccess {
     pub program: TypedProgram,
     pub traces: Vec<InferenceTree>,
     pub generic_types: HashMap<String, GenericTypeDef>,
+    pub warnings: Vec<TypeWarning>,
 }
 
 impl TypecheckSuccess {
@@ -68,6 +70,14 @@ impl<'a> Display for DisplayTraces<'a> {
         }
         Ok(())
     }
+}
+
+/// Failed type-checking result preserving both errors and any warnings collected
+/// prior to the failure.
+#[derive(Debug)]
+pub struct TypecheckFailure {
+    pub errors: Vec<TypeError>,
+    pub warnings: Vec<TypeWarning>,
 }
 
 struct TypeRegistry {
@@ -161,11 +171,14 @@ enum EnumVariantInfoKind {
 pub fn typecheck_program(
     program: &Program,
     options: TypecheckOptions,
-) -> Result<TypecheckSuccess, Vec<TypeError>> {
+) -> Result<TypecheckSuccess, TypecheckFailure> {
     let mut inferencer = Inferencer::new(options.capture_traces);
 
     if let Err(error) = inferencer.register_type_definitions(&program.definitions) {
-        return Err(vec![error]);
+        return Err(TypecheckFailure {
+            errors: vec![error],
+            warnings: inferencer.warnings,
+        });
     }
 
     let mut typed_definitions = Vec::with_capacity(program.definitions.len());
@@ -187,14 +200,22 @@ pub fn typecheck_program(
     }
 
     if !errors.is_empty() {
-        return Err(errors);
+        return Err(TypecheckFailure {
+            errors,
+            warnings: inferencer.warnings,
+        });
     }
 
     // Default any unresolved integer type variables to i64.
     inferencer.default_int_vars();
 
     // Check range validity of integer literals against their resolved types.
-    inferencer.check_int_literal_ranges()?;
+    if let Err(errors) = inferencer.check_int_literal_ranges() {
+        return Err(TypecheckFailure {
+            errors,
+            warnings: inferencer.warnings,
+        });
+    }
 
     let mut typed_program = TypedProgram::new(typed_definitions);
     inferencer.apply_substitutions_program(&mut typed_program);
@@ -206,11 +227,13 @@ pub fn typecheck_program(
     };
 
     let generic_types = inferencer.build_generic_type_defs();
+    let warnings = inferencer.warnings;
 
     Ok(TypecheckSuccess {
         program: typed_program,
         traces,
         generic_types,
+        warnings,
     })
 }
 
@@ -229,6 +252,7 @@ struct Inferencer {
     events: EventRegistry,
     namespaces: NamespaceRegistry,
     builtins: BuiltinRegistry,
+    warnings: Vec<TypeWarning>,
 }
 
 struct FunctionRegistry {
@@ -324,6 +348,8 @@ struct FunctionCtx {
     /// Whether we are inside a `runtime` expression. Runtime functions can only
     /// be called inside a runtime.
     inside_runtime: bool,
+    /// Declaration spans for function parameters that are private (non-`pub`).
+    private_param_decl_spans: Vec<Span>,
 }
 
 impl Inferencer {
@@ -340,6 +366,7 @@ impl Inferencer {
             events: EventRegistry::new(),
             namespaces: NamespaceRegistry::new(),
             builtins: BuiltinRegistry::new(),
+            warnings: Vec::new(),
         };
         inferencer.register_prelude_types();
         inferencer
@@ -597,6 +624,8 @@ impl Inferencer {
                             decl_span: item.local.span(),
                             mutable: false,
                             scheme: Scheme::monomorphic(builtin.to_function_type()),
+                            class: BindingClass::Local,
+                            visibility: BindingVisibility::Private,
                         },
                     );
                 }
@@ -985,6 +1014,7 @@ impl Inferencer {
                         .iter()
                         .zip(&event.params)
                         .map(|(ty, param)| TypedFunctionParam {
+                            public: param.public,
                             name: param.name.clone(),
                             ty: ty.clone(),
                         })
@@ -1054,6 +1084,8 @@ impl Inferencer {
                 decl_span: var.name.span(),
                 mutable: true,
                 scheme: Scheme::monomorphic(ty.clone()),
+                class: BindingClass::Storage,
+                visibility: BindingVisibility::Public,
             },
         );
         Ok(TypedUtxoGlobal {
@@ -1195,6 +1227,8 @@ impl Inferencer {
                 decl_span: ident.span(),
                 mutable: false,
                 scheme: Scheme::monomorphic(ty),
+                class: BindingClass::Local,
+                visibility: BindingVisibility::Private,
             },
         );
         Ok(())
@@ -1501,17 +1535,29 @@ impl Inferencer {
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
         env.push_scope();
         let mut typed_params = Vec::with_capacity(function.params.len());
+        let mut private_param_decl_spans = Vec::new();
         for param in &function.params {
             let ty = self.type_from_annotation(&param.ty)?;
+            let decl_span = param.name.span_or(function.name.span());
+            if !param.public {
+                private_param_decl_spans.push(decl_span);
+            }
             env.insert(
                 param.name.name.clone(),
                 Binding {
-                    decl_span: param.name.span_or(function.name.span()),
+                    decl_span,
                     mutable: false,
                     scheme: Scheme::monomorphic(ty.clone()),
+                    class: BindingClass::Local,
+                    visibility: if param.public {
+                        BindingVisibility::Public
+                    } else {
+                        BindingVisibility::Private
+                    },
                 },
             );
             typed_params.push(TypedFunctionParam {
+                public: param.public,
                 name: param.name.clone(),
                 ty,
             });
@@ -1531,6 +1577,7 @@ impl Inferencer {
             saw_return: false,
             inside_raise: false,
             inside_runtime: false,
+            private_param_decl_spans,
         };
 
         let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
@@ -1578,6 +1625,7 @@ impl Inferencer {
         let stmt_repr = self.maybe_string(|| self.format_statement_src(statement));
         match statement {
             Statement::VariableDeclaration {
+                public,
                 mutable,
                 name,
                 ty,
@@ -1615,6 +1663,29 @@ impl Inferencer {
                     children.push(unify_trace);
                 }
 
+                let value_visibility = self.source_expr_visibility(env, value);
+                if *public && value_visibility != BindingVisibility::Public {
+                    let help = if let Some(param_name) =
+                        self.private_parameter_rhs_name(env, value, ctx)
+                    {
+                        format!(
+                            "`{param_name}` is a private parameter; declare it as `pub {param_name}: ...` in the function signature if callers should provide a public value here.",
+                        )
+                    } else {
+                        format!(
+                            "`{}` is public; wrap private RHS with `disclose(...)`, e.g., `let pub {} = disclose(expr);`",
+                            name.name, name.name
+                        )
+                    };
+                    return Err(TypeError::new(
+                        TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding {
+                            variable_name: name.name.clone(),
+                        },
+                        value.span,
+                    )
+                    .with_help(help));
+                }
+
                 let scheme = self.generalize(env, &value_type);
                 env.insert(
                     name.name.clone(),
@@ -1622,6 +1693,12 @@ impl Inferencer {
                         decl_span: name.span_or(value.span),
                         mutable: *mutable,
                         scheme,
+                        class: BindingClass::Local,
+                        visibility: if *public {
+                            BindingVisibility::Public
+                        } else {
+                            BindingVisibility::Private
+                        },
                     },
                 );
 
@@ -1636,6 +1713,7 @@ impl Inferencer {
 
                 Ok((
                     TypedStatement::VariableDeclaration {
+                        public: *public,
                         mutable: *mutable,
                         name: name.clone(),
                         value: typed_value,
@@ -1667,6 +1745,35 @@ impl Inferencer {
 
                 let expected_type = self.instantiate(&binding.scheme);
                 let (typed_value, value_trace) = self.infer_expr(env, value, ctx)?;
+                let value_visibility = self.source_expr_visibility(env, value);
+                if binding.visibility == BindingVisibility::Public
+                    && value_visibility != BindingVisibility::Public
+                {
+                    let binding_kind = if binding.class == BindingClass::Storage {
+                        "storage binding"
+                    } else {
+                        "public binding"
+                    };
+                    let help = if let Some(param_name) =
+                        self.private_parameter_rhs_name(env, value, ctx)
+                    {
+                        format!(
+                            "`{param_name}` is a private parameter; declare it as `pub {param_name}: ...` in the function signature if callers should provide a public value here.",
+                        )
+                    } else {
+                        format!(
+                            "`{}` is a {binding_kind}; wrap private RHS with `disclose(...)`, e.g., `{} = disclose(expr);`",
+                            target.name, target.name
+                        )
+                    };
+                    return Err(TypeError::new(
+                        TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding {
+                            variable_name: target.name.clone(),
+                        },
+                        value.span,
+                    )
+                    .with_help(help));
+                }
                 let actual_type = typed_value.node.ty.clone();
 
                 let (_, unify_trace) = self.unify(
@@ -2873,6 +2980,35 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
+            Expr::Disclose { expr: inner_expr } => {
+                let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
+                let result_ty = typed_inner.node.ty.clone();
+
+                if self.source_expr_visibility(env, inner_expr) == BindingVisibility::Public {
+                    self.warnings.push(
+                        TypeWarning::new(TypeWarningKind::UnnecessaryDisclose, expr.span).with_help(
+                            "`disclose(...)` is redundant because the wrapped value is already public.",
+                        ),
+                    );
+                }
+
+                let typed = Spanned::new(
+                    TypedExpr::new(
+                        result_ty.clone(),
+                        TypedExprKind::Disclose {
+                            expr: Box::new(typed_inner),
+                        },
+                    ),
+                    expr.span,
+                );
+
+                let result_repr = self.maybe_string(|| self.format_type(&result_ty));
+                let tree =
+                    self.make_trace("T-Disclose", env_context, subject_repr, result_repr, || {
+                        vec![inner_trace]
+                    });
+                Ok((typed, tree))
+            }
             Expr::Call { callee, args } => {
                 let (typed_callee, callee_trace) = self.infer_expr(env, callee, ctx)?;
                 let callee_ty = self.apply_for_display(&typed_callee.node.ty);
@@ -3183,6 +3319,83 @@ impl Inferencer {
 
                 Ok((typed, tree))
             }
+        }
+    }
+
+    fn private_parameter_rhs_name(
+        &self,
+        env: &TypeEnv,
+        expr: &Spanned<Expr>,
+        ctx: &FunctionCtx,
+    ) -> Option<String> {
+        let Expr::Identifier(ident) = &expr.node else {
+            return None;
+        };
+        let binding = env.get(&ident.name)?;
+        if ctx.private_param_decl_spans.contains(&binding.decl_span) {
+            Some(ident.name.clone())
+        } else {
+            None
+        }
+    }
+    fn source_expr_visibility(&self, env: &TypeEnv, expr: &Spanned<Expr>) -> BindingVisibility {
+        match &expr.node {
+            Expr::Literal(_) => BindingVisibility::Public,
+            Expr::Identifier(ident) => env
+                .get(&ident.name)
+                .map(|binding| binding.visibility)
+                .unwrap_or(BindingVisibility::Private),
+            Expr::Unary { expr, .. } | Expr::Grouping(expr) => {
+                self.source_expr_visibility(env, expr)
+            }
+            Expr::Binary { left, right, .. } => {
+                if self.source_expr_visibility(env, left) == BindingVisibility::Public
+                    && self.source_expr_visibility(env, right) == BindingVisibility::Public
+                {
+                    BindingVisibility::Public
+                } else {
+                    BindingVisibility::Private
+                }
+            }
+            Expr::StructLiteral { fields, .. } => {
+                if fields.iter().all(|field| {
+                    self.source_expr_visibility(env, &field.value) == BindingVisibility::Public
+                }) {
+                    BindingVisibility::Public
+                } else {
+                    BindingVisibility::Private
+                }
+            }
+            Expr::FieldAccess { target, .. } => self.source_expr_visibility(env, target),
+            Expr::EnumConstructor { payload, .. } => match payload {
+                EnumConstructorPayload::Unit => BindingVisibility::Public,
+                EnumConstructorPayload::Tuple(values) => {
+                    if values.iter().all(|value| {
+                        self.source_expr_visibility(env, value) == BindingVisibility::Public
+                    }) {
+                        BindingVisibility::Public
+                    } else {
+                        BindingVisibility::Private
+                    }
+                }
+                EnumConstructorPayload::Struct(fields) => {
+                    if fields.iter().all(|field| {
+                        self.source_expr_visibility(env, &field.value) == BindingVisibility::Public
+                    }) {
+                        BindingVisibility::Public
+                    } else {
+                        BindingVisibility::Private
+                    }
+                }
+            },
+            Expr::Disclose { .. } => BindingVisibility::Public,
+            Expr::Call { .. } => BindingVisibility::Private,
+            Expr::Block(_)
+            | Expr::If { .. }
+            | Expr::Match { .. }
+            | Expr::Emit { .. }
+            | Expr::Raise { .. }
+            | Expr::Runtime { .. } => BindingVisibility::Private,
         }
     }
 
@@ -3703,6 +3916,7 @@ impl Inferencer {
                     self.apply_expr(arg);
                 }
             }
+            TypedExprKind::Disclose { expr: inner } => self.apply_expr(inner),
             TypedExprKind::Raise { expr: inner } => self.apply_expr(inner),
             TypedExprKind::Runtime { expr: inner } => self.apply_expr(inner),
         }

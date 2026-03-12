@@ -1,0 +1,14 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn main(x: i64, y: i64) {\n    let pub w = x + y;\n}\n"
+---
+E0045 (https://starstream.nightstream.dev/errors/E0045)
+
+  x public binding `w` requires a public RHS; wrap private values with `disclose(...)`
+   ,-[test.star:2:17]
+ 1 | fn main(x: i64, y: i64) {
+ 2 |     let pub w = x + y;
+   :                 ^^^^^
+ 3 | }
+   `----
+  help: `w` is public; wrap private RHS with `disclose(...)`, e.g., `let pub w = disclose(expr);`

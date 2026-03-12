@@ -415,7 +415,8 @@ fn params_to_doc<'a>(params: &[FunctionParam], source: &'a str) -> RcDoc<'a, ()>
     } else {
         RcDoc::intersperse(
             params.iter().map(|param| {
-                identifier_to_doc(&param.name, source)
+                RcDoc::text(if param.public { "pub " } else { "" })
+                    .append(identifier_to_doc(&param.name, source))
                     .append(RcDoc::text(": "))
                     .append(type_annotation_to_doc(&param.ty, source))
             }),
@@ -527,12 +528,18 @@ fn statement_to_doc<'a>(
 ) -> RcDoc<'a, ()> {
     match statement {
         Statement::VariableDeclaration {
+            public,
             mutable,
             name,
             ty,
             value,
         } => RcDoc::text("let")
             .append(RcDoc::space())
+            .append(if *public {
+                RcDoc::text("pub").append(RcDoc::space())
+            } else {
+                RcDoc::nil()
+            })
             .append(if *mutable {
                 RcDoc::text("mut").append(RcDoc::space())
             } else {
@@ -991,7 +998,6 @@ fn expr_with_prec<'a>(
                     let args_doc = args.iter().map(|arg| {
                         expr_with_prec(&arg.node, PREC_LOWEST, ChildPosition::Top, source, comments)
                     });
-
                     let args_doc =
                         RcDoc::intersperse(args_doc, RcDoc::text(",").append(RcDoc::space()));
 
@@ -1002,6 +1008,12 @@ fn expr_with_prec<'a>(
                         .append(args_doc)
                         .append(RcDoc::text(")"))
                 }
+                Expr::Disclose { expr } => RcDoc::text("disclose")
+                    .append(RcDoc::text("("))
+                    .append(spanned(expr, source, |node| {
+                        expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source, comments)
+                    }))
+                    .append(RcDoc::text(")")),
                 Expr::Raise { expr } => RcDoc::text("raise").append(RcDoc::space()).append(
                     spanned(expr, source, |node| {
                         expr_with_prec(node, PREC_LOWEST, ChildPosition::Top, source, comments)
@@ -1064,6 +1076,7 @@ fn precedence(expr: &Expr) -> u8 {
         | Expr::Identifier(_)
         | Expr::StructLiteral { .. }
         | Expr::EnumConstructor { .. }
+        | Expr::Disclose { .. }
         | Expr::Emit { .. }
         | Expr::Raise { .. }
         | Expr::Runtime { .. } => PREC_PRIMARY,

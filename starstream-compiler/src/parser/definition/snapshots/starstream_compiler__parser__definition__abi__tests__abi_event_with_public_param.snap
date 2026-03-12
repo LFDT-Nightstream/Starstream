@@ -1,0 +1,50 @@
+---
+source: starstream-compiler/src/parser/definition/abi.rs
+description: "Code:\n\nabi Events {\n    event Transfer(pub sender: i64, to: i64);\n}\n"
+---
+AbiDef {
+    name: Identifier {
+        name: "Events",
+        span: 4..10,
+    },
+    parts: [
+        Event(
+            EventDef {
+                name: Identifier {
+                    name: "Transfer",
+                    span: 23..31,
+                },
+                params: [
+                    FunctionParam {
+                        public: true,
+                        name: Identifier {
+                            name: "sender",
+                            span: 36..42,
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: 44..47,
+                            },
+                            generics: [],
+                        },
+                    },
+                    FunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "to",
+                            span: 49..51,
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: 53..56,
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+            },
+        ),
+    ],
+}

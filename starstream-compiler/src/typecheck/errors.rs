@@ -1,6 +1,6 @@
 use std::fmt;
 
-use miette::{Diagnostic, LabeledSpan, SourceSpan};
+use miette::{Diagnostic, LabeledSpan};
 use starstream_types::{
     ErrorCode, Span, Type,
     ast::{BinaryOp, UnaryOp},
@@ -8,50 +8,40 @@ use starstream_types::{
 };
 use thiserror::Error;
 
+use super::diagnostic::{DiagnosticCore, to_source_span};
+
 #[derive(Debug, Error)]
 #[error("{kind}")]
 pub struct TypeError {
     pub kind: TypeErrorKind,
-    primary: Label,
-    secondary: Vec<Label>,
-    help: Option<String>,
+    core: DiagnosticCore,
 }
 
 impl TypeError {
     pub fn new(kind: TypeErrorKind, span: Span) -> Self {
         Self {
             kind,
-            primary: Label {
-                span,
-                message: None,
-                is_primary: true,
-            },
-            secondary: Vec::new(),
-            help: None,
+            core: DiagnosticCore::new(span),
         }
     }
 
     pub fn with_secondary(mut self, span: Span, message: impl Into<String>) -> Self {
-        self.secondary.push(Label {
-            span,
-            message: Some(message.into()),
-            is_primary: false,
-        });
+        self.core = self.core.with_secondary(span, message);
         self
     }
 
     pub fn with_primary_message(mut self, message: impl Into<String>) -> Self {
-        self.primary.message = Some(message.into());
+        self.core = self.core.with_primary_message(message);
         self
     }
 
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
-        self.help = Some(help.into());
+        self.core = self.core.with_help(help);
         self
     }
 
     pub fn primary_span(&self) -> Span {
-        self.primary.span
+        self.core.primary_span()
     }
 }
 
@@ -68,19 +58,13 @@ impl Diagnostic for TypeError {
     }
 
     fn help(&self) -> Option<Box<dyn fmt::Display + '_>> {
-        self.help
-            .as_ref()
-            .map(|help| Box::new(help.as_str()) as Box<dyn fmt::Display>)
+        self.core
+            .help()
+            .map(|help| Box::new(help) as Box<dyn fmt::Display>)
     }
 
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        let total = 1 + self.secondary.len();
-        let mut labels = Vec::with_capacity(total);
-
-        labels.push(self.primary.to_labeled_span(None));
-        for secondary in &self.secondary {
-            labels.push(secondary.to_labeled_span(Some(false)));
-        }
+        let mut labels = self.core.labels();
 
         if let TypeErrorKind::ArgumentTypeMismatch {
             expected,
@@ -99,44 +83,6 @@ impl Diagnostic for TypeError {
 
         Some(Box::new(labels.into_iter()))
     }
-}
-
-#[derive(Debug)]
-struct Label {
-    span: Span,
-    message: Option<String>,
-    is_primary: bool,
-}
-
-impl Label {
-    fn to_labeled_span(&self, force_primary: Option<bool>) -> LabeledSpan {
-        let span = to_source_span(self.span);
-        let message = self.message.clone();
-        let is_primary = force_primary.unwrap_or(self.is_primary);
-
-        match message {
-            Some(msg) => {
-                if is_primary {
-                    LabeledSpan::new_primary_with_span(Some(msg), span)
-                } else {
-                    LabeledSpan::new_with_span(Some(msg), span)
-                }
-            }
-            None => {
-                if is_primary {
-                    LabeledSpan::new_primary_with_span(None, span)
-                } else {
-                    LabeledSpan::new_with_span(None, span)
-                }
-            }
-        }
-    }
-}
-
-fn to_source_span(span: Span) -> SourceSpan {
-    let start = span.start.into();
-    let len = span.end.saturating_sub(span.start);
-    SourceSpan::new(start, len)
 }
 
 #[derive(Debug, Clone)]
@@ -306,6 +252,10 @@ pub enum TypeErrorKind {
     RuntimeWithoutKeyword {
         function_name: String,
     },
+    /// Writing or initializing a public binding requires explicit disclosure of private data.
+    ExplicitDisclosureRequiredForPublicBinding {
+        variable_name: String,
+    },
     /// Generic type used with wrong number of type arguments.
     WrongGenericArity {
         type_name: String,
@@ -369,6 +319,7 @@ impl TypeErrorKind {
             TypeErrorKind::WrongGenericArity { .. } => error_code!(E0042),
             TypeErrorKind::ReturnTypeNotAllowed => error_code!(E0043),
             TypeErrorKind::LiteralOutOfRange { .. } => error_code!(E0044),
+            TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding { .. } => error_code!(E0045),
         }
     }
 }
@@ -678,6 +629,12 @@ impl fmt::Display for TypeErrorKind {
                 write!(
                     f,
                     "runtime function `{function_name}` must be called with `runtime`"
+                )
+            }
+            TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding { variable_name } => {
+                write!(
+                    f,
+                    "public binding `{variable_name}` requires a public RHS; wrap private values with `disclose(...)`"
                 )
             }
             TypeErrorKind::WrongGenericArity {

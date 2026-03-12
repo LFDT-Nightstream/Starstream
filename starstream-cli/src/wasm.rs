@@ -48,9 +48,17 @@ impl Wasm {
         };
 
         let typed = match starstream_compiler::typecheck_program(&program, Default::default()) {
-            Ok(program) => program,
-            Err(errors) => {
-                for error in errors {
+            Ok(mut success) => {
+                for warning in success.warnings.drain(..) {
+                    print_diagnostic(named.clone(), warning)?;
+                }
+                success
+            }
+            Err(failure) => {
+                for warning in failure.warnings {
+                    print_diagnostic(named.clone(), warning)?;
+                }
+                for error in failure.errors {
                     print_diagnostic(named.clone(), error)?;
                 }
                 std::process::exit(1);
@@ -173,7 +181,7 @@ fn write_pathname(dest: &mut impl std::io::Write, path: &Path) -> Result<(), std
             b'$' => dest.write_all(b"$$")?,
             b'#' => dest.write_all(b"\\#")?,
             b' ' => dest.write_all(b"\\ ")?,
-            b'\\' => dest.write_all(&[b'/'])?,
+            b'\\' => dest.write_all(b"/")?,
             _ => dest.write_all(&[byte])?,
         }
     }

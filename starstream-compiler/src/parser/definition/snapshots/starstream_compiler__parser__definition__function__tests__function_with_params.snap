@@ -10,6 +10,7 @@ FunctionDef {
     },
     params: [
         FunctionParam {
+            public: false,
             name: Identifier {
                 name: "a",
                 span: 7..8,
@@ -23,6 +24,7 @@ FunctionDef {
             },
         },
         FunctionParam {
+            public: false,
             name: Identifier {
                 name: "b",
                 span: 15..16,

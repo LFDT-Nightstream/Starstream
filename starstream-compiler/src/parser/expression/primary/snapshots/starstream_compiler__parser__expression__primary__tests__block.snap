@@ -8,6 +8,7 @@ Spanned {
             statements: [
                 Spanned {
                     node: VariableDeclaration {
+                        public: false,
                         mutable: true,
                         name: Identifier {
                             name: "a",
