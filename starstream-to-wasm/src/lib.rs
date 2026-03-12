@@ -846,6 +846,7 @@ impl Compiler {
                     .and(ok);
                 dest.extend(flat);
             }
+            Type::UtxoAny | Type::UtxoNamed(_) => dest.push(ValType::I32),
             _ => ok = Err(self.push_error(span, format!("unknown core lowering for {ty:?}"))),
         }
         ok
