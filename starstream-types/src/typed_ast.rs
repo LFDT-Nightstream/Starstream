@@ -116,6 +116,7 @@ pub struct TypedEnumVariant {
 pub struct TypedUtxoDef {
     pub name: Identifier,
     pub parts: Vec<TypedUtxoPart>,
+    pub ty: Type,
 }
 
 #[derive(Clone, Debug)]

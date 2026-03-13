@@ -68,9 +68,9 @@ Language features:
   - [ ] public method `pub fn`s ?
   - [ ] abi impl blocks
   - [ ] coroutine support (yield/resume)
-- [ ] UTXO handles
+- [x] UTXO handles
   - [ ] generic `Utxo` handle
-  - [ ] `utxo UtxoName` handle types
+  - [x] `utxo UtxoName` handle types
   - [ ] `abi AbiName` handle types
   - [ ] table-driven provable downcasting
 - [ ] tokens stuff

@@ -4,12 +4,9 @@
 //! Spec: https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md
 #![allow(unused_variables)]
 
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
-use wasm_encoder::{
-    ComponentType, ComponentTypeEncoder, ComponentValType, InstanceType, InstructionSink, MemArg,
-    PrimitiveValType,
-};
+use wasm_encoder::{InstructionSink, MemArg};
 
 /// Despecialized component value type. Like [wasm_encoder::ComponentValType].
 #[derive(Hash, PartialEq, Eq, Debug)]
@@ -51,8 +48,12 @@ pub enum ComponentAbiType {
     Flags {
         labels: Vec<String>,
     },
-    Own,
-    Borrow,
+    Own {
+        resource: u32,
+    },
+    Borrow {
+        resource: u32,
+    },
     Stream,
     Future,
 }
@@ -92,7 +93,7 @@ impl ComponentAbiType {
                 ("error".to_string(), err.clone()),
             ]),
             ComponentAbiType::Flags { labels } => todo!(),
-            ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
+            ComponentAbiType::Own { .. } | ComponentAbiType::Borrow { .. } => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
         }
     }
@@ -165,7 +166,7 @@ impl ComponentAbiType {
                 ("error".to_string(), err.clone()),
             ]),
             ComponentAbiType::Flags { labels } => todo!(),
-            ComponentAbiType::Own | ComponentAbiType::Borrow => 4,
+            ComponentAbiType::Own { .. } | ComponentAbiType::Borrow { .. } => 4,
             ComponentAbiType::Stream | ComponentAbiType::Future => 4,
         }
     }
@@ -216,7 +217,10 @@ impl ComponentAbiType {
                     i.i32_store8(mem_arg);
                 }));
             }
-            ComponentAbiType::S16 | ComponentAbiType::U16 => {
+            ComponentAbiType::S16
+            | ComponentAbiType::U16
+            | ComponentAbiType::Own { .. }
+            | ComponentAbiType::Borrow { .. } => {
                 out.push(Box::new(move |mut i| {
                     i.i32_store16(mem_arg);
                 }));
@@ -262,130 +266,9 @@ impl ComponentAbiType {
             ComponentAbiType::Option { .. } => todo!(),
             ComponentAbiType::Result { .. } => todo!(),
             ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own => todo!(),
-            ComponentAbiType::Borrow => todo!(),
             ComponentAbiType::Stream => todo!(),
             ComponentAbiType::Future => todo!(),
         }
-    }
-}
-
-/// Abstraction over [ComponentType] and [InstanceType].
-pub trait TypeRegistry {
-    fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>);
-}
-
-impl TypeRegistry for ComponentType {
-    fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.type_count();
-        (idx, self.ty())
-    }
-}
-
-impl TypeRegistry for InstanceType {
-    fn ty(&mut self) -> (u32, ComponentTypeEncoder<'_>) {
-        let idx = self.type_count();
-        (idx, self.ty())
-    }
-}
-
-#[derive(Default)]
-pub struct TypeBuilder<T> {
-    pub inner: T,
-    pub component_to_encoded: HashMap<Rc<ComponentAbiType>, ComponentValType>,
-}
-
-impl<T: TypeRegistry> TypeBuilder<T> {
-    pub fn encode_func<'a>(
-        &mut self,
-        params: impl Iterator<Item = (&'a str, Rc<ComponentAbiType>)>,
-        result: Option<&Rc<ComponentAbiType>>,
-    ) -> u32 {
-        let params = params
-            .map(|p| (p.0, self.encode_value(&p.1)))
-            .collect::<Vec<_>>();
-        let result = result.map(|r| self.encode_value(r));
-
-        let (idx, enc) = self.inner.ty();
-        enc.function().params(params).result(result);
-        idx
-    }
-
-    pub fn encode_value(&mut self, ty: &Rc<ComponentAbiType>) -> ComponentValType {
-        if let Some(&cvt) = self.component_to_encoded.get(ty) {
-            return cvt;
-        }
-
-        let cvt = match &**ty {
-            ComponentAbiType::Bool => ComponentValType::Primitive(PrimitiveValType::Bool),
-            ComponentAbiType::S8 => ComponentValType::Primitive(PrimitiveValType::S8),
-            ComponentAbiType::U8 => ComponentValType::Primitive(PrimitiveValType::U8),
-            ComponentAbiType::S16 => ComponentValType::Primitive(PrimitiveValType::S16),
-            ComponentAbiType::U16 => ComponentValType::Primitive(PrimitiveValType::U16),
-            ComponentAbiType::S32 => ComponentValType::Primitive(PrimitiveValType::S32),
-            ComponentAbiType::U32 => ComponentValType::Primitive(PrimitiveValType::U32),
-            ComponentAbiType::S64 => ComponentValType::Primitive(PrimitiveValType::S64),
-            ComponentAbiType::U64 => ComponentValType::Primitive(PrimitiveValType::U64),
-            ComponentAbiType::F32 => ComponentValType::Primitive(PrimitiveValType::F32),
-            ComponentAbiType::F64 => ComponentValType::Primitive(PrimitiveValType::F64),
-            ComponentAbiType::Char => ComponentValType::Primitive(PrimitiveValType::Char),
-            ComponentAbiType::String => ComponentValType::Primitive(PrimitiveValType::String),
-            ComponentAbiType::ErrorContext => {
-                ComponentValType::Primitive(PrimitiveValType::ErrorContext)
-            }
-            ComponentAbiType::List { .. } => todo!(),
-            ComponentAbiType::Record { fields } => {
-                let fields: Vec<_> = fields
-                    .iter()
-                    .map(|f| (f.0.as_str(), self.encode_value(&f.1)))
-                    .collect();
-                let (idx, ty) = self.inner.ty();
-                ty.defined_type().record(fields);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Tuple { fields } => {
-                let fields: Vec<_> = fields.iter().map(|f| self.encode_value(f)).collect();
-                let (idx, ty) = self.inner.ty();
-                ty.defined_type().tuple(fields);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Variant { cases } => {
-                let cases: Vec<_> = cases
-                    .iter()
-                    .map(|(name, ty)| {
-                        (
-                            name.as_str(),
-                            ty.as_ref().map(|ty| self.encode_value(ty)),
-                            None,
-                        )
-                    })
-                    .collect();
-                let (idx, ty) = self.inner.ty();
-                ty.defined_type().variant(cases);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Option { inner } => {
-                let inner_val = self.encode_value(inner);
-                let (idx, ty) = self.inner.ty();
-                ty.defined_type().option(inner_val);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Result { ok, err } => {
-                let ok_val = ok.as_ref().map(|t| self.encode_value(t));
-                let err_val = err.as_ref().map(|t| self.encode_value(t));
-                let (idx, ty) = self.inner.ty();
-                ty.defined_type().result(ok_val, err_val);
-                ComponentValType::Type(idx)
-            }
-            ComponentAbiType::Flags { .. } => todo!(),
-            ComponentAbiType::Own => todo!(),
-            ComponentAbiType::Borrow => todo!(),
-            ComponentAbiType::Stream => todo!(),
-            ComponentAbiType::Future => todo!(),
-        };
-
-        self.component_to_encoded.insert(ty.clone(), cvt);
-        cvt
     }
 }
 

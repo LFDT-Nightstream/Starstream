@@ -376,6 +376,36 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 - Each scope has a table of variables, identified by name and having a static type and a current value.
 - Syntactic blocks (curly braces) introduce new scopes.
 
+## Types
+
+### Built-in integer types
+
+| Type  | Signed | Bits | Min                        | Max                       |
+| ----- | ------ | ---- | -------------------------- | ------------------------- |
+| `i8`  | yes    | 8    | -128                       | 127                       |
+| `i16` | yes    | 16   | -32768                     | 32767                     |
+| `i32` | yes    | 32   | -2147483648                | 2147483647                |
+| `i64` | yes    | 64   | -9223372036854775808       | 9223372036854775807       |
+| `u8`  | no     | 8    | 0                          | 255                       |
+| `u16` | no     | 16   | 0                          | 65535                     |
+| `u32` | no     | 32   | 0                          | 4294967295                |
+| `u64` | no     | 64   | 0                          | 18446744073709551615      |
+
+### Other built-in types
+
+- `()` - unit type with one value, `()`
+- `bool` - boolean type with two values, `true` and `false`
+- `Option<T>` - generic type with `None` and `Some(T)` variants
+- `Result<T, E>` - generic type with `Ok(T)` and `Err(E)` variants
+- `Utxo` - handle to a Utxo of unknown contract and ABI
+
+### User-defined types
+
+- `struct Foo` syntax declares record types
+- `enum Foo` syntax declares variant types
+- `utxo Foo` syntax declares Utxo handle types of known contract but unknown ABI
+  - `main fn` items within the `utxo` block act as this type's constructors
+
 ## Expression semantics
 
 - Integer literals are polymorphic: an unadorned numeric literal like `42` adopts the integer type determined by context (e.g. a type annotation or function parameter type). When no context constrains the type, the literal defaults to `i64`. A compile-time error is emitted if the literal value does not fit in the resolved type (e.g. `let x: i8 = 300` is an error).
@@ -395,18 +425,6 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 - Arithmetic operators: `+`, `-`, `*`, `/`, `%` work over integers of the same type.
   - Both operands must have the same integer type; cross-type arithmetic (e.g. `i32 + i64`) is a type error.
   - The supported integer types and their ranges are:
-
-    | Type  | Signed | Bits | Min                        | Max                       |
-    | ----- | ------ | ---- | -------------------------- | ------------------------- |
-    | `i8`  | yes    | 8    | -128                       | 127                       |
-    | `i16` | yes    | 16   | -32768                     | 32767                     |
-    | `i32` | yes    | 32   | -2147483648                | 2147483647                |
-    | `i64` | yes    | 64   | -9223372036854775808       | 9223372036854775807       |
-    | `u8`  | no     | 8    | 0                          | 255                       |
-    | `u16` | no     | 16   | 0                          | 65535                     |
-    | `u32` | no     | 32   | 0                          | 4294967295                |
-    | `u64` | no     | 64   | 0                          | 18446744073709551615      |
-
   - Integer overflow and underflow is checked at runtime and traps.
   - `/` and `%` are floored for signed types. `%` has the same sign as the divisor.
   - For unsigned types, `/` and `%` are standard unsigned division and remainder.
@@ -443,13 +461,13 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$          | See [truth tables]        |
 | expression != expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
 |                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
-
-In the rules above, $Int$ stands for any single integer type from `{i8, i16, i32, i64, u8, u16, u32, u64}`. Both operands of a binary operator must have the **same** integer type.
 | expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
 | expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
 | f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$ | Function call             |
 | disclose(e)                 | $\dfrac{Γ ⊢ e : T}{Γ ⊢ disclose(e) : T}$                                   | Converts `e` to public visibility |
 | emit E(e₁, ..., eₙ)         | $\dfrac{E : event(T_1, ..., T_n) ∧ Γ ⊢ e_i : T_i}{Γ ⊢ emit\ E(e_1, ..., e_n) : ()}$ | Event emission            |
+
+In the rules above, $Int$ stands for any single integer type from `{i8, i16, i32, i64, u8, u16, u32, u64}`. Both operands of a binary operator must have the **same** integer type.
 
 ### Structural typing rules
 
@@ -510,7 +528,6 @@ The remainder always has the sign of the right-hand side.
 - Product `struct` and sum `enum` types.
   - Tuples = anonymous structs.
   - Unions = anonymous enums.
-- Should compile to WIT.
 - Has support for linear types.
 - Pseudo-generics for built-in constructs like `Utxo<AnotherContractName>`.
   - Because we eventually need functions that can accept "any UTXO satisfying X condition".
@@ -560,9 +577,6 @@ The Env of the semantics is defined by the following contexts:
 Type conveniences:
 
 - Pattern matching.
-  - In `match`:
-    - Enums should have exhaustiveness checking.
-    - Motive: match on enum messages between contracts.
   - In `let`:
     - When one pattern can cover the whole value space (namely structs).
   - Spread operator `..` to ignore remainder of fields.
