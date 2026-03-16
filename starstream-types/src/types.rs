@@ -160,11 +160,7 @@ pub enum Type {
     /// Unit `()` value used for statement expressions and other places that
     /// conceptually return nothing.
     Unit,
-    /// Function type `params -> result` with an optional effect.
-    ///
-    /// We don't expose user-defined functions yet but code generation already
-    /// relies on the concept of callable blocks. Keeping this variant gives us
-    /// a convenient hook for when functions land.
+    /// Function type `(params) -> result` with an optional effect.
     Function {
         params: Vec<Type>,
         result: Box<Type>,
@@ -176,6 +172,10 @@ pub enum Type {
     Record(RecordType),
     /// Enum/sum type with named variants.
     Enum(EnumType),
+    /// The built-in `Utxo` type.
+    UtxoAny,
+    /// The type created by a `utxo` definition.
+    UtxoNamed(String),
 }
 
 impl Type {
@@ -328,6 +328,8 @@ impl Type {
                 }
                 TypeDocMode::Expanded => enum_doc(enum_type, params),
             },
+            Type::UtxoAny => RcDoc::text("Utxo"),
+            Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
         }
     }
 }

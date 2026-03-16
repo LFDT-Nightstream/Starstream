@@ -21,6 +21,10 @@ pub struct Wasm {
     #[arg(long)]
     output_component: Option<PathBuf>,
 
+    /// Output a binary WIT representation to this file.
+    #[arg(long)]
+    output_binary_wit: Option<PathBuf>,
+
     /// Output component WIT text to this file.
     #[arg(long)]
     output_wit: Option<PathBuf>,
@@ -66,16 +70,24 @@ impl Wasm {
         };
 
         // Wasm
-        let (wasm, errors) = starstream_to_wasm::compile(&typed.program);
-        for error in errors {
+        let compile_result = starstream_to_wasm::compile(&typed.program);
+        for error in compile_result.errors {
             print_diagnostic(named.clone(), error)?;
         }
-        let Some(wasm) = wasm else {
+        let Some(wasm) = compile_result.wasm else {
             std::process::exit(1);
         };
         if let Some(output_core) = &self.output_core {
             fs.write(output_core, &wasm)
                 .expect("Error writing Wasm output");
+        }
+
+        if let Some(output_binary_wit) = self.output_binary_wit {
+            let binary_wit = compile_result
+                .binary_wit
+                .expect("Strange: compilation succeeded, but there was no binary WIT");
+            fs.write(&output_binary_wit, &binary_wit)
+                .expect("Error writing binary WIT output");
         }
 
         // Componentize

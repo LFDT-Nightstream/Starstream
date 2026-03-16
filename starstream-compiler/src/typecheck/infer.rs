@@ -132,6 +132,7 @@ struct TypeEntry {
 enum TypeEntryKind {
     Struct { fields: Vec<StructFieldInfo> },
     Enum { variants: Vec<EnumVariantInfo> },
+    Handle,
 }
 
 #[derive(Clone)]
@@ -502,7 +503,7 @@ impl Inferencer {
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
-                Definition::Utxo(_) => {}
+                Definition::Utxo(def) => self.register_utxo(def)?,
                 Definition::Abi(def) => self.register_abi(def)?,
             }
         }
@@ -866,6 +867,22 @@ impl Inferencer {
         Ok(())
     }
 
+    fn register_utxo(&mut self, def: &UtxoDef) -> Result<(), TypeError> {
+        let ty = Type::UtxoNamed(def.name.to_string());
+        self.types.insert(
+            def.name.to_string(),
+            TypeEntry {
+                ty,
+                kind: TypeEntryKind::Handle,
+                span: def.name.span(),
+                type_params: vec![],
+                doc: None,
+                variant_docs: HashMap::new(),
+            },
+        );
+        Ok(())
+    }
+
     fn build_typed_struct(&self, def: &StructDef) -> Result<TypedStructDef, TypeError> {
         let info = self.types.struct_info(&def.name.name).ok_or_else(|| {
             TypeError::new(
@@ -1067,6 +1084,7 @@ impl Inferencer {
             TypedUtxoDef {
                 name: def.name.clone(),
                 parts,
+                ty: Type::UtxoNamed(def.name.to_string()),
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))
@@ -3454,6 +3472,7 @@ impl Inferencer {
             "bool" => Ok(Type::bool()),
             "()" => Ok(Type::unit()),
             "_" => Ok(self.fresh_var()),
+            "Utxo" => Ok(Type::UtxoAny),
             other => match self.types.get(other) {
                 Some(entry) if !entry.type_params.is_empty() => Err(TypeError::new(
                     TypeErrorKind::WrongGenericArity {
@@ -3782,6 +3801,8 @@ impl Inferencer {
             Type::Int(w) => Type::Int(*w),
             Type::Bool => Type::Bool,
             Type::Unit => Type::Unit,
+            Type::UtxoAny => Type::UtxoAny,
+            Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
         }
     }
 
@@ -4657,6 +4678,8 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Int(w) => Type::Int(*w),
         Type::Bool => Type::Bool,
         Type::Unit => Type::Unit,
+        Type::UtxoAny => Type::UtxoAny,
+        Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
     }
 }
 
@@ -4693,7 +4716,7 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
                     fields.iter().any(|field| occurs_in(var, &field.ty, subst))
                 }
             }),
-        Type::Int(_) | Type::Bool | Type::Unit => false,
+        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => false,
     }
 }
 
@@ -4743,7 +4766,7 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
                 }
             }
         }
-        Type::Int(_) | Type::Bool | Type::Unit => {}
+        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => {}
     }
 }
 
