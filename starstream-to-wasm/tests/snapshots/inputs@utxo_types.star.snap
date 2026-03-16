@@ -1,0 +1,171 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_types.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 5..11,
+                    },
+                    parts: [],
+                },
+            ),
+            span: 0..18,
+        },
+        Spanned {
+            node: Function(
+                FunctionDef {
+                    export: Some(
+                        Script,
+                    ),
+                    name: Identifier {
+                        name: "script_accepts_utxos",
+                        span: 28..48,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "utxo",
+                                span: 49..53,
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Utxo",
+                                    span: 55..59,
+                                },
+                                generics: [],
+                            },
+                        },
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "my_utxo",
+                                span: 61..68,
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "MyUtxo",
+                                    span: 70..76,
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                        span: 78..82,
+                    },
+                },
+            ),
+            span: 18..82,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Utxo: MyUtxo => 
+
+T-Fn: script_accepts_utxos => ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: 5..11,
+                },
+                parts: [],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
+            },
+        ),
+        Function(
+            TypedFunctionDef {
+                export: Some(
+                    Script,
+                ),
+                name: Identifier {
+                    name: "script_accepts_utxos",
+                    span: 28..48,
+                },
+                params: [
+                    TypedFunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "utxo",
+                            span: 49..53,
+                        },
+                        ty: UtxoAny,
+                    },
+                    TypedFunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "my_utxo",
+                            span: 61..68,
+                        },
+                        ty: UtxoNamed(
+                            "MyUtxo",
+                        ),
+                    },
+                ],
+                return_type: Unit,
+                effect: Pure,
+                body: TypedBlock {
+                    statements: [],
+                    tail_expression: None,
+                },
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i32 i32)))
+  (export "script-accepts-utxos" (func 0))
+  (func (;0;) (type 0) (param i32 i32))
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "my-utxo" (type (;0;) (sub resource)))
+              (import "utxo" (type (;1;) (sub resource)))
+              (type (;2;) (borrow 1))
+              (type (;3;) (borrow 0))
+              (type (;4;) (func (param "utxo" 2) (param "my-utxo" 3)))
+              (export (;0;) "script-accepts-utxos" (func (type 4)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  resource my-utxo;
+
+  resource utxo;
+
+  export script-accepts-utxos: func(utxo: borrow<utxo>, my-utxo: borrow<my-utxo>);
+}
