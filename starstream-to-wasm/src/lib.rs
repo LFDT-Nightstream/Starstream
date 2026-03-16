@@ -379,6 +379,12 @@ impl Compiler {
         }
     }
 
+    fn function_count(&self) -> u32 {
+        // TODO: if we start importing non-funcions, we'll need to track that
+        // ourselves, since self.imports.len() will then be too big.
+        self.imports.len() + self.functions.len()
+    }
+
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
     fn add_function(&mut self, ty: FuncType, code: Function) -> u32 {
@@ -387,7 +393,7 @@ impl Compiler {
         // module's own functions.
 
         let type_index = self.add_core_func_type(ty);
-        let func_index = self.functions.len();
+        let func_index = self.function_count();
         self.functions.function(type_index);
 
         let mut vec = Vec::new();
@@ -1163,7 +1169,7 @@ impl Compiler {
                         core_params.iter().copied(),
                         core_results.iter().copied(),
                     ));
-                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
+                    let func = self.function_count();
                     self.imports.import(
                         &def.from.to_string(),
                         &kebab,
@@ -1210,7 +1216,7 @@ impl Compiler {
                         core_params.iter().copied(),
                         std::iter::empty(),
                     ));
-                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
+                    let func = self.function_count();
                     self.imports
                         .import(&interface, &kebab, EntityType::Function(core_fn_ty));
                     self.callables.insert(event.name.as_str().to_owned(), func);
