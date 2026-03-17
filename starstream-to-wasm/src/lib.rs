@@ -382,15 +382,11 @@ impl Compiler {
     }
 
     fn import_function(&mut self, module: &str, field: &str, ty: u32) -> u32 {
-        assert_eq!(self.functions.len(), 0); // Imports must precede functions.
+        assert_eq!(self.functions.len(), 0); // Imports must precede functions per Wasm spec.
         let idx = self.imported_functions;
         self.imports.import(module, field, EntityType::Function(ty));
         self.imported_functions += 1;
         idx
-    }
-
-    fn function_count(&self) -> u32 {
-        self.imported_functions + self.functions.len()
     }
 
     /// Add a new function to both the `functions` and `code` section, and
@@ -401,7 +397,7 @@ impl Compiler {
         // module's own functions.
 
         let type_index = self.add_core_func_type(ty);
-        let func_index = self.function_count();
+        let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
 
         let mut vec = Vec::new();
