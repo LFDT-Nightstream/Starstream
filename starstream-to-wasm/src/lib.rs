@@ -106,6 +106,8 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
+    imported_functions: u32,
+
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
@@ -379,10 +381,16 @@ impl Compiler {
         }
     }
 
+    fn import_function(&mut self, module: &str, field: &str, ty: u32) -> u32 {
+        assert_eq!(self.functions.len(), 0); // Imports must precede functions.
+        let idx = self.imported_functions;
+        self.imports.import(module, field, EntityType::Function(ty));
+        self.imported_functions += 1;
+        idx
+    }
+
     fn function_count(&self) -> u32 {
-        // TODO: if we start importing non-funcions, we'll need to track that
-        // ourselves, since self.imports.len() will then be too big.
-        self.imports.len() + self.functions.len()
+        self.imported_functions + self.functions.len()
     }
 
     /// Add a new function to both the `functions` and `code` section, and
@@ -1169,12 +1177,7 @@ impl Compiler {
                         core_params.iter().copied(),
                         core_results.iter().copied(),
                     ));
-                    let func = self.function_count();
-                    self.imports.import(
-                        &def.from.to_string(),
-                        &kebab,
-                        EntityType::Function(core_fn_ty),
-                    );
+                    let func = self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
                     self.callables.insert(local_name, func);
 
                     // Component import
@@ -1216,9 +1219,7 @@ impl Compiler {
                         core_params.iter().copied(),
                         std::iter::empty(),
                     ));
-                    let func = self.function_count();
-                    self.imports
-                        .import(&interface, &kebab, EntityType::Function(core_fn_ty));
+                    let func = self.import_function(&interface, &kebab, core_fn_ty);
                     self.callables.insert(event.name.as_str().to_owned(), func);
 
                     // Component import
