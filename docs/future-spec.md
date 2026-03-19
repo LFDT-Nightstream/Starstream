@@ -12,15 +12,12 @@ they are finalized and implemented.
 
 ## Types
 
-- Structural.
-- Product `struct` and sum `enum` types.
-  - Tuples = anonymous structs.
-  - Unions = anonymous enums.
-- Has support for linear types.
-- Pseudo-generics for built-in constructs like `Utxo<AnotherContractName>`.
-  - Because we eventually need functions that can accept "any UTXO satisfying X condition".
+- Anonymous enums.
+- Utxo types are linear/affine (use exactly once, with including a Utxo in the output either explicit or implicit).
+- `abi MyAbi` declares a handle type similar to that of `utxo MyUtxo`.
+- Expand Utxo types, which currently allow constraints on ABI and contract, to allow constraints on tokens as well. Syntax TBD.
 - Effects and resumable errors are typed as part of the signature of a function.
-- Fatal errors (fail the transaction) are not typed.
+  - Fatal errors (fail the transaction) are not typed.
 
 ## Type identities
 
@@ -38,13 +35,10 @@ Structure type definitions can be hashed for comparison. Names do not matter (st
 
 ## Pattern matching
 
-- Expand `let` to permit patterns, not just identifiers, with checking that
-  - When one pattern can cover the whole value space (namely structs).
+- Expand `let` to permit patterns, not just identifiers, with checking that the pattern is irrefutable (usually structs).
 - Add spread operator `..` to ignore remainder of fields.
 
-## Semantics
-
-### Environment
+## Semantic environment
 
 The Env of the semantics is defined by the following contexts:
 
@@ -67,3 +61,20 @@ The Env of the semantics is defined by the following contexts:
 ## Tests
 
 In-script unit and property tests.
+
+## Imports
+
+More import sources:
+
+- `namespace:package/interface` with optional `@1.1.1` version
+  - WIT data found at standard(?) search path (ex. `wit/` folder)
+  - WIT imports stay imports and must be fulfilled by linking or a runtime extension
+- `"./path/to/other.star"`
+  - Access utxo, token, and ABI types
+  - Access top-level `library fn`s, which get embedded/inlined
+  - Access utxo, token, and script fns, which get imported as cross-contract calls
+- `"./path/to/component.wasm"`
+  - Embed an arbitrary component as library code
+- `"./path/to/core.wasm"`
+  - "unsafe" style FFI imports?
+  - Or combine with WIT file?

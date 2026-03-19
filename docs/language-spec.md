@@ -355,6 +355,10 @@ displayed in IDE hover tooltips above the type information.
 - `enum Foo` syntax declares variant types
 - `utxo Foo` syntax declares Utxo handle types of known contract but unknown ABI
   - `main fn` items within the `utxo` block act as this type's constructors
+  - Can be unconditionally upcast to the root `Utxo` handle
+  - Can attempt to downcast from the root `Utxo` handle (returns `Result`)
+
+No user-defined generics at this time.
 
 ### Structural typing rules
 
@@ -366,6 +370,11 @@ displayed in IDE hover tooltips above the type information.
 ## Imports
 
 Imports bring external functions into scope from WIT-style interface paths.
+
+The available import sources are:
+
+- `starstream:std` - Starstream builtins known to the compiler.
+  - `/cardano` - functions expected to be available when hosted on Cardano.
 
 ### Named imports
 
