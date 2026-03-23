@@ -824,7 +824,7 @@ pub fn state_transition(
             let new_ref = Ref(state.ref_counter);
             let size_words = size;
             let size_elems = size_words * REF_PUSH_WIDTH;
-            state.ref_counter += size_elems as u64;
+            state.ref_counter += 1;
             if new_ref != ret.unwrap() {
                 return Err(InterleavingError::RefInitializationMismatch(
                     ret.unwrap(),
@@ -833,7 +833,9 @@ pub fn state_transition(
             }
             state.ref_store.insert(new_ref, vec![Value(0); size_elems]);
             state.ref_sizes.insert(new_ref, size_words);
-            state.ref_building.insert(id_curr, (new_ref, 0, size_words));
+            if size_words > 0 {
+                state.ref_building.insert(id_curr, (new_ref, 0, size_words));
+            }
         }
 
         WitLedgerEffect::RefPush { vals } => {
