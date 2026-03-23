@@ -78,17 +78,21 @@ pub struct WasmtimeComponentStarstreamExecutor {
     pub engine: Engine,
     pub store: ComponentStore<ComponentHostState>,
     linker: Linker<ComponentHostState>,
+    import_instance_schemas: HashMap<String, ImportInstanceSchema>,
 }
 
 impl WasmtimeComponentStarstreamExecutor {
     pub fn new() -> Result<Self, ScalarComponentError> {
         let engine = component_runtime();
-        let store = Store::new(&engine, ComponentHostState::default());
-        let linker = build_linker(&engine, &HashMap::new())?;
+        let mut store = Store::new(&engine, ComponentHostState::default());
+        let import_instance_schemas = HashMap::new();
+        store.data_mut().import_instance_schemas = import_instance_schemas.clone();
+        let linker = build_linker(&engine, &import_instance_schemas)?;
         Ok(Self {
             engine,
             store,
             linker,
+            import_instance_schemas,
         })
     }
 
@@ -126,13 +130,16 @@ impl WasmtimeComponentStarstreamExecutor {
         let pid = self.executor_mut().register_program(program);
         let component = Component::new(&self.engine, &program.module_bytes)?;
         let schemas = extract_import_instance_schemas(&component, &self.engine);
-        self.store
-            .data_mut()
-            .import_instance_schemas
-            .extend(schemas);
-        let import_schemas = self.store.data().import_instance_schemas.clone();
-        self.linker = build_linker(&self.engine, &import_schemas)?;
+        if merge_import_instance_schemas(&mut self.import_instance_schemas, schemas)? {
+            self.rebuild_linker()?;
+        }
         Ok((pid, component))
+    }
+
+    fn rebuild_linker(&mut self) -> Result<(), ScalarComponentError> {
+        self.store.data_mut().import_instance_schemas = self.import_instance_schemas.clone();
+        self.linker = build_linker(&self.engine, &self.import_instance_schemas)?;
+        Ok(())
     }
 
     pub fn instantiate_component(
@@ -187,9 +194,6 @@ impl ComponentValue {
                 word[idx] = *scalar;
             }
             words.push(word);
-        }
-        if words.is_empty() {
-            words.push([Value::nil(), Value::nil(), Value::nil(), Value::nil()]);
         }
         Ok(words)
     }
@@ -734,6 +738,9 @@ fn read_activation_value(
     schema: &ValueSchema,
     func: &str,
 ) -> anyhow::Result<ComponentValue> {
+    if flat_arg_count(schema) == 0 {
+        return decode_lanes_to_value([Value::nil(); 4], schema, func);
+    }
     decode_lanes_to_value(read_activation_lanes(ctx, func)?, schema, func)
 }
 
@@ -743,6 +750,9 @@ fn read_ref_value(
     schema: &ValueSchema,
     func: &str,
 ) -> anyhow::Result<ComponentValue> {
+    if flat_arg_count(schema) == 0 {
+        return decode_lanes_to_value([Value::nil(); 4], schema, func);
+    }
     let lanes = state
         .refs
         .read_lanes(reff, 0)
@@ -801,6 +811,54 @@ fn parse_resource_method_name(name: &str) -> Option<(&str, &str)> {
     let suffix = name.strip_prefix("[method]")?;
     let (resource, method) = suffix.split_once('.')?;
     Some((resource, method))
+}
+
+fn merge_import_instance_schemas(
+    dst: &mut HashMap<String, ImportInstanceSchema>,
+    src: HashMap<String, ImportInstanceSchema>,
+) -> anyhow::Result<bool> {
+    let mut changed = false;
+    for (import_name, incoming) in src {
+        match dst.get_mut(&import_name) {
+            Some(existing) => {
+                changed |= merge_single_import_schema(&import_name, existing, incoming)?;
+            }
+            None => {
+                dst.insert(import_name, incoming);
+                changed = true;
+            }
+        }
+    }
+    Ok(changed)
+}
+
+fn merge_single_import_schema(
+    import_name: &str,
+    existing: &mut ImportInstanceSchema,
+    incoming: ImportInstanceSchema,
+) -> anyhow::Result<bool> {
+    let mut changed = false;
+
+    for resource in incoming.resources {
+        changed |= existing.resources.insert(resource);
+    }
+
+    for (func_name, incoming_schema) in incoming.functions {
+        match existing.functions.get(&func_name) {
+            Some(current) if current != &incoming_schema => {
+                anyhow::bail!(
+                    "conflicting schemas for import `{import_name}` function `{func_name}`"
+                );
+            }
+            Some(_) => {}
+            None => {
+                existing.functions.insert(func_name, incoming_schema);
+                changed = true;
+            }
+        }
+    }
+
+    Ok(changed)
 }
 
 fn method_function_id(import_name: &str, func_name: &str) -> u32 {
@@ -1587,14 +1645,13 @@ mod tests {
 
         let coord_trace = runtime.executor().traces().get(&coord_pid).unwrap();
         assert!(matches!(coord_trace[0], WitLedgerEffect::NewRef { .. }));
-        assert!(matches!(coord_trace[1], WitLedgerEffect::RefWrite { .. }));
         assert!(matches!(
-            coord_trace[2],
+            coord_trace[1],
             WitLedgerEffect::Resume { target, .. } if target == utxo_pid
         ));
-        assert!(matches!(coord_trace[3], WitLedgerEffect::NewRef { .. }));
-        assert!(matches!(coord_trace[4], WitLedgerEffect::RefWrite { .. }));
-        assert!(matches!(coord_trace[5], WitLedgerEffect::Yield { .. }));
+        assert!(matches!(coord_trace[2], WitLedgerEffect::NewRef { .. }));
+        assert!(matches!(coord_trace[3], WitLedgerEffect::RefWrite { .. }));
+        assert!(matches!(coord_trace[4], WitLedgerEffect::Yield { .. }));
 
         let utxo_trace = runtime.executor().traces().get(&utxo_pid).unwrap();
         assert!(matches!(utxo_trace[0], WitLedgerEffect::NewRef { .. }));
@@ -1630,10 +1687,10 @@ mod tests {
 
         let coord_trace = runtime.executor().traces().get(&coord_pid).unwrap();
         assert!(
-            matches!(coord_trace[2], WitLedgerEffect::Resume { target, .. } if target == utxo_pid)
+            matches!(coord_trace[1], WitLedgerEffect::Resume { target, .. } if target == utxo_pid)
         );
         assert!(
-            matches!(coord_trace[4], WitLedgerEffect::RefWrite { vals, .. } if vals[0] == Value(88))
+            matches!(coord_trace[3], WitLedgerEffect::RefWrite { vals, .. } if vals[0] == Value(88))
         );
         let utxo_trace = runtime.executor().traces().get(&utxo_pid).unwrap();
         assert!(matches!(utxo_trace[2], WitLedgerEffect::Yield { .. }));

@@ -240,10 +240,10 @@ fn remap_refs_to_spec_numbering(
     let mut mapping = HashMap::<Ref, Ref>::new();
     let mut next_ref = 0u64;
     for (_, effect) in effect_log {
-        if let WitLedgerEffect::NewRef { size, ret } = effect {
+        if let WitLedgerEffect::NewRef { ret, .. } = effect {
             let old = ret.unwrap();
             mapping.insert(old, Ref(next_ref));
-            next_ref += (*size as u64) * (starstream_interleaving_spec::REF_PUSH_WIDTH as u64);
+            next_ref += 1;
         }
     }
 
