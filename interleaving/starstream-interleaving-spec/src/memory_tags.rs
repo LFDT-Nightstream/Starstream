@@ -26,14 +26,15 @@ pub enum RamMemoryTag {
     Init = 6,
     RefArena = 7,
     RefSizes = 8,
-    HandlerStackArenaProcess = 9,
-    HandlerStackArenaNextPtr = 10,
-    HandlerStackHeads = 11,
-    TraceCommitments = 12,
-    ExpectedResumer = 13,
-    OnYield = 14,
-    YieldTo = 15,
-    InitCaller = 16,
+    RefBases = 9,
+    HandlerStackArenaProcess = 10,
+    HandlerStackArenaNextPtr = 11,
+    HandlerStackHeads = 12,
+    TraceCommitments = 13,
+    ExpectedResumer = 14,
+    OnYield = 15,
+    YieldTo = 16,
+    InitCaller = 17,
 }
 
 impl RamMemoryTag {

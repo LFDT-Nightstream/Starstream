@@ -1,7 +1,7 @@
 use crate::{logging::setup_logger, prove};
 use starstream_interleaving_spec::{
-    Hash, InterleavingInstance, InterleavingWitness, LedgerEffectsCommitment, ProcessId, Ref,
-    Value, WitEffectOutput, WitLedgerEffect,
+    FunctionId, Hash, InterleavingInstance, InterleavingWitness, LedgerEffectsCommitment,
+    ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
 };
 
 pub fn h<T>(n: u8) -> Hash<T> {
@@ -24,6 +24,21 @@ fn v4_from_value(val: Value) -> [Value; 4] {
 fn ref_push1(val: Value) -> WitLedgerEffect {
     WitLedgerEffect::RefPush {
         vals: [val, Value::nil(), Value::nil(), Value::nil()],
+    }
+}
+
+fn resume_effect(
+    target: ProcessId,
+    val: Ref,
+    ret: Ref,
+    caller: Option<ProcessId>,
+) -> WitLedgerEffect {
+    WitLedgerEffect::Resume {
+        target,
+        f_id: FunctionId(0),
+        val,
+        ret: WitEffectOutput::Resolved(ret),
+        caller: WitEffectOutput::Resolved(caller),
     }
 }
 
@@ -58,8 +73,8 @@ fn test_circuit_many_steps() {
     let val_4 = v(&[4]);
 
     let ref_0 = Ref(0);
-    let ref_1 = Ref(4);
-    let ref_4 = Ref(8);
+    let ref_1 = Ref(1);
+    let ref_4 = Ref(2);
 
     let utxo_trace = vec![
         WitLedgerEffect::Init {
@@ -130,21 +145,11 @@ fn test_circuit_many_steps() {
             val: ref_1,
             id: p1.into(),
         },
-        WitLedgerEffect::Resume {
-            target: p1,
-            val: ref_0,
-            ret: ref_1.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
+        resume_effect(p1, ref_0, ref_1, None),
         WitLedgerEffect::InstallHandler {
             interface_id: h(100),
         },
-        WitLedgerEffect::Resume {
-            target: p0,
-            val: ref_0,
-            ret: ref_1.into(),
-            caller: Some(p0).into(),
-        },
+        resume_effect(p0, ref_0, ref_1, Some(p0)),
         WitLedgerEffect::UninstallHandler {
             interface_id: h(100),
         },
@@ -204,12 +209,7 @@ fn test_circuit_small() {
             val: ref_0,
             id: p0.into(),
         },
-        WitLedgerEffect::Resume {
-            target: p0,
-            val: ref_0,
-            ret: ref_0.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
+        resume_effect(p0, ref_0, ref_0, None),
     ];
 
     let traces = vec![utxo_trace, coord_trace];
@@ -272,26 +272,11 @@ fn test_circuit_resumer_mismatch() {
             val: ref_0,
             id: p2.into(),
         },
-        WitLedgerEffect::Resume {
-            target: p0,
-            val: ref_0,
-            ret: ref_0.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
-        WitLedgerEffect::Resume {
-            target: p2,
-            val: ref_0,
-            ret: ref_0.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
+        resume_effect(p0, ref_0, ref_0, None),
+        resume_effect(p2, ref_0, ref_0, None),
     ];
 
-    let coord_b_trace = vec![WitLedgerEffect::Resume {
-        target: p0,
-        val: ref_0,
-        ret: ref_0.into(),
-        caller: WitEffectOutput::Resolved(None),
-    }];
+    let coord_b_trace = vec![resume_effect(p0, ref_0, ref_0, None)];
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
 
@@ -447,18 +432,13 @@ fn test_yield_parent_resumer_mismatch_trace() {
     let p2 = ProcessId(coord_b_id);
 
     let ref_0 = Ref(0);
-    let ref_1 = Ref(4);
+    let ref_1 = Ref(1);
 
     // Coord A resumes UTXO but sets its own expected_resumer to Coord B.
     // Then UTXO yields back to Coord A. Spec says this should fail.
     let utxo_trace = vec![WitLedgerEffect::Yield { val: ref_1 }];
 
-    let coord_a_trace = vec![WitLedgerEffect::Resume {
-        target: p0,
-        val: ref_0,
-        ret: ref_1.into(),
-        caller: Some(p2).into(),
-    }];
+    let coord_a_trace = vec![resume_effect(p0, ref_0, ref_1, Some(p2))];
 
     let coord_b_trace = vec![];
 
@@ -531,19 +511,9 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
             val: ref_0,
             id: p2.into(),
         },
-        WitLedgerEffect::Resume {
-            target: p2,
-            val: ref_0,
-            ret: ref_0.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
+        resume_effect(p2, ref_0, ref_0, None),
         // Invalid on purpose: after p0 CallEffectHandler, only p2 should resume p0.
-        WitLedgerEffect::Resume {
-            target: p0,
-            val: ref_0,
-            ret: ref_0.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
+        resume_effect(p0, ref_0, ref_0, None),
     ];
 
     let coord_handler_trace = vec![
@@ -554,12 +524,7 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
         WitLedgerEffect::InstallHandler {
             interface_id: iface,
         },
-        WitLedgerEffect::Resume {
-            target: p0,
-            val: ref_0,
-            ret: ref_0.into(),
-            caller: WitEffectOutput::Resolved(None),
-        },
+        resume_effect(p0, ref_0, ref_0, None),
         WitLedgerEffect::Return {},
     ];
 

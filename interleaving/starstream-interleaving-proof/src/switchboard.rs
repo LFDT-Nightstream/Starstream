@@ -52,6 +52,8 @@ pub struct HandlerSwitchboard {
 pub struct RefArenaSwitchboard {
     pub ref_sizes_write: bool,
     pub ref_sizes_read: bool,
+    pub ref_bases_write: bool,
+    pub ref_bases_read: bool,
     pub ref_arena_read: bool,
     pub ref_arena_write: bool,
     pub ref_arena_write_is_push: bool,
@@ -70,6 +72,8 @@ pub struct HandlerSwitchboardWires {
 pub struct RefArenaSwitchboardWires {
     pub ref_sizes_write: Boolean<F>,
     pub ref_sizes_read: Boolean<F>,
+    pub ref_bases_write: Boolean<F>,
+    pub ref_bases_read: Boolean<F>,
     pub ref_arena_read: Boolean<F>,
     pub ref_arena_write: Boolean<F>,
     pub ref_arena_write_is_push: Boolean<F>,
@@ -142,6 +146,8 @@ impl RefArenaSwitchboardWires {
         Ok(Self {
             ref_sizes_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_sizes_write))?,
             ref_sizes_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_sizes_read))?,
+            ref_bases_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_bases_write))?,
+            ref_bases_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_bases_read))?,
             ref_arena_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_arena_read))?,
             ref_arena_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_arena_write))?,
             ref_arena_write_is_push: Boolean::new_witness(cs, || {

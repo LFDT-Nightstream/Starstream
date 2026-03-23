@@ -11,7 +11,9 @@ use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
 };
-use crate::ref_arena_gadget::{ref_arena_access_wires, ref_arena_read_size, trace_ref_arena_ops};
+use crate::ref_arena_gadget::{
+    ref_arena_access_wires, ref_arena_read_base, ref_arena_read_size, trace_ref_arena_ops,
+};
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboardBool, MemSwitchboardWires,
     RefArenaSwitchboard, RefArenaSwitchboardWires, RomSwitchboard, RomSwitchboardWires,
@@ -76,7 +78,8 @@ pub struct Wires {
     // irw
     id_curr: FpVar<F>,
     id_prev: OptionalFpVar<F>,
-    ref_arena_stack_ptr: FpVar<F>,
+    next_ref_id: FpVar<F>,
+    ref_arena_len: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
 
     ref_building_remaining: FpVar<F>,
@@ -131,7 +134,8 @@ pub struct PreWires {
 pub struct InterRoundWires {
     id_curr: F,
     id_prev: OptionalF<F>,
-    ref_arena_counter: F,
+    next_ref_id: F,
+    ref_arena_len: F,
     handler_stack_counter: F,
 
     ref_building_remaining: F,
@@ -142,7 +146,8 @@ pub struct InterRoundWires {
 pub struct IvcWireIndices {
     pub id_curr: usize,
     pub id_prev: usize,
-    pub ref_arena_stack_ptr: usize,
+    pub next_ref_id: usize,
+    pub ref_arena_len: usize,
     pub handler_stack_ptr: usize,
     pub ref_building_remaining: usize,
     pub ref_building_ptr: usize,
@@ -155,13 +160,14 @@ pub struct IvcWireLayout {
 }
 
 impl IvcWireLayout {
-    pub const FIELD_COUNT: usize = 6;
+    pub const FIELD_COUNT: usize = 7;
 
     pub fn input_indices(&self) -> [usize; Self::FIELD_COUNT] {
         [
             self.input.id_curr,
             self.input.id_prev,
-            self.input.ref_arena_stack_ptr,
+            self.input.next_ref_id,
+            self.input.ref_arena_len,
             self.input.handler_stack_ptr,
             self.input.ref_building_remaining,
             self.input.ref_building_ptr,
@@ -172,7 +178,8 @@ impl IvcWireLayout {
         [
             self.output.id_curr,
             self.output.id_prev,
-            self.output.ref_arena_stack_ptr,
+            self.output.next_ref_id,
+            self.output.ref_arena_len,
             self.output.handler_stack_ptr,
             self.output.ref_building_remaining,
             self.output.ref_building_ptr,
@@ -211,8 +218,8 @@ impl Wires {
         let id_prev = OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
             Ok(vals.irw.id_prev.encoded())
         })?);
-        let ref_arena_stack_ptr =
-            FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_counter))?;
+        let next_ref_id = FpVar::new_witness(cs.clone(), || Ok(vals.irw.next_ref_id))?;
+        let ref_arena_len = FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_len))?;
         let handler_stack_counter =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.handler_stack_counter))?;
 
@@ -347,6 +354,14 @@ impl Wires {
         let ref_arena_read = {
             let ref_size_read =
                 ref_arena_read_size(cs.clone(), rm, &ref_arena_switches, &opcode_args, &val)?;
+            let ref_base_read = ref_arena_read_base(
+                cs.clone(),
+                rm,
+                &ref_arena_switches,
+                &ref_arena_len,
+                &opcode_args,
+                &val,
+            )?;
 
             ref_arena_access_wires(
                 cs.clone(),
@@ -355,7 +370,7 @@ impl Wires {
                 &opcode_args,
                 &ref_building_ptr,
                 &ref_building_remaining,
-                &val,
+                &ref_base_read,
                 &offset,
                 &ref_size_read,
             )?
@@ -374,7 +389,8 @@ impl Wires {
         Ok(Wires {
             id_curr,
             id_prev,
-            ref_arena_stack_ptr,
+            next_ref_id,
+            ref_arena_len,
             handler_stack_ptr: handler_stack_counter,
 
             ref_building_remaining,
@@ -409,7 +425,8 @@ impl InterRoundWires {
         InterRoundWires {
             id_curr: F::from(entrypoint),
             id_prev: OptionalF::none(),
-            ref_arena_counter: F::ZERO,
+            next_ref_id: F::ZERO,
+            ref_arena_len: F::ZERO,
             handler_stack_counter: F::ZERO,
             ref_building_remaining: F::ZERO,
             ref_building_ptr: F::ZERO,
@@ -437,12 +454,13 @@ impl InterRoundWires {
         self.id_prev = OptionalF::from_encoded(res_id_prev);
 
         tracing::debug!(
-            "ref_arena_counter from {} to {}",
-            self.ref_arena_counter,
-            res.ref_arena_stack_ptr.value().unwrap()
+            "next_ref_id from {} to {}",
+            self.next_ref_id,
+            res.next_ref_id.value().unwrap()
         );
 
-        self.ref_arena_counter = res.ref_arena_stack_ptr.value().unwrap();
+        self.next_ref_id = res.next_ref_id.value().unwrap();
+        self.ref_arena_len = res.ref_arena_len.value().unwrap();
 
         tracing::debug!(
             "handler_stack_counter from {} to {}",
@@ -628,6 +646,7 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::NewRef { .. } => {
                 config.execution_switches.new_ref = true;
                 config.ref_arena_switches.ref_sizes_write = true;
+                config.ref_arena_switches.ref_bases_write = true;
             }
             LedgerOperation::RefPush { .. } => {
                 config.execution_switches.ref_push = true;
@@ -637,11 +656,13 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::RefGet { .. } => {
                 config.execution_switches.get = true;
                 config.ref_arena_switches.ref_sizes_read = true;
+                config.ref_arena_switches.ref_bases_read = true;
                 config.ref_arena_switches.ref_arena_read = true;
             }
             LedgerOperation::RefWrite { .. } => {
                 config.execution_switches.ref_write = true;
                 config.ref_arena_switches.ref_sizes_read = true;
+                config.ref_arena_switches.ref_bases_read = true;
                 config.ref_arena_switches.ref_arena_write = true;
             }
             LedgerOperation::InstallHandler { .. } => {
@@ -1030,8 +1051,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // Initialize IRW for the trace phase and update it as we process each operation
         let mut irw = InterRoundWires::new(self.instance.entrypoint.0 as u64);
 
-        let mut ref_building_id = F::ZERO;
-        let mut ref_building_offset = F::ZERO;
+        let mut next_ref_base = F::ZERO;
+        let mut ref_building_ptr = F::ZERO;
         let mut ref_building_remaining = F::ZERO;
 
         for instr in &self.ops {
@@ -1087,8 +1108,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             trace_ref_arena_ops(
                 &mut mb,
-                &mut ref_building_id,
-                &mut ref_building_offset,
+                &mut next_ref_base,
+                &mut ref_building_ptr,
                 &mut ref_building_remaining,
                 &ref_arena_switches,
                 instr,
@@ -1917,22 +1938,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 2. Ret must be fresh ID
         wires
             .arg(ArgName::Ret)
-            .conditional_enforce_equal(&wires.ref_arena_stack_ptr, switch)?;
+            .conditional_enforce_equal(&wires.next_ref_id, switch)?;
 
         // 3. Init building state
         // remaining = size
         wires.ref_building_remaining =
             switch.select(&wires.arg(ArgName::Size), &wires.ref_building_remaining)?;
-        // ptr = ret
-        wires.ref_building_ptr =
-            switch.select(&wires.arg(ArgName::Ret), &wires.ref_building_ptr)?;
+        // ptr = current arena base
+        wires.ref_building_ptr = switch.select(&wires.ref_arena_len, &wires.ref_building_ptr)?;
 
-        // 4. Increment stack ptr by size
+        // 4. Increment next ref id by 1
+        wires.next_ref_id =
+            switch.select(&(&wires.next_ref_id + FpVar::one()), &wires.next_ref_id)?;
+
+        // 5. Increment arena base ptr by size * lane width
         let size = wires.arg(ArgName::Size);
-        wires.ref_arena_stack_ptr = switch.select(
-            &(&wires.ref_arena_stack_ptr
-                + size * FpVar::Constant(F::from(REF_PUSH_BATCH_SIZE as u64))),
-            &wires.ref_arena_stack_ptr,
+        wires.ref_arena_len = switch.select(
+            &(&wires.ref_arena_len + size * FpVar::Constant(F::from(REF_PUSH_BATCH_SIZE as u64))),
+            &wires.ref_arena_len,
         )?;
 
         Ok(wires)
@@ -2136,6 +2159,12 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         "RAM_REF_SIZES",
     );
     mb.register_mem(
+        RamMemoryTag::RefBases.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_REF_BASES",
+    );
+    mb.register_mem(
         RamMemoryTag::ExpectedInput.memory_tag(),
         1,
         MemType::Ram,
@@ -2237,7 +2266,8 @@ fn ivc_wires(
     let input = IvcWireIndices {
         id_curr: fpvar_witness_index(cs, &wires_in.id_curr)?,
         id_prev: fpvar_witness_index(cs, &wires_in.id_prev.encoded())?,
-        ref_arena_stack_ptr: fpvar_witness_index(cs, &wires_in.ref_arena_stack_ptr)?,
+        next_ref_id: fpvar_witness_index(cs, &wires_in.next_ref_id)?,
+        ref_arena_len: fpvar_witness_index(cs, &wires_in.ref_arena_len)?,
         handler_stack_ptr: fpvar_witness_index(cs, &wires_in.handler_stack_ptr)?,
         ref_building_remaining: fpvar_witness_index(cs, &wires_in.ref_building_remaining)?,
         ref_building_ptr: fpvar_witness_index(cs, &wires_in.ref_building_ptr)?,
@@ -2246,7 +2276,8 @@ fn ivc_wires(
     let output = IvcWireIndices {
         id_curr: fpvar_witness_index(cs, &wires_out.id_curr)?,
         id_prev: fpvar_witness_index(cs, &wires_out.id_prev.encoded())?,
-        ref_arena_stack_ptr: fpvar_witness_index(cs, &wires_out.ref_arena_stack_ptr)?,
+        next_ref_id: fpvar_witness_index(cs, &wires_out.next_ref_id)?,
+        ref_arena_len: fpvar_witness_index(cs, &wires_out.ref_arena_len)?,
         handler_stack_ptr: fpvar_witness_index(cs, &wires_out.handler_stack_ptr)?,
         ref_building_remaining: fpvar_witness_index(cs, &wires_out.ref_building_remaining)?,
         ref_building_ptr: fpvar_witness_index(cs, &wires_out.ref_building_ptr)?,

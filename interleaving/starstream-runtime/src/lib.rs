@@ -1,5 +1,6 @@
 use ark_ff::PrimeField;
 use starstream_interleaving_proof::commit;
+use starstream_interleaving_spec::FunctionId;
 use starstream_interleaving_spec::{
     ArgName, CoroutineState, EffectDiscriminant, Hash, InterfaceId, InterleavingInstance,
     InterleavingWitness, LedgerEffectsCommitment, NewOutput, OutputRef, ProcessId,
@@ -89,6 +90,7 @@ fn decode_effect_from_commit_abi(
     let effect = match disc {
         EffectDiscriminant::Resume => WitLedgerEffect::Resume {
             target: ProcessId(arg(ArgName::Target) as usize),
+            f_id: FunctionId(0),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
             caller: WitEffectOutput::Resolved(decode_optional_pid(arg(ArgName::Caller))),
@@ -245,7 +247,7 @@ pub struct RuntimeState {
     pub ref_store: HashMap<Ref, Vec<Value>>,
     pub ref_sizes: HashMap<Ref, usize>,
     pub ref_state: HashMap<ProcessId, (Ref, usize, usize)>, // (ref, elem_offset, size_words)
-    pub next_ref: u64,
+    pub next_ref_id: u64,
 
     pub pending_activation: HashMap<ProcessId, (Ref, ProcessId)>,
     pub pending_init: HashMap<ProcessId, (Ref, ProcessId)>,
@@ -295,7 +297,7 @@ impl Runtime {
             ref_store: HashMap::new(),
             ref_sizes: HashMap::new(),
             ref_state: HashMap::new(),
-            next_ref: 0,
+            next_ref_id: 0,
             pending_activation: HashMap::new(),
             pending_init: HashMap::new(),
             storage: HashMap::new(),
@@ -410,6 +412,7 @@ impl Runtime {
 
                 store.data_mut().pending_host_effect = Some(WitLedgerEffect::Resume {
                     target,
+                    f_id: FunctionId(0),
                     val,
                     ret,
                     caller: WitEffectOutput::Resolved(None),
@@ -664,8 +667,8 @@ impl Runtime {
                     .checked_mul(REF_PUSH_WIDTH)
                     .ok_or(trap("ref size overflow"))?;
 
-                let ref_id = Ref(store.data().next_ref);
-                store.data_mut().next_ref += size_elems as u64;
+                let ref_id = Ref(store.data().next_ref_id);
+                store.data_mut().next_ref_id += 1;
 
                 store
                     .data_mut()

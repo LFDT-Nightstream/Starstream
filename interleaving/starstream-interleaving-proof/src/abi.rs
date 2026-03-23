@@ -22,6 +22,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
     match op {
         WitLedgerEffect::Resume {
             target,
+            f_id: _,
             val,
             ret,
             caller,
