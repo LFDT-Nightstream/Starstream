@@ -245,7 +245,7 @@ inside blocks (function bodies, control-flow branches, etc.) and cannot occurat 
 `type_annotation` names reuse the type declarations defined elsewhere in this
 spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations such as tuples
 or generic parameters extend this rule by nesting additional `type_annotation`
-instances between `<…>` as described in the [Type System](#type-system) section.
+instances between `<…>` as described in the [Types](#types) section.
 Record and enum shapes must first be declared via `struct`/`enum` definitions
 before they can be referenced. The name `_` means "unspecified", a free type
 variable subject to inference.
