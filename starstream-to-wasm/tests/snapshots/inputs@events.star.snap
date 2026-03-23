@@ -137,7 +137,7 @@ TypedProgram {
 (module
   (type (;0;) (func))
   (import "foo" "hello" (func (;0;) (type 0)))
-  (export "main" (func 0))
+  (export "main" (func 1))
   (func (;1;) (type 0)
     (call 0)
   )

@@ -389,15 +389,15 @@ TypedProgram {
 (module
   (type (;0;) (func (result i64)))
   (import "starstream:std/cardano" "block-height" (func (;0;) (type 0)))
-  (export "reexport" (func 0))
-  (export "second" (func 1))
+  (export "reexport" (func 1))
+  (export "second" (func 2))
   (func (;1;) (type 0) (result i64)
     (drop
       (call 0))
     (call 0)
   )
   (func (;2;) (type 0) (result i64)
-    (call 0)
+    (call 1)
   )
   (@custom "component-type"
     (component

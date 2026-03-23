@@ -106,6 +106,8 @@ struct Compiler {
     code: CodeSection,
     data: DataSection,
 
+    imported_functions: u32,
+
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
@@ -379,6 +381,14 @@ impl Compiler {
         }
     }
 
+    fn import_function(&mut self, module: &str, field: &str, ty: u32) -> u32 {
+        assert_eq!(self.functions.len(), 0); // Imports must precede functions per Wasm spec.
+        let idx = self.imported_functions;
+        self.imports.import(module, field, EntityType::Function(ty));
+        self.imported_functions += 1;
+        idx
+    }
+
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
     fn add_function(&mut self, ty: FuncType, code: Function) -> u32 {
@@ -387,7 +397,7 @@ impl Compiler {
         // module's own functions.
 
         let type_index = self.add_core_func_type(ty);
-        let func_index = self.functions.len();
+        let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
 
         let mut vec = Vec::new();
@@ -1163,12 +1173,7 @@ impl Compiler {
                         core_params.iter().copied(),
                         core_results.iter().copied(),
                     ));
-                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
-                    self.imports.import(
-                        &def.from.to_string(),
-                        &kebab,
-                        EntityType::Function(core_fn_ty),
-                    );
+                    let func = self.import_function(&def.from.to_string(), &kebab, core_fn_ty);
                     self.callables.insert(local_name, func);
 
                     // Component import
@@ -1210,9 +1215,7 @@ impl Compiler {
                         core_params.iter().copied(),
                         std::iter::empty(),
                     ));
-                    let func = self.imports.len(); // TODO: Might be incorrect if we import non-functions
-                    self.imports
-                        .import(&interface, &kebab, EntityType::Function(core_fn_ty));
+                    let func = self.import_function(&interface, &kebab, core_fn_ty);
                     self.callables.insert(event.name.as_str().to_owned(), func);
 
                     // Component import
