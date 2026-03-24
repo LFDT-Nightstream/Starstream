@@ -4,6 +4,12 @@ sidebar_position: 2
 
 # Starstream language specification
 
+This document describes the specification of the Starstream language (syntax
+and abstract semantics), as currently implemented. For planned future features,
+see [Future specifications][future].
+
+[future]: ./future-spec.md
+
 ## Grammar
 
 This document provides a complete EBNF grammar specification for the IMP
@@ -25,7 +31,7 @@ This document assumes you took at least a university course on programming
 languages, design and compilers. Therefore, we try and keep prose to a minimum
 and prefer to bundle concepts in codeblocks where it makes sense.
 
-## Grammar Rules
+### Grammar rules
 
 ```ebnf
 program ::= definition*
@@ -233,12 +239,13 @@ boolean_literal ::= "true" | "false"
 unit_literal ::= "(" ")"
 ```
 
-Definitions live exclusively at the program (module) scope. Statements appear inside blocks (function bodies, control-flow branches, etc.) and cannot occur at the top level.
+Definitions live exclusively at the program (module) scope. Statements appear
+inside blocks (function bodies, control-flow branches, etc.) and cannot occurat the top level.
 
 `type_annotation` names reuse the type declarations defined elsewhere in this
 spec (e.g., `i64`, `bool`, `CustomType`). Structured annotations such as tuples
 or generic parameters extend this rule by nesting additional `type_annotation`
-instances between `<…>` as described in the [Type System](#type-system) section.
+instances between `<…>` as described in the [Types](#types) section.
 Record and enum shapes must first be declared via `struct`/`enum` definitions
 before they can be referenced. The name `_` means "unspecified", a free type
 variable subject to inference.
@@ -275,7 +282,7 @@ The following reserved words may not be used as identifiers:
   - the [VSC language configuration](../vscode-starstream/language-configuration.json).
 -->
 
-## Comments and whitespace
+### Comments and whitespace
 
 Comments and whitespace may appear between terminal tokens.
 
@@ -306,12 +313,12 @@ struct Point {
 The content after `/// ` (including the optional space) is extracted and
 displayed in IDE hover tooltips above the type information.
 
-## Precedence and Associativity
+### Precedence and associativity
 
-| Precedence  | Operator             | Associativity | Description           |
-| ----------- | -------------------- | ------------- | --------------------- |
-| 8 (highest) | `.`, `()`            | Left          | Field access, Call    |
-| 7           | `!`, `-`             | Right         | Unary operators       |
+| Precedence  | Operator             | Associativity | Description        |
+| ----------- | -------------------- | ------------- | ------------------ |
+| 8 (highest) | `.`, `()`            | Left          | Field access, Call |
+| 7           | `!`, `-`             | Right         | Unary operators    |
 | 6           | `*`, `/`, `%`        | Left          | Multiplicative     |
 | 5           | `+`, `-`             | Left          | Additive           |
 | 4           | `<`, `<=`, `>`, `>=` | Left          | Comparison         |
@@ -319,18 +326,55 @@ displayed in IDE hover tooltips above the type information.
 | 2           | `&&`                 | Left          | Logical AND        |
 | 1 (lowest)  | `\|\|`               | Left          | Logical OR         |
 
-## Function visibility
+## Types
 
-All functions are visible within the module they are defined. By default,
-functions are private to the module. The `fn` keyword can be preceded by a
-visibility modifier:
+### Built-in integer types
 
-- `script fn` exports a coordination script. It can be the root of a transaction
-  or called by another coordination script.
+| Type  | Signed | Bits | Min                  | Max                  |
+| ----- | ------ | ---- | -------------------- | -------------------- |
+| `i8`  | yes    | 8    | -128                 | 127                  |
+| `i16` | yes    | 16   | -32768               | 32767                |
+| `i32` | yes    | 32   | -2147483648          | 2147483647           |
+| `i64` | yes    | 64   | -9223372036854775808 | 9223372036854775807  |
+| `u8`  | no     | 8    | 0                    | 255                  |
+| `u16` | no     | 16   | 0                    | 65535                |
+| `u32` | no     | 32   | 0                    | 4294967295           |
+| `u64` | no     | 64   | 0                    | 18446744073709551615 |
+
+### Other built-in types
+
+- `()` - unit type with one value, `()`
+- `bool` - boolean type with two values, `true` and `false`
+- `Option<T>` - generic type with `None` and `Some(T)` variants
+- `Result<T, E>` - generic type with `Ok(T)` and `Err(E)` variants
+- `Utxo` - handle to a Utxo of unknown contract and ABI
+
+### User-defined types
+
+- `struct Foo` syntax declares record types
+- `enum Foo` syntax declares variant types
+- `utxo Foo` syntax declares Utxo handle types of known contract but unknown ABI
+  - `main fn` items within the `utxo` block act as this type's constructors
+  - Can be unconditionally upcast to the root `Utxo` handle
+  - Can attempt to downcast from the root `Utxo` handle (returns `Result`)
+
+No user-defined generics at this time.
+
+### Structural typing rules
+
+- Struct and enum definitions introduce canonical shapes, but names are merely aliases; two independently-declared structs with the same field names/types are interchangeable.
+- Type annotations refer to those named definitions. During type checking the compiler canonicalizes field/variant order before comparing shapes so structurally identical names unify.
+- Unification succeeds for records when both sides have the same field names (order-insensitive) and each corresponding field type unifies. A similar rule holds for enums, matching variant names and payload arity/type.
+- Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
 ## Imports
 
 Imports bring external functions into scope from WIT-style interface paths.
+
+The available import sources are:
+
+- `starstream:std` - Starstream builtins known to the compiler.
+  - `/cardano` - functions expected to be available when hosted on Cardano.
 
 ### Named imports
 
@@ -370,43 +414,58 @@ Some imported functions have effect annotations that require special call syntax
 
 Calling an effectful or runtime function without the appropriate keyword is a type error.
 
+## Functions
+
+- Functions bind a name to a parameterized block at module scope.
+- All parameters must carry an explicit type annotation.
+- Function parameters may optionally be marked `pub` (`pub name: Type`) to indicate non-secrecy (witness protection program).
+- The declared return type is optional; when omitted the function returns the `Unit` type (`()`).
+- The body block may terminate with a tail expression (no trailing semicolon). That expression becomes the implicit return value when no explicit `return` is executed.
+- `return` statements exit the current function early. `return;` returns the unit value, while `return <expr>;` yields the expression's value.
+- Parameter and return annotations participate in the Hindley–Milner inference engine; they constrain the inferred types of the body expressions.
+- Blocks that end without an explicit `return` or tail expression evaluate to unit.
+
+Example:
+
+```star
+fn some_function(a: i64, b: i64) -> i64 {
+  if (a > b) {
+    return a;
+  }
+
+  a + b
+}
+```
+
+### Function visibility
+
+All functions are visible within the module they are defined. By default,
+functions are private to the module. The `fn` keyword can be preceded by a
+visibility modifier:
+
+- `script fn` exports a coordination script. It can be the root of a transaction
+  or called by another coordination script.
+
 ## Scopes
 
 - Every expression exists within a stack of scopes, in the traditional static scoping sense.
 - Each scope has a table of variables, identified by name and having a static type and a current value.
 - Syntactic blocks (curly braces) introduce new scopes.
 
-## Types
+## Statements
 
-### Built-in integer types
+- `if` statements evaluate their condition, require it to be a boolean, and branch in the obvious way.
+- `while` expressions loop in the obvious way.
+- Blocks introduce a new child scope for `let` statements.
+- `let` statements add a new variable binding to the current scope and give it
+  an initial value based on its expression.
+  - Variables may be integers (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`), booleans, structs, or enums.
+  - `let pub name = expr;` and `let pub mut name = expr;` require `expr` to already be public, or explicitly disclosed via `disclose(expr)`.
+- Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
+  - Assigning to any public target (including `storage`) requires a public RHS; use `disclose(...)` when assigning private values into a public binding.
+- Reads from `storage` bindings are already on the public side.
 
-| Type  | Signed | Bits | Min                        | Max                       |
-| ----- | ------ | ---- | -------------------------- | ------------------------- |
-| `i8`  | yes    | 8    | -128                       | 127                       |
-| `i16` | yes    | 16   | -32768                     | 32767                     |
-| `i32` | yes    | 32   | -2147483648                | 2147483647                |
-| `i64` | yes    | 64   | -9223372036854775808       | 9223372036854775807       |
-| `u8`  | no     | 8    | 0                          | 255                       |
-| `u16` | no     | 16   | 0                          | 65535                     |
-| `u32` | no     | 32   | 0                          | 4294967295                |
-| `u64` | no     | 64   | 0                          | 18446744073709551615      |
-
-### Other built-in types
-
-- `()` - unit type with one value, `()`
-- `bool` - boolean type with two values, `true` and `false`
-- `Option<T>` - generic type with `None` and `Some(T)` variants
-- `Result<T, E>` - generic type with `Ok(T)` and `Err(E)` variants
-- `Utxo` - handle to a Utxo of unknown contract and ABI
-
-### User-defined types
-
-- `struct Foo` syntax declares record types
-- `enum Foo` syntax declares variant types
-- `utxo Foo` syntax declares Utxo handle types of known contract but unknown ABI
-  - `main fn` items within the `utxo` block act as this type's constructors
-
-## Expression semantics
+## Expressions
 
 - Integer literals are polymorphic: an unadorned numeric literal like `42` adopts the integer type determined by context (e.g. a type annotation or function parameter type). When no context constrains the type, the literal defaults to `i64`. A compile-time error is emitted if the literal value does not fit in the resolved type (e.g. `let x: i8 = 300` is an error).
 - Boolean literals work in the obvious way.
@@ -436,45 +495,38 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
   - `&&` and `||` are short-circuiting.
 - Structural records/enums are compared by shape, not name. Two structs with identical field sets and types are interchangeable; enum variants must likewise line up by name and payload shape.
 
-| Syntax rule                 | Type rule                                                                 | Value rule                |
-| --------------------------- | ------------------------------------------------------------------------- | ------------------------- |
-| integer_literal             | $\dfrac{}{Γ ⊢ integer\ literal : Int}$ where $Int$ is inferred from context, defaulting to $i64$ | Polymorphic integer literal |
-| boolean_literal             | $\dfrac{}{Γ ⊢ boolean\ literal : bool}$                                   | Boolean literal           |
-| identifier                  | $\dfrac{ident : T ∈ Γ}{Γ ⊢ ident : T}$                                    | Refers to `let` in scope  |
-| (expression)                | $\dfrac{Γ ⊢ e : T}{Γ ⊢ (e) : T}$                                          | Identity                  |
-| !expression                 | $\dfrac{Γ ⊢ e : bool}{Γ ⊢\ !e : bool}$                                    | Boolean inverse           |
-| -expression                 | $\dfrac{Γ ⊢ e : Int,\ Int\ signed}{Γ ⊢ -e : Int}$                         | Signed integer negation   |
-| expression \* expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs * rhs : Int}$              | Integer multiplication    |
-| expression / expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs / rhs : Int}$              | Integer division          |
-| expression % expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs\ \%\ rhs : Int}$           | Integer remainder         |
-| expression + expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs + rhs : Int}$              | Integer addition          |
-| expression - expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs - rhs : Int}$              | Integer subtraction       |
-| expression < expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs < rhs : bool}$             | Integer less-than         |
-|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs < rhs : bool}$           | See [truth tables]        |
-| expression &lt;= expression | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs <= rhs : bool}$            | Integer less-or-equal     |
-|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs <= rhs : bool}$          | See [truth tables]        |
-| expression > expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs > rhs : bool}$             | Integer greater-than      |
-|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs > rhs : bool}$           | See [truth tables]        |
-| expression >= expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs >= rhs : bool}$            | Integer greater-or-equal  |
-|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs >= rhs : bool}$          | See [truth tables]        |
-| expression == expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs == rhs : bool}$            | Integer equality          |
-|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$          | See [truth tables]        |
-| expression != expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs \text{ != } rhs : bool}$   | Integer nonequality       |
-|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$ | See [truth tables]        |
-| expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$      | Short-circuiting AND      |
-| expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$      | Short-circuiting OR       |
-| f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$ | Function call             |
-| disclose(e)                 | $\dfrac{Γ ⊢ e : T}{Γ ⊢ disclose(e) : T}$                                   | Converts `e` to public visibility |
-| emit E(e₁, ..., eₙ)         | $\dfrac{E : event(T_1, ..., T_n) ∧ Γ ⊢ e_i : T_i}{Γ ⊢ emit\ E(e_1, ..., e_n) : ()}$ | Event emission            |
+| Syntax rule                 | Type rule                                                                                        | Value rule                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |
+| integer_literal             | $\dfrac{}{Γ ⊢ integer\ literal : Int}$ where $Int$ is inferred from context, defaulting to $i64$ | Polymorphic integer literal       |
+| boolean_literal             | $\dfrac{}{Γ ⊢ boolean\ literal : bool}$                                                          | Boolean literal                   |
+| identifier                  | $\dfrac{ident : T ∈ Γ}{Γ ⊢ ident : T}$                                                           | Refers to `let` in scope          |
+| (expression)                | $\dfrac{Γ ⊢ e : T}{Γ ⊢ (e) : T}$                                                                 | Identity                          |
+| !expression                 | $\dfrac{Γ ⊢ e : bool}{Γ ⊢\ !e : bool}$                                                           | Boolean inverse                   |
+| -expression                 | $\dfrac{Γ ⊢ e : Int,\ Int\ signed}{Γ ⊢ -e : Int}$                                                | Signed integer negation           |
+| expression \* expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs * rhs : Int}$                                     | Integer multiplication            |
+| expression / expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs / rhs : Int}$                                     | Integer division                  |
+| expression % expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs\ \%\ rhs : Int}$                                  | Integer remainder                 |
+| expression + expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs + rhs : Int}$                                     | Integer addition                  |
+| expression - expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs - rhs : Int}$                                     | Integer subtraction               |
+| expression < expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs < rhs : bool}$                                    | Integer less-than                 |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs < rhs : bool}$                                  | See [truth tables]                |
+| expression &lt;= expression | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs <= rhs : bool}$                                   | Integer less-or-equal             |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs <= rhs : bool}$                                 | See [truth tables]                |
+| expression > expression     | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs > rhs : bool}$                                    | Integer greater-than              |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs > rhs : bool}$                                  | See [truth tables]                |
+| expression >= expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs >= rhs : bool}$                                   | Integer greater-or-equal          |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs >= rhs : bool}$                                 | See [truth tables]                |
+| expression == expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs == rhs : bool}$                                   | Integer equality                  |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs == rhs : bool}$                                 | See [truth tables]                |
+| expression != expression    | $\dfrac{Γ ⊢ lhs : Int ∧ Γ ⊢ rhs : Int}{Γ ⊢ lhs \text{ != } rhs : bool}$                          | Integer nonequality               |
+|                             | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs \text{ != } rhs : bool}$                        | See [truth tables]                |
+| expression && expression    | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \&\&\ rhs : bool}$                             | Short-circuiting AND              |
+| expression \|\| expression  | $\dfrac{Γ ⊢ lhs : bool ∧ Γ ⊢ rhs : bool}{Γ ⊢ lhs\ \|\|\ rhs : bool}$                             | Short-circuiting OR               |
+| f(e₁, ..., eₙ)              | $\dfrac{f : (T_1, ..., T_n) → R ∧ Γ ⊢ e_i : T_i}{Γ ⊢ f(e_1, ..., e_n) : R}$                      | Function call                     |
+| disclose(e)                 | $\dfrac{Γ ⊢ e : T}{Γ ⊢ disclose(e) : T}$                                                         | Converts `e` to public visibility |
+| emit E(e₁, ..., eₙ)         | $\dfrac{E : event(T_1, ..., T_n) ∧ Γ ⊢ e_i : T_i}{Γ ⊢ emit\ E(e_1, ..., e_n) : ()}$              | Event emission                    |
 
 In the rules above, $Int$ stands for any single integer type from `{i8, i16, i32, i64, u8, u16, u32, u64}`. Both operands of a binary operator must have the **same** integer type.
-
-### Structural typing rules
-
-- Struct and enum definitions introduce canonical shapes, but names are merely aliases; two independently-declared structs with the same field names/types are interchangeable.
-- Type annotations refer to those named definitions. During type checking the compiler canonicalizes field/variant order before comparing shapes so structurally identical names unify.
-- Unification succeeds for records when both sides have the same field names (order-insensitive) and each corresponding field type unifies. A similar rule holds for enums, matching variant names and payload arity/type.
-- Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
 ### Overflow and underflow
 
@@ -506,96 +558,3 @@ The remainder always has the sign of the right-hand side.
 | **false** | **TRUE**  | false  | TRUE     | false  | TRUE   | TRUE  | TRUE      | false | false  |
 | **TRUE**  | **false** | false  | TRUE     | false  | TRUE   | false | false     | TRUE  | TRUE   |
 | **TRUE**  | **TRUE**  | TRUE   | TRUE     | TRUE   | false  | false | TRUE      | false | TRUE   |
-
-## Statement semantics
-
-- `if` statements evaluate their condition, require it to be a boolean, and branch in the obvious way.
-- `while` expressions loop in the obvious way.
-- Blocks introduce a new child scope for `let` statements.
-- `let` statements add a new variable binding to the current scope and give it
-  an initial value based on its expression.
-  - Variables may be integers (`i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`), booleans, structs, or enums.
-  - `let pub name = expr;` and `let pub mut name = expr;` require `expr` to already be public, or explicitly disclosed via `disclose(expr)`.
-- Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
-  - Assigning to any public target (including `storage`) requires a public RHS; use `disclose(...)` when assigning private values into a public binding.
-- Reads from `storage` bindings are already on the public side.
-
-# Not Yet Implemented
-
-## Type system
-
-- Structural.
-- Product `struct` and sum `enum` types.
-  - Tuples = anonymous structs.
-  - Unions = anonymous enums.
-- Has support for linear types.
-- Pseudo-generics for built-in constructs like `Utxo<AnotherContractName>`.
-  - Because we eventually need functions that can accept "any UTXO satisfying X condition".
-- Effects and resumable errors are typed as part of the signature of a function.
-- Fatal errors (fail the transaction) are not typed.
-
-## Semantics
-
-### Functions
-
-- Functions are first-class **definitions** that bind a name to a parameterized block at module scope.
-- All parameters must carry an explicit type annotation. Function parameters may optionally be marked `pub` (`pub name: Type`) to indicate public visibility.
-- The declared return type is optional; when omitted the function returns the `Unit` type (`()`).
-- The body block may terminate with a tail expression (no trailing semicolon). That expression becomes the implicit return value when no explicit `return` is executed.
-- `return` statements exit the current function early. `return;` returns the unit value, while `return <expr>;` yields the expression's value.
-- Parameter and return annotations participate in the Hindley–Milner inference engine; they constrain the inferred types of the body expressions.
-- Blocks that end without an explicit `return` or tail expression evaluate to unit.
-
-```star
-fn some_function(a: i64, b: i64) -> i64 {
-  if (a > b) {
-    return a;
-  }
-
-  a + b
-}
-```
-
-### Environment
-
-The Env of the semantics is defined by the following contexts:
-
-- The instruction context: the program and the instructions left to process
-  - A suspended UTXO must serialize itself; the VM expects to be able to simply run it from its entry point with its existing memory
-- The local memory context: any variables local to the function (ex: "the stack")
-  - objects can be removed from this context either by going out of scope, or by being used (linear types)
-- The persistent memory context: any shared variables that are globally referable (ex: static variables, "the heap")
-  - Including some notion of when a piece of persistent memory is "freed" and can be safely zeroed (immediately and deterministically)
-- The type context: which types exist and their definitions
-  - There are no pointer types to either functions or resources
-  - Types have identities (hashes) and are structural (names are omitted when computing the ID)
-- The resource context: which references exist to externally-managed resources (tokens)
-  - UTXO external resources and token intermediates are passed around explicitly, not part of the context
-
-### Type system
-
-Type conveniences:
-
-- Pattern matching.
-  - In `let`:
-    - When one pattern can cover the whole value space (namely structs).
-  - Spread operator `..` to ignore remainder of fields.
-
-### Type identities
-
-Structure type definitions can be hashed for comparison. Names do not matter (structural typing).
-
-- Algebraic Data Types (ADTs) are supported
-  - Struct identities are based on their field types, in order
-    - So `(i32, i32)` == `struct Foo { a: i32, b: i32 }` == `struct Bar { b: i32, c: i32 }`
-    - No such thing as anonymous `{ a: i32, b: i32 }`.
-  - Enum identities are based on their variant discriminators (ordinals), and the field types in order of each variant
-    - So `i32 | (i32, i32)` == `enum Foo { A { b: i32, }, C { d: i32, e: i32 } }`
-
-- Function identities are based on their name and their type.
-  - Function types are based on their parameter types in order, return type, and possible effect set
-
-# Potential Future Ideas
-
-- Struct updates: `Foo { a: 1, ..old_foo }`
-- In-script unit and property tests.
