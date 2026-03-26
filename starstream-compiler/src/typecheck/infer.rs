@@ -1066,7 +1066,7 @@ impl Inferencer {
                         .map(|var| self.infer_utxo_global(env, var))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
-                UtxoPart::MainFn(function) => {
+                UtxoPart::Function(function) => {
                     if function.return_type.is_some() {
                         return Err(TypeError::new(
                             TypeErrorKind::ReturnTypeNotAllowed,
@@ -1075,7 +1075,7 @@ impl Inferencer {
                     }
                     let (func, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
-                    TypedUtxoPart::MainFn(func)
+                    TypedUtxoPart::Function(func)
                 }
             });
         }
@@ -3832,7 +3832,7 @@ impl Inferencer {
                         var.ty = self.apply(&var.ty);
                     }
                 }
-                TypedUtxoPart::MainFn(func) => {
+                TypedUtxoPart::Function(func) => {
                     self.apply_function(func);
                 }
             }

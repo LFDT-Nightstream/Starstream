@@ -44,7 +44,7 @@ Program {
                                 },
                             ],
                         ),
-                        MainFn(
+                        Function(
                             FunctionDef {
                                 export: Some(
                                     UtxoMain,
@@ -95,7 +95,7 @@ Program {
                                 },
                             },
                         ),
-                        MainFn(
+                        Function(
                             FunctionDef {
                                 export: Some(
                                     UtxoMain,
@@ -203,7 +203,7 @@ TypedProgram {
                             },
                         ],
                     ),
-                    MainFn(
+                    Function(
                         TypedFunctionDef {
                             export: Some(
                                 UtxoMain,
@@ -266,7 +266,7 @@ TypedProgram {
                             },
                         },
                     ),
-                    MainFn(
+                    Function(
                         TypedFunctionDef {
                             export: Some(
                                 UtxoMain,

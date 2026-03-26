@@ -1308,7 +1308,7 @@ impl Compiler {
                         });
                     }
                 }
-                TypedUtxoPart::MainFn(function) => {
+                TypedUtxoPart::Function(function) => {
                     self.visit_function(
                         &to_kebab_case(function.name.as_str()),
                         function,

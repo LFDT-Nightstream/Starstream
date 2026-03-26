@@ -36,7 +36,7 @@ Program {
                         span: 45..51,
                     },
                     parts: [
-                        MainFn(
+                        Function(
                             FunctionDef {
                                 export: Some(
                                     UtxoMain,
@@ -114,7 +114,7 @@ TypedProgram {
                     span: 45..51,
                 },
                 parts: [
-                    MainFn(
+                    Function(
                         TypedFunctionDef {
                             export: Some(
                                 UtxoMain,

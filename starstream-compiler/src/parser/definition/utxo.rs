@@ -28,7 +28,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
         .padded()
         .ignore_then(function_with_body())
         .map(|def| {
-            UtxoPart::MainFn(FunctionDef {
+            UtxoPart::Function(FunctionDef {
                 export: Some(FunctionExport::UtxoMain),
                 ..def
             })
