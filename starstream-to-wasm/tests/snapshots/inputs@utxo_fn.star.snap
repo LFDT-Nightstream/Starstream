@@ -1,0 +1,127 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_fn.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "FooAbi",
+                        span: 4..10,
+                    },
+                    parts: [
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "HelloEvent",
+                                    span: 23..33,
+                                },
+                                params: [],
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..40,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 45..51,
+                    },
+                    parts: [
+                        Function(
+                            FunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "private_fn",
+                                    span: 61..71,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Emit {
+                                                        event: Identifier {
+                                                            name: "HelloEvent",
+                                                            span: 89..99,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 84..101,
+                                                },
+                                            ),
+                                            span: 84..107,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 74..113,
+                                },
+                            },
+                        ),
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "hello_utxo",
+                                    span: 121..131,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: Identifier(
+                                                                Identifier {
+                                                                    name: "private_fn",
+                                                                    span: 144..154,
+                                                                },
+                                                            ),
+                                                            span: 144..154,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 144..156,
+                                                },
+                                            ),
+                                            span: 144..162,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 134..164,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 40..166,
+        },
+    ],
+}
+
+==== Type error ====
+]8;;https://starstream.nightstream.dev/errors/E0001\E0001 (link)]8;;\
+
+  x unknown variable `private_fn`
+    ,-[10:9]
+  9 |     main fn hello_utxo() {
+ 10 |         private_fn();
+    :         ^^^^^^^^^^
+ 11 |     }
+    `----

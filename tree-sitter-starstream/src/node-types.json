@@ -587,6 +587,33 @@
     }
   },
   {
+    "type": "fn_utxo_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "function_parameter",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "function_definition",
     "named": true,
     "fields": {},
@@ -793,33 +820,6 @@
         },
         {
           "type": "unit_literal",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "main_fn_utxo_part",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "block",
-          "named": true
-        },
-        {
-          "type": "function_parameter",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
-          "type": "type_annotation",
           "named": true
         }
       ]
@@ -1166,11 +1166,11 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "fn_utxo_part",
           "named": true
         },
         {
-          "type": "main_fn_utxo_part",
+          "type": "identifier",
           "named": true
         },
         {
