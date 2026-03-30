@@ -11,7 +11,7 @@
 use crate::{
     Hash, InterleavingInstance, REF_GET_WIDTH, REF_PUSH_WIDTH, Ref, Value, WasmModule,
     transaction_effects::{
-        InterfaceId, ProcessId,
+        FunctionId, InterfaceId, ProcessId,
         witness::{REF_WRITE_WIDTH, WitLedgerEffect},
     },
 };
@@ -215,6 +215,19 @@ pub enum InterleavingError {
 
     #[error("NewRef result mismatch. Got: {0:?}. Expected: {0:?}")]
     RefInitializationMismatch(Ref, Ref),
+
+    #[error("process must enter function before continuing (pid={pid} expected={expected:?})")]
+    MustEnterPending {
+        pid: ProcessId,
+        expected: FunctionId,
+    },
+
+    #[error("enter mismatch (pid={pid} expected={expected:?} got={got:?})")]
+    EnterMismatch {
+        pid: ProcessId,
+        expected: FunctionId,
+        got: FunctionId,
+    },
 }
 
 // ---------------------------- verifier ----------------------------
@@ -256,6 +269,8 @@ pub struct InterleavingState {
     finalized: Vec<bool>,
     /// Keep track of whether Burn is called
     did_burn: Vec<bool>,
+    must_enter: Vec<Option<FunctionId>>,
+    must_exit: Vec<bool>,
 
     /// token -> owner (both ProcessId). None => unowned.
     ownership: Vec<Option<ProcessId>>,
@@ -309,6 +324,8 @@ pub fn verify_interleaving_semantics(
         initialized: vec![false; n],
         finalized: vec![false; n],
         did_burn: vec![false; n],
+        must_enter: vec![None; n],
+        must_exit: vec![false; n],
     };
 
     // Inputs exist already (on-ledger) so they start initialized.
@@ -437,9 +454,19 @@ pub fn state_transition(
 
     next_op_idx[id_curr.0] += 1;
 
+    if let Some(expected_f_id) = state.must_enter[id_curr.0]
+        && !matches!(op, WitLedgerEffect::Enter { .. })
+    {
+        return Err(InterleavingError::MustEnterPending {
+            pid: id_curr,
+            expected: expected_f_id,
+        });
+    }
+
     match op {
         WitLedgerEffect::Resume {
             target,
+            f_id,
             val,
             ret,
             caller,
@@ -494,6 +521,8 @@ pub fn state_transition(
 
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = caller.to_option().flatten();
+            state.must_exit[id_curr.0] = false;
+            state.must_enter[target.0] = Some(f_id);
 
             if state.on_yield[target.0] && !rom.is_utxo[id_curr.0] {
                 state.yield_to[target.0] = Some(id_curr);
@@ -552,6 +581,7 @@ pub fn state_transition(
             state.on_yield[id_curr.0] = true;
             state.id_prev = Some(id_curr);
             state.activation[id_curr.0] = None;
+            state.must_exit[id_curr.0] = false;
             state.id_curr = parent;
         }
         WitLedgerEffect::Return {} => {
@@ -561,6 +591,7 @@ pub fn state_transition(
 
             state.finalized[id_curr.0] = true;
             state.activation[id_curr.0] = None;
+            state.must_exit[id_curr.0] = false;
 
             if let Some(parent) = state.yield_to[id_curr.0] {
                 state.id_prev = Some(id_curr);
@@ -741,6 +772,7 @@ pub fn state_transition(
         }
         WitLedgerEffect::CallEffectHandler {
             interface_id,
+            f_id,
             val,
             ret,
         } => {
@@ -785,10 +817,34 @@ pub fn state_transition(
             state.activation[target.0] = Some((val, id_curr));
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = Some(target);
+            state.must_exit[id_curr.0] = false;
+            state.must_enter[target.0] = Some(f_id);
 
             state.id_prev = Some(id_curr);
             state.id_curr = target;
             state.finalized[target.0] = false;
+        }
+
+        WitLedgerEffect::Enter { f_id } => {
+            let expected =
+                state.must_enter[id_curr.0].ok_or(InterleavingError::MustEnterPending {
+                    pid: id_curr,
+                    expected: f_id,
+                })?;
+            if expected != f_id {
+                return Err(InterleavingError::EnterMismatch {
+                    pid: id_curr,
+                    expected,
+                    got: f_id,
+                });
+            }
+            if state.must_exit[id_curr.0] {
+                return Err(InterleavingError::Shape(
+                    "Enter called while function frame already active",
+                ));
+            }
+            state.must_enter[id_curr.0] = None;
+            state.must_exit[id_curr.0] = true;
         }
 
         WitLedgerEffect::Activation { val, caller } => {
@@ -955,6 +1011,7 @@ pub fn state_transition(
             state.activation[id_curr.0] = None;
             state.finalized[id_curr.0] = true;
             state.did_burn[id_curr.0] = true;
+            state.must_exit[id_curr.0] = false;
             state.expected_input[id_curr.0] = Some(ret);
             state.id_prev = Some(id_curr);
             state.id_curr = parent;

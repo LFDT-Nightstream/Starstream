@@ -657,6 +657,23 @@ impl Ledger {
         body: &TransactionBody,
         witness: &TransactionWitness,
     ) -> Result<(), VerificationError> {
+        let (inst, wit) = self.interleaving_artifacts(body, witness)?;
+        let interleaving_proof: &ZkTransactionProof = &witness.interleaving_proof;
+
+        // note however that this is mocked right now, and it's using a non-zk
+        // verifier.
+        //
+        // but the circuit in theory in theory encode the same machine
+        interleaving_proof.verify(&inst, &wit)?;
+
+        Ok(())
+    }
+
+    pub fn interleaving_artifacts(
+        &self,
+        body: &TransactionBody,
+        witness: &TransactionWitness,
+    ) -> Result<(InterleavingInstance, InterleavingWitness), VerificationError> {
         assert_eq!(witness.spending_proofs.len(), body.inputs.len());
 
         if body.continuations.len() != body.inputs.len() {
@@ -803,8 +820,6 @@ impl Ledger {
             input_states,
         };
 
-        let interleaving_proof: &ZkTransactionProof = &witness.interleaving_proof;
-
         let wit = InterleavingWitness {
             traces: witness
                 .spending_proofs
@@ -815,13 +830,7 @@ impl Ledger {
                 .collect(),
         };
 
-        // note however that this is mocked right now, and it's using a non-zk
-        // verifier.
-        //
-        // but the circuit in theory in theory encode the same machine
-        interleaving_proof.verify(&inst, &wit)?;
-
-        Ok(())
+        Ok((inst, wit))
     }
 }
 

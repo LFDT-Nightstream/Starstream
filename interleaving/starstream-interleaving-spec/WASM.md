@@ -534,6 +534,7 @@ The minimum requirement is:
    process must next emit `Enter(f_id)`.
 2. `Return` closes the current Starstream-visible function frame.
 3. `Yield` does not close the current Starstream-visible function frame.
+4. `Burn` closes the frame and also ends the coroutine lifetime.
 
 ## 9. Effect Handlers
 

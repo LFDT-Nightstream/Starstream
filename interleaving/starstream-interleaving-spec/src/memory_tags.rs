@@ -35,6 +35,8 @@ pub enum RamMemoryTag {
     OnYield = 15,
     YieldTo = 16,
     InitCaller = 17,
+    MustEnter = 18,
+    MustExit = 19,
 }
 
 impl RamMemoryTag {

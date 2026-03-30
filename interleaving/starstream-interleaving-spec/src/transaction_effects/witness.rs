@@ -26,6 +26,7 @@ pub enum EffectDiscriminant {
     Return = 17,
     CallEffectHandler = 18,
     NewToken = 19,
+    Enter = 20,
 }
 
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
@@ -116,9 +117,14 @@ pub enum WitLedgerEffect {
     CallEffectHandler {
         // in
         interface_id: InterfaceId,
+        f_id: FunctionId,
         val: Ref,
         // out
         ret: WitEffectOutput<Ref>,
+    },
+
+    Enter {
+        f_id: FunctionId,
     },
 
     // UTXO-only
@@ -231,6 +237,7 @@ impl TryFrom<u64> for EffectDiscriminant {
             17 => Ok(EffectDiscriminant::Return),
             18 => Ok(EffectDiscriminant::CallEffectHandler),
             19 => Ok(EffectDiscriminant::NewToken),
+            20 => Ok(EffectDiscriminant::Enter),
             _ => Err(EffectDiscriminantError { value }),
         }
     }

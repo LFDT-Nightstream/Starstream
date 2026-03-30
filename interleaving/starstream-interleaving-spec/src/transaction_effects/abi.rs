@@ -19,6 +19,8 @@ pub enum ArgName {
     InterfaceId1,
     InterfaceId2,
     InterfaceId3,
+    FunctionId0,
+    FunctionId1,
     PackedRef0,
     PackedRef1,
     PackedRef2,
@@ -43,6 +45,8 @@ impl ArgName {
             ArgName::ProgramHash1 => 4,
             ArgName::ProgramHash2 => 5,
             ArgName::ProgramHash3 => 6,
+            ArgName::FunctionId0 => 0,
+            ArgName::FunctionId1 => 4,
             // Packed ref args for RefPush/RefGet/RefWrite.
             ArgName::PackedRef0 => 0,
             ArgName::PackedRef1 => 1,
