@@ -6,15 +6,17 @@ Spanned {
     node: If {
         branches: [
             (
-                Spanned {
-                    node: Identifier(
-                        Identifier {
-                            name: "flag",
-                            span: 4..8,
-                        },
-                    ),
-                    span: 4..8,
-                },
+                Bool(
+                    Spanned {
+                        node: Identifier(
+                            Identifier {
+                                name: "flag",
+                                span: 4..8,
+                            },
+                        ),
+                        span: 4..8,
+                    },
+                ),
                 Block {
                     statements: [
                         Spanned {

@@ -1,0 +1,17 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nabi MyAbi {\n    fn transfer(amount: i64) -> bool;\n}\n\nfn test(x: Utxo) {\n    if x is MyAbi {\n        x.transfer(100);\n    } else if x is MyAbi {\n        x.transfer(200);\n    } else {\n        0;\n    }\n}\n"
+---
+abi MyAbi {
+    fn transfer(amount: i64) -> bool;
+}
+
+fn test(x: Utxo) {
+    if x is MyAbi {
+        x.transfer(100);
+    } else if x is MyAbi {
+        x.transfer(200);
+    } else {
+        0;
+    }
+}

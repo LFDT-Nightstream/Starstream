@@ -1,10 +1,22 @@
 use chumsky::prelude::*;
-use starstream_types::{AbiDef, AbiPart, EventDef, ast::FunctionParam};
+use starstream_types::{AbiDef, AbiMethodDecl, AbiPart, EventDef, ast::FunctionParam};
 
-use crate::parser::{context::Extra, primitives, type_annotation};
+use crate::parser::{comment, context::Extra, primitives, type_annotation};
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
-    let abi_part = event_definition().map(AbiPart::Event);
+    // WARNING: Must use .then() not .ignore_then() — chumsky optimizes away side effects in ignored parsers.
+    let comments_padding = comment::comment_collecting()
+        .padded()
+        .repeated()
+        .collect::<Vec<_>>();
+
+    let abi_part = comments_padding
+        .clone()
+        .then(choice((
+            event_definition().map(AbiPart::Event),
+            fn_decl_definition().map(AbiPart::FnDecl),
+        )))
+        .map(|(_, part)| part);
 
     just("abi")
         .padded()
@@ -13,6 +25,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, AbiDef, Extra<'a>> {
             abi_part
                 .repeated()
                 .collect::<Vec<_>>()
+                .then(comments_padding)
+                .map(|(parts, _)| parts)
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
         .map(|(name, parts)| AbiDef { name, parts })
@@ -44,7 +58,43 @@ fn event_definition<'a>() -> impl Parser<'a, &'a str, EventDef, Extra<'a>> {
                 .delimited_by(just('(').padded(), just(')').padded()),
         )
         .then_ignore(just(';').padded())
-        .map(|(name, params)| EventDef { name, params })
+        .map_with(|(name, params), extra| EventDef {
+            name,
+            params,
+            span: extra.span(),
+        })
+}
+
+fn fn_decl_definition<'a>() -> impl Parser<'a, &'a str, AbiMethodDecl, Extra<'a>> {
+    let type_parser = type_annotation::parser().boxed();
+
+    let parameter = primitives::identifier()
+        .then_ignore(just(':').padded())
+        .then(type_parser.clone())
+        .map(|(name, ty)| FunctionParam {
+            public: false,
+            name,
+            ty,
+        });
+
+    just("fn")
+        .padded()
+        .ignore_then(primitives::identifier())
+        .then(
+            parameter
+                .separated_by(just(',').padded())
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just('(').padded(), just(')').padded()),
+        )
+        .then(just("->").padded().ignore_then(type_parser).or_not())
+        .then_ignore(just(';').padded())
+        .map_with(|((name, params), return_type), extra| AbiMethodDecl {
+            name,
+            params,
+            return_type,
+            span: extra.span(),
+        })
 }
 
 #[cfg(test)]
@@ -114,6 +164,41 @@ mod tests {
             r#"
             abi Events {
                 event Transfer(pub sender: i64, to: i64);
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_with_method() {
+        assert_abi_snapshot!(
+            r#"
+            abi TokenAbi {
+                fn transfer(amount: i64) -> bool;
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_mixed_events_and_methods() {
+        assert_abi_snapshot!(
+            r#"
+            abi TokenAbi {
+                event Transfer(sender: i64, to: i64, amount: i64);
+                fn transfer(amount: i64) -> bool;
+                fn balance() -> i64;
+            }
+            "#
+        );
+    }
+
+    #[test]
+    fn abi_method_no_return_type() {
+        assert_abi_snapshot!(
+            r#"
+            abi MyAbi {
+                fn doSomething(x: i64);
             }
             "#
         );

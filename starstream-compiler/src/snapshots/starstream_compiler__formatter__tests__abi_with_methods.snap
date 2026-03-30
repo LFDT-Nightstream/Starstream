@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nabi TokenAbi {\n    event Transfer(sender: i64, to: i64, amount: i64);\n    /// Transfer tokens\n    fn transfer(amount: i64) -> bool;\n    /// Get balance\n    fn balance() -> i64;\n}\n"
+---
+abi TokenAbi {
+    event Transfer(sender: i64, to: i64, amount: i64);
+    /// Transfer tokens
+    fn transfer(amount: i64) -> bool;
+    /// Get balance
+    fn balance() -> i64;
+}

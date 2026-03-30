@@ -1,8 +1,8 @@
 use pretty::RcDoc;
 use starstream_types::{
-    AbiDef, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef, Expr, FunctionDef,
-    FunctionExport, FunctionParam, Literal, Spanned, Statement, TypeAnnotation, UnaryOp, UtxoDef,
-    UtxoGlobal, UtxoPart,
+    AbiDef, AbiMethodDecl, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef,
+    Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal, Spanned, Statement,
+    TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
@@ -134,7 +134,7 @@ fn definition_to_doc<'a>(
         Definition::Struct(definition) => struct_definition_to_doc(definition, source, comments),
         Definition::Enum(definition) => enum_definition_to_doc(definition, source, comments),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source, comments),
-        Definition::Abi(definition) => abi_definition_to_doc(definition, source),
+        Definition::Abi(definition) => abi_definition_to_doc(definition, source, comments),
     }
 }
 
@@ -481,7 +481,11 @@ fn utxo_global_to_doc<'a>(decl: &UtxoGlobal, source: &'a str) -> RcDoc<'a, ()> {
         .append(RcDoc::text(";"))
 }
 
-fn abi_definition_to_doc<'a>(definition: &AbiDef, source: &'a str) -> RcDoc<'a, ()> {
+fn abi_definition_to_doc<'a>(
+    definition: &AbiDef,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     if definition.parts.is_empty() {
         RcDoc::text("abi")
             .append(RcDoc::space())
@@ -489,17 +493,34 @@ fn abi_definition_to_doc<'a>(definition: &AbiDef, source: &'a str) -> RcDoc<'a, 
             .append(RcDoc::space())
             .append(RcDoc::text("{ }"))
     } else {
-        let parts = RcDoc::intersperse(
-            definition.parts.iter().map(|x| abi_part_to_doc(x, source)),
-            RcDoc::line(),
-        );
+        let body_start = definition.name.span().end;
+        let mut body = RcDoc::nil();
+        let mut prev_end = body_start;
+
+        for (i, part) in definition.parts.iter().enumerate() {
+            let part_span = match part {
+                AbiPart::Event(e) => e.span,
+                AbiPart::FnDecl(m) => m.span,
+            };
+            let comments_before = comments.comments_between(prev_end, part_span, source);
+
+            if i > 0 {
+                body = body.append(RcDoc::line());
+            }
+            for c in comments_before {
+                body = body.append(comment_to_doc(c, source));
+            }
+
+            body = body.append(abi_part_to_doc(part, source));
+            prev_end = part_span.end;
+        }
 
         RcDoc::text("abi")
             .append(RcDoc::space())
             .append(identifier_to_doc(&definition.name, source))
             .append(RcDoc::space())
             .append(RcDoc::text("{"))
-            .append(RcDoc::line().append(parts).nest(INDENT))
+            .append(RcDoc::line().append(body).nest(INDENT))
             .append(RcDoc::line())
             .append(RcDoc::text("}"))
     }
@@ -508,7 +529,25 @@ fn abi_definition_to_doc<'a>(definition: &AbiDef, source: &'a str) -> RcDoc<'a, 
 fn abi_part_to_doc<'a>(part: &AbiPart, source: &'a str) -> RcDoc<'a, ()> {
     match part {
         AbiPart::Event(event) => event_definition_to_doc(event, source),
+        AbiPart::FnDecl(method) => abi_method_decl_to_doc(method, source),
     }
+}
+
+fn abi_method_decl_to_doc<'a>(method: &AbiMethodDecl, source: &'a str) -> RcDoc<'a, ()> {
+    let params = params_to_doc(&method.params, source);
+    let doc = RcDoc::text("fn")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&method.name, source))
+        .append(RcDoc::text("("))
+        .append(params)
+        .append(RcDoc::text(")"));
+    let doc = if let Some(ret) = &method.return_type {
+        doc.append(RcDoc::text(" -> "))
+            .append(type_annotation_to_doc(ret, source))
+    } else {
+        doc
+    };
+    doc.append(RcDoc::text(";"))
 }
 
 fn event_definition_to_doc<'a>(event: &EventDef, source: &'a str) -> RcDoc<'a, ()> {
@@ -574,8 +613,11 @@ fn statement_to_doc<'a>(
             .append(RcDoc::space())
             .append(block_to_doc(body, source, comments)),
         Statement::Expression(expr) => {
-            spanned(expr, source, |node| expr_to_doc(node, source, comments))
-                .append(RcDoc::text(";"))
+            let doc = spanned(expr, source, |node| expr_to_doc(node, source, comments));
+            match &expr.node {
+                Expr::If { .. } | Expr::Match { .. } | Expr::Block(_) => doc,
+                _ => doc.append(RcDoc::text(";")),
+            }
         }
         Statement::Return(Some(expr)) => RcDoc::text("return")
             .append(RcDoc::space())
@@ -947,10 +989,21 @@ fn expr_with_prec<'a>(
                                 .append("else")
                                 .append(RcDoc::space());
                         }
+                        out = out.append("if").append(RcDoc::space());
+                        match condition {
+                            IfCondition::Bool(expr) => {
+                                out = out.append(parened_expr(expr, source, comments));
+                            }
+                            IfCondition::Is { name, abi_name } => {
+                                out = out
+                                    .append(identifier_to_doc(name, source))
+                                    .append(RcDoc::space())
+                                    .append("is")
+                                    .append(RcDoc::space())
+                                    .append(identifier_to_doc(abi_name, source));
+                            }
+                        }
                         out = out
-                            .append("if")
-                            .append(RcDoc::space())
-                            .append(parened_expr(condition, source, comments))
                             .append(RcDoc::space())
                             .append(block_to_doc(block, source, comments));
                     }
@@ -1922,6 +1975,42 @@ mod tests {
                 // wow
                 x: i64,
                 y: i64,
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn if_is_expression() {
+        assert_format_snapshot!(
+            r#"
+            abi MyAbi {
+                fn transfer(amount: i64) -> bool;
+            }
+
+            fn test(x: Utxo) {
+                if x is MyAbi {
+                    x.transfer(100);
+                } else if x is MyAbi {
+                    x.transfer(200);
+                } else {
+                    0;
+                }
+            }
+            "#,
+        );
+    }
+
+    #[test]
+    fn abi_with_methods() {
+        assert_format_snapshot!(
+            r#"
+            abi TokenAbi {
+                event Transfer(sender: i64, to: i64, amount: i64);
+                /// Transfer tokens
+                fn transfer(amount: i64) -> bool;
+                /// Get balance
+                fn balance() -> i64;
             }
             "#,
         );

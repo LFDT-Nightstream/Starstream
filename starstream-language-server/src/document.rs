@@ -22,8 +22,8 @@ use starstream_types::{
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
         TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariantPayload, TypedExpr, TypedExprKind,
-        TypedFunctionDef, TypedImportDef, TypedImportItems, TypedMatchArm, TypedPattern,
-        TypedProgram, TypedStatement, TypedStructDef, TypedStructLiteralField,
+        TypedFunctionDef, TypedIfCondition, TypedImportDef, TypedImportItems, TypedMatchArm,
+        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructLiteralField,
     },
     types::{EnumType, EnumVariantKind, Type},
 };
@@ -81,6 +81,8 @@ pub struct DocumentState {
     enum_docs: HashMap<String, String>,
     /// Maps struct name -> field name -> doc comment for field access hover.
     struct_field_docs: HashMap<String, HashMap<String, String>>,
+    /// Maps ABI name -> method name -> (signature label, doc comment) for method call hover.
+    abi_method_info: HashMap<String, HashMap<String, (String, Option<String>)>>,
     /// Maps (enum, variant) -> doc comment for variant usage hover.
     enum_variant_docs: HashMap<EnumVariantKey, String>,
     /// Generic type definitions from the type checker (Option, Result, etc.).
@@ -117,6 +119,7 @@ impl DocumentState {
             struct_docs: HashMap::new(),
             enum_docs: HashMap::new(),
             struct_field_docs: HashMap::new(),
+            abi_method_info: HashMap::new(),
             enum_variant_docs: HashMap::new(),
             generic_types: HashMap::new(),
             comment_map: CommentMap::new(),
@@ -195,6 +198,7 @@ impl DocumentState {
         self.struct_docs.clear();
         self.enum_docs.clear();
         self.struct_field_docs.clear();
+        self.abi_method_info.clear();
         self.enum_variant_docs.clear();
         self.generic_types.clear();
 
@@ -719,7 +723,7 @@ impl DocumentState {
         &mut self,
         definition: &TypedAbiDef,
         _untyped: Option<&untyped_ast::AbiDef>,
-        _source: &str,
+        source: &str,
         doc: Option<String>,
     ) {
         if let Some(span) = definition.name.opt_span() {
@@ -732,7 +736,6 @@ impl DocumentState {
             self.add_hover_label_with_doc(span, format!("abi {}", definition.name.name), doc);
         }
 
-        // Note: Event-level doc comments would require AbiPart/EventDef to be wrapped in Spanned<T>
         for part in &definition.parts {
             match part {
                 TypedAbiPart::Event(event) => {
@@ -743,6 +746,44 @@ impl DocumentState {
                         });
 
                         self.add_hover_label(span, format!("event {}", event.name.name));
+                    }
+                }
+                TypedAbiPart::FnDecl(decl) => {
+                    let method_doc = self.comment_map.doc_comments(decl.span, source);
+
+                    let params = decl
+                        .params
+                        .iter()
+                        .map(|p| format!("{}: {}", p.name.name, p.ty.to_compact_string()))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let label = if decl.return_type == Type::Unit {
+                        format!("fn {}({})", decl.name.name, params)
+                    } else {
+                        format!(
+                            "fn {}({}) -> {}",
+                            decl.name.name,
+                            params,
+                            decl.return_type.to_compact_string()
+                        )
+                    };
+
+                    // Store for field access hover on narrowed ABI variables
+                    self.abi_method_info
+                        .entry(definition.name.name.clone())
+                        .or_default()
+                        .insert(
+                            decl.name.name.clone(),
+                            (label.clone(), method_doc.clone()),
+                        );
+
+                    if let Some(span) = decl.name.opt_span() {
+                        self.definition_entries.push(DefinitionEntry {
+                            usage: span,
+                            target: span,
+                        });
+
+                        self.add_hover_label_with_doc(span, label, method_doc);
                     }
                 }
             }
@@ -918,9 +959,23 @@ impl DocumentState {
 
                 // Add hover with doc comment for field access
                 if let Some(field_span) = field.opt_span() {
-                    // Find the struct name from the target type
-                    if let Some(struct_name) = self.find_struct_name_for_type(&target.node.ty) {
-                        // Get field type and doc
+                    if let Type::AbiNarrow(ref abi_name) = target.node.ty {
+                        // ABI method access — show method signature with doc comment
+                        if let Some((label, doc)) = self
+                            .abi_method_info
+                            .get(abi_name)
+                            .and_then(|methods| methods.get(&field.name))
+                        {
+                            self.add_hover_label_with_doc(
+                                field_span,
+                                label.clone(),
+                                doc.clone(),
+                            );
+                        }
+                    } else if let Some(struct_name) =
+                        self.find_struct_name_for_type(&target.node.ty)
+                    {
+                        // Struct field access
                         let field_type = self.lookup_struct_field_type(&struct_name, &field.name);
                         let field_doc = self
                             .struct_field_docs
@@ -986,7 +1041,28 @@ impl DocumentState {
                 else_branch,
             } => {
                 for (condition, then_branch) in branches {
-                    self.collect_expr(condition, scopes);
+                    match condition {
+                        TypedIfCondition::Bool(condition) => {
+                            self.collect_expr(condition, scopes);
+                        }
+                        TypedIfCondition::Is {
+                            name,
+                            abi_name,
+                            original_type,
+                        } => {
+                            // Hover on the variable shows its original type
+                            if let Some(span) = name.opt_span() {
+                                self.add_hover_span(span, original_type);
+                            }
+                            // Hover on the ABI name shows the ABI definition label
+                            if let Some(span) = abi_name.opt_span() {
+                                self.add_hover_label(
+                                    span,
+                                    format!("abi {}", abi_name.name),
+                                );
+                            }
+                        }
+                    }
                     self.collect_block(then_branch, scopes);
                 }
 
@@ -1449,6 +1525,14 @@ impl DocumentState {
                             untyped_ast::AbiPart::Event(event) => {
                                 for param in &event.params {
                                     self.collect_type_annotation_node(&param.ty);
+                                }
+                            }
+                            untyped_ast::AbiPart::FnDecl(decl) => {
+                                for param in &decl.params {
+                                    self.collect_type_annotation_node(&param.ty);
+                                }
+                                if let Some(ret) = &decl.return_type {
+                                    self.collect_type_annotation_node(ret);
                                 }
                             }
                         }
@@ -1936,6 +2020,36 @@ impl DocumentState {
                             name: event.name.name.clone(),
                             detail,
                             kind: SymbolKind::EVENT,
+                            tags: None,
+                            deprecated: None,
+                            range: self.span_to_range(span),
+                            selection_range: self.span_to_range(span),
+                            children: None,
+                        };
+
+                        children.push(child);
+                    }
+                }
+                TypedAbiPart::FnDecl(decl) => {
+                    if let Some(span) = decl.name.opt_span() {
+                        let params = decl
+                            .params
+                            .iter()
+                            .map(|p| format!("{}: {}", p.name.name, p.ty))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+
+                        let detail = Some(format!(
+                            "({}) -> {}",
+                            params,
+                            decl.return_type.to_compact_string()
+                        ));
+
+                        #[allow(deprecated)]
+                        let child = DocumentSymbol {
+                            name: decl.name.name.clone(),
+                            detail,
+                            kind: SymbolKind::METHOD,
                             tags: None,
                             deprecated: None,
                             range: self.span_to_range(span),

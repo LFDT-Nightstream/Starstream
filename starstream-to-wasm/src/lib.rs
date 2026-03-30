@@ -925,6 +925,10 @@ impl Compiler {
                     .collect();
                 ComponentAbiType::Variant { cases }
             }
+            Type::AbiNarrow(_) => {
+                // ABI narrowing is a type-checker-only concept; no codegen yet.
+                return None;
+            }
         };
 
         let cat = Rc::new(cat);
@@ -1105,6 +1109,7 @@ impl Compiler {
             }
             Type::Function { .. } => todo!(),
             Type::Var(_) => todo!(),
+            Type::AbiNarrow(_) => 0,
         }
     }
 
@@ -1231,6 +1236,9 @@ impl Compiler {
                     iface
                         .inner
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
+                }
+                TypedAbiPart::FnDecl(_) => {
+                    // ABI method codegen not yet implemented.
                 }
             }
         }
@@ -1538,15 +1546,27 @@ impl Compiler {
                 // Emit basic double-block and trust the optimizer.
                 func.instructions().block(BlockType::Empty);
                 for (condition, block) in branches {
-                    // Inner block for each condition.
-                    func.instructions().block(BlockType::Empty);
-                    let _ = self.visit_expr_stack(func, locals, condition.span, &condition.node);
-                    assert_eq!(condition.node.ty, Type::Bool);
-                    func.instructions().i32_eqz(); // If condition is false,
-                    func.instructions().br_if(0); // then try the next condition.
-                    self.visit_block_drop(func, locals, block)?;
-                    func.instructions().br(1); // Go past end.
-                    func.instructions().end();
+                    match condition {
+                        TypedIfCondition::Bool(condition) => {
+                            // Inner block for each condition.
+                            func.instructions().block(BlockType::Empty);
+                            let _ = self.visit_expr_stack(
+                                func,
+                                locals,
+                                condition.span,
+                                &condition.node,
+                            );
+                            assert_eq!(condition.node.ty, Type::Bool);
+                            func.instructions().i32_eqz(); // If condition is false,
+                            func.instructions().br_if(0); // then try the next condition.
+                            self.visit_block_drop(func, locals, block)?;
+                            func.instructions().br(1); // Go past end.
+                            func.instructions().end();
+                        }
+                        TypedIfCondition::Is { .. } => {
+                            todo!("codegen for if...is not yet implemented")
+                        }
+                    }
                 }
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
@@ -2107,18 +2127,25 @@ impl Compiler {
                 // Emit basic double-block and trust the optimizer.
                 func.instructions().block(BlockType::Empty);
                 for (condition, block) in branches {
-                    // Inner block for each condition.
-                    func.instructions().block(BlockType::Empty);
-                    self.visit_expr_stack(func, locals, condition.span, &condition.node)?;
-                    assert_eq!(condition.node.ty, Type::Bool);
-                    func.instructions().i32_eqz(); // If condition is false,
-                    func.instructions().br_if(0); // then try the next condition.
-                    self.visit_block_stack(func, locals, block)?;
-                    for i in (0..new_locals.len()).rev() {
-                        func.instructions().local_set(first_local + (i as u32));
+                    match condition {
+                        TypedIfCondition::Bool(condition) => {
+                            // Inner block for each condition.
+                            func.instructions().block(BlockType::Empty);
+                            self.visit_expr_stack(func, locals, condition.span, &condition.node)?;
+                            assert_eq!(condition.node.ty, Type::Bool);
+                            func.instructions().i32_eqz(); // If condition is false,
+                            func.instructions().br_if(0); // then try the next condition.
+                            self.visit_block_stack(func, locals, block)?;
+                            for i in (0..new_locals.len()).rev() {
+                                func.instructions().local_set(first_local + (i as u32));
+                            }
+                            func.instructions().br(1); // Go past end.
+                            func.instructions().end();
+                        }
+                        TypedIfCondition::Is { .. } => {
+                            todo!("codegen for if...is not yet implemented")
+                        }
                     }
-                    func.instructions().br(1); // Go past end.
-                    func.instructions().end();
                 }
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {

@@ -296,6 +296,18 @@ pub struct AbiDef {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum AbiPart {
     Event(EventDef),
+    FnDecl(AbiMethodDecl),
+}
+
+/// Method declaration inside an `abi` block (signature only, no body).
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct AbiMethodDecl {
+    pub name: Identifier,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Option<TypeAnnotation>,
+    /// The span covering the entire declaration from `fn` to `;`.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 /// `event` declaration inside an `abi` block.
@@ -303,6 +315,9 @@ pub enum AbiPart {
 pub struct EventDef {
     pub name: Identifier,
     pub params: Vec<FunctionParam>,
+    /// The span covering the entire declaration from `event` to `;`.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 // ----------------------------------------------------------------------------
@@ -352,6 +367,18 @@ pub enum Statement {
 // ----------------------------------------------------------------------------
 // Expressions
 
+/// The condition part of an `if` branch.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum IfCondition {
+    /// A normal boolean expression: `if (expr) { ... }`
+    Bool(Spanned<Expr>),
+    /// A type-narrowing test: `if ident is AbiType { ... }`
+    Is {
+        name: Identifier,
+        abi_name: Identifier,
+    },
+}
+
 /// An expression that evaluates to a value of a particular type.
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Expr {
@@ -382,7 +409,7 @@ pub enum Expr {
     },
     Block(Box<Block>),
     If {
-        branches: Vec<(Spanned<Expr>, Block)>,
+        branches: Vec<(IfCondition, Block)>,
         else_branch: Option<Box<Block>>,
     },
     Match {

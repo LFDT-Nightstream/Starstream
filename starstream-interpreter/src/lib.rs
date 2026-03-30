@@ -5,7 +5,7 @@ use std::{cell::Cell, collections::BTreeMap, rc::Rc};
 
 use starstream_types::{
     BinaryOp, Identifier, Literal, TypedBlock, TypedDefinition, TypedExpr, TypedExprKind,
-    TypedFunctionDef, TypedProgram, TypedStatement, UnaryOp,
+    TypedFunctionDef, TypedIfCondition, TypedProgram, TypedStatement, UnaryOp,
 };
 
 #[cfg(test)]
@@ -189,8 +189,15 @@ pub fn eval(expr: &TypedExpr, locals: &Locals) -> ControlFlow<Value, Value> {
             else_branch,
         } => {
             for (condition, block) in branches {
-                if eval(&condition.node, locals)?.to_bool() {
-                    return eval_block(block, locals);
+                match condition {
+                    TypedIfCondition::Bool(condition) => {
+                        if eval(&condition.node, locals)?.to_bool() {
+                            return eval_block(block, locals);
+                        }
+                    }
+                    TypedIfCondition::Is { .. } => {
+                        todo!("interpreter: if...is not yet implemented")
+                    }
                 }
             }
             if let Some(else_branch) = else_branch {

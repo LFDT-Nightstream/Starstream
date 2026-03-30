@@ -1,30 +1,34 @@
 use chumsky::prelude::*;
-use starstream_types::ast::{Block, Expr, Spanned};
+use starstream_types::ast::{Block, Expr, IfCondition, Spanned};
 
-use crate::parser::{ParserExt, context::Extra};
+use crate::parser::{ParserExt, context::Extra, primitives};
 
 pub fn parser<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+    let is_condition = primitives::identifier()
+        .then_ignore(just("is").padded())
+        .then(primitives::identifier())
+        .map(|(name, abi_name)| IfCondition::Is { name, abi_name });
+
+    let bool_condition = expression
+        .clone()
+        .delimited_by(just('(').padded(), just(')').padded())
+        .map(IfCondition::Bool);
+
+    let condition = choice((is_condition, bool_condition)).boxed();
+
     just("if")
         .padded()
-        .ignore_then(
-            expression
-                .clone()
-                .delimited_by(just('(').padded(), just(')').padded()),
-        )
+        .ignore_then(condition.clone())
         .then(block.clone())
         .then(
             just("else")
                 .padded()
                 .then(just("if"))
                 .padded()
-                .ignore_then(
-                    expression
-                        .clone()
-                        .delimited_by(just('(').padded(), just(')').padded()),
-                )
+                .ignore_then(condition.clone())
                 .then(block.clone())
                 .repeated()
                 .collect::<Vec<_>>(),
@@ -58,6 +62,33 @@ mod tests {
         assert_expression_snapshot!(
             r#"
             if (a) { 1 } else if (b) { 2 } else { 3 }
+            "#
+        );
+    }
+
+    #[test]
+    fn if_is_basic() {
+        assert_expression_snapshot!(
+            r#"
+            if x is MyAbi { 1 } else { 2 }
+            "#
+        );
+    }
+
+    #[test]
+    fn if_is_chain() {
+        assert_expression_snapshot!(
+            r#"
+            if x is AbiA { 1 } else if x is AbiB { 2 } else { 3 }
+            "#
+        );
+    }
+
+    #[test]
+    fn if_is_mixed() {
+        assert_expression_snapshot!(
+            r#"
+            if x is AbiA { 1 } else if (flag) { 2 } else { 3 }
             "#
         );
     }

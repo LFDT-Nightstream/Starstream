@@ -6,7 +6,7 @@
 //! without re-running inference.
 
 use crate::{
-    FunctionExport, Spanned,
+    FunctionExport, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::{EffectKind, Type},
 };
@@ -140,6 +140,15 @@ pub struct TypedAbiDef {
 #[derive(Clone, Debug)]
 pub enum TypedAbiPart {
     Event(TypedEventDef),
+    FnDecl(TypedAbiMethodDecl),
+}
+
+#[derive(Clone, Debug)]
+pub struct TypedAbiMethodDecl {
+    pub name: Identifier,
+    pub params: Vec<TypedFunctionParam>,
+    pub return_type: Type,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
@@ -194,6 +203,20 @@ impl From<Spanned<TypedExpr>> for TypedBlock {
     }
 }
 
+/// The condition part of a typed `if` branch.
+#[derive(Clone, Debug)]
+pub enum TypedIfCondition {
+    /// A normal boolean expression: `if (expr) { ... }`
+    Bool(Spanned<TypedExpr>),
+    /// A type-narrowing test: `if ident is AbiType { ... }`
+    Is {
+        name: Identifier,
+        abi_name: Identifier,
+        /// The original type of the variable before narrowing.
+        original_type: Type,
+    },
+}
+
 /// Typed expression node. The [`kind`](TypedExpr::kind) mirrors the untyped
 /// AST while [`ty`](TypedExpr::ty) carries the finalized type for quick access.
 #[derive(Clone, Debug)]
@@ -231,7 +254,7 @@ pub enum TypedExprKind {
     },
     Block(Box<TypedBlock>),
     If {
-        branches: Vec<(Spanned<TypedExpr>, TypedBlock)>,
+        branches: Vec<(TypedIfCondition, TypedBlock)>,
         else_branch: Option<Box<TypedBlock>>,
     },
     Match {

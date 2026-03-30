@@ -1,0 +1,53 @@
+---
+source: starstream-compiler/src/parser/expression/primary/if_expr.rs
+description: "Code:\n\nif x is MyAbi { 1 } else { 2 }\n"
+---
+Spanned {
+    node: If {
+        branches: [
+            (
+                Is {
+                    name: Identifier {
+                        name: "x",
+                        span: 3..4,
+                    },
+                    abi_name: Identifier {
+                        name: "MyAbi",
+                        span: 8..13,
+                    },
+                },
+                Block {
+                    statements: [],
+                    tail_expression: Some(
+                        Spanned {
+                            node: Literal(
+                                Integer(
+                                    1,
+                                ),
+                            ),
+                            span: 16..17,
+                        },
+                    ),
+                    span: 14..20,
+                },
+            ),
+        ],
+        else_branch: Some(
+            Block {
+                statements: [],
+                tail_expression: Some(
+                    Spanned {
+                        node: Literal(
+                            Integer(
+                                2,
+                            ),
+                        ),
+                        span: 27..28,
+                    },
+                ),
+                span: 25..31,
+            },
+        ),
+    },
+    span: 0..31,
+}

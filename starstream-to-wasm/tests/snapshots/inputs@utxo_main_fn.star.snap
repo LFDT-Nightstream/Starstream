@@ -21,6 +21,7 @@ Program {
                                     span: 23..33,
                                 },
                                 params: [],
+                                span: 17..37,
                             },
                         ),
                     ],

@@ -25,14 +25,16 @@ Program {
                                 node: If {
                                     branches: [
                                         (
-                                            Spanned {
-                                                node: Literal(
-                                                    Boolean(
-                                                        false,
+                                            Bool(
+                                                Spanned {
+                                                    node: Literal(
+                                                        Boolean(
+                                                            false,
+                                                        ),
                                                     ),
-                                                ),
-                                                span: 27..32,
-                                            },
+                                                    span: 27..32,
+                                                },
+                                            ),
                                             Block {
                                                 statements: [
                                                     Spanned {
@@ -54,14 +56,16 @@ Program {
                                             },
                                         ),
                                         (
-                                            Spanned {
-                                                node: Literal(
-                                                    Boolean(
-                                                        true,
+                                            Bool(
+                                                Spanned {
+                                                    node: Literal(
+                                                        Boolean(
+                                                            true,
+                                                        ),
                                                     ),
-                                                ),
-                                                span: 62..66,
-                                            },
+                                                    span: 62..66,
+                                                },
+                                            ),
                                             Block {
                                                 statements: [
                                                     Spanned {
@@ -171,17 +175,19 @@ TypedProgram {
                                 kind: If {
                                     branches: [
                                         (
-                                            Spanned {
-                                                node: TypedExpr {
-                                                    ty: Bool,
-                                                    kind: Literal(
-                                                        Boolean(
-                                                            false,
+                                            Bool(
+                                                Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Bool,
+                                                        kind: Literal(
+                                                            Boolean(
+                                                                false,
+                                                            ),
                                                         ),
-                                                    ),
+                                                    },
+                                                    span: 27..32,
                                                 },
-                                                span: 27..32,
-                                            },
+                                            ),
                                             TypedBlock {
                                                 statements: [
                                                     Expression(
@@ -204,17 +210,19 @@ TypedProgram {
                                             },
                                         ),
                                         (
-                                            Spanned {
-                                                node: TypedExpr {
-                                                    ty: Bool,
-                                                    kind: Literal(
-                                                        Boolean(
-                                                            true,
+                                            Bool(
+                                                Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Bool,
+                                                        kind: Literal(
+                                                            Boolean(
+                                                                true,
+                                                            ),
                                                         ),
-                                                    ),
+                                                    },
+                                                    span: 62..66,
                                                 },
-                                                span: 62..66,
-                                            },
+                                            ),
                                             TypedBlock {
                                                 statements: [
                                                     Expression(

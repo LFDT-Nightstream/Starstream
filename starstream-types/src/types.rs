@@ -176,6 +176,8 @@ pub enum Type {
     UtxoAny,
     /// The type created by a `utxo` definition.
     UtxoNamed(String),
+    /// A Utxo narrowed to a specific ABI type via `if x is AbiName`.
+    AbiNarrow(String),
 }
 
 impl Type {
@@ -330,6 +332,7 @@ impl Type {
             },
             Type::UtxoAny => RcDoc::text("Utxo"),
             Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
+            Type::AbiNarrow(name) => RcDoc::text(name.to_owned()),
         }
     }
 }
