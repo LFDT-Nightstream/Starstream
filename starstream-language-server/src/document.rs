@@ -772,10 +772,7 @@ impl DocumentState {
                     self.abi_method_info
                         .entry(definition.name.name.clone())
                         .or_default()
-                        .insert(
-                            decl.name.name.clone(),
-                            (label.clone(), method_doc.clone()),
-                        );
+                        .insert(decl.name.name.clone(), (label.clone(), method_doc.clone()));
 
                     if let Some(span) = decl.name.opt_span() {
                         self.definition_entries.push(DefinitionEntry {
@@ -966,11 +963,7 @@ impl DocumentState {
                             .get(abi_name)
                             .and_then(|methods| methods.get(&field.name))
                         {
-                            self.add_hover_label_with_doc(
-                                field_span,
-                                label.clone(),
-                                doc.clone(),
-                            );
+                            self.add_hover_label_with_doc(field_span, label.clone(), doc.clone());
                         }
                     } else if let Some(struct_name) =
                         self.find_struct_name_for_type(&target.node.ty)
@@ -1056,10 +1049,7 @@ impl DocumentState {
                             }
                             // Hover on the ABI name shows the ABI definition label
                             if let Some(span) = abi_name.opt_span() {
-                                self.add_hover_label(
-                                    span,
-                                    format!("abi {}", abi_name.name),
-                                );
+                                self.add_hover_label(span, format!("abi {}", abi_name.name));
                             }
                         }
                     }
