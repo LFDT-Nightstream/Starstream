@@ -13,6 +13,7 @@ use crate::F;
 pub(crate) struct ExecutionSwitches<T> {
     pub(crate) resume: T,
     pub(crate) call_effect_handler: T,
+    pub(crate) enter: T,
     pub(crate) yield_op: T,
     pub(crate) return_op: T,
     pub(crate) burn: T,
@@ -44,6 +45,7 @@ impl ExecutionSwitches<bool> {
         let switches = [
             self.resume,
             self.call_effect_handler,
+            self.enter,
             self.yield_op,
             self.return_op,
             self.nop,
@@ -86,6 +88,7 @@ impl ExecutionSwitches<bool> {
         let [
             resume,
             call_effect_handler,
+            enter,
             yield_op,
             return_op,
             nop,
@@ -116,6 +119,7 @@ impl ExecutionSwitches<bool> {
                 call_effect_handler,
                 EffectDiscriminant::CallEffectHandler as u64,
             ),
+            (enter, EffectDiscriminant::Enter as u64),
             (yield_op, EffectDiscriminant::Yield as u64),
             (return_op, EffectDiscriminant::Return as u64),
             (burn, EffectDiscriminant::Burn as u64),
@@ -148,6 +152,7 @@ impl ExecutionSwitches<bool> {
         Ok(ExecutionSwitches {
             resume: resume.clone(),
             call_effect_handler: call_effect_handler.clone(),
+            enter: enter.clone(),
             yield_op: yield_op.clone(),
             return_op: return_op.clone(),
             nop: nop.clone(),
@@ -187,6 +192,13 @@ impl ExecutionSwitches<bool> {
     pub(crate) fn call_effect_handler() -> Self {
         Self {
             call_effect_handler: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn enter() -> Self {
+        Self {
+            enter: true,
             ..Self::default()
         }
     }
@@ -323,6 +335,7 @@ impl Default for ExecutionSwitches<bool> {
         Self {
             resume: false,
             call_effect_handler: false,
+            enter: false,
             yield_op: false,
             return_op: false,
             burn: false,

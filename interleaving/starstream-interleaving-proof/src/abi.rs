@@ -22,12 +22,13 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
     match op {
         WitLedgerEffect::Resume {
             target,
-            f_id: _,
+            f_id,
             val,
             ret,
             caller,
         } => LedgerOperation::Resume {
             target: F::from(target.0 as u64),
+            f_id: F::from(f_id.0 as u64),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
             caller: OptionalF::from_option(
@@ -121,13 +122,17 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
         },
         WitLedgerEffect::CallEffectHandler {
             interface_id,
+            f_id,
             val,
             ret,
-            ..
         } => LedgerOperation::CallEffectHandler {
             interface_id: interface_id.0.map(F::from),
+            f_id: F::from(f_id.0 as u64),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
+        },
+        WitLedgerEffect::Enter { f_id } => LedgerOperation::Enter {
+            f_id: F::from(f_id.0 as u64),
         },
     }
 }
@@ -139,6 +144,7 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
         LedgerOperation::CallEffectHandler { .. } => {
             F::from(EffectDiscriminant::CallEffectHandler as u64)
         }
+        LedgerOperation::Enter { .. } => F::from(EffectDiscriminant::Enter as u64),
         LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
         LedgerOperation::Return { .. } => F::from(EffectDiscriminant::Return as u64),
         LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
@@ -170,6 +176,7 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         LedgerOperation::Nop {} => {}
         LedgerOperation::Resume {
             target,
+            f_id,
             val,
             ret,
             caller,
@@ -178,18 +185,24 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::Caller.idx()] = caller.encoded();
+            args[ArgName::FunctionId1.idx()] = *f_id;
         }
         LedgerOperation::CallEffectHandler {
             interface_id,
+            f_id,
             val,
             ret,
         } => {
+            args[ArgName::FunctionId0.idx()] = *f_id;
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::InterfaceId0.idx()] = interface_id[0];
             args[ArgName::InterfaceId1.idx()] = interface_id[1];
             args[ArgName::InterfaceId2.idx()] = interface_id[2];
             args[ArgName::InterfaceId3.idx()] = interface_id[3];
+        }
+        LedgerOperation::Enter { f_id } => {
+            args[ArgName::FunctionId0.idx()] = *f_id;
         }
         LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;

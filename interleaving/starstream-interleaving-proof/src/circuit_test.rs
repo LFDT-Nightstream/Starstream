@@ -42,6 +42,10 @@ fn resume_effect(
     }
 }
 
+fn enter_effect(f_id: FunctionId) -> WitLedgerEffect {
+    WitLedgerEffect::Enter { f_id }
+}
+
 fn host_calls_roots(traces: &[Vec<WitLedgerEffect>]) -> Vec<LedgerEffectsCommitment> {
     traces
         .iter()
@@ -77,6 +81,7 @@ fn test_circuit_many_steps() {
     let ref_4 = Ref(2);
 
     let utxo_trace = vec![
+        enter_effect(FunctionId(0)),
         WitLedgerEffect::Init {
             val: ref_4.into(),
             caller: p2.into(),
@@ -100,6 +105,7 @@ fn test_circuit_many_steps() {
     ];
 
     let token_trace = vec![
+        enter_effect(FunctionId(0)),
         WitLedgerEffect::Init {
             val: ref_1.into(),
             caller: p2.into(),
@@ -194,9 +200,12 @@ fn test_circuit_small() {
 
     let ref_0 = Ref(0);
 
-    let utxo_trace = vec![WitLedgerEffect::Yield {
-        val: ref_0, // Yielding nothing
-    }];
+    let utxo_trace = vec![
+        enter_effect(FunctionId(0)),
+        WitLedgerEffect::Yield {
+            val: ref_0, // Yielding nothing
+        },
+    ];
 
     let coord_trace = vec![
         WitLedgerEffect::NewRef {
@@ -254,7 +263,10 @@ fn test_circuit_resumer_mismatch() {
 
     let ref_0 = Ref(0);
 
-    let utxo_trace = vec![WitLedgerEffect::Yield { val: ref_0 }];
+    let utxo_trace = vec![
+        enter_effect(FunctionId(0)),
+        WitLedgerEffect::Yield { val: ref_0 },
+    ];
 
     let coord_a_trace = vec![
         WitLedgerEffect::NewRef {
@@ -276,7 +288,10 @@ fn test_circuit_resumer_mismatch() {
         resume_effect(p2, ref_0, ref_0, None),
     ];
 
-    let coord_b_trace = vec![resume_effect(p0, ref_0, ref_0, None)];
+    let coord_b_trace = vec![
+        enter_effect(FunctionId(0)),
+        resume_effect(p0, ref_0, ref_0, None),
+    ];
 
     let traces = vec![utxo_trace, coord_a_trace, coord_b_trace];
 
@@ -436,7 +451,10 @@ fn test_yield_parent_resumer_mismatch_trace() {
 
     // Coord A resumes UTXO but sets its own expected_resumer to Coord B.
     // Then UTXO yields back to Coord A. Spec says this should fail.
-    let utxo_trace = vec![WitLedgerEffect::Yield { val: ref_1 }];
+    let utxo_trace = vec![
+        enter_effect(FunctionId(0)),
+        WitLedgerEffect::Yield { val: ref_1 },
+    ];
 
     let coord_a_trace = vec![resume_effect(p0, ref_0, ref_1, Some(p2))];
 
@@ -483,12 +501,14 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
     let iface = h(100);
 
     let utxo_trace = vec![
+        enter_effect(FunctionId(0)),
         WitLedgerEffect::Init {
             val: ref_0.into(),
             caller: p1.into(),
         },
         WitLedgerEffect::CallEffectHandler {
             interface_id: iface,
+            f_id: FunctionId(0),
             val: ref_0,
             ret: ref_0.into(),
         },
@@ -517,6 +537,7 @@ fn test_call_effect_handler_resumer_mismatch_trace() {
     ];
 
     let coord_handler_trace = vec![
+        enter_effect(FunctionId(0)),
         WitLedgerEffect::Init {
             val: ref_0.into(),
             caller: p1.into(),

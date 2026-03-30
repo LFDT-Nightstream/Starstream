@@ -24,6 +24,8 @@ pub struct ProgramState {
     pub finalized: bool,
     pub did_burn: bool,
     pub ownership: OptionalF<F>, // encoded optional process id
+    pub must_enter: OptionalF<F>,
+    pub must_exit: bool,
 }
 
 /// IVC wires (state between steps)
@@ -40,6 +42,8 @@ pub struct ProgramStateWires {
     pub finalized: Boolean<F>,
     pub did_burn: Boolean<F>,
     pub ownership: OptionalFpVar<F>, // encoded optional process id
+    pub must_enter: OptionalFpVar<F>,
+    pub must_exit: Boolean<F>,
 }
 
 struct RawProgramState<V> {
@@ -54,6 +58,8 @@ struct RawProgramState<V> {
     finalized: V,
     did_burn: V,
     ownership: V,
+    must_enter: V,
+    must_exit: V,
 }
 
 fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
@@ -75,6 +81,8 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     let finalized = dsl.read(&switches.finalized, RamMemoryTag::Finalized, addr)?;
     let did_burn = dsl.read(&switches.did_burn, RamMemoryTag::DidBurn, addr)?;
     let ownership = dsl.read(&switches.ownership, RamMemoryTag::Ownership, addr)?;
+    let must_enter = dsl.read(&switches.must_enter, RamMemoryTag::MustEnter, addr)?;
+    let must_exit = dsl.read(&switches.must_exit, RamMemoryTag::MustExit, addr)?;
 
     Ok(RawProgramState {
         expected_input,
@@ -88,6 +96,8 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
         finalized,
         did_burn,
         ownership,
+        must_enter,
+        must_exit,
     })
 }
 
@@ -158,6 +168,18 @@ fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
         addr,
         &state.ownership,
     )?;
+    dsl.write(
+        &switches.must_enter,
+        RamMemoryTag::MustEnter,
+        addr,
+        &state.must_enter,
+    )?;
+    dsl.write(
+        &switches.must_exit,
+        RamMemoryTag::MustExit,
+        addr,
+        &state.must_exit,
+    )?;
     Ok(())
 }
 
@@ -174,6 +196,8 @@ fn raw_from_state(state: &ProgramState) -> RawProgramState<F> {
         finalized: F::from(state.finalized),
         did_burn: F::from(state.did_burn),
         ownership: state.ownership.encoded(),
+        must_enter: state.must_enter.encoded(),
+        must_exit: F::from(state.must_exit),
     }
 }
 
@@ -190,6 +214,8 @@ fn raw_from_wires(state: &ProgramStateWires) -> RawProgramState<FpVar<F>> {
         finalized: state.finalized.clone().into(),
         did_burn: state.did_burn.clone().into(),
         ownership: state.ownership.encoded(),
+        must_enter: state.must_enter.encoded(),
+        must_exit: state.must_exit.clone().into(),
     }
 }
 
@@ -218,6 +244,10 @@ impl ProgramStateWires {
             ownership: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
                 Ok(write_values.ownership.encoded())
             })?),
+            must_enter: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(write_values.must_enter.encoded())
+            })?),
+            must_exit: Boolean::new_witness(cs.clone(), || Ok(write_values.must_exit))?,
         })
     }
 }
@@ -271,6 +301,8 @@ pub fn trace_program_state_reads<M: IVCMemory<F>>(
         finalized: raw.finalized == F::ONE,
         did_burn: raw.did_burn == F::ONE,
         ownership: OptionalF::from_encoded(raw.ownership),
+        must_enter: OptionalF::from_encoded(raw.must_enter),
+        must_exit: raw.must_exit == F::ONE,
     }
 }
 
@@ -295,6 +327,8 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
         finalized: raw.finalized.is_one()?,
         did_burn: raw.did_burn.is_one()?,
         ownership: OptionalFpVar::new(raw.ownership),
+        must_enter: OptionalFpVar::new(raw.must_enter),
+        must_exit: raw.must_exit.is_one()?,
     })
 }
 
@@ -312,6 +346,8 @@ impl ProgramState {
             initialized: false,
             did_burn: false,
             ownership: OptionalF::none(),
+            must_enter: OptionalF::none(),
+            must_exit: false,
         }
     }
 

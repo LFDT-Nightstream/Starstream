@@ -500,6 +500,7 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.activation = true;
                 config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.expected_resumer = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.mem_switches_target.activation = true;
                 config.mem_switches_target.expected_input = true;
@@ -508,6 +509,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.yield_to = true;
                 config.mem_switches_target.finalized = true;
                 config.mem_switches_target.initialized = true;
+                config.mem_switches_target.must_enter = true;
+                config.mem_switches_target.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
@@ -518,15 +521,24 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.activation = true;
                 config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.expected_resumer = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.mem_switches_target.activation = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
                 config.mem_switches_target.finalized = true;
+                config.mem_switches_target.must_enter = true;
+                config.mem_switches_target.must_exit = true;
 
                 config.handler_switches.read_interface = true;
                 config.handler_switches.read_head = true;
                 config.handler_switches.read_node = true;
+            }
+            LedgerOperation::Enter { .. } => {
+                config.execution_switches.enter = true;
+
+                config.mem_switches_curr.must_enter = true;
+                config.mem_switches_curr.must_exit = true;
             }
             LedgerOperation::Yield { .. } => {
                 config.execution_switches.yield_op = true;
@@ -535,9 +547,11 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.on_yield = true;
                 config.mem_switches_curr.yield_to = true;
                 config.mem_switches_curr.finalized = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.must_enter = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
             }
@@ -548,6 +562,7 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.on_yield = true;
                 config.mem_switches_curr.yield_to = true;
                 config.mem_switches_curr.finalized = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
             }
@@ -559,6 +574,7 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.did_burn = true;
                 config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.initialized = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_must_burn_curr = true;
@@ -719,37 +735,44 @@ impl LedgerOperation<crate::F> {
                 // Nop does nothing to the state
             }
             LedgerOperation::Resume {
-                val, ret, caller, ..
+                f_id,
+                val,
+                ret,
+                caller,
+                ..
             } => {
-                // Current process gives control to target.
-                // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
-                curr_write.activation = F::ZERO; // Represents None
+                curr_write.activation = F::ZERO;
                 curr_write.expected_input = OptionalF::new(*ret);
                 curr_write.expected_resumer = *caller;
+                curr_write.must_exit = false;
 
-                // Target process receives control.
-                // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
                 target_write.activation = *val;
                 target_write.finalized = false;
 
-                // If target was in a yield state, record who resumed it and clear the flag.
                 if target_read.on_yield && !curr_is_utxo {
                     target_write.yield_to = OptionalF::new(curr_id);
                 }
                 target_write.on_yield = false;
+                target_write.must_enter = OptionalF::new(*f_id);
             }
-            LedgerOperation::CallEffectHandler { val, ret, .. } => {
+            LedgerOperation::CallEffectHandler { f_id, val, ret, .. } => {
                 let target = target_id.expect("CallEffectHandler requires resolved handler target");
                 curr_write.activation = F::ZERO;
                 curr_write.expected_input = OptionalF::new(*ret);
                 curr_write.expected_resumer = OptionalF::new(target);
+                curr_write.must_exit = false;
 
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
                 target_write.activation = *val;
                 target_write.finalized = false;
+                target_write.must_enter = OptionalF::new(*f_id);
+            }
+            LedgerOperation::Enter { .. } => {
+                curr_write.must_enter = OptionalF::none();
+                curr_write.must_exit = true;
             }
             LedgerOperation::Yield { val: _, .. } => {
                 // Current process yields control back to its parent (the target of this operation).
@@ -757,11 +780,13 @@ impl LedgerOperation<crate::F> {
                 curr_write.activation = F::ZERO; // Represents None
                 curr_write.finalized = true;
                 curr_write.on_yield = true;
+                curr_write.must_exit = false;
             }
             LedgerOperation::Return {} => {
                 // Coordination script return is terminal for this transaction.
                 curr_write.activation = F::ZERO;
                 curr_write.finalized = true;
+                curr_write.must_exit = false;
             }
             LedgerOperation::Burn { ret } => {
                 // The current UTXO is burned.
@@ -769,6 +794,7 @@ impl LedgerOperation<crate::F> {
                 curr_write.finalized = true;
                 curr_write.did_burn = true;
                 curr_write.expected_input = OptionalF::new(*ret); // Sets its final return value.
+                curr_write.must_exit = false;
             }
             LedgerOperation::NewUtxo { val, target: _, .. }
             | LedgerOperation::NewToken { val, target: _, .. }
@@ -835,9 +861,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // per opcode constraints
         let next_wires = self.visit_yield(next_wires)?;
+        let next_wires = self.visit_pending_enter(next_wires)?;
         let next_wires = self.visit_return(next_wires)?;
         let next_wires = self.visit_call_effect_handler(next_wires)?;
         let next_wires = self.visit_resume(next_wires)?;
+        let next_wires = self.visit_enter(next_wires)?;
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_program_hash(next_wires)?;
         let next_wires = self.visit_new_process(next_wires)?;
@@ -1031,6 +1059,20 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         tag: RamMemoryTag::Ownership.memory_tag(),
                     },
                     vec![encoded_owner],
+                );
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RamMemoryTag::MustEnter.memory_tag(),
+                    },
+                    vec![OptionalF::none().encoded()],
+                );
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RamMemoryTag::MustExit.memory_tag(),
+                    },
+                    vec![F::ZERO],
                 );
             }
 
@@ -1353,6 +1395,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switches: ExecutionSwitches::call_effect_handler(),
                 ..default
             },
+            LedgerOperation::Enter { .. } => PreWires {
+                switches: ExecutionSwitches::enter(),
+                ..default
+            },
             LedgerOperation::Yield { .. } => PreWires {
                 switches: ExecutionSwitches::yield_op(),
                 ..default
@@ -1509,6 +1555,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .encoded()
             .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // ---
         // IVC state updates
         // ---
@@ -1524,6 +1575,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
 
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_pending_enter(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let pending_enter = wires.curr_read_wires.must_enter.is_some()?;
+        pending_enter.conditional_enforce_equal(&wires.switches.enter, &wires.constant_true)?;
         Ok(wires)
     }
 
@@ -1589,6 +1647,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switch,
             )?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // IVC state updates mirror resume-to-target.
         let next_id_curr = switch.select(
             &wires.handler_state.handler_stack_node_process,
@@ -1602,6 +1665,37 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_enter(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.switches.enter;
+        let pending = wires.curr_read_wires.must_enter.clone();
+
+        pending
+            .is_some()?
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        pending
+            .decode_or_zero()?
+            .conditional_enforce_equal(&wires.arg(ArgName::FunctionId0), switch)?;
+
+        wires
+            .curr_read_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
+        wires
+            .curr_write_wires
+            .must_enter
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
         Ok(wires)
     }
@@ -1732,6 +1826,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .encoded()
             .conditional_enforce_equal(&wires.curr_read_wires.yield_to.encoded(), switch)?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
+        wires
+            .target_write_wires
+            .must_enter
+            .encoded()
+            .conditional_enforce_equal(&wires.target_read_wires.must_enter.encoded(), switch)?;
+
         // ---
         // IVC state updates
         // ---
@@ -1771,8 +1876,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .activation
             .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // If we have a parent, transfer control back like Yield.
         let has_parent_and_switch = switch & &has_parent;
+
         let parent = yield_to.decode_or_zero()?;
         let next_id_curr = has_parent_and_switch.select(&parent, &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
@@ -2224,6 +2335,18 @@ fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
         1,
         MemType::Ram,
         "RAM_OWNERSHIP",
+    );
+    mb.register_mem(
+        RamMemoryTag::MustEnter.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_MUST_ENTER",
+    );
+    mb.register_mem(
+        RamMemoryTag::MustExit.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_MUST_EXIT",
     );
     mb.register_mem(
         RamMemoryTag::HandlerStackArenaProcess.memory_tag(),
