@@ -513,8 +513,6 @@ For the current Starstream call model, the important cross-process return paths
 are:
 
 - `Yield(result_ref)` from a UTXO
-- future handler/method return conventions, which should also resolve to
-  explicit refs
 
 On the receiving side, those refs are decoded through the same `RefGet` +
 canonical ABI lifting rule described above.
@@ -525,7 +523,6 @@ To prove that the intended function actually ran, the zkVM adapter must also
 emit function-frame events:
 
 - `Enter(function_id)`
-- `Exit`
 
 These function ids come from component metadata plus a stable function-id
 assignment rule.
@@ -535,17 +532,30 @@ The minimum requirement is:
 1. When Starstream transfers control to a process with
    `Resume(..., f_id, ...)` or `CallEffectHandler(..., f_id, ...)`, the target
    process must next emit `Enter(f_id)`.
-2. Function exit must be witnessed explicitly with `Exit`, or implicitly by a
-   tail-resumptive operation if the interleaving semantics say so.
+2. `Return` closes the current Starstream-visible function frame.
+3. `Yield` does not close the current Starstream-visible function frame.
 
-## 9. Starstream backend obligations
+## 9. Effect Handlers
+
+Effect-handler lowering is still being specified.
+
+For now, the only proof-critical requirement is that any Starstream-visible
+handler or method call that is entered by the zkVM must emit:
+
+- `Enter(function_id)` on entry
+- `Return` when that handler or method frame completes locally
+
+The exact convention for how handler return values are routed back into the
+surrounding process or coroutine state is still TBD.
+
+## 10. Starstream backend obligations
 
 A VM / prover backend qualifies as a Starstream backend only if it:
 
 - reconstructs calls using the component/WIT function signature, not just the
   lowered core Wasm types
 - uses the Starstream-defined `function_id` convention
-- emits `Enter` / `Exit` in the places required by the Starstream call
+- emits `Enter` and `Return` in the places required by the Starstream call
   semantics
 - uses the Starstream-defined ref encoding for cross-process values
 - emits the Starstream interleaving effects implied by those calls
@@ -554,7 +564,7 @@ These are the proof-critical obligations. Without them, a backend may still
 produce some internally consistent proof, but it would not be proving
 conformance to the Starstream call ABI and interleaving semantics.
 
-## 10. Implementation freedom
+## 11. Implementation freedom
 
 A backend may still differ in:
 
