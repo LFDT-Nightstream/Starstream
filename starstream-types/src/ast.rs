@@ -277,7 +277,7 @@ pub struct UtxoDef {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum UtxoPart {
     Storage(Vec<UtxoGlobal>),
-    Function(FunctionDef),
+    Function(Box<FunctionDef>),
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]

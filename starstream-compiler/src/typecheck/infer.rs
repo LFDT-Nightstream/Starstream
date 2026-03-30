@@ -542,7 +542,7 @@ impl Inferencer {
         Ok(())
     }
 
-    fn register_function(&mut self, def: &FunctionDef) -> Result<(), TypeError> {
+    fn register_function(&mut self, _def: &FunctionDef) -> Result<(), TypeError> {
         // TODO: hoist function type discovery back here, out of `infer_function`,
         // so that code can call functions declared later in the file.
         Ok(())
@@ -1118,7 +1118,7 @@ impl Inferencer {
                     }
                     let (func, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
-                    TypedUtxoPart::Function(func)
+                    TypedUtxoPart::Function(func.into())
                 }
             });
         }
@@ -2517,8 +2517,10 @@ impl Inferencer {
                             })?;
                         Type::Function {
                             params: method.param_types.clone(),
+                            param_spans: method.param_spans.clone(),
                             result: Box::new(method.return_type.clone()),
                             effect: EffectKind::Pure,
+                            name_span: method.name_span,
                         }
                     }
                     _ => {
@@ -3299,25 +3301,24 @@ impl Inferencer {
 
                 // Check linearity: if the callee is a field access on an AbiNarrow target,
                 // enforce the one-method-call-per-block constraint.
-                if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind {
-                    if let Type::AbiNarrow(_) = &target.node.ty {
-                        if let TypedExprKind::Identifier(ident) = &target.node.kind {
-                            for tracker in self.abi_call_trackers.iter_mut().rev() {
-                                if tracker.var_name == ident.name {
-                                    if let Some(first_span) = tracker.first_call_span {
-                                        return Err(TypeError::new(
-                                            TypeErrorKind::LinearMethodCallViolation {
-                                                var_name: tracker.var_name.clone(),
-                                                abi_name: tracker.abi_name.clone(),
-                                            },
-                                            expr.span,
-                                        )
-                                        .with_secondary(first_span, "first method call here"));
-                                    }
-                                    tracker.first_call_span = Some(expr.span);
-                                    break;
-                                }
+                if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind
+                    && let Type::AbiNarrow(_) = &target.node.ty
+                    && let TypedExprKind::Identifier(ident) = &target.node.kind
+                {
+                    for tracker in self.abi_call_trackers.iter_mut().rev() {
+                        if tracker.var_name == ident.name {
+                            if let Some(first_span) = tracker.first_call_span {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::LinearMethodCallViolation {
+                                        var_name: tracker.var_name.clone(),
+                                        abi_name: tracker.abi_name.clone(),
+                                    },
+                                    expr.span,
+                                )
+                                .with_secondary(first_span, "first method call here"));
                             }
+                            tracker.first_call_span = Some(expr.span);
+                            break;
                         }
                     }
                 }
@@ -3370,7 +3371,7 @@ impl Inferencer {
                     expr.span,
                 );
 
-                let result_repr = self.maybe_string(|| self.format_type(&return_type));
+                let result_repr = self.maybe_string(|| self.format_type(return_type));
 
                 let tree =
                     self.make_trace("T-Call", env_context, subject_repr, result_repr, || {
@@ -3575,6 +3576,7 @@ impl Inferencer {
             None
         }
     }
+    #[allow(clippy::only_used_in_recursion)]
     fn source_expr_visibility(&self, env: &TypeEnv, expr: &Spanned<Expr>) -> BindingVisibility {
         match &expr.node {
             Expr::Literal(_) => BindingVisibility::Public,

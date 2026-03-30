@@ -8,19 +8,19 @@ T-Fn: test => ()
 } else if x is AbiB {
     x.bar();
 } => ()
-    T-If: {x: Utxo} ⊢ if x is AbiA {
+    T-If: {test: fn(Utxo) -> (), x: Utxo} ⊢ if x is AbiA {
     x.foo();
 } else if x is AbiB {
     x.bar();
 } ⇒ ()
-      T-Expr: {x: AbiA} ⊢ x.foo(); ⇒ ()
-        T-Call: {x: AbiA} ⊢ x.foo() ⇒ i64
-          T-FieldAccess: {x: AbiA} ⊢ x.foo ⇒ fn() -> i64
-            T-Var: {x: AbiA} ⊢ x ⇒ AbiA
-      T-Expr: {x: AbiB} ⊢ x.bar(); ⇒ ()
-        T-Call: {x: AbiB} ⊢ x.bar() ⇒ bool
-          T-FieldAccess: {x: AbiB} ⊢ x.bar ⇒ fn() -> bool
-            T-Var: {x: AbiB} ⊢ x ⇒ AbiB
+      T-Expr: {test: fn(Utxo) -> (), x: AbiA} ⊢ x.foo(); ⇒ ()
+        T-Call: {test: fn(Utxo) -> (), x: AbiA} ⊢ x.foo() ⇒ i64
+          T-FieldAccess: {test: fn(Utxo) -> (), x: AbiA} ⊢ x.foo ⇒ fn() -> i64
+            T-Var: {test: fn(Utxo) -> (), x: AbiA} ⊢ x ⇒ AbiA
+      T-Expr: {test: fn(Utxo) -> (), x: AbiB} ⊢ x.bar(); ⇒ ()
+        T-Call: {test: fn(Utxo) -> (), x: AbiB} ⊢ x.bar() ⇒ bool
+          T-FieldAccess: {test: fn(Utxo) -> (), x: AbiB} ⊢ x.bar ⇒ fn() -> bool
+            T-Var: {test: fn(Utxo) -> (), x: AbiB} ⊢ x ⇒ AbiB
       Unify-Const: () ~ () => {}
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}
