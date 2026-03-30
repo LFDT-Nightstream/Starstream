@@ -859,9 +859,16 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let wires_in = self.allocate_vars(i, rm, &irw)?;
         let next_wires = wires_in.clone();
 
+        // this is not an opcode, but an invariant
+        //
+        // basically if must_enter is set for a process, then no other opcode
+        // is valid
+        //
+        // but the Enter opcode semantics are enforced in visit_enter
+        let next_wires = self.visit_pending_enter(next_wires)?;
+
         // per opcode constraints
         let next_wires = self.visit_yield(next_wires)?;
-        let next_wires = self.visit_pending_enter(next_wires)?;
         let next_wires = self.visit_return(next_wires)?;
         let next_wires = self.visit_call_effect_handler(next_wires)?;
         let next_wires = self.visit_resume(next_wires)?;
