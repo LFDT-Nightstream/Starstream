@@ -86,16 +86,11 @@ new_state (assignments)
 
 # 2. Shared Operations
 
-## Resume (Call)
+## Resume
 
-The primary control flow operation. Transfers control to `target`. It records
-claims for the current process and consumes the target's pending claims after
+The primary call operation. Transfers control to `target`. It records claims
+for the current process and consumes the target's pending claims after
 validation.
-
-`Resume` also exits the current coordination-script function frame. In other
-words, after a function tail-calls `Resume`, it does not continue executing
-locally. This means effect handlers can't be non-tail resumptive right now (at
-least as a primitive, it can probably be simulated at the user level).
 
 Since we are also resuming a currently suspended process, we can only do it if
 our value matches its claim.
@@ -140,7 +135,6 @@ Rule: Resume
            on_yield'[target]     <- False
     8. activation'[target]       <- Some(val_ref, id_curr)
     9. must_enter'[target]       <- Some(f_id)
-    10. must_exit'[id_curr]      <- False
 ```
 
 ## Activation
@@ -228,8 +222,13 @@ Keep track of function frames for the purpose of proving "method" calls (which
 are named effect handlers).
 
 These "events" need to be emitted (or traced) by the process zkVM when entering
-and exiting a function scope, so these are not runtime-agnostic opcodes in that
-regard.
+a function scope, so these are not runtime-agnostic opcodes in that regard.
+
+For the current Starstream subset:
+
+- `Enter(function_id)` proves which Starstream-visible function began running.
+- `Return` ends the current function frame.
+- `Yield` does not end the current function frame; it suspends it.
 
 ```text
 Rule: Handler Enter
@@ -248,21 +247,6 @@ Rule: Handler Enter
 
 -----------------------------------------------------------------------
     1. must_exit'[id_curr] <- true
-```
-
-```text
-Rule: Handler Exit
-==================
-    (Exit the frame of a function call for checking effect call semantics)
-
-    op = Exit
-
-    1. must_exit[id_curr]
-
-    (Must be in the context of a handler)
-
------------------------------------------------------------------------
-    1. must_exit'[id_curr] <- false
 ```
 
 
