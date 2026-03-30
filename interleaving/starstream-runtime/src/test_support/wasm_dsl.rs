@@ -218,6 +218,8 @@ pub struct ModuleBuilder {
 #[derive(Clone, Copy, Debug)]
 pub struct Imports {
     pub trace: FuncRef,
+    pub trace_reserve_slot: FuncRef,
+    pub trace_fill_slot: FuncRef,
     pub get_datum: FuncRef,
     pub set_datum: FuncRef,
     pub activation: FuncRef,
@@ -269,6 +271,24 @@ impl ModuleBuilder {
             "env",
             "starstream-trace",
             &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
+            &[],
+        );
+        let trace_reserve_slot =
+            self.import_func("env", "starstream-trace-reserve-slot", &[], &[ValType::I64]);
+        let trace_fill_slot = self.import_func(
+            "env",
+            "starstream-trace-fill-slot",
+            &[
+                ValType::I64,
                 ValType::I64,
                 ValType::I64,
                 ValType::I64,
@@ -411,6 +431,8 @@ impl ModuleBuilder {
 
         Imports {
             trace,
+            trace_reserve_slot,
+            trace_fill_slot,
             get_datum,
             set_datum,
             activation,

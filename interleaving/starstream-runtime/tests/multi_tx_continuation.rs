@@ -68,6 +68,7 @@ fn test_multi_tx_accumulator_global() {
     let builder = wasm_dsl::ModuleBuilder::new();
     // global 0 = gpc, global 1 = acc
     let utxo_bin = wasm_module!(builder, {
+        call trace(20, 0, 0, 0, 0, 0, 0, 0);
         let (state_ref, caller) = call activation();
         call trace(8, 0, state_ref, 0, caller, 0, 0, 0);
         let (disc, arg, _b, _c) = call ref_get(state_ref, 0);
@@ -126,15 +127,19 @@ fn test_multi_tx_accumulator_global() {
             call trace(11, 1, 5, 0, 0, 0, 0, 0);
             call set_datum(1, utxo_id);
             call set_datum(2, req);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(3, resume_slot);
             call set_datum(0, 1);
             call resume(utxo_id, req);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
+            let resume_slot = call get_datum(3);
             let (resp, caller) = call activation();
             let caller_enc = add caller, 1;
-            call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, val, resp, _b, 0, _c, _d, 0);
             assert_eq val, 5;
@@ -154,15 +159,19 @@ fn test_multi_tx_accumulator_global() {
             call trace(11, 1, 7, 0, 0, 0, 0, 0);
             call set_datum(1, 0);
             call set_datum(2, req);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(3, resume_slot);
             call set_datum(0, 1);
             call resume(0, req);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
+            let resume_slot = call get_datum(3);
             let (resp, caller) = call activation();
             let caller_enc = add caller, 1;
-            call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, val, resp, _b, 0, _c, _d, 0);
             assert_eq val, 12;
@@ -182,15 +191,19 @@ fn test_multi_tx_accumulator_global() {
             call trace(11, 2, 0, 0, 0, 0, 0, 0);
             call set_datum(1, 0);
             call set_datum(2, req);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(3, resume_slot);
             call set_datum(0, 1);
             call resume(0, req);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
+            let resume_slot = call get_datum(3);
             let (resp, caller) = call activation();
             let caller_enc = add caller, 1;
-            call trace(0, last_target, last_val, resp, caller_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, resp, caller_enc, 0, 0, 0);
             let (val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, val, resp, _b, 0, _c, _d, 0);
             assert_eq val, 12;

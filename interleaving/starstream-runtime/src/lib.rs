@@ -90,7 +90,7 @@ fn decode_effect_from_commit_abi(
     let effect = match disc {
         EffectDiscriminant::Resume => WitLedgerEffect::Resume {
             target: ProcessId(arg(ArgName::Target) as usize),
-            f_id: FunctionId(0),
+            f_id: FunctionId(arg(ArgName::FunctionId1) as usize),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
             caller: WitEffectOutput::Resolved(decode_optional_pid(arg(ArgName::Caller))),
@@ -219,8 +219,12 @@ fn decode_effect_from_commit_abi(
                 arg(ArgName::InterfaceId2),
                 arg(ArgName::InterfaceId3),
             ),
+            f_id: FunctionId(arg(ArgName::FunctionId0) as usize),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
+        },
+        EffectDiscriminant::Enter => WitLedgerEffect::Enter {
+            f_id: FunctionId(arg(ArgName::FunctionId0) as usize),
         },
     };
     Ok(effect)
@@ -236,7 +240,7 @@ pub struct UnprovenTransaction {
 }
 
 pub struct RuntimeState {
-    pub effect_traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
+    pub effect_traces: HashMap<ProcessId, Vec<Option<WitLedgerEffect>>>,
     pub suspended_effect: HashMap<ProcessId, WitLedgerEffect>,
     pub pending_host_effect: Option<WitLedgerEffect>,
     pub interleaving: Vec<(ProcessId, WitLedgerEffect)>,
@@ -341,7 +345,62 @@ impl Runtime {
                     .effect_traces
                     .entry(current_pid)
                     .or_default()
-                    .push(effect);
+                    .push(Some(effect));
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        env.func_wrap(
+            "starstream-trace-reserve-slot",
+            |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+             _params: ()|
+             -> wasmtime::Result<(u64,)> {
+                let current_pid = store.data().current_process;
+                let trace = store
+                    .data_mut()
+                    .effect_traces
+                    .entry(current_pid)
+                    .or_default();
+                let slot = trace.len() as u64;
+                trace.push(None);
+                Ok((slot,))
+            },
+        )
+        .unwrap();
+
+        env.func_wrap(
+            "starstream-trace-fill-slot",
+            |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
+             (slot, discriminant, a0, a1, a2, a3, a4, a5, a6): (
+                u64,
+                u64,
+                u64,
+                u64,
+                u64,
+                u64,
+                u64,
+                u64,
+                u64,
+            )|
+             -> wasmtime::Result<()> {
+                let effect =
+                    decode_effect_from_commit_abi(discriminant, [a0, a1, a2, a3, a4, a5, a6])
+                        .map_err(trap)?;
+                let current_pid = store.data().current_process;
+                let trace = store
+                    .data_mut()
+                    .effect_traces
+                    .entry(current_pid)
+                    .or_default();
+                let slot = usize::try_from(slot).map_err(|_| trap("trace slot overflow"))?;
+                let entry = trace
+                    .get_mut(slot)
+                    .ok_or_else(|| trap("trace slot out of bounds"))?;
+                if entry.is_some() {
+                    return Err(trap("trace slot already filled"));
+                }
+                *entry = Some(effect);
                 Ok(())
             },
         )
@@ -612,6 +671,7 @@ impl Runtime {
                 let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                 store.data_mut().pending_host_effect = Some(WitLedgerEffect::CallEffectHandler {
                     interface_id,
+                    f_id: FunctionId(0),
                     val: Ref(val),
                     ret: WitEffectOutput::Resolved(Ref(0)),
                 });
@@ -1208,7 +1268,15 @@ impl UnprovenTransaction {
                 .get(&ProcessId(pid))
                 .cloned()
                 .unwrap_or_default();
-            let trace = effect_trace;
+            let trace = effect_trace
+                .into_iter()
+                .enumerate()
+                .map(|(slot, effect)| {
+                    effect.ok_or_else(|| {
+                        Error::RuntimeError(format!("unfilled trace slot {slot} for pid {}", pid))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
             let mut commitment = LedgerEffectsCommitment::iv();
             for op in &trace {
                 commitment = commit(commitment, op.clone());

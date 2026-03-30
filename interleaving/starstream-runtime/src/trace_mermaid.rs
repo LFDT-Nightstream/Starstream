@@ -133,7 +133,10 @@ fn replay_effect_trace_prefix(
 
     let cursor = effect_cursor.entry(pid).or_insert(0);
     while *cursor < trace.len() {
-        let effect = &trace[*cursor];
+        let Some(effect) = trace[*cursor].as_ref() else {
+            *cursor += 1;
+            continue;
+        };
         apply_ref_mutations(pid, effect, ref_store, ref_state);
         update_handler_targets(pid, effect, handler_targets, handler_interfaces);
         *cursor += 1;

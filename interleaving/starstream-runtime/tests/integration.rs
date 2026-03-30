@@ -19,6 +19,7 @@ fn test_runtime_simple_effect_handlers() {
     let utxo_bin = wasm_module!(utxo_builder, {
         let pc = call get_datum(0);
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (_init_ref, caller) = call activation();
             call trace(8, 0, _init_ref, 0, caller, 0, 0, 0);
 
@@ -37,13 +38,17 @@ fn test_runtime_simple_effect_handlers() {
             call ref_push(42, 0, 0, 0);
             call trace(11, 42, 0, 0, 0, 0, 0, 0);
             call set_datum(1, req);
+            let handler_slot = call trace_reserve_slot();
+            call set_datum(2, handler_slot);
             call set_datum(0, 1);
             call call_effect_handler(1, 0, 0, 0, req);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let req = call get_datum(1);
+            let handler_slot = call get_datum(2);
             let (resp, _caller_effect) = call activation();
-            call trace(18, 0, req, resp, 1, 0, 0, 0);
+            call trace_fill_slot(handler_slot, 18, 0, req, resp, 1, 0, 0, 0);
             let (resp_val, _b, _c, _d) = call ref_get(resp, 0);
             call trace(12, resp_val, resp, _b, 0, _c, _d, 0);
             assert_eq resp_val, 1;
@@ -87,14 +92,18 @@ fn test_runtime_simple_effect_handlers() {
                 const(utxo_hash_limb_d)
             );
 
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(2, resume_slot);
             call set_datum(0, 1);
             call resume(0, init_val);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let init_val = call get_datum(1);
+            let resume_slot = call get_datum(2);
             let (req, caller_pid) = call activation();
             let caller_pid_enc = add caller_pid, 1;
-            call trace(0, 0, init_val, req, caller_pid_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, 0, init_val, req, caller_pid_enc, 0, 0, 0);
             let (req_val, _b, _c, _d) = call ref_get(req, 0);
             call trace(12, req_val, req, _b, 0, _c, _d, 0);
             assert_eq req_val, 42;
@@ -104,14 +113,18 @@ fn test_runtime_simple_effect_handlers() {
             call ref_push(1, 0, 0, 0);
             call trace(11, 1, 0, 0, 0, 0, 0, 0);
             call set_datum(1, resp);
+            let resume_slot2 = call trace_reserve_slot();
+            call set_datum(3, resume_slot2);
             call set_datum(0, 2);
             call resume(0, resp);
         }
         if pc == 2 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let resp = call get_datum(1);
+            let resume_slot2 = call get_datum(3);
             let (ret, caller2) = call activation();
             let caller2_enc = add caller2, 1;
-            call trace(0, 0, resp, ret, caller2_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot2, 0, 0, resp, ret, caller2_enc, 0, 0, 0);
             call uninstall_handler(1, 0, 0, 0);
             call trace(5, 0, 0, 0, 1, 0, 0, 0);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
@@ -177,6 +190,7 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // pc=0: boot once, build first forward request, then hand control to coord.
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (init_ref, caller) = call activation();
             // 8=Activation: a1=init_ref, a3=caller pid.
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
@@ -196,6 +210,8 @@ fn test_runtime_effect_handlers_cross_calls() {
             // 11=RefPush payload: [disc=1 (forward), num_ref, 0, 0].
             call trace(11, 1, num_ref, 0, 0, 0, 0, 0);
             call set_datum(3, req);
+            let handler_slot = call trace_reserve_slot();
+            call set_datum(4, handler_slot);
             call set_datum(0, 1);
             call call_effect_handler(1, 2, 3, 4, req);
         }
@@ -203,10 +219,12 @@ fn test_runtime_effect_handlers_cross_calls() {
         // pc=1: resumed by coord with a response. Validate y=x+1 and either
         // send next forward request or send a stop request after 5 rounds.
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let req = call get_datum(3);
+            let handler_slot = call get_datum(4);
             let (resp, _caller_effect) = call activation();
             // 18=CallEffectHandler: a1=req, a2=resp, a3..a6=interface id.
-            call trace(18, 0, req, resp, 1, 2, 3, 4);
+            call trace_fill_slot(handler_slot, 18, 0, req, resp, 1, 2, 3, 4);
             let (y, _b, _c, _d) = call ref_get(resp, 0);
             // 12=RefGet: a0=first lane read (y), a1=ref, a3=offset.
             call trace(12, y, resp, _b, 0, _c, _d, 0);
@@ -237,6 +255,8 @@ fn test_runtime_effect_handlers_cross_calls() {
                 // 11=RefPush payload: [disc=2 (stop), num_ref, 0, 0].
                 call trace(11, 2, stop_num_ref, 0, 0, 0, 0, 0);
                 call set_datum(3, stop);
+                let handler_slot = call trace_reserve_slot();
+                call set_datum(4, handler_slot);
                 call set_datum(0, 2);
                 call call_effect_handler(1, 2, 3, 4, stop);
             }
@@ -256,6 +276,8 @@ fn test_runtime_effect_handlers_cross_calls() {
                 // 11=RefPush payload: [disc=1 (forward), num_ref, 0, 0].
                 call trace(11, 1, num_ref, 0, 0, 0, 0, 0);
                 call set_datum(3, next_req);
+                let handler_slot = call trace_reserve_slot();
+                call set_datum(4, handler_slot);
                 call set_datum(0, 1);
                 call call_effect_handler(1, 2, 3, 4, next_req);
             }
@@ -263,10 +285,12 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // pc=2: ack the stop response and yield final control back to coord.
         if pc == 2 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let stop = call get_datum(3);
+            let handler_slot = call get_datum(4);
             let (resp_stop, _caller_effect) = call activation();
             // 18=CallEffectHandler completion for stop request.
-            call trace(18, 0, stop, resp_stop, 1, 2, 3, 4);
+            call trace_fill_slot(handler_slot, 18, 0, stop, resp_stop, 1, 2, 3, 4);
             // 1=Yield: a1=yielded ref.
             call trace(1, 0, stop, 0, 0, 0, 0, 0);
             call set_datum(0, 3);
@@ -279,6 +303,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         let pc = call get_datum(0);
         // pc=0: first activation, process forwarded value, write y=x+1, yield response.
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (init_ref, caller) = call activation();
             // 8=Activation: a1=activation ref, a3=caller pid.
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
@@ -299,6 +324,7 @@ fn test_runtime_effect_handlers_cross_calls() {
         }
         // pc=1: steady-state loop for all following forwarded requests.
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (next_req, caller2) = call activation();
             // 8=Activation for subsequent forwarded request.
             call trace(8, 0, next_req, 0, caller2, 0, 0, 0);
@@ -382,6 +408,8 @@ fn test_runtime_effect_handlers_cross_calls() {
             call set_datum(2, utxo_id2);
             call set_datum(5, utxo_id1);
             call set_datum(6, init_val);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(7, resume_slot);
             call set_datum(0, 1);
             call resume(utxo_id1, init_val);
         }
@@ -390,12 +418,14 @@ fn test_runtime_effect_handlers_cross_calls() {
         // disc=1 => forward num_ref to utxo2.
         // disc=2 => stop flow and resume utxo1 with stop payload.
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (req, caller0) = call activation();
             let caller0_enc = add caller0, 1;
             // 0=Resume: a0=target, a1=val, a2=ret, a3=encoded caller.
-            call trace(0, last_target, last_val, req, caller0_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, req, caller0_enc, 0, 0, 0);
             call set_datum(3, req);
             call set_datum(4, caller0);
 
@@ -407,6 +437,8 @@ fn test_runtime_effect_handlers_cross_calls() {
                 let caller1 = call get_datum(4);
                 call set_datum(5, caller1);
                 call set_datum(6, num_ref);
+                let resume_slot = call trace_reserve_slot();
+                call set_datum(7, resume_slot);
                 call set_datum(0, 3);
                 call resume(caller1, num_ref);
             }
@@ -414,6 +446,8 @@ fn test_runtime_effect_handlers_cross_calls() {
                 let utxo_id2 = call get_datum(2);
                 call set_datum(5, utxo_id2);
                 call set_datum(6, num_ref);
+                let resume_slot = call trace_reserve_slot();
+                call set_datum(7, resume_slot);
                 call set_datum(0, 2);
                 call resume(utxo_id2, num_ref);
             }
@@ -421,28 +455,34 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // pc=2: receive utxo2 response and route it back to utxo1.
         if pc == 2 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (resp2, caller2) = call activation();
             let caller2_enc = add caller2, 1;
             // 0=Resume return from utxo2.
-            call trace(0, last_target, last_val, resp2, caller2_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, resp2, caller2_enc, 0, 0, 0);
 
             let caller1 = call get_datum(4);
             call set_datum(5, caller1);
             call set_datum(6, resp2);
+            let resume_slot2 = call trace_reserve_slot();
+            call set_datum(7, resume_slot2);
             call set_datum(0, 1);
             call resume(caller1, resp2);
         }
 
         // pc=3: receive terminal ack, uninstall handler, and return.
         if pc == 3 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (ret_stop, caller_stop) = call activation();
             let caller_stop_enc = add caller_stop, 1;
             // 0=Resume return from final stop handoff.
-            call trace(0, last_target, last_val, ret_stop, caller_stop_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, ret_stop, caller_stop_enc, 0, 0, 0);
 
             call uninstall_handler(1, 2, 3, 4);
             // 5=UninstallHandler for the effect interface.
