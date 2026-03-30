@@ -8,11 +8,38 @@
       "required": true,
       "types": [
         {
+          "type": "abi_fn_declaration",
+          "named": true
+        },
+        {
           "type": "event_definition",
           "named": true
         },
         {
           "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "abi_fn_declaration",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "parameter",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
           "named": true
         }
       ]
@@ -683,6 +710,10 @@
         {
           "type": "expression",
           "named": true
+        },
+        {
+          "type": "is_condition",
+          "named": true
         }
       ]
     }
@@ -800,6 +831,21 @@
           }
         ]
       }
+    }
+  },
+  {
+    "type": "is_condition",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
     }
   },
   {
@@ -1398,6 +1444,10 @@
   {
     "type": "integer_literal",
     "named": true
+  },
+  {
+    "type": "is",
+    "named": false
   },
   {
     "type": "let",

@@ -6,21 +6,22 @@ use std::{
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IntWidth, Scheme, Span,
-    Spanned, Type, TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal, TypedUtxoPart, UtxoDef,
-    UtxoGlobal, UtxoPart,
+    AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IfCondition, IntWidth,
+    Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal,
+    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, Literal,
         Pattern, Program, Statement, StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
-        TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
-        TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariant, TypedEnumVariantPayload,
-        TypedEventDef, TypedExpr, TypedExprKind, TypedFunctionDef, TypedFunctionParam,
-        TypedImportDef, TypedImportItems, TypedImportNamedItem, TypedImportSource, TypedMatchArm,
-        TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedStructField,
-        TypedStructLiteralField, TypedStructPatternField,
+        TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition,
+        TypedEnumConstructorPayload, TypedEnumDef, TypedEnumPatternPayload, TypedEnumVariant,
+        TypedEnumVariantPayload, TypedEventDef, TypedExpr, TypedExprKind, TypedFunctionDef,
+        TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems,
+        TypedImportNamedItem, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram,
+        TypedStatement, TypedStructDef, TypedStructField, TypedStructLiteralField,
+        TypedStructPatternField,
     },
     types::{
         EnumType, EnumVariantKind as TypeEnumVariantKind, EnumVariantType as TypeEnumVariant,
@@ -250,9 +251,12 @@ struct Inferencer {
     int_literal_values: HashMap<TypeVarId, (i128, Span)>,
     types: TypeRegistry,
     events: EventRegistry,
+    abis: AbiRegistry,
     namespaces: NamespaceRegistry,
     builtins: BuiltinRegistry,
     warnings: Vec<TypeWarning>,
+    /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
+    abi_call_trackers: Vec<AbiCallTracker>,
 }
 
 #[derive(Clone)]
@@ -290,6 +294,49 @@ struct EventInfo {
     param_types: Vec<Type>,
     param_spans: Vec<Span>,
     name_span: Span,
+}
+
+struct AbiRegistry {
+    entries: HashMap<String, AbiInfo>,
+}
+
+impl AbiRegistry {
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+
+    fn insert(&mut self, name: String, info: AbiInfo) {
+        self.entries.insert(name, info);
+    }
+
+    fn get(&self, name: &str) -> Option<&AbiInfo> {
+        self.entries.get(name)
+    }
+}
+
+struct AbiInfo {
+    methods: Vec<AbiMethodInfo>,
+    #[allow(dead_code)]
+    name_span: Span,
+}
+
+struct AbiMethodInfo {
+    name: String,
+    param_types: Vec<Type>,
+    #[allow(dead_code)]
+    param_spans: Vec<Span>,
+    return_type: Type,
+    #[allow(dead_code)]
+    name_span: Span,
+}
+
+/// Tracks linearity of method calls on a narrowed ABI variable.
+struct AbiCallTracker {
+    var_name: String,
+    abi_name: String,
+    first_call_span: Option<Span>,
 }
 
 /// Registry for namespace imports like `import cardano from starstream:std/cardano;`
@@ -343,9 +390,11 @@ impl Inferencer {
             int_literal_values: HashMap::new(),
             types: TypeRegistry::new(),
             events: EventRegistry::new(),
+            abis: AbiRegistry::new(),
             namespaces: NamespaceRegistry::new(),
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
+            abi_call_trackers: Vec::new(),
         };
         inferencer.register_prelude_types();
         inferencer
@@ -618,11 +667,39 @@ impl Inferencer {
     }
 
     fn register_abi(&mut self, def: &AbiDef) -> Result<(), TypeError> {
+        let mut methods = Vec::new();
         for part in &def.parts {
             match part {
                 AbiPart::Event(event) => self.register_event(event)?,
+                AbiPart::FnDecl(method) => {
+                    let mut param_types = Vec::with_capacity(method.params.len());
+                    let mut param_spans = Vec::with_capacity(method.params.len());
+                    for param in &method.params {
+                        let ty = self.type_from_annotation(&param.ty)?;
+                        param_types.push(ty);
+                        param_spans.push(param.ty.name.span());
+                    }
+                    let return_type = match &method.return_type {
+                        Some(ann) => self.type_from_annotation(ann)?,
+                        None => Type::Unit,
+                    };
+                    methods.push(AbiMethodInfo {
+                        name: method.name.name.clone(),
+                        param_types,
+                        param_spans,
+                        return_type,
+                        name_span: method.name.span(),
+                    });
+                }
             }
         }
+        self.abis.insert(
+            def.name.name.clone(),
+            AbiInfo {
+                methods,
+                name_span: def.name.span(),
+            },
+        );
         Ok(())
     }
 
@@ -976,6 +1053,32 @@ impl Inferencer {
                     typed_parts.push(TypedAbiPart::Event(TypedEventDef {
                         name: event.name.clone(),
                         params,
+                    }));
+                }
+                AbiPart::FnDecl(method) => {
+                    let abi_info = self.abis.get(&def.name.name).expect("abi registered");
+                    let method_info = abi_info
+                        .methods
+                        .iter()
+                        .find(|m| m.name == method.name.name)
+                        .expect("method registered");
+
+                    let params = method_info
+                        .param_types
+                        .iter()
+                        .zip(&method.params)
+                        .map(|(ty, param)| TypedFunctionParam {
+                            public: param.public,
+                            name: param.name.clone(),
+                            ty: ty.clone(),
+                        })
+                        .collect();
+
+                    typed_parts.push(TypedAbiPart::FnDecl(TypedAbiMethodDecl {
+                        name: method.name.clone(),
+                        params,
+                        return_type: method_info.return_type.clone(),
+                        span: method.span,
                     }));
                 }
             }
@@ -2390,6 +2493,34 @@ impl Inferencer {
                                 field.span(),
                             )
                         })?,
+                    Type::AbiNarrow(ref abi_name) => {
+                        let abi_info = self.abis.get(abi_name).ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::UnknownAbi {
+                                    name: abi_name.clone(),
+                                },
+                                field.span(),
+                            )
+                        })?;
+                        let method = abi_info
+                            .methods
+                            .iter()
+                            .find(|m| m.name == field.name)
+                            .ok_or_else(|| {
+                                TypeError::new(
+                                    TypeErrorKind::AbiMethodNotFound {
+                                        abi_name: abi_name.clone(),
+                                        method_name: field.name.clone(),
+                                    },
+                                    field.span(),
+                                )
+                            })?;
+                        Type::Function {
+                            params: method.param_types.clone(),
+                            result: Box::new(method.return_type.clone()),
+                            effect: EffectKind::Pure,
+                        }
+                    }
                     _ => {
                         return Err(TypeError::new(
                             TypeErrorKind::FieldAccessNotStruct {
@@ -2799,14 +2930,120 @@ impl Inferencer {
                 let mut result_ty: Option<Type> = None;
 
                 for (condition, then_branch) in branches {
-                    let (typed_condition, cond_trace) = self.infer_expr(env, condition, ctx)?;
-                    children.push(cond_trace);
-                    let bool_check = self.require_bool(
-                        &typed_condition.node.ty,
-                        condition.span,
-                        ConditionContext::If,
-                    )?;
-                    children.push(bool_check);
+                    let typed_condition = match condition {
+                        IfCondition::Bool(condition) => {
+                            let (typed_condition, cond_trace) =
+                                self.infer_expr(env, condition, ctx)?;
+                            children.push(cond_trace);
+                            let bool_check = self.require_bool(
+                                &typed_condition.node.ty,
+                                condition.span,
+                                ConditionContext::If,
+                            )?;
+                            children.push(bool_check);
+                            TypedIfCondition::Bool(typed_condition)
+                        }
+                        IfCondition::Is { name, abi_name } => {
+                            let binding = env.get(&name.name).ok_or_else(|| {
+                                TypeError::new(
+                                    TypeErrorKind::UnknownVariable {
+                                        name: name.name.clone(),
+                                    },
+                                    name.span(),
+                                )
+                            })?;
+                            let var_ty = self.apply(&binding.scheme.ty);
+
+                            match &var_ty {
+                                Type::UtxoAny | Type::UtxoNamed(_) => {}
+                                _ => {
+                                    return Err(TypeError::new(
+                                        TypeErrorKind::IsCheckRequiresUtxo {
+                                            name: name.name.clone(),
+                                            found: self.apply_for_display(&var_ty),
+                                        },
+                                        name.span(),
+                                    ));
+                                }
+                            }
+
+                            if self.abis.get(&abi_name.name).is_none() {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::UnknownAbi {
+                                        name: abi_name.name.clone(),
+                                    },
+                                    abi_name.span(),
+                                ));
+                            }
+
+                            let var_name_str = name.name.clone();
+                            let abi_name_str = abi_name.name.clone();
+
+                            // Push a scope with the narrowed type and set up
+                            // linearity tracking before inferring the block.
+                            env.push_scope();
+                            env.insert(
+                                var_name_str.clone(),
+                                Binding {
+                                    decl_span: name.span(),
+                                    mutable: false,
+                                    scheme: Scheme::monomorphic(Type::AbiNarrow(
+                                        abi_name_str.clone(),
+                                    )),
+                                    class: BindingClass::Local,
+                                    visibility: BindingVisibility::Private,
+                                },
+                            );
+                            self.abi_call_trackers.push(AbiCallTracker {
+                                var_name: var_name_str,
+                                abi_name: abi_name_str,
+                                first_call_span: None,
+                            });
+
+                            let (typed_then, then_traces) =
+                                self.infer_block(env, then_branch, ctx, false)?;
+                            children.extend(then_traces);
+
+                            self.abi_call_trackers.pop();
+                            env.pop_scope();
+
+                            let then_ty = typed_then
+                                .tail_expression
+                                .as_ref()
+                                .map_or(Type::Unit, |tail| tail.node.ty.clone());
+
+                            result_ty = if let Some(current) = result_ty {
+                                let (merged, unify_trace) = self.unify(
+                                    current.clone(),
+                                    then_ty.clone(),
+                                    typed_then
+                                        .tail_expression
+                                        .as_ref()
+                                        .map(|expr| expr.span)
+                                        .unwrap_or(expr.span),
+                                    expr.span,
+                                    TypeErrorKind::GeneralMismatch {
+                                        expected: current,
+                                        found: self.apply_for_display(&then_ty),
+                                    },
+                                )?;
+                                children.push(unify_trace);
+                                Some(merged)
+                            } else {
+                                Some(then_ty)
+                            };
+
+                            typed_branches.push((
+                                TypedIfCondition::Is {
+                                    name: name.clone(),
+                                    abi_name: abi_name.clone(),
+                                    original_type: var_ty,
+                                },
+                                typed_then,
+                            ));
+                            continue;
+                        }
+                    };
 
                     let (typed_then, then_traces) =
                         self.infer_block(env, then_branch, ctx, false)?;
@@ -3058,6 +3295,31 @@ impl Inferencer {
                     .with_help(
                         "use `runtime` to call runtime functions, e.g., `runtime blockHeight()`",
                     ));
+                }
+
+                // Check linearity: if the callee is a field access on an AbiNarrow target,
+                // enforce the one-method-call-per-block constraint.
+                if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind {
+                    if let Type::AbiNarrow(_) = &target.node.ty {
+                        if let TypedExprKind::Identifier(ident) = &target.node.kind {
+                            for tracker in self.abi_call_trackers.iter_mut().rev() {
+                                if tracker.var_name == ident.name {
+                                    if let Some(first_span) = tracker.first_call_span {
+                                        return Err(TypeError::new(
+                                            TypeErrorKind::LinearMethodCallViolation {
+                                                var_name: tracker.var_name.clone(),
+                                                abi_name: tracker.abi_name.clone(),
+                                            },
+                                            expr.span,
+                                        )
+                                        .with_secondary(first_span, "first method call here"));
+                                    }
+                                    tracker.first_call_span = Some(expr.span);
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if args.len() != param_types.len() {
@@ -3768,6 +4030,7 @@ impl Inferencer {
             Type::Unit => Type::Unit,
             Type::UtxoAny => Type::UtxoAny,
             Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
+            Type::AbiNarrow(name) => Type::AbiNarrow(name.clone()),
         }
     }
 
@@ -3877,7 +4140,12 @@ impl Inferencer {
                 else_branch,
             } => {
                 for (condition, then_branch) in branches {
-                    self.apply_expr(condition);
+                    match condition {
+                        TypedIfCondition::Bool(expr) => self.apply_expr(expr),
+                        TypedIfCondition::Is { original_type, .. } => {
+                            *original_type = self.apply(original_type);
+                        }
+                    }
                     self.apply_block(then_branch);
                 }
                 if let Some(block) = else_branch {
@@ -4281,6 +4549,9 @@ impl Inferencer {
                 self.subst.insert(id, ty.clone());
                 Ok((ty, Vec::new(), "Unify-Var"))
             }
+            (Type::AbiNarrow(l), Type::AbiNarrow(r)) if l == r => {
+                Ok((Type::AbiNarrow(l), Vec::new(), "Unify-Const"))
+            }
             _ => Err(()),
         }
     }
@@ -4657,6 +4928,7 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Unit => Type::Unit,
         Type::UtxoAny => Type::UtxoAny,
         Type::UtxoNamed(id) => Type::UtxoNamed(id.clone()),
+        Type::AbiNarrow(name) => Type::AbiNarrow(name.clone()),
     }
 }
 
@@ -4693,7 +4965,12 @@ fn occurs_in(var: TypeVarId, ty: &Type, subst: &HashMap<TypeVarId, Type>) -> boo
                     fields.iter().any(|field| occurs_in(var, &field.ty, subst))
                 }
             }),
-        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => false,
+        Type::Int(_)
+        | Type::Bool
+        | Type::Unit
+        | Type::UtxoAny
+        | Type::UtxoNamed(_)
+        | Type::AbiNarrow(_) => false,
     }
 }
 
@@ -4743,7 +5020,12 @@ fn collect_free_type_vars(ty: &Type, set: &mut HashSet<TypeVarId>) {
                 }
             }
         }
-        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => {}
+        Type::Int(_)
+        | Type::Bool
+        | Type::Unit
+        | Type::UtxoAny
+        | Type::UtxoNamed(_)
+        | Type::AbiNarrow(_) => {}
     }
 }
 

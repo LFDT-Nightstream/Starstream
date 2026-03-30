@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nfn test(x: Utxo) {\n    if x is NonExistentAbi {\n    }\n}\n"
+---
+E0047 (https://starstream.nightstream.dev/errors/E0047)
+
+  x unknown ABI type `NonExistentAbi`
+   ,-[test.star:2:13]
+ 1 | fn test(x: Utxo) {
+ 2 |     if x is NonExistentAbi {
+   :             ^^^^^^^^^^^^^^
+ 3 |     }
+   `----

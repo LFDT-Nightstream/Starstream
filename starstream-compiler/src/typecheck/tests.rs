@@ -1452,3 +1452,110 @@ fn user_type_cannot_shadow_prelude() {
         "#
     );
 }
+
+// ── if ... is ────────────────────────────────────────────────────────────────
+
+#[test]
+fn if_is_narrowing_with_method_call() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi TokenAbi {
+            fn transfer(amount: i64) -> bool;
+        }
+
+        fn test(x: Utxo) {
+            if x is TokenAbi {
+                x.transfer(100);
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_is_chain_different_abis() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi AbiA {
+            fn foo() -> i64;
+        }
+
+        abi AbiB {
+            fn bar() -> bool;
+        }
+
+        fn test(x: Utxo) {
+            if x is AbiA {
+                x.foo();
+            } else if x is AbiB {
+                x.bar();
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_is_non_utxo_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi MyAbi {
+            fn foo() -> i64;
+        }
+
+        fn test(x: i64) {
+            if x is MyAbi {
+                x.foo();
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_is_unknown_abi_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        fn test(x: Utxo) {
+            if x is NonExistentAbi {
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_is_unknown_method_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi MyAbi {
+            fn transfer(amount: i64) -> bool;
+        }
+
+        fn test(x: Utxo) {
+            if x is MyAbi {
+                x.nonexistent();
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn if_is_linear_violation_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi MyAbi {
+            fn transfer(amount: i64) -> bool;
+            fn balance() -> i64;
+        }
+
+        fn test(x: Utxo) {
+            if x is MyAbi {
+                x.transfer(100);
+                x.balance();
+            }
+        }
+        "#
+    );
+}

@@ -28,6 +28,7 @@
   "raise"
   "runtime"
   "disclose"
+  "is"
 ] @keyword
 
 ; Literals
@@ -127,6 +128,14 @@
 
 ; Disclose expression
 (disclose_expression "disclose" @keyword)
+
+; Is condition
+(is_condition "is" @keyword)
+
+; ABI method declaration
+(abi_fn_declaration
+  "fn" @keyword
+  (identifier) @function.method)
 
 (comment) @comment
 (doc_comment) @comment.documentation

@@ -269,6 +269,25 @@ pub enum TypeErrorKind {
         value: i128,
         ty: Type,
     },
+    /// `if x is Abi` used on a non-Utxo variable.
+    IsCheckRequiresUtxo {
+        name: String,
+        found: Type,
+    },
+    /// Unknown ABI name in `if x is UnknownAbi`.
+    UnknownAbi {
+        name: String,
+    },
+    /// ABI has no method with the given name.
+    AbiMethodNotFound {
+        abi_name: String,
+        method_name: String,
+    },
+    /// More than one method call on a narrowed ABI variable in the same block.
+    LinearMethodCallViolation {
+        var_name: String,
+        abi_name: String,
+    },
 }
 
 impl TypeErrorKind {
@@ -320,6 +339,10 @@ impl TypeErrorKind {
             TypeErrorKind::ReturnTypeNotAllowed => error_code!(E0043),
             TypeErrorKind::LiteralOutOfRange { .. } => error_code!(E0044),
             TypeErrorKind::ExplicitDisclosureRequiredForPublicBinding { .. } => error_code!(E0045),
+            TypeErrorKind::IsCheckRequiresUtxo { .. } => error_code!(E0046),
+            TypeErrorKind::UnknownAbi { .. } => error_code!(E0047),
+            TypeErrorKind::AbiMethodNotFound { .. } => error_code!(E0048),
+            TypeErrorKind::LinearMethodCallViolation { .. } => error_code!(E0049),
         }
     }
 }
@@ -655,6 +678,28 @@ impl fmt::Display for TypeErrorKind {
                     f,
                     "integer literal `{value}` does not fit in type `{}`",
                     ty.to_compact_string()
+                )
+            }
+            TypeErrorKind::IsCheckRequiresUtxo { name, found } => {
+                write!(
+                    f,
+                    "`if {name} is ...` requires a Utxo type, but `{name}` has type `{}`",
+                    found.to_compact_string()
+                )
+            }
+            TypeErrorKind::UnknownAbi { name } => {
+                write!(f, "unknown ABI type `{name}`")
+            }
+            TypeErrorKind::AbiMethodNotFound {
+                abi_name,
+                method_name,
+            } => {
+                write!(f, "ABI `{abi_name}` has no method named `{method_name}`")
+            }
+            TypeErrorKind::LinearMethodCallViolation { var_name, abi_name } => {
+                write!(
+                    f,
+                    "only one method call is allowed on narrowed variable `{var_name}` (ABI `{abi_name}`)"
                 )
             }
         }

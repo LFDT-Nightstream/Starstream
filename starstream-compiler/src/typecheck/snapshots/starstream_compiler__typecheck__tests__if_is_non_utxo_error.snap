@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi MyAbi {\n    fn foo() -> i64;\n}\n\nfn test(x: i64) {\n    if x is MyAbi {\n        x.foo();\n    }\n}\n"
+---
+E0046 (https://starstream.nightstream.dev/errors/E0046)
+
+  x `if x is ...` requires a Utxo type, but `x` has type `i64`
+   ,-[test.star:6:8]
+ 5 | fn test(x: i64) {
+ 6 |     if x is MyAbi {
+   :        ^
+ 7 |         x.foo();
+   `----

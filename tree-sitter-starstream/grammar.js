@@ -145,7 +145,7 @@ module.exports = grammar({
     abi_definition: ($) =>
       seq("abi", $.identifier, "{", repeat($._abi_part), "}"),
 
-    _abi_part: ($) => choice($.event_definition),
+    _abi_part: ($) => choice($.event_definition, $.abi_fn_declaration),
 
     event_definition: ($) =>
       seq(
@@ -154,6 +154,17 @@ module.exports = grammar({
         "(",
         optional(seq($.parameter, repeat(seq(",", $.parameter)))),
         ")",
+        ";",
+      ),
+
+    abi_fn_declaration: ($) =>
+      seq(
+        "fn",
+        $.identifier,
+        "(",
+        optional(seq($.parameter, repeat(seq(",", $.parameter)))),
+        ")",
+        optional(seq("->", $.type_annotation)),
         ";",
       ),
 
@@ -258,16 +269,19 @@ module.exports = grammar({
         field("field", $.identifier),
       ),
 
+    is_condition: ($) => seq($.identifier, "is", $.identifier),
+
+    _if_condition: ($) =>
+      choice(seq("(", $.expression, ")"), $.is_condition),
+
     if_expression: ($) =>
       seq(
         // First `if` branch.
         "if",
-        "(",
-        $.expression,
-        ")",
+        $._if_condition,
         $.block,
         // Subsequent `else if` branches.
-        repeat(seq("else", "if", "(", $.expression, ")", $.block)),
+        repeat(seq("else", "if", $._if_condition, $.block)),
         // Final `else` branch.
         optional(seq("else", $.block)),
       ),

@@ -1,30 +1,30 @@
 ---
 source: starstream-compiler/src/parser/definition/abi.rs
-description: "Code:\n\nabi Events {\n    event Transfer(sender: i64, to: i64, amount: i64);\n    event Log(message: i64);\n}\n"
+description: "Code:\n\nabi TokenAbi {\n    event Transfer(sender: i64, to: i64, amount: i64);\n    fn transfer(amount: i64) -> bool;\n    fn balance() -> i64;\n}\n"
 ---
 AbiDef {
     name: Identifier {
-        name: "Events",
-        span: 4..10,
+        name: "TokenAbi",
+        span: 4..12,
     },
     parts: [
         Event(
             EventDef {
                 name: Identifier {
                     name: "Transfer",
-                    span: 23..31,
+                    span: 25..33,
                 },
                 params: [
                     FunctionParam {
                         public: false,
                         name: Identifier {
                             name: "sender",
-                            span: 32..38,
+                            span: 34..40,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: 40..43,
+                                span: 42..45,
                             },
                             generics: [],
                         },
@@ -33,12 +33,12 @@ AbiDef {
                         public: false,
                         name: Identifier {
                             name: "to",
-                            span: 45..47,
+                            span: 47..49,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: 49..52,
+                                span: 51..54,
                             },
                             generics: [],
                         },
@@ -47,43 +47,71 @@ AbiDef {
                         public: false,
                         name: Identifier {
                             name: "amount",
-                            span: 54..60,
+                            span: 56..62,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: 62..65,
+                                span: 64..67,
                             },
                             generics: [],
                         },
                     },
                 ],
-                span: 17..72,
+                span: 19..74,
             },
         ),
-        Event(
-            EventDef {
+        FnDecl(
+            AbiMethodDecl {
                 name: Identifier {
-                    name: "Log",
-                    span: 78..81,
+                    name: "transfer",
+                    span: 77..85,
                 },
                 params: [
                     FunctionParam {
                         public: false,
                         name: Identifier {
-                            name: "message",
-                            span: 82..89,
+                            name: "amount",
+                            span: 86..92,
                         },
                         ty: TypeAnnotation {
                             name: Identifier {
                                 name: "i64",
-                                span: 91..94,
+                                span: 94..97,
                             },
                             generics: [],
                         },
                     },
                 ],
-                span: 72..97,
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "bool",
+                            span: 102..106,
+                        },
+                        generics: [],
+                    },
+                ),
+                span: 74..112,
+            },
+        ),
+        FnDecl(
+            AbiMethodDecl {
+                name: Identifier {
+                    name: "balance",
+                    span: 115..122,
+                },
+                params: [],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "i64",
+                            span: 128..131,
+                        },
+                        generics: [],
+                    },
+                ),
+                span: 112..133,
             },
         ),
     ],

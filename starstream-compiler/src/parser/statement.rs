@@ -78,8 +78,20 @@ pub(super) fn parser_with_block<'a>(
         .map(Statement::Return);
 
     let expression_statement = expr
+        .clone()
         .then_ignore(just(';').padded())
         .map(Statement::Expression);
+
+    // Block-bodied expressions (if, match, block) can be used as statements
+    // without a trailing semicolon, since they unambiguously end with `}`.
+    // The lookahead ensures we don't consume the tail expression of a block:
+    // only match when the next non-whitespace token is NOT `}`.
+    let block_expression_statement = expr
+        .try_map(|e, span| match &e.node {
+            Expr::If { .. } | Expr::Match { .. } | Expr::Block(_) => Ok(Statement::Expression(e)),
+            _ => Err(Rich::custom(span, "expected ';'")),
+        })
+        .then_ignore(just('}').padded().not().rewind());
 
     choice((
         variable_declaration,
@@ -87,6 +99,7 @@ pub(super) fn parser_with_block<'a>(
         while_statement,
         return_statement,
         expression_statement,
+        block_expression_statement,
     ))
 }
 

@@ -1,0 +1,38 @@
+---
+source: starstream-compiler/src/parser/definition/abi.rs
+description: "Code:\n\nabi MyAbi {\n    fn doSomething(x: i64);\n}\n"
+---
+AbiDef {
+    name: Identifier {
+        name: "MyAbi",
+        span: 4..9,
+    },
+    parts: [
+        FnDecl(
+            AbiMethodDecl {
+                name: Identifier {
+                    name: "doSomething",
+                    span: 19..30,
+                },
+                params: [
+                    FunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "x",
+                            span: 31..32,
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: 34..37,
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+                return_type: None,
+                span: 16..40,
+            },
+        ),
+    ],
+}

@@ -130,7 +130,12 @@ fn free_type_vars_type(ty: &Type, out: &mut HashSet<TypeVarId>) {
                 }
             }
         }
-        Type::Int(_) | Type::Bool | Type::Unit | Type::UtxoAny | Type::UtxoNamed(_) => {}
+        Type::Int(_)
+        | Type::Bool
+        | Type::Unit
+        | Type::UtxoAny
+        | Type::UtxoNamed(_)
+        | Type::AbiNarrow(_) => {}
     }
 }
 

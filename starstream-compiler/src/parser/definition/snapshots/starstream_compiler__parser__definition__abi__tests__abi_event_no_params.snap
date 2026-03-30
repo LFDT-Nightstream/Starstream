@@ -15,6 +15,7 @@ AbiDef {
                     span: 23..27,
                 },
                 params: [],
+                span: 17..31,
             },
         ),
     ],

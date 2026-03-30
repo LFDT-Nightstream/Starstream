@@ -5,7 +5,7 @@ use super::context::Extra;
 
 const KEYWORDS: &[&str] = &[
     "let", "pub", "mut", "if", "else", "while", "true", "false", "fn", "return", "struct", "enum",
-    "match", "abi", "event", "emit", "import", "from", "as", "raise", "runtime", "disclose",
+    "match", "abi", "event", "emit", "import", "from", "as", "raise", "runtime", "disclose", "is",
 ];
 pub fn identifier<'a>() -> impl Parser<'a, &'a str, Identifier, Extra<'a>> {
     text::ident()
