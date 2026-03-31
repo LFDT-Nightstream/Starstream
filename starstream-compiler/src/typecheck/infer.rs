@@ -1056,6 +1056,8 @@ impl Inferencer {
         env: &mut TypeEnv,
         def: &UtxoDef,
     ) -> Result<(TypedUtxoDef, InferenceTree), TypeError> {
+        env.push_scope();
+
         let mut parts = Vec::with_capacity(def.parts.len());
         let mut traces = Vec::with_capacity(def.parts.len());
 
@@ -1081,6 +1083,8 @@ impl Inferencer {
                 }
             });
         }
+
+        env.pop_scope();
 
         Ok((
             TypedUtxoDef {
