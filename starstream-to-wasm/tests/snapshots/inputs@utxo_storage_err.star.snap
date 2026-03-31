@@ -83,7 +83,7 @@ T-Utxo: MyUtxo =>
 
 T-Fn: get => i64
   T-ReturnTail: counter => i64
-    T-Var: {counter: i64} ⊢ counter ⇒ i64
+    T-Var: {counter: i64, get: fn() -> i64} ⊢ counter ⇒ i64
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====

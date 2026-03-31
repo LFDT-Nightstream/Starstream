@@ -1067,7 +1067,9 @@ impl Inferencer {
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
                 UtxoPart::Function(function) => {
-                    if function.return_type.is_some() {
+                    if function.export == Some(starstream_types::FunctionExport::UtxoMain)
+                        && function.return_type.is_some()
+                    {
                         return Err(TypeError::new(
                             TypeErrorKind::ReturnTypeNotAllowed,
                             function.name.span(),
@@ -1551,11 +1553,39 @@ impl Inferencer {
         env: &mut TypeEnv,
         function: &FunctionDef,
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
+        // Visit param & return types.
+        let param_types = function
+            .params
+            .iter()
+            .map(|param| self.type_from_annotation(&param.ty))
+            .collect::<Result<Vec<_>, _>>()?;
+        let (expected_return, return_span) = match &function.return_type {
+            Some(annotation) => (
+                self.type_from_annotation(annotation)?,
+                annotation.name.span_or(function.name.span()),
+            ),
+            None => (Type::unit(), function.name.span()),
+        };
+
+        // Insert function into environment. Happens before code so that recursion is allowed.
+        env.insert(
+            function.name.to_string(),
+            Binding {
+                decl_span: function.name.span,
+                mutable: false,
+                scheme: Scheme::monomorphic(Type::function(
+                    param_types.clone(),
+                    expected_return.clone(),
+                )),
+                class: BindingClass::Local,
+                visibility: BindingVisibility::Private,
+            },
+        );
+
         env.push_scope();
         let mut typed_params = Vec::with_capacity(function.params.len());
         let mut private_param_decl_spans = Vec::new();
-        for param in &function.params {
-            let ty = self.type_from_annotation(&param.ty)?;
+        for (param, ty) in function.params.iter().zip(param_types) {
             let decl_span = param.name.span_or(function.name.span());
             if !param.public {
                 private_param_decl_spans.push(decl_span);
@@ -1580,14 +1610,6 @@ impl Inferencer {
                 ty,
             });
         }
-
-        let (expected_return, return_span) = match &function.return_type {
-            Some(annotation) => (
-                self.type_from_annotation(annotation)?,
-                annotation.name.span_or(function.name.span()),
-            ),
-            None => (Type::unit(), function.name.span()),
-        };
 
         let mut ctx = FunctionCtx {
             expected_return: expected_return.clone(),

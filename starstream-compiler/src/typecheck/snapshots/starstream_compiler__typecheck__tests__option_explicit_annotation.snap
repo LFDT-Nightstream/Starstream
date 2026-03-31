@@ -3,9 +3,9 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x: Option<i64> = Option::Some(42);\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let x: Option<i64> = Option::Some(42); ⇒ Option<i64>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
-      T-Int: {} ⊢ 42 ⇒ i64
+  T-Let: {test: fn() -> ()} ⊢ let x: Option<i64> = Option::Some(42); ⇒ Option<i64>
+    T-EnumCtor: {test: fn() -> ()} ⊢ Option::Some(42) ⇒ Option<i64>
+      T-Int: {test: fn() -> ()} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t4}
     Unify-Enum: Option<i64> ~ Option<i64> => {i64/t3}
       Unify-Var: i64 ~ i64 => {i64/t3}

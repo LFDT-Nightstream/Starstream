@@ -157,17 +157,17 @@ Program {
 ==== Inference trace ====
 T-Utxo: MyUtxo => 
   T-Fn: increment => ()
-    T-Assign: {counter: i64, multiplier: i64} ⊢ counter = counter + 1; ⇒ i64
-      T-Bin-Add: {counter: i64, multiplier: i64} ⊢ counter + 1 ⇒ i64
-        T-Var: {counter: i64, multiplier: i64} ⊢ counter ⇒ i64
-        T-Int: {counter: i64, multiplier: i64} ⊢ 1 ⇒ i64
+    T-Assign: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ counter = counter + 1; ⇒ i64
+      T-Bin-Add: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ counter + 1 ⇒ i64
+        T-Var: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ counter ⇒ i64
+        T-Int: {counter: i64, increment: fn() -> (), multiplier: i64} ⊢ 1 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Const: i64 ~ i64 => {}
   T-Fn: increment_mult => ()
-    T-Assign: {counter: i64, multiplier: i64} ⊢ multiplier = multiplier + 1; ⇒ i64
-      T-Bin-Add: {counter: i64, multiplier: i64} ⊢ multiplier + 1 ⇒ i64
-        T-Var: {counter: i64, multiplier: i64} ⊢ multiplier ⇒ i64
-        T-Int: {counter: i64, multiplier: i64} ⊢ 1 ⇒ i64
+    T-Assign: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ multiplier = multiplier + 1; ⇒ i64
+      T-Bin-Add: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ multiplier + 1 ⇒ i64
+        T-Var: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ multiplier ⇒ i64
+        T-Int: {counter: i64, increment: fn() -> (), increment_mult: fn() -> (), multiplier: i64} ⊢ 1 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t4}
       Unify-Const: i64 ~ i64 => {}
 

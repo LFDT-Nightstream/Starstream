@@ -3,24 +3,24 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let mut score = 10;\n    if (score > 5) {\n        score = score + 1;\n    }\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let mut score = 10; ⇒ i64
-    T-Int: {} ⊢ 10 ⇒ i64
+  T-Let: {test: fn() -> ()} ⊢ let mut score = 10; ⇒ i64
+    T-Int: {test: fn() -> ()} ⊢ 10 ⇒ i64
   T-ReturnTail: if (score > 5) {
     score = score + 1;
 } => ()
-    T-If: {score: i64} ⊢ if (score > 5) {
+    T-If: {score: i64, test: fn() -> ()} ⊢ if (score > 5) {
     score = score + 1;
 } ⇒ ()
-      T-Bin-Gt: {score: i64} ⊢ score > 5 ⇒ bool
-        T-Var: {score: i64} ⊢ score ⇒ i64
-        T-Int: {score: i64} ⊢ 5 ⇒ i64
+      T-Bin-Gt: {score: i64, test: fn() -> ()} ⊢ score > 5 ⇒ bool
+        T-Var: {score: i64, test: fn() -> ()} ⊢ score ⇒ i64
+        T-Int: {score: i64, test: fn() -> ()} ⊢ 5 ⇒ i64
         Check-Compare: i64 vs i64 => ok (int)
           Unify-Var: i64 ~ i64 => {i64/t3}
       Check-Bool: bool => ok
-      T-Assign: {score: i64} ⊢ score = score + 1; ⇒ i64
-        T-Bin-Add: {score: i64} ⊢ score + 1 ⇒ i64
-          T-Var: {score: i64} ⊢ score ⇒ i64
-          T-Int: {score: i64} ⊢ 1 ⇒ i64
+      T-Assign: {score: i64, test: fn() -> ()} ⊢ score = score + 1; ⇒ i64
+        T-Bin-Add: {score: i64, test: fn() -> ()} ⊢ score + 1 ⇒ i64
+          T-Var: {score: i64, test: fn() -> ()} ⊢ score ⇒ i64
+          T-Int: {score: i64, test: fn() -> ()} ⊢ 1 ⇒ i64
           Unify-Var: i64 ~ i64 => {i64/t4}
         Unify-Var: i64 ~ i64 => {}
       Unify-Const: () ~ () => {}

@@ -170,20 +170,20 @@ Program {
 ==== Inference trace ====
 
 T-Fn: reexport => i64
-  T-Expr: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
-    T-Runtime: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
-      T-Call: {blockHeight: runtime fn() -> i64} ⊢ blockHeight() ⇒ i64
-        T-Var: {blockHeight: runtime fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+  T-Expr: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight(); ⇒ ()
+    T-Runtime: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
+      T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight() ⇒ i64
+        T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
   T-ReturnTail: runtime blockHeight() => i64
-    T-Runtime: {blockHeight: runtime fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
-      T-Call: {blockHeight: runtime fn() -> i64} ⊢ blockHeight() ⇒ i64
-        T-Var: {blockHeight: runtime fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
+    T-Runtime: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ runtime blockHeight() ⇒ i64
+      T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight() ⇒ i64
+        T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64} ⊢ blockHeight ⇒ runtime fn() -> i64
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: second => i64
   T-ReturnTail: reexport() => i64
-    T-Call: {blockHeight: runtime fn() -> i64} ⊢ reexport() ⇒ i64
-      T-Var: {blockHeight: runtime fn() -> i64} ⊢ reexport ⇒ fn() -> i64
+    T-Call: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport() ⇒ i64
+      T-Var: {blockHeight: runtime fn() -> i64, reexport: fn() -> i64, second: fn() -> i64} ⊢ reexport ⇒ fn() -> i64
     Unify-Const: i64 ~ i64 => {}
 
 ==== Typed AST ====

@@ -14,7 +14,7 @@ T-Fn: test => i64
         0
     },
 } => i64
-    T-Match: {n: i64} ⊢ match n {
+    T-Match: {n: i64, test: fn(i64) -> i64} ⊢ match n {
     0 => {
         100
     },
@@ -25,15 +25,15 @@ T-Fn: test => i64
         0
     },
 } ⇒ i64
-      T-Var: {n: i64} ⊢ n ⇒ i64
+      T-Var: {n: i64, test: fn(i64) -> i64} ⊢ n ⇒ i64
       Unify-Const: i64 ~ i64 => {}
       T-Tail: 100 => i64
-        T-Int: {n: i64} ⊢ 100 ⇒ i64
+        T-Int: {n: i64, test: fn(i64) -> i64} ⊢ 100 ⇒ i64
       Unify-Const: i64 ~ i64 => {}
       T-Tail: 200 => i64
-        T-Int: {n: i64} ⊢ 200 ⇒ i64
+        T-Int: {n: i64, test: fn(i64) -> i64} ⊢ 200 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
       T-Tail: 0 => i64
-        T-Int: {n: i64} ⊢ 0 ⇒ i64
+        T-Int: {n: i64, test: fn(i64) -> i64} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t3}

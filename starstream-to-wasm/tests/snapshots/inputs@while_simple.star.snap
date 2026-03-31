@@ -119,21 +119,21 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Let: {} ⊢ let mut foo = 0; ⇒ i64
-    T-Int: {} ⊢ 0 ⇒ i64
-  T-While: {foo: i64} ⊢ while (foo < 10) {
+  T-Let: {main: fn() -> ()} ⊢ let mut foo = 0; ⇒ i64
+    T-Int: {main: fn() -> ()} ⊢ 0 ⇒ i64
+  T-While: {foo: i64, main: fn() -> ()} ⊢ while (foo < 10) {
     foo = foo + 1;
 } ⇒ ()
-    T-Bin-Lt: {foo: i64} ⊢ foo < 10 ⇒ bool
-      T-Var: {foo: i64} ⊢ foo ⇒ i64
-      T-Int: {foo: i64} ⊢ 10 ⇒ i64
+    T-Bin-Lt: {foo: i64, main: fn() -> ()} ⊢ foo < 10 ⇒ bool
+      T-Var: {foo: i64, main: fn() -> ()} ⊢ foo ⇒ i64
+      T-Int: {foo: i64, main: fn() -> ()} ⊢ 10 ⇒ i64
       Check-Compare: i64 vs i64 => ok (int)
         Unify-Var: i64 ~ i64 => {i64/t3}
     Check-Bool: bool => ok
-    T-Assign: {foo: i64} ⊢ foo = foo + 1; ⇒ i64
-      T-Bin-Add: {foo: i64} ⊢ foo + 1 ⇒ i64
-        T-Var: {foo: i64} ⊢ foo ⇒ i64
-        T-Int: {foo: i64} ⊢ 1 ⇒ i64
+    T-Assign: {foo: i64, main: fn() -> ()} ⊢ foo = foo + 1; ⇒ i64
+      T-Bin-Add: {foo: i64, main: fn() -> ()} ⊢ foo + 1 ⇒ i64
+        T-Var: {foo: i64, main: fn() -> ()} ⊢ foo ⇒ i64
+        T-Int: {foo: i64, main: fn() -> ()} ⊢ 1 ⇒ i64
         Unify-Var: i64 ~ i64 => {i64/t4}
       Unify-Var: i64 ~ i64 => {}
 

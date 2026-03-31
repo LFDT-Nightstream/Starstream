@@ -82,8 +82,8 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {} ⊢ emit HelloEvent(); ⇒ ()
-      T-Emit: {} ⊢ emit HelloEvent() ⇒ ()
+    T-Expr: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
+      T-Emit: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent() ⇒ ()
 
 ==== Typed AST ====
 TypedProgram {
