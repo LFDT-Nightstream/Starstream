@@ -133,7 +133,6 @@ fn test_multi_tx_accumulator_global() {
             call resume(utxo_id, req);
         }
         if pc == 1 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
             let resume_slot = call get_datum(3);
@@ -165,7 +164,6 @@ fn test_multi_tx_accumulator_global() {
             call resume(0, req);
         }
         if pc == 1 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
             let resume_slot = call get_datum(3);
@@ -197,7 +195,6 @@ fn test_multi_tx_accumulator_global() {
             call resume(0, req);
         }
         if pc == 1 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
             let resume_slot = call get_datum(3);
