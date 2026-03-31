@@ -5,26 +5,26 @@ use starstream_interleaving_spec::{
 };
 use std::collections::{HashMap, HashSet};
 use wasmtime::component::types::ComponentItem;
-use wasmtime::component::{Component, Linker, Resource, ResourceType, Val};
+use wasmtime::component::{Component, Linker, Resource, ResourceType, Val as WasmtimeVal};
 use wasmtime::{Config, Engine, Store};
 
 pub type ScalarComponent = Component;
 pub type ComponentStore<T> = Store<T>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum ComponentValue {
+enum ComponentValueIr {
     U64(u64),
     Bool(bool),
-    Tuple(Vec<ComponentValue>),
-    Record(Vec<(String, ComponentValue)>),
+    Tuple(Vec<ComponentValueIr>),
+    Record(Vec<(String, ComponentValueIr)>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-enum ValueSchema {
+enum ComponentTypeIr {
     U64,
     Bool,
-    Tuple(Vec<ValueSchema>),
-    Record(Vec<(String, ValueSchema)>),
+    Tuple(Vec<ComponentTypeIr>),
+    Record(Vec<(String, ComponentTypeIr)>),
 }
 
 #[derive(Debug)]
@@ -215,7 +215,7 @@ impl WasmtimeComponentStarstreamExecutor {
     }
 }
 
-impl ComponentValue {
+impl ComponentValueIr {
     fn to_ref_words(&self) -> anyhow::Result<Vec<[Value; 4]>> {
         let scalars = self.flatten_scalars()?;
         let mut words = Vec::new();
@@ -237,14 +237,14 @@ impl ComponentValue {
 
     fn flatten_scalars_into(&self, out: &mut Vec<Value>) -> anyhow::Result<()> {
         match self {
-            ComponentValue::U64(value) => out.push(Value(*value)),
-            ComponentValue::Bool(value) => out.push(Value(u64::from(*value))),
-            ComponentValue::Tuple(values) => {
+            ComponentValueIr::U64(value) => out.push(Value(*value)),
+            ComponentValueIr::Bool(value) => out.push(Value(u64::from(*value))),
+            ComponentValueIr::Tuple(values) => {
                 for value in values {
                     value.flatten_scalars_into(out)?;
                 }
             }
-            ComponentValue::Record(fields) => {
+            ComponentValueIr::Record(fields) => {
                 for (_, value) in fields {
                     value.flatten_scalars_into(out)?;
                 }
@@ -254,12 +254,12 @@ impl ComponentValue {
     }
 }
 
-impl ValueSchema {
-    fn decode(&self, value: &Val, func: &str) -> anyhow::Result<ComponentValue> {
+impl ComponentTypeIr {
+    fn decode(&self, value: &WasmtimeVal, func: &str) -> anyhow::Result<ComponentValueIr> {
         match (self, value) {
-            (ValueSchema::U64, Val::U64(value)) => Ok(ComponentValue::U64(*value)),
-            (ValueSchema::Bool, Val::Bool(value)) => Ok(ComponentValue::Bool(*value)),
-            (ValueSchema::Tuple(schemas), Val::Tuple(values)) => {
+            (ComponentTypeIr::U64, WasmtimeVal::U64(value)) => Ok(ComponentValueIr::U64(*value)),
+            (ComponentTypeIr::Bool, WasmtimeVal::Bool(value)) => Ok(ComponentValueIr::Bool(*value)),
+            (ComponentTypeIr::Tuple(schemas), WasmtimeVal::Tuple(values)) => {
                 if schemas.len() != values.len() {
                     anyhow::bail!("tuple arity mismatch for {func}");
                 }
@@ -268,9 +268,9 @@ impl ValueSchema {
                     .zip(values)
                     .map(|(schema, value)| schema.decode(value, func))
                     .collect::<anyhow::Result<Vec<_>>>()
-                    .map(ComponentValue::Tuple)
+                    .map(ComponentValueIr::Tuple)
             }
-            (ValueSchema::Record(field_schemas), Val::Record(fields)) => {
+            (ComponentTypeIr::Record(field_schemas), WasmtimeVal::Record(fields)) => {
                 let mut decoded = Vec::with_capacity(field_schemas.len());
                 for (name, schema) in field_schemas {
                     let value = fields
@@ -282,17 +282,17 @@ impl ValueSchema {
                         })?;
                     decoded.push((name.clone(), schema.decode(value, func)?));
                 }
-                Ok(ComponentValue::Record(decoded))
+                Ok(ComponentValueIr::Record(decoded))
             }
             _ => anyhow::bail!("unexpected component value for {func}: {value:?}"),
         }
     }
 
-    fn encode(&self, value: &ComponentValue) -> anyhow::Result<Val> {
+    fn encode(&self, value: &ComponentValueIr) -> anyhow::Result<WasmtimeVal> {
         match (self, value) {
-            (ValueSchema::U64, ComponentValue::U64(value)) => Ok(Val::U64(*value)),
-            (ValueSchema::Bool, ComponentValue::Bool(value)) => Ok(Val::Bool(*value)),
-            (ValueSchema::Tuple(schemas), ComponentValue::Tuple(values)) => {
+            (ComponentTypeIr::U64, ComponentValueIr::U64(value)) => Ok(WasmtimeVal::U64(*value)),
+            (ComponentTypeIr::Bool, ComponentValueIr::Bool(value)) => Ok(WasmtimeVal::Bool(*value)),
+            (ComponentTypeIr::Tuple(schemas), ComponentValueIr::Tuple(values)) => {
                 if schemas.len() != values.len() {
                     anyhow::bail!("tuple arity mismatch during encode");
                 }
@@ -301,9 +301,9 @@ impl ValueSchema {
                     .zip(values)
                     .map(|(schema, value)| schema.encode(value))
                     .collect::<anyhow::Result<Vec<_>>>()
-                    .map(Val::Tuple)
+                    .map(WasmtimeVal::Tuple)
             }
-            (ValueSchema::Record(field_schemas), ComponentValue::Record(fields)) => {
+            (ComponentTypeIr::Record(field_schemas), ComponentValueIr::Record(fields)) => {
                 let mut encoded = Vec::with_capacity(field_schemas.len());
                 for (name, schema) in field_schemas {
                     let value = fields
@@ -315,7 +315,7 @@ impl ValueSchema {
                         })?;
                     encoded.push((name.clone(), schema.encode(value)?));
                 }
-                Ok(Val::Record(encoded))
+                Ok(WasmtimeVal::Record(encoded))
             }
             _ => anyhow::bail!("schema/value mismatch during encode"),
         }
@@ -324,8 +324,8 @@ impl ValueSchema {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FunctionSchema {
-    params: Vec<Option<ValueSchema>>,
-    results: Vec<ValueSchema>,
+    params: Vec<Option<ComponentTypeIr>>,
+    results: Vec<ComponentTypeIr>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -345,7 +345,7 @@ fn build_linker(
         ledger.func_new("burn", |mut ctx, _params, _results| {
             let caller = ctx.data().current_process;
             let payload =
-                allocate_payload_ref(ctx.data_mut(), caller, ComponentValue::Tuple(vec![]))?;
+                allocate_payload_ref(ctx.data_mut(), caller, ComponentValueIr::Tuple(vec![]))?;
             ctx.data_mut()
                 .executor
                 .record_import(caller, HostImportCall::Burn { payload })?;
@@ -414,8 +414,8 @@ fn call_resource_method(
     func_name: &str,
     method_name: &str,
     func_schema: &FunctionSchema,
-    params: &[Val],
-    results: &mut [Val],
+    params: &[WasmtimeVal],
+    results: &mut [WasmtimeVal],
 ) -> anyhow::Result<()> {
     let target = expect_utxo_resource(ctx, params, 0, func_name)?;
     let caller = ctx.data().current_process;
@@ -428,9 +428,9 @@ fn call_resource_method(
 
     let value_args = decode_function_value_args(params, func_schema, func_name)?;
     let payload_value = match value_args.len() {
-        0 => ComponentValue::Tuple(vec![]),
+        0 => ComponentValueIr::Tuple(vec![]),
         1 => value_args[0].clone(),
-        _ => ComponentValue::Tuple(value_args.clone()),
+        _ => ComponentValueIr::Tuple(value_args.clone()),
     };
     let payload = allocate_payload_ref(ctx.data_mut(), caller, payload_value)?;
     ctx.data_mut().executor.record_import(
@@ -510,9 +510,9 @@ fn call_resource_method(
                 .map(|(schema, value)| schema.decode(value, method_name))
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let payload_value = match returned_values.len() {
-                0 => ComponentValue::Tuple(vec![]),
+                0 => ComponentValueIr::Tuple(vec![]),
                 1 => returned_values[0].clone(),
-                _ => ComponentValue::Tuple(returned_values),
+                _ => ComponentValueIr::Tuple(returned_values),
             };
             let payload = allocate_payload_ref(ctx.data_mut(), target_pid, payload_value)?;
             ctx.data_mut()
@@ -540,35 +540,35 @@ fn call_resource_method(
 
 fn expect_utxo_resource(
     ctx: &mut wasmtime::StoreContextMut<'_, ComponentHostState>,
-    params: &[Val],
+    params: &[WasmtimeVal],
     idx: usize,
     func: &str,
 ) -> anyhow::Result<u32> {
     let resource = match params.get(idx) {
-        Some(Val::Resource(resource)) => *resource,
+        Some(WasmtimeVal::Resource(resource)) => resource,
         _ => anyhow::bail!("invalid resource arg {idx} for {func}"),
     };
-    let resource = Resource::<UtxoResource>::try_from_resource_any(resource, &mut *ctx)?;
+    let resource = Resource::<UtxoResource>::try_from_resource_any(*resource, &mut *ctx)?;
     Ok(resource.rep())
 }
 
 fn decode_value_arg(
-    params: &[Val],
+    params: &[WasmtimeVal],
     idx: usize,
-    schema: &ValueSchema,
+    schema: &ComponentTypeIr,
     func: &str,
-) -> anyhow::Result<ComponentValue> {
+) -> anyhow::Result<ComponentValueIr> {
     let value = params
         .get(idx)
         .ok_or_else(|| anyhow::anyhow!("missing arg {idx} for {func}"))?;
     schema.decode(value, func)
 }
 
-fn flat_arg_count(schema: &ValueSchema) -> usize {
+fn flat_arg_count(schema: &ComponentTypeIr) -> usize {
     match schema {
-        ValueSchema::U64 | ValueSchema::Bool => 1,
-        ValueSchema::Tuple(items) => items.iter().map(flat_arg_count).sum(),
-        ValueSchema::Record(fields) => fields
+        ComponentTypeIr::U64 | ComponentTypeIr::Bool => 1,
+        ComponentTypeIr::Tuple(items) => items.iter().map(flat_arg_count).sum(),
+        ComponentTypeIr::Record(fields) => fields
             .iter()
             .map(|(_, schema)| flat_arg_count(schema))
             .sum(),
@@ -578,7 +578,7 @@ fn flat_arg_count(schema: &ValueSchema) -> usize {
 fn allocate_payload_ref(
     state: &mut ComponentHostState,
     caller: ProcessId,
-    value: ComponentValue,
+    value: ComponentValueIr,
 ) -> anyhow::Result<Ref> {
     let words = value.to_ref_words()?;
     let payload = match state.executor.record_import(
@@ -601,9 +601,9 @@ fn allocate_payload_ref(
 fn read_ref_value(
     state: &crate::state::StarstreamState<u32>,
     reff: Ref,
-    schema: &ValueSchema,
+    schema: &ComponentTypeIr,
     func: &str,
-) -> anyhow::Result<ComponentValue> {
+) -> anyhow::Result<ComponentValueIr> {
     if flat_arg_count(schema) == 0 {
         return decode_lanes_to_value([Value::nil(); 4], schema, func);
     }
@@ -629,11 +629,11 @@ fn extract_import_instance_schemas(
                 ComponentItem::ComponentFunc(func) => {
                     let params = func
                         .params()
-                        .map(|(_, ty)| value_schema_from_type(&ty))
+                        .map(|(_, ty)| component_type_ir_from_type(&ty))
                         .collect();
                     let results = func
                         .results()
-                        .filter_map(|ty| value_schema_from_type(&ty))
+                        .filter_map(|ty| component_type_ir_from_type(&ty))
                         .collect();
                     schema
                         .functions
@@ -713,12 +713,14 @@ fn method_function_id(import_name: &str, func_name: &str) -> u32 {
     hash
 }
 
-fn default_val_for_schema(schema: &ValueSchema) -> Val {
+fn default_val_for_schema(schema: &ComponentTypeIr) -> WasmtimeVal {
     match schema {
-        ValueSchema::U64 => Val::U64(0),
-        ValueSchema::Bool => Val::Bool(false),
-        ValueSchema::Tuple(items) => Val::Tuple(items.iter().map(default_val_for_schema).collect()),
-        ValueSchema::Record(fields) => Val::Record(
+        ComponentTypeIr::U64 => WasmtimeVal::U64(0),
+        ComponentTypeIr::Bool => WasmtimeVal::Bool(false),
+        ComponentTypeIr::Tuple(items) => {
+            WasmtimeVal::Tuple(items.iter().map(default_val_for_schema).collect())
+        }
+        ComponentTypeIr::Record(fields) => WasmtimeVal::Record(
             fields
                 .iter()
                 .map(|(name, schema)| (name.clone(), default_val_for_schema(schema)))
@@ -728,10 +730,10 @@ fn default_val_for_schema(schema: &ValueSchema) -> Val {
 }
 
 fn decode_function_value_args(
-    params: &[Val],
+    params: &[WasmtimeVal],
     func_schema: &FunctionSchema,
     func_name: &str,
-) -> anyhow::Result<Vec<ComponentValue>> {
+) -> anyhow::Result<Vec<ComponentValueIr>> {
     let mut decoded = Vec::new();
     for (idx, schema) in func_schema.params.iter().enumerate().skip(1) {
         if let Some(schema) = schema {
@@ -741,21 +743,24 @@ fn decode_function_value_args(
     Ok(decoded)
 }
 
-fn value_schema_from_type(ty: &wasmtime::component::types::Type) -> Option<ValueSchema> {
+fn component_type_ir_from_type(ty: &wasmtime::component::types::Type) -> Option<ComponentTypeIr> {
     match ty {
-        wasmtime::component::types::Type::U64 => Some(ValueSchema::U64),
-        wasmtime::component::types::Type::Bool => Some(ValueSchema::Bool),
-        wasmtime::component::types::Type::Tuple(tuple) => Some(ValueSchema::Tuple(
+        wasmtime::component::types::Type::U64 => Some(ComponentTypeIr::U64),
+        wasmtime::component::types::Type::Bool => Some(ComponentTypeIr::Bool),
+        wasmtime::component::types::Type::Tuple(tuple) => Some(ComponentTypeIr::Tuple(
             tuple
                 .types()
-                .filter_map(|ty| value_schema_from_type(&ty))
+                .filter_map(|ty| component_type_ir_from_type(&ty))
                 .collect(),
         )),
-        wasmtime::component::types::Type::Record(record) => Some(ValueSchema::Record(
+        wasmtime::component::types::Type::Record(record) => Some(ComponentTypeIr::Record(
             record
                 .fields()
                 .filter_map(|field| {
-                    Some((field.name.to_owned(), value_schema_from_type(&field.ty)?))
+                    Some((
+                        field.name.to_owned(),
+                        component_type_ir_from_type(&field.ty)?,
+                    ))
                 })
                 .collect(),
         )),
@@ -766,33 +771,33 @@ fn value_schema_from_type(ty: &wasmtime::component::types::Type) -> Option<Value
     }
 }
 
-fn tuple_items_to_scalar(value: &Val) -> anyhow::Result<&Val> {
+fn tuple_items_to_scalar(value: &WasmtimeVal) -> anyhow::Result<&WasmtimeVal> {
     match value {
-        Val::Tuple(items) if items.len() == 1 => Ok(&items[0]),
+        WasmtimeVal::Tuple(items) if items.len() == 1 => Ok(&items[0]),
         _ => anyhow::bail!("expected single-item tuple"),
     }
 }
 
 fn decode_lanes_to_value(
     lanes: [Value; 4],
-    schema: &ValueSchema,
+    schema: &ComponentTypeIr,
     func: &str,
-) -> anyhow::Result<ComponentValue> {
+) -> anyhow::Result<ComponentValueIr> {
     let arity = flat_arg_count(schema);
-    let scalars: Vec<Val> = lanes
+    let scalars: Vec<WasmtimeVal> = lanes
         .into_iter()
         .take(arity)
-        .map(|value| Val::U64(value.0))
+        .map(|value| WasmtimeVal::U64(value.0))
         .collect();
-    let flat = Val::Tuple(scalars);
+    let flat = WasmtimeVal::Tuple(scalars);
     match schema {
-        ValueSchema::Tuple(_) => schema.decode(&flat, func),
-        ValueSchema::Record(fields) => {
+        ComponentTypeIr::Tuple(_) => schema.decode(&flat, func),
+        ComponentTypeIr::Record(fields) => {
             let tuple_items = match &flat {
-                Val::Tuple(items) => items,
+                WasmtimeVal::Tuple(items) => items,
                 _ => anyhow::bail!("expected tuple lowering for record decode in {func}"),
             };
-            let record = Val::Record(
+            let record = WasmtimeVal::Record(
                 fields
                     .iter()
                     .enumerate()
