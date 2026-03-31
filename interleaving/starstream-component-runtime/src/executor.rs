@@ -1,4 +1,4 @@
-use crate::abi::{FUNCTION_ID_MAIN, HostImportCall, TemporaryAbi};
+use crate::abi::HostImportCall;
 use crate::state::{ProcessDefinition, ProcessKind, ProgramHash, StarstreamState};
 use starstream_interleaving_spec::{
     FunctionId, InterfaceId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
@@ -38,7 +38,6 @@ pub enum HostImportOutcome {
 
 #[derive(Debug)]
 pub struct StarstreamExecutor<Resource> {
-    abi: TemporaryAbi,
     state: StarstreamState<Resource>,
     handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
     ref_building: HashMap<ProcessId, (Ref, u32)>,
@@ -52,17 +51,12 @@ where
 {
     pub fn new() -> Self {
         Self {
-            abi: TemporaryAbi,
             state: StarstreamState::default(),
             handler_stack: HashMap::new(),
             ref_building: HashMap::new(),
             traces: HashMap::new(),
             effect_log: Vec::new(),
         }
-    }
-
-    pub fn abi(&self) -> TemporaryAbi {
-        self.abi
     }
 
     pub fn state(&self) -> &StarstreamState<Resource> {
@@ -301,10 +295,6 @@ where
         }
 
         Ok(())
-    }
-
-    pub fn default_entry_function() -> u32 {
-        FUNCTION_ID_MAIN
     }
 }
 

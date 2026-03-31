@@ -338,52 +338,6 @@ mod tests {
         (ledger, utxo_id)
     }
 
-    fn resuming_component() -> Vec<u8> {
-        wat::parse_str(
-            r#"
-            (component
-              (import "ledger" (instance $ledger
-                (export "utxo" (type (sub resource)))
-                (export "starstream-new-ref" (func $new-ref (param "size-words" u32) (result u64)))
-                (export "input-utxo" (func $input-utxo (param "index" u32) (result (own 0))))
-                (export "resume" (func $resume (param "target" (borrow 0)) (param "payload" u64)))
-              ))
-
-              (core func $new-ref-lowered (canon lower (func $ledger "starstream-new-ref")))
-              (core func $input-utxo-lowered (canon lower (func $ledger "input-utxo")))
-              (core func $resume-lowered (canon lower (func $ledger "resume")))
-
-              (core module $m
-                (import "ledger" "starstream-new-ref" (func $new-ref (param i32) (result i64)))
-                (import "ledger" "input-utxo" (func $input-utxo (param i32) (result i32)))
-                (import "ledger" "resume" (func $resume (param i32 i64)))
-                (func (export "main") (local i32) (local i64)
-                  i32.const 0
-                  call $input-utxo
-                  local.set 0
-                  i32.const 1
-                  call $new-ref
-                  local.set 1
-                  local.get 0
-                  local.get 1
-                  call $resume))
-
-              (core instance $i
-                (instantiate $m
-                  (with "ledger" (instance
-                    (export "input-utxo" (func $input-utxo-lowered))
-                    (export "starstream-new-ref" (func $new-ref-lowered))
-                    (export "resume" (func $resume-lowered))
-                  ))
-                )
-              )
-
-              (func (export "main") (canon lift (core func $i "main"))))
-            "#,
-        )
-        .unwrap()
-    }
-
     fn spendable_utxo_component(initial_amount: u64) -> Vec<u8> {
         wat::parse_str(&format!(
             r#"
