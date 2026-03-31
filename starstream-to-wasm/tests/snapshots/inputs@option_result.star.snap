@@ -1806,10 +1806,14 @@ TypedProgram {
                                                             },
                                                         ),
                                                     ],
+                                                    param_spans: [
+                                                        130..136,
+                                                    ],
                                                     result: Int(
                                                         I64,
                                                     ),
                                                     effect: Pure,
+                                                    name_span: 111..124,
                                                 },
                                                 kind: Identifier(
                                                     Identifier {
@@ -1854,6 +1858,7 @@ TypedProgram {
                                                             node: TypedExpr {
                                                                 ty: Function {
                                                                     params: [],
+                                                                    param_spans: [],
                                                                     result: Enum(
                                                                         EnumType {
                                                                             name: "Option",
@@ -1881,6 +1886,7 @@ TypedProgram {
                                                                         },
                                                                     ),
                                                                     effect: Pure,
+                                                                    name_span: 3..12,
                                                                 },
                                                                 kind: Identifier(
                                                                     Identifier {
@@ -1945,10 +1951,14 @@ TypedProgram {
                                                             },
                                                         ),
                                                     ],
+                                                    param_spans: [
+                                                        425..431,
+                                                    ],
                                                     result: Int(
                                                         I64,
                                                     ),
                                                     effect: Pure,
+                                                    name_span: 406..419,
                                                 },
                                                 kind: Identifier(
                                                     Identifier {
@@ -1998,6 +2008,7 @@ TypedProgram {
                                                             node: TypedExpr {
                                                                 ty: Function {
                                                                     params: [],
+                                                                    param_spans: [],
                                                                     result: Enum(
                                                                         EnumType {
                                                                             name: "Result",
@@ -2030,6 +2041,7 @@ TypedProgram {
                                                                         },
                                                                     ),
                                                                     effect: Pure,
+                                                                    name_span: 285..292,
                                                                 },
                                                                 kind: Identifier(
                                                                     Identifier {

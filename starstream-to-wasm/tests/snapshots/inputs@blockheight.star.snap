@@ -204,10 +204,12 @@ TypedProgram {
                             },
                             ty: Function {
                                 params: [],
+                                param_spans: [],
                                 result: Int(
                                     I64,
                                 ),
                                 effect: Runtime,
+                                name_span: 0..0,
                             },
                         },
                     ],
@@ -263,10 +265,12 @@ TypedProgram {
                                                         node: TypedExpr {
                                                             ty: Function {
                                                                 params: [],
+                                                                param_spans: [],
                                                                 result: Int(
                                                                     I64,
                                                                 ),
                                                                 effect: Runtime,
+                                                                name_span: 0..0,
                                                             },
                                                             kind: Identifier(
                                                                 Identifier {
@@ -305,10 +309,12 @@ TypedProgram {
                                                     node: TypedExpr {
                                                         ty: Function {
                                                             params: [],
+                                                            param_spans: [],
                                                             result: Int(
                                                                 I64,
                                                             ),
                                                             effect: Runtime,
+                                                            name_span: 0..0,
                                                         },
                                                         kind: Identifier(
                                                             Identifier {
@@ -359,10 +365,12 @@ TypedProgram {
                                         node: TypedExpr {
                                             ty: Function {
                                                 params: [],
+                                                param_spans: [],
                                                 result: Int(
                                                     I64,
                                                 ),
                                                 effect: Pure,
+                                                name_span: 63..71,
                                             },
                                             kind: Identifier(
                                                 Identifier {

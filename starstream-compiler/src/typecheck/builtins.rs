@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use starstream_types::{EffectKind, Type};
+use starstream_types::{DUMMY_SPAN, EffectKind, Type};
 
 /// Information about a built-in function from the standard library.
 #[derive(Clone, Debug)]
@@ -19,8 +19,10 @@ impl BuiltinFunction {
     pub fn to_function_type(&self) -> Type {
         Type::Function {
             params: self.params.clone(),
+            param_spans: Vec::new(),
             result: Box::new(self.return_type.clone()),
             effect: self.effect,
+            name_span: DUMMY_SPAN,
         }
     }
 }

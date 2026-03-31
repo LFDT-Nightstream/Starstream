@@ -210,8 +210,10 @@ TypedProgram {
                                                         node: TypedExpr {
                                                             ty: Function {
                                                                 params: [],
+                                                                param_spans: [],
                                                                 result: Unit,
                                                                 effect: Pure,
+                                                                name_span: 61..71,
                                                             },
                                                             kind: Identifier(
                                                                 Identifier {

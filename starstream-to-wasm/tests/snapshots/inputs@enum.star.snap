@@ -417,8 +417,12 @@ TypedProgram {
                                                             },
                                                         ),
                                                     ],
+                                                    param_spans: [
+                                                        63..66,
+                                                    ],
                                                     result: Unit,
                                                     effect: Pure,
+                                                    name_span: 46..57,
                                                 },
                                                 kind: Identifier(
                                                     Identifier {
@@ -547,8 +551,12 @@ TypedProgram {
                                                             },
                                                         ),
                                                     ],
+                                                    param_spans: [
+                                                        63..66,
+                                                    ],
                                                     result: Unit,
                                                     effect: Pure,
+                                                    name_span: 46..57,
                                                 },
                                                 kind: Identifier(
                                                     Identifier {

@@ -2361,10 +2361,14 @@ TypedProgram {
                                                             },
                                                         ),
                                                     ],
+                                                    param_spans: [
+                                                        146..149,
+                                                    ],
                                                     result: Int(
                                                         I64,
                                                     ),
                                                     effect: Pure,
+                                                    name_span: 131..140,
                                                 },
                                                 kind: Identifier(
                                                     Identifier {
