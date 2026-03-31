@@ -119,7 +119,6 @@ fn test_runtime_simple_effect_handlers() {
             call resume(0, resp);
         }
         if pc == 2 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let resp = call get_datum(1);
             let resume_slot2 = call get_datum(3);
             let (ret, caller2) = call activation();
@@ -455,7 +454,6 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // pc=2: receive utxo2 response and route it back to utxo1.
         if pc == 2 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
             let resume_slot = call get_datum(7);
@@ -475,7 +473,6 @@ fn test_runtime_effect_handlers_cross_calls() {
 
         // pc=3: receive terminal ack, uninstall handler, and return.
         if pc == 3 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
             let resume_slot = call get_datum(7);
