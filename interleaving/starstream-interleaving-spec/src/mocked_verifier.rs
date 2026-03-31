@@ -874,6 +874,9 @@ pub fn state_transition(
         }
 
         WitLedgerEffect::NewRef { size, ret } => {
+            // Starting a new ref while one is still being built is invalid.
+            // The runtime does not police this so the semantic checker/circuit
+            // remains responsible for rejecting it.
             if state.ref_building.contains_key(&id_curr) {
                 return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
             }

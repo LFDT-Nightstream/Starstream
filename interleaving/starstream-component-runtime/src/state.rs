@@ -78,6 +78,12 @@ impl RefArena {
         }
         true
     }
+
+    pub fn ref_size_words(&self, reff: Ref) -> Option<u32> {
+        self.store
+            .get(&reff)
+            .map(|vals| (vals.len() / 4usize) as u32)
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -1,8 +1,9 @@
 use crate::component::WasmtimeComponentStarstreamExecutor;
+use starstream_interleaving_proof::commit as commit_trace_effect;
 use starstream_interleaving_spec::builder::TransactionBuilder;
 use starstream_interleaving_spec::{
-    CoroutineState, Hash, Ledger, ProcessId, ProvenTransaction, Ref, UtxoId, Value, WasmModule,
-    WitEffectOutput, WitLedgerEffect, ZkTransactionProof,
+    CoroutineState, Hash, Ledger, LedgerEffectsCommitment, ProcessId, ProvenTransaction, Ref,
+    UtxoId, WasmModule, WitEffectOutput, WitLedgerEffect, ZkTransactionProof,
 };
 use std::collections::{BTreeSet, HashMap};
 
@@ -65,36 +66,25 @@ impl TransactionSession {
         &self,
         runtime: &WasmtimeComponentStarstreamExecutor,
     ) -> Result<ProvenTransaction, TransactionSessionError> {
-        let traces: HashMap<ProcessId, Vec<WitLedgerEffect>> = runtime
-            .executor()
-            .traces()
-            .iter()
-            .map(|(pid, trace)| (*pid, normalize_runtime_trace(trace)))
-            .collect();
-        let traces =
-            resolve_resume_outputs(remap_refs_to_spec_numbering(&traces, runtime.effect_log()));
+        let traces = runtime.executor().traces().clone();
         let state = runtime.executor().state();
-        let resume_map = collect_resume_edges(&traces);
         let spawn_map = collect_spawn_edges(&traces);
 
         let mut builder = TransactionBuilder::new();
 
         for input in &self.inputs {
-            let mut trace = traces
+            let trace = traces
                 .get(&input.pid)
                 .cloned()
                 .ok_or(TransactionSessionError::MissingTrace(input.pid))?;
-            if let Some((caller, val)) = resume_map.get(&input.pid).copied() {
-                prepend_if_missing(
-                    &mut trace,
-                    WitLedgerEffect::Activation {
-                        val: WitEffectOutput::Resolved(val),
-                        caller: WitEffectOutput::Resolved(caller),
-                    },
-                );
-            }
             let continuation = derive_input_continuation(&self.ledger, &input.utxo_id, &trace)?;
-            builder = builder.with_input(input.utxo_id.clone(), continuation, trace);
+            let host_calls_root = trace_commitment(&trace);
+            builder = builder.with_input_and_trace_commitment(
+                input.utxo_id.clone(),
+                continuation,
+                trace,
+                host_calls_root,
+            );
         }
 
         let input_pids: BTreeSet<usize> = self.inputs.iter().map(|input| input.pid.0).collect();
@@ -118,24 +108,14 @@ impl TransactionSession {
                     },
                 );
             }
-            if let Some((caller, val)) = resume_map.get(&pid).copied() {
-                prepend_if_missing(
-                    &mut trace,
-                    WitLedgerEffect::Activation {
-                        val: WitEffectOutput::Resolved(val),
-                        caller: WitEffectOutput::Resolved(caller),
-                    },
-                );
-            }
-            builder = builder.with_fresh_output(
+            let host_calls_root = trace_commitment(&trace);
+            builder = builder.with_fresh_output_and_trace_commitment(
                 starstream_interleaving_spec::NewOutput {
-                    state: CoroutineState {
-                        pc: 0,
-                        globals: vec![],
-                    },
+                    state: CoroutineState::Utxo { storage: vec![] },
                     contract_hash: slot.definition.program_hash,
                 },
                 trace,
+                host_calls_root,
             );
         }
 
@@ -145,7 +125,12 @@ impl TransactionSession {
                 .get(pid.0)
                 .ok_or(TransactionSessionError::MissingProcess(*pid))?;
             let trace = traces.get(pid).cloned().unwrap_or_default();
-            builder = builder.with_coord_script(slot.definition.program_hash, trace);
+            let host_calls_root = trace_commitment(&trace);
+            builder = builder.with_coord_script_and_trace_commitment(
+                slot.definition.program_hash,
+                trace,
+                host_calls_root,
+            );
         }
 
         if let Some(entrypoint) = self.coord_pids.first() {
@@ -184,20 +169,6 @@ fn derive_input_continuation(
     Ok(Some(entry.state.clone()))
 }
 
-fn collect_resume_edges(
-    traces: &HashMap<ProcessId, Vec<WitLedgerEffect>>,
-) -> HashMap<ProcessId, (ProcessId, Ref)> {
-    let mut edges = HashMap::new();
-    for (caller, trace) in traces {
-        for effect in trace {
-            if let WitLedgerEffect::Resume { target, val, .. } = effect {
-                edges.insert(*target, (*caller, *val));
-            }
-        }
-    }
-    edges
-}
-
 fn collect_spawn_edges(
     traces: &HashMap<ProcessId, Vec<WitLedgerEffect>>,
 ) -> HashMap<ProcessId, (ProcessId, Ref, Hash<WasmModule>)> {
@@ -218,169 +189,40 @@ fn collect_spawn_edges(
     edges
 }
 
-fn normalize_runtime_trace(trace: &[WitLedgerEffect]) -> Vec<WitLedgerEffect> {
-    let mut out = Vec::with_capacity(trace.len() * 2);
-    for effect in trace {
-        out.push(effect.clone());
-        if let WitLedgerEffect::NewRef { size, .. } = effect {
-            for _ in 0..*size {
-                out.push(WitLedgerEffect::RefPush {
-                    vals: [Value::nil(); starstream_interleaving_spec::REF_PUSH_WIDTH],
-                });
-            }
-        }
-    }
-    out
-}
-
-fn remap_refs_to_spec_numbering(
-    traces: &HashMap<ProcessId, Vec<WitLedgerEffect>>,
-    effect_log: &[(ProcessId, WitLedgerEffect)],
-) -> HashMap<ProcessId, Vec<WitLedgerEffect>> {
-    let mut mapping = HashMap::<Ref, Ref>::new();
-    let mut next_ref = 0u64;
-    for (_, effect) in effect_log {
-        if let WitLedgerEffect::NewRef { ret, .. } = effect {
-            let old = ret.unwrap();
-            mapping.insert(old, Ref(next_ref));
-            next_ref += 1;
-        }
-    }
-
-    traces
-        .iter()
-        .map(|(pid, trace)| {
-            let remapped = trace
-                .iter()
-                .cloned()
-                .map(|effect| remap_effect_refs(effect, &mapping))
-                .collect();
-            (*pid, remapped)
-        })
-        .collect()
-}
-
-fn resolve_resume_outputs(
-    mut traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
-) -> HashMap<ProcessId, Vec<WitLedgerEffect>> {
-    let terminal_values: HashMap<ProcessId, Ref> = traces
-        .iter()
-        .filter_map(|(pid, trace)| {
-            trace.iter().find_map(|effect| match effect {
-                WitLedgerEffect::Yield { val } => Some((*pid, *val)),
-                WitLedgerEffect::Burn { ret } => Some((*pid, *ret)),
-                _ => None,
-            })
-        })
-        .collect();
-
-    for trace in traces.values_mut() {
-        for effect in trace.iter_mut() {
-            if let WitLedgerEffect::Resume { target, ret, .. } = effect
-                && let Some(value) = terminal_values.get(target).copied()
-            {
-                *ret = WitEffectOutput::Resolved(value);
-            }
-        }
-    }
-
-    traces
-}
-
-fn remap_effect_refs(effect: WitLedgerEffect, mapping: &HashMap<Ref, Ref>) -> WitLedgerEffect {
-    match effect {
-        WitLedgerEffect::Resume {
-            target,
-            f_id,
-            val,
-            ret,
-            caller,
-        } => WitLedgerEffect::Resume {
-            target,
-            f_id,
-            val: remap_ref(val, mapping),
-            ret: WitEffectOutput::Resolved(remap_ref(ret.unwrap(), mapping)),
-            caller,
-        },
-        WitLedgerEffect::Yield { val } => WitLedgerEffect::Yield {
-            val: remap_ref(val, mapping),
-        },
-        WitLedgerEffect::ProgramHash {
-            target,
-            program_hash,
-        } => WitLedgerEffect::ProgramHash {
-            target,
-            program_hash,
-        },
-        WitLedgerEffect::NewUtxo {
-            program_hash,
-            val,
-            id,
-        } => WitLedgerEffect::NewUtxo {
-            program_hash,
-            val: remap_ref(val, mapping),
-            id,
-        },
-        WitLedgerEffect::NewCoord {
-            program_hash,
-            val,
-            id,
-        } => WitLedgerEffect::NewCoord {
-            program_hash,
-            val: remap_ref(val, mapping),
-            id,
-        },
-        WitLedgerEffect::CallEffectHandler {
-            interface_id,
-            val,
-            ret,
-        } => WitLedgerEffect::CallEffectHandler {
-            interface_id,
-            val: remap_ref(val, mapping),
-            ret: WitEffectOutput::Resolved(remap_ref(ret.unwrap(), mapping)),
-        },
-        WitLedgerEffect::Burn { ret } => WitLedgerEffect::Burn {
-            ret: remap_ref(ret, mapping),
-        },
-        WitLedgerEffect::Activation { val, caller } => WitLedgerEffect::Activation {
-            val: WitEffectOutput::Resolved(remap_ref(val.unwrap(), mapping)),
-            caller,
-        },
-        WitLedgerEffect::Init { val, caller } => WitLedgerEffect::Init {
-            val: WitEffectOutput::Resolved(remap_ref(val.unwrap(), mapping)),
-            caller,
-        },
-        WitLedgerEffect::NewRef { size, ret } => WitLedgerEffect::NewRef {
-            size,
-            ret: WitEffectOutput::Resolved(remap_ref(ret.unwrap(), mapping)),
-        },
-        WitLedgerEffect::RefGet { reff, offset, ret } => WitLedgerEffect::RefGet {
-            reff: remap_ref(reff, mapping),
-            offset,
-            ret,
-        },
-        WitLedgerEffect::RefWrite { reff, offset, vals } => WitLedgerEffect::RefWrite {
-            reff: remap_ref(reff, mapping),
-            offset,
-            vals,
-        },
-        other => other,
-    }
-}
-
-fn remap_ref(reff: Ref, mapping: &HashMap<Ref, Ref>) -> Ref {
-    mapping.get(&reff).copied().unwrap_or(reff)
-}
-
 fn prepend_if_missing(trace: &mut Vec<WitLedgerEffect>, effect: WitLedgerEffect) {
-    let already_present = match (&effect, trace.first()) {
-        (WitLedgerEffect::Activation { .. }, Some(WitLedgerEffect::Activation { .. })) => true,
-        (WitLedgerEffect::Init { .. }, Some(WitLedgerEffect::Init { .. })) => true,
+    let front = trace.first();
+    let second = trace.get(1);
+    let already_present = match (&effect, front, second) {
+        (WitLedgerEffect::Activation { .. }, Some(WitLedgerEffect::Activation { .. }), _) => true,
+        (WitLedgerEffect::Init { .. }, Some(WitLedgerEffect::Init { .. }), _) => true,
+        (
+            WitLedgerEffect::Activation { .. },
+            Some(WitLedgerEffect::Enter { .. }),
+            Some(WitLedgerEffect::Activation { .. }),
+        ) => true,
+        (
+            WitLedgerEffect::Init { .. },
+            Some(WitLedgerEffect::Enter { .. }),
+            Some(WitLedgerEffect::Init { .. }),
+        ) => true,
         _ => false,
     };
     if !already_present {
-        trace.insert(0, effect);
+        // `Enter` is the only Starstream-visible effect allowed before the
+        // derived callee-entry context (`Activation` / `Init`) for these paths.
+        trace.insert(index_after_optional_enter(trace), effect);
     }
+}
+
+fn trace_commitment(trace: &[WitLedgerEffect]) -> LedgerEffectsCommitment {
+    trace
+        .iter()
+        .cloned()
+        .fold(LedgerEffectsCommitment::iv(), commit_trace_effect)
+}
+
+fn index_after_optional_enter(trace: &[WitLedgerEffect]) -> usize {
+    usize::from(matches!(trace.first(), Some(WitLedgerEffect::Enter { .. })))
 }
 
 #[cfg(test)]
@@ -392,6 +234,75 @@ mod tests {
     use crate::state::ProcessKind;
     use imbl::HashMap as ImHashMap;
     use starstream_interleaving_spec::{CoroutineId, UtxoEntry};
+
+    fn print_wat(name: &str, wasm: &[u8]) {
+        if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+            return;
+        }
+
+        match wasmprinter::print_bytes(wasm) {
+            Ok(wat) => eprintln!("--- WAT: {name} ---\n{wat}"),
+            Err(err) => eprintln!("--- WAT: {name} (failed: {err}) ---"),
+        }
+    }
+
+    fn print_component_wit(name: &str, wasm: &[u8]) {
+        if std::env::var_os("DEBUG_COMPONENTS").is_none() {
+            return;
+        }
+
+        match wit_component::decode(wasm) {
+            Ok(decoded) => {
+                let mut printer = wit_component::WitPrinter::default();
+                match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                    Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                    Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+                }
+            }
+            Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
+        }
+    }
+
+    fn print_runtime_traces(runtime: &WasmtimeComponentStarstreamExecutor) {
+        if std::env::var_os("DEBUG_TRACES").is_none() {
+            return;
+        }
+
+        eprintln!("--- Runtime Effect Log ---");
+        for (i, (pid, effect)) in runtime.effect_log().iter().enumerate() {
+            eprintln!("  [{i}] pid {pid:?}: {effect:?}");
+        }
+    }
+
+    fn print_transaction_traces(tx: &ProvenTransaction) {
+        if std::env::var_os("DEBUG_TRACES").is_none() {
+            return;
+        }
+
+        eprintln!("--- Transaction Spending Proofs ---");
+        for (i, proof) in tx.witness.spending_proofs.iter().enumerate() {
+            eprintln!("spending[{i}]:");
+            for (j, effect) in proof.trace.iter().enumerate() {
+                eprintln!("  [{j}] {effect:?}");
+            }
+        }
+
+        eprintln!("--- Transaction New Output Proofs ---");
+        for (i, proof) in tx.witness.new_output_proofs.iter().enumerate() {
+            eprintln!("new_output[{i}]:");
+            for (j, effect) in proof.trace.iter().enumerate() {
+                eprintln!("  [{j}] {effect:?}");
+            }
+        }
+
+        eprintln!("--- Transaction Coord Proofs ---");
+        for (i, proof) in tx.witness.coordination_scripts.iter().enumerate() {
+            eprintln!("coord[{i}]:");
+            for (j, effect) in proof.trace.iter().enumerate() {
+                eprintln!("  [{j}] {effect:?}");
+            }
+        }
+    }
 
     fn hash(bytes: [u64; 4]) -> Hash<WasmModule> {
         Hash(bytes, std::marker::PhantomData)
@@ -415,10 +326,7 @@ mod tests {
         ledger.utxos.insert(
             utxo_id.clone(),
             UtxoEntry {
-                state: CoroutineState {
-                    pc: 0,
-                    globals: vec![],
-                },
+                state: CoroutineState::Utxo { storage: vec![] },
                 contract_hash: input_hash,
             },
         );
@@ -428,61 +336,6 @@ mod tests {
         ledger.contract_counters.insert(input_hash, 1);
         ledger.contract_counters.insert(hash([9, 10, 11, 12]), 0);
         (ledger, utxo_id)
-    }
-
-    fn yielding_component() -> Vec<u8> {
-        wat::parse_str(
-            r#"
-            (component
-              (import "ledger" (instance $ledger
-                (export "starstream-new-ref" (func $new-ref (param "size-words" u32) (result u64)))
-                (export "starstream-ref-write" (func $ref-write
-                  (param "reff" u64)
-                  (param "offset" u32)
-                  (param "a0" u64)
-                  (param "a1" u64)
-                  (param "a2" u64)
-                  (param "a3" u64)))
-                (export "yield" (func $yield (param "payload" u64)))
-              ))
-
-              (core func $new-ref-lowered (canon lower (func $ledger "starstream-new-ref")))
-              (core func $ref-write-lowered (canon lower (func $ledger "starstream-ref-write")))
-              (core func $yield-lowered (canon lower (func $ledger "yield")))
-
-              (core module $m
-                (import "ledger" "starstream-new-ref" (func $new-ref (param i32) (result i64)))
-                (import "ledger" "starstream-ref-write"
-                  (func $ref-write (param i64 i32 i64 i64 i64 i64)))
-                (import "ledger" "yield" (func $yield (param i64)))
-
-                (func (export "step") (local i64)
-                  i32.const 1
-                  call $new-ref
-                  local.tee 0
-                  i32.const 0
-                  i64.const 42
-                  i64.const 0
-                  i64.const 0
-                  i64.const 0
-                  call $ref-write
-                  local.get 0
-                  call $yield))
-
-              (core instance $i
-                (instantiate $m
-                  (with "ledger" (instance
-                    (export "starstream-new-ref" (func $new-ref-lowered))
-                    (export "starstream-ref-write" (func $ref-write-lowered))
-                    (export "yield" (func $yield-lowered))
-                  ))
-                )
-              )
-
-              (func (export "step") (canon lift (core func $i "step"))))
-            "#,
-        )
-        .unwrap()
     }
 
     fn resuming_component() -> Vec<u8> {
@@ -504,7 +357,7 @@ mod tests {
                 (import "ledger" "starstream-new-ref" (func $new-ref (param i32) (result i64)))
                 (import "ledger" "input-utxo" (func $input-utxo (param i32) (result i32)))
                 (import "ledger" "resume" (func $resume (param i32 i64)))
-                (func (export "step") (local i32) (local i64)
+                (func (export "main") (local i32) (local i64)
                   i32.const 0
                   call $input-utxo
                   local.set 0
@@ -525,205 +378,142 @@ mod tests {
                 )
               )
 
-              (func (export "step") (canon lift (core func $i "step"))))
+              (func (export "main") (canon lift (core func $i "main"))))
             "#,
         )
         .unwrap()
     }
 
-    fn amount_component(amount: u64) -> Vec<u8> {
+    fn spendable_utxo_component(initial_amount: u64) -> Vec<u8> {
         wat::parse_str(&format!(
             r#"
             (component
               (import "ledger" (instance $ledger
-                (export "starstream-new-ref" (func $new-ref (param "size-words" u32) (result u64)))
-                (export "starstream-ref-write" (func $ref-write
-                  (param "reff" u64)
-                  (param "offset" u32)
-                  (param "a0" u64)
-                  (param "a1" u64)
-                  (param "a2" u64)
-                  (param "a3" u64)))
-                (export "yield" (func $yield (param "payload" u64)))
+                (export "burn" (func $burn))
               ))
 
-              (core func $new-ref-lowered (canon lower (func $ledger "starstream-new-ref")))
-              (core func $ref-write-lowered (canon lower (func $ledger "starstream-ref-write")))
-              (core func $yield-lowered (canon lower (func $ledger "yield")))
+              (core func $burn-lowered (canon lower (func $ledger "burn")))
 
               (core module $m
-                (import "ledger" "starstream-new-ref" (func $new-ref (param i32) (result i64)))
-                (import "ledger" "starstream-ref-write"
-                  (func $ref-write (param i64 i32 i64 i64 i64 i64)))
-                (import "ledger" "yield" (func $yield (param i64)))
+                (import "ledger" "burn" (func $burn))
+                (global $amount (mut i64) (i64.const {initial_amount}))
+                (global $owner (mut i64) (i64.const 7))
 
-                (func $emit (local i64)
-                  i32.const 1
-                  call $new-ref
+                (func $main-impl
+                  global.get $amount
+                  i64.eqz
+                  if
+                    call $burn
+                  end)
+
+                (func (export "main")
+                  call $main-impl)
+
+                (func (export "amount") (result i64)
+                  global.get $amount)
+
+                (func (export "spend") (param i64)
+                  global.get $amount
+                  local.get 0
+                  i64.sub
+                  global.set $amount
+                  call $main-impl))
+
+              (core instance $i
+                (instantiate $m
+                  (with "ledger" (instance
+                    (export "burn" (func $burn-lowered))
+                  ))
+                )
+              )
+
+              (func (export "main") (canon lift (core func $i "main")))
+              (func (export "amount") (result u64) (canon lift (core func $i "amount")))
+              (func (export "spend") (param "tokens" u64) (canon lift (core func $i "spend"))))
+            "#,
+            initial_amount = initial_amount,
+        ))
+        .unwrap()
+    }
+
+    fn amount_and_spend_coord_component(
+        import_name: &str,
+        first_spend_amount: u64,
+        second_spend_amount: u64,
+    ) -> Vec<u8> {
+        wat::parse_str(&format!(
+            r#"
+            (component
+              (import "{import_name}" (instance $utxo-api
+                (export "utxo" (type (sub resource)))
+                (export "handle" (func $handle (result (own 0))))
+                (export "[method]utxo.amount" (func $amount (param "self" (borrow 0)) (result u64)))
+                (export "[method]utxo.spend" (func $spend (param "self" (borrow 0)) (param "tokens" u64)))
+              ))
+
+              (core func $handle-lowered (canon lower (func $utxo-api "handle")))
+              (core func $amount-lowered (canon lower (func $utxo-api "[method]utxo.amount")))
+              (core func $spend-lowered (canon lower (func $utxo-api "[method]utxo.spend")))
+
+              (core module $m
+                (import "{import_name}" "handle" (func $handle (result i32)))
+                (import "{import_name}" "[method]utxo.amount" (func $amount (param i32) (result i64)))
+                (import "{import_name}" "[method]utxo.spend" (func $spend (param i32 i64)))
+                (func (export "main") (local i32)
+                  call $handle
                   local.tee 0
-                  i32.const 0
-                  i64.const {amount}
-                  i64.const 0
-                  i64.const 0
-                  i64.const 0
-                  call $ref-write
-                  local.get 0
-                  call $yield)
-
-                (func (export "step")
-                  call $emit)
-
-                (func (export "amount")
-                  call $emit))
-
-              (core instance $i
-                (instantiate $m
-                  (with "ledger" (instance
-                    (export "starstream-new-ref" (func $new-ref-lowered))
-                    (export "starstream-ref-write" (func $ref-write-lowered))
-                    (export "yield" (func $yield-lowered))
-                  ))
-                )
-              )
-
-              (func (export "step") (canon lift (core func $i "step")))
-              (func (export "amount") (canon lift (core func $i "amount"))))
-            "#,
-            amount = amount,
-        ))
-        .unwrap()
-    }
-
-    #[allow(dead_code)]
-    fn amount_query_coord_component(import_name: &str) -> Vec<u8> {
-        wat::parse_str(&format!(
-            r#"
-            (component
-              (import "{import_name}" (instance $utxo-api
-                (export "utxo" (type (sub resource)))
-                (export "handle" (func $handle (result (own 0))))
-                (export "[method]utxo.amount" (func $amount (param "self" (borrow 0)) (result u64)))
-              ))
-              (import "ledger" (instance $ledger
-                (export "starstream-new-ref" (func $new-ref (param "size-words" u32) (result u64)))
-                (export "starstream-ref-write" (func $ref-write
-                  (param "reff" u64)
-                  (param "offset" u32)
-                  (param "a0" u64)
-                  (param "a1" u64)
-                  (param "a2" u64)
-                  (param "a3" u64)))
-                (export "yield" (func $yield (param "payload" u64)))
-              ))
-
-              (core func $handle-lowered (canon lower (func $utxo-api "handle")))
-              (core func $amount-lowered (canon lower (func $utxo-api "[method]utxo.amount")))
-              (core func $new-ref-lowered (canon lower (func $ledger "starstream-new-ref")))
-              (core func $ref-write-lowered (canon lower (func $ledger "starstream-ref-write")))
-              (core func $yield-lowered (canon lower (func $ledger "yield")))
-
-              (core module $m
-                (import "{import_name}" "handle" (func $handle (result i32)))
-                (import "{import_name}" "[method]utxo.amount" (func $amount (param i32) (result i64)))
-                (import "ledger" "starstream-new-ref" (func $new-ref (param i32) (result i64)))
-                (import "ledger" "starstream-ref-write"
-                  (func $ref-write (param i64 i32 i64 i64 i64 i64)))
-                (import "ledger" "yield" (func $yield (param i64)))
-                (func (export "step") (local i32) (local i64) (local i64)
-                  call $handle
-                  local.set 0
-                  local.get 0
-                  call $amount
-                  local.set 1
-                  i32.const 1
-                  call $new-ref
-                  local.set 2
-                  local.get 2
-                  i32.const 0
-                  local.get 1
-                  i64.const 0
-                  i64.const 0
-                  i64.const 0
-                  call $ref-write
-                  local.get 2
-                  call $yield))
-
-              (core instance $i
-                (instantiate $m
-                  (with "{import_name}" (instance
-                    (export "handle" (func $handle-lowered))
-                    (export "[method]utxo.amount" (func $amount-lowered))
-                  ))
-                  (with "ledger" (instance
-                    (export "starstream-new-ref" (func $new-ref-lowered))
-                    (export "starstream-ref-write" (func $ref-write-lowered))
-                    (export "yield" (func $yield-lowered))
-                  ))
-                )
-              )
-
-              (func (export "step") (canon lift (core func $i "step"))))
-            "#,
-            import_name = import_name,
-        ))
-        .unwrap()
-    }
-
-    fn amount_query_returning_coord_component(import_name: &str) -> Vec<u8> {
-        wat::parse_str(&format!(
-            r#"
-            (component
-              (import "{import_name}" (instance $utxo-api
-                (export "utxo" (type (sub resource)))
-                (export "handle" (func $handle (result (own 0))))
-                (export "[method]utxo.amount" (func $amount (param "self" (borrow 0)) (result u64)))
-              ))
-              (import "ledger" (instance $ledger
-                (export "return" (func $return))
-              ))
-
-              (core func $handle-lowered (canon lower (func $utxo-api "handle")))
-              (core func $amount-lowered (canon lower (func $utxo-api "[method]utxo.amount")))
-              (core func $return-lowered (canon lower (func $ledger "return")))
-
-              (core module $m
-                (import "{import_name}" "handle" (func $handle (result i32)))
-                (import "{import_name}" "[method]utxo.amount" (func $amount (param i32) (result i64)))
-                (import "ledger" "return" (func $return))
-                (func (export "step")
-                  call $handle
                   call $amount
                   drop
-                  call $return))
+                  local.get 0
+                  i64.const {first_spend_amount}
+                  call $spend
+                  local.get 0
+                  call $amount
+                  drop
+                  local.get 0
+                  i64.const {second_spend_amount}
+                  call $spend)
+              )
 
               (core instance $i
                 (instantiate $m
                   (with "{import_name}" (instance
                     (export "handle" (func $handle-lowered))
                     (export "[method]utxo.amount" (func $amount-lowered))
-                  ))
-                  (with "ledger" (instance
-                    (export "return" (func $return-lowered))
+                    (export "[method]utxo.spend" (func $spend-lowered))
                   ))
                 )
               )
 
-              (func (export "step") (canon lift (core func $i "step"))))
+              (func (export "main") (canon lift (core func $i "main"))))
             "#,
             import_name = import_name,
+            first_spend_amount = first_spend_amount,
+            second_spend_amount = second_spend_amount,
         ))
         .unwrap()
     }
 
     #[test]
-    fn session_can_build_and_apply_transaction_from_method_call_execution() {
+    fn test_token_like_utxo_with_coord() {
+        const UTXO_RESOURCE: u32 = 1;
+        const INITIAL_AMOUNT: u64 = 55;
+        const FIRST_SPEND: u64 = 13;
+        const FINAL_SPEND: u64 = INITIAL_AMOUNT - FIRST_SPEND;
+        const MIN_EXPECTED_UTXO_ENTERS: usize = 3;
+
         let mut runtime = WasmtimeComponentStarstreamExecutor::new().unwrap();
         let input_hash = hash([5, 6, 7, 8]);
         let coord_hash = hash([21, 22, 23, 24]);
         let (ledger, input_utxo_id) = genesis_ledger(input_hash);
 
-        let utxo_program = amount_component(55);
-        let coord_program = amount_query_returning_coord_component("other-utxo-api");
+        let utxo_program = spendable_utxo_component(INITIAL_AMOUNT);
+        let coord_program = amount_and_spend_coord_component("utxo-api", FIRST_SPEND, FINAL_SPEND);
+
+        print_wat("component-runtime/utxo", &utxo_program);
+        print_component_wit("component-runtime/utxo", &utxo_program);
+        print_wat("component-runtime/coord", &coord_program);
+        print_component_wit("component-runtime/coord", &coord_program);
 
         let (utxo_pid, utxo_component) = runtime
             .compile_component(&crate::ProgramDefinition {
@@ -732,6 +522,7 @@ mod tests {
                 module_bytes: utxo_program,
             })
             .unwrap();
+
         let _utxo_instance = runtime
             .instantiate_process(utxo_pid, &utxo_component)
             .unwrap();
@@ -746,18 +537,36 @@ mod tests {
         let coord_instance = runtime.instantiate_component(&coord_component).unwrap();
 
         let mut session = TransactionSession::new(ledger.clone());
-        session.bind_input(&mut runtime, 7, utxo_pid, input_utxo_id.clone());
-        runtime.bind_import_resource("other-utxo-api", 7);
+        session.bind_input(&mut runtime, UTXO_RESOURCE, utxo_pid, input_utxo_id.clone());
+        runtime.bind_import_resource("utxo-api", UTXO_RESOURCE);
         session.register_coord(coord_pid);
 
-        runtime.run_step(coord_pid, &coord_instance).unwrap();
+        runtime.run_main(coord_pid, &coord_instance).unwrap();
+        print_runtime_traces(&runtime);
 
-        let tx = session.build_transaction(&runtime).unwrap();
+        let mut tx = session.build_transaction(&runtime).unwrap();
+        print_transaction_traces(&tx);
         assert_eq!(tx.body.inputs, vec![input_utxo_id.clone()]);
         assert_eq!(tx.body.new_outputs.len(), 0);
         assert_eq!(tx.body.coordination_scripts_keys, vec![coord_hash]);
+        let spending_trace = &tx.witness.spending_proofs[0].trace;
+        assert!(
+            spending_trace
+                .iter()
+                .filter(|effect| matches!(effect, WitLedgerEffect::Enter { .. }))
+                .count()
+                >= MIN_EXPECTED_UTXO_ENTERS
+        );
 
-        let applied = session.apply_transaction(&runtime).unwrap();
-        assert!(applied.utxos.contains_key(&input_utxo_id));
+        if std::env::var_os("RUN_ZK_PROOF").is_some() {
+            let (inst, wit) = ledger
+                .interleaving_artifacts(&tx.body, &tx.witness)
+                .unwrap();
+            tx.witness.interleaving_proof =
+                starstream_interleaving_proof::prove(inst, wit).unwrap();
+        }
+
+        let applied = ledger.apply_transaction(&tx).unwrap();
+        assert!(!applied.utxos.contains_key(&input_utxo_id));
     }
 }

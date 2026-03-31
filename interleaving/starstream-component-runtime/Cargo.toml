@@ -9,6 +9,7 @@ license.workspace = true
 
 [dependencies]
 anyhow = "1.0.100"
+starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 thiserror = "2.0.17"
 wasm_runtime_layer = "0.6.0"
@@ -18,3 +19,5 @@ imbl = "6.1.0"
 
 [dev-dependencies]
 wat = "1.240.0"
+wasmprinter = { workspace = true }
+wit-component = { workspace = true }

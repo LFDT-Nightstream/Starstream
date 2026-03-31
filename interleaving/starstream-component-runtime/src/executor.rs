@@ -1,7 +1,7 @@
-use crate::abi::{FUNCTION_ID_STEP, HostImportCall, TemporaryAbi};
+use crate::abi::{FUNCTION_ID_MAIN, HostImportCall, TemporaryAbi};
 use crate::state::{ProcessDefinition, ProcessKind, ProgramHash, StarstreamState};
 use starstream_interleaving_spec::{
-    InterfaceId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
+    FunctionId, InterfaceId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
 };
 use std::collections::HashMap;
 
@@ -15,6 +15,11 @@ pub enum ExecutorError {
     UnknownRef,
     #[error("unsupported feature: {0}")]
     Unsupported(&'static str),
+    #[error("missing pending resume edge to {target:?} from {caller:?}")]
+    MissingPendingResume {
+        caller: ProcessId,
+        target: ProcessId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +41,7 @@ pub struct StarstreamExecutor<Resource> {
     abi: TemporaryAbi,
     state: StarstreamState<Resource>,
     handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
+    ref_building: HashMap<ProcessId, (Ref, u32)>,
     traces: HashMap<ProcessId, Vec<WitLedgerEffect>>,
     effect_log: Vec<(ProcessId, WitLedgerEffect)>,
 }
@@ -49,6 +55,7 @@ where
             abi: TemporaryAbi,
             state: StarstreamState::default(),
             handler_stack: HashMap::new(),
+            ref_building: HashMap::new(),
             traces: HashMap::new(),
             effect_log: Vec::new(),
         }
@@ -92,146 +99,237 @@ where
         caller: ProcessId,
         call: HostImportCall<Resource>,
     ) -> Result<HostImportOutcome, ExecutorError> {
-        let (effect, outcome) = match call {
-            HostImportCall::NewRef { size_words } => {
-                let reff = self.state.refs.alloc_words(size_words);
-                (
-                    WitLedgerEffect::NewRef {
-                        size: size_words as usize,
-                        ret: WitEffectOutput::Resolved(reff),
-                    },
-                    HostImportOutcome::Ref(reff),
-                )
-            }
-            HostImportCall::RefGet { reff, offset_words } => {
-                let lanes = self
-                    .state
-                    .refs
-                    .read_lanes(reff, offset_words)
-                    .ok_or(ExecutorError::UnknownRef)?;
-                (
-                    WitLedgerEffect::RefGet {
-                        reff,
-                        offset: offset_words as usize,
-                        ret: WitEffectOutput::Resolved(lanes),
-                    },
-                    HostImportOutcome::Lanes(lanes),
-                )
-            }
-            HostImportCall::RefWrite {
-                reff,
-                offset_words,
-                lanes,
-            } => {
-                if !self.state.refs.write_lanes(reff, offset_words, lanes) {
-                    return Err(ExecutorError::UnknownRef);
+        let (effect, outcome) =
+            match call {
+                HostImportCall::NewRef { size_words } => {
+                    let reff = self.state.refs.alloc_words(size_words);
+                    if size_words > 0 {
+                        self.ref_building.insert(caller, (reff, 0));
+                    } else {
+                        self.ref_building.remove(&caller);
+                    }
+                    (
+                        WitLedgerEffect::NewRef {
+                            size: size_words as usize,
+                            ret: WitEffectOutput::Resolved(reff),
+                        },
+                        HostImportOutcome::Ref(reff),
+                    )
                 }
-                (
-                    WitLedgerEffect::RefWrite {
-                        reff,
-                        offset: offset_words as usize,
-                        vals: lanes,
-                    },
+                HostImportCall::RefPush { lanes } => {
+                    let (reff, offset_words) = self.ref_building.get(&caller).copied().ok_or(
+                        ExecutorError::Unsupported("ref-push without active new-ref"),
+                    )?;
+                    if !self.state.refs.write_lanes(reff, offset_words, lanes) {
+                        return Err(ExecutorError::UnknownRef);
+                    }
+                    let next_offset = offset_words + 1;
+                    let size_words = self
+                        .state
+                        .refs
+                        .ref_size_words(reff)
+                        .ok_or(ExecutorError::UnknownRef)?;
+                    if next_offset >= size_words {
+                        self.ref_building.remove(&caller);
+                    } else {
+                        self.ref_building.insert(caller, (reff, next_offset));
+                    }
+                    (
+                        WitLedgerEffect::RefPush { vals: lanes },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::RefGet { reff, offset_words } => {
+                    let lanes = self
+                        .state
+                        .refs
+                        .read_lanes(reff, offset_words)
+                        .ok_or(ExecutorError::UnknownRef)?;
+                    (
+                        WitLedgerEffect::RefGet {
+                            reff,
+                            offset: offset_words as usize,
+                            ret: WitEffectOutput::Resolved(lanes),
+                        },
+                        HostImportOutcome::Lanes(lanes),
+                    )
+                }
+                HostImportCall::RefWrite {
+                    reff,
+                    offset_words,
+                    lanes,
+                } => {
+                    if !self.state.refs.write_lanes(reff, offset_words, lanes) {
+                        return Err(ExecutorError::UnknownRef);
+                    }
+                    (
+                        WitLedgerEffect::RefWrite {
+                            reff,
+                            offset: offset_words as usize,
+                            vals: lanes,
+                        },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::Resume {
+                    target,
+                    payload,
+                    function_id,
+                } => {
+                    let target = self
+                        .state
+                        .resolve_resource(target)
+                        .ok_or(ExecutorError::UnknownProcessResource)?;
+                    (
+                        WitLedgerEffect::Resume {
+                            target,
+                            f_id: starstream_interleaving_spec::FunctionId(function_id as usize),
+                            val: payload,
+                            ret: WitEffectOutput::Resolved(Ref(0)),
+                            caller: WitEffectOutput::Resolved(None),
+                        },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::Yield { payload } => (
+                    WitLedgerEffect::Yield { val: payload },
                     HostImportOutcome::None,
-                )
-            }
-            HostImportCall::Resume {
-                target,
-                payload,
-                function_id,
-            } => {
-                let target = self
-                    .state
-                    .resolve_resource(target)
-                    .ok_or(ExecutorError::UnknownProcessResource)?;
-                (
-                    WitLedgerEffect::Resume {
-                        target,
-                        f_id: starstream_interleaving_spec::FunctionId(function_id as usize),
+                ),
+                HostImportCall::Burn { payload } => (
+                    WitLedgerEffect::Burn { ret: payload },
+                    HostImportOutcome::None,
+                ),
+                HostImportCall::Return => (WitLedgerEffect::Return {}, HostImportOutcome::None),
+                HostImportCall::NewUtxo { program_hash, init } => {
+                    let target = self.state.push_process(
+                        ProcessDefinition {
+                            kind: ProcessKind::Utxo,
+                            program_hash,
+                        },
+                        None,
+                    );
+                    (
+                        WitLedgerEffect::NewUtxo {
+                            program_hash,
+                            val: init,
+                            id: WitEffectOutput::Resolved(target),
+                        },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::NewCoord { program_hash, init } => {
+                    let target = self.state.push_process(
+                        ProcessDefinition {
+                            kind: ProcessKind::Coord,
+                            program_hash,
+                        },
+                        None,
+                    );
+                    (
+                        WitLedgerEffect::NewCoord {
+                            program_hash,
+                            val: init,
+                            id: WitEffectOutput::Resolved(target),
+                        },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::InstallHandler { interface_id } => {
+                    self.handler_stack
+                        .entry(interface_id)
+                        .or_default()
+                        .push(caller);
+                    (
+                        WitLedgerEffect::InstallHandler { interface_id },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::UninstallHandler { interface_id } => {
+                    let stack = self.handler_stack.entry(interface_id).or_default();
+                    let _ = stack.pop();
+                    (
+                        WitLedgerEffect::UninstallHandler { interface_id },
+                        HostImportOutcome::None,
+                    )
+                }
+                HostImportCall::CallEffectHandler {
+                    interface_id,
+                    payload,
+                    function_id,
+                } => (
+                    WitLedgerEffect::CallEffectHandler {
+                        interface_id,
+                        f_id: FunctionId(function_id as usize),
                         val: payload,
                         ret: WitEffectOutput::Resolved(Ref(0)),
-                        caller: WitEffectOutput::Resolved(None),
                     },
                     HostImportOutcome::None,
-                )
-            }
-            HostImportCall::Yield { payload } => (
-                WitLedgerEffect::Yield { val: payload },
-                HostImportOutcome::None,
-            ),
-            HostImportCall::Return => (WitLedgerEffect::Return {}, HostImportOutcome::None),
-            HostImportCall::NewUtxo { program_hash, init } => {
-                let target = self.state.push_process(
-                    ProcessDefinition {
-                        kind: ProcessKind::Utxo,
-                        program_hash,
-                    },
-                    None,
-                );
-                (
-                    WitLedgerEffect::NewUtxo {
-                        program_hash,
-                        val: init,
-                        id: WitEffectOutput::Resolved(target),
-                    },
-                    HostImportOutcome::None,
-                )
-            }
-            HostImportCall::NewCoord { program_hash, init } => {
-                let target = self.state.push_process(
-                    ProcessDefinition {
-                        kind: ProcessKind::Coord,
-                        program_hash,
-                    },
-                    None,
-                );
-                (
-                    WitLedgerEffect::NewCoord {
-                        program_hash,
-                        val: init,
-                        id: WitEffectOutput::Resolved(target),
-                    },
-                    HostImportOutcome::None,
-                )
-            }
-            HostImportCall::InstallHandler { interface_id } => {
-                self.handler_stack
-                    .entry(interface_id)
-                    .or_default()
-                    .push(caller);
-                (
-                    WitLedgerEffect::InstallHandler { interface_id },
-                    HostImportOutcome::None,
-                )
-            }
-            HostImportCall::UninstallHandler { interface_id } => {
-                let stack = self.handler_stack.entry(interface_id).or_default();
-                let _ = stack.pop();
-                (
-                    WitLedgerEffect::UninstallHandler { interface_id },
-                    HostImportOutcome::None,
-                )
-            }
-            HostImportCall::CallEffectHandler {
-                interface_id,
-                payload,
-                function_id: _,
-            } => (
-                // TODO(interleaving-proof): preserve `function_id` in the witness/effect schema.
-                WitLedgerEffect::CallEffectHandler {
-                    interface_id,
-                    val: payload,
-                    ret: WitEffectOutput::Resolved(Ref(0)),
-                },
-                HostImportOutcome::None,
-            ),
-        };
+                ),
+            };
         self.traces.entry(caller).or_default().push(effect.clone());
         self.effect_log.push((caller, effect));
         Ok(outcome)
     }
 
+    pub fn append_effect(&mut self, pid: ProcessId, effect: WitLedgerEffect) {
+        self.traces.entry(pid).or_default().push(effect.clone());
+        self.effect_log.push((pid, effect));
+    }
+
+    pub fn resolve_resume_output(
+        &mut self,
+        caller: ProcessId,
+        target: ProcessId,
+        ret: Ref,
+    ) -> Result<(), ExecutorError> {
+        let trace = self
+            .traces
+            .get_mut(&caller)
+            .ok_or(ExecutorError::MissingPendingResume { caller, target })?;
+        let Some(effect) = find_pending_resume_mut(trace.iter_mut().rev(), target) else {
+            return Err(ExecutorError::MissingPendingResume { caller, target });
+        };
+        set_resume_output(effect, ret);
+
+        if let Some((_, effect)) = self
+            .effect_log
+            .iter_mut()
+            .rev()
+            .find(|(pid, effect)| *pid == caller && is_pending_resume(effect, target))
+        {
+            set_resume_output(effect, ret);
+        }
+
+        Ok(())
+    }
+
     pub fn default_entry_function() -> u32 {
-        FUNCTION_ID_STEP
+        FUNCTION_ID_MAIN
+    }
+}
+
+fn is_pending_resume(effect: &WitLedgerEffect, target: ProcessId) -> bool {
+    matches!(
+        effect,
+        WitLedgerEffect::Resume {
+            target: resume_target,
+            ..
+        } if *resume_target == target
+    )
+}
+
+fn find_pending_resume_mut<'a, I>(
+    mut effects: I,
+    target: ProcessId,
+) -> Option<&'a mut WitLedgerEffect>
+where
+    I: Iterator<Item = &'a mut WitLedgerEffect>,
+{
+    effects.find(|effect| is_pending_resume(effect, target))
+}
+
+fn set_resume_output(effect: &mut WitLedgerEffect, ret: Ref) {
+    if let WitLedgerEffect::Resume { ret: out, .. } = effect {
+        *out = WitEffectOutput::Resolved(ret);
     }
 }
