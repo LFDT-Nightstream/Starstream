@@ -342,7 +342,7 @@ fn build_linker(
     {
         let mut ledger = linker.instance("ledger")?;
 
-        ledger.func_new("burn", |mut ctx, _params, _results| {
+        ledger.func_new("burn", |mut ctx, _ty, _params, _results| {
             let caller = ctx.data().current_process;
             let payload =
                 allocate_payload_ref(ctx.data_mut(), caller, ComponentValueIr::Tuple(vec![]))?;
@@ -390,7 +390,7 @@ fn build_linker(
                 let func_name = func_name.clone();
                 let method_name = method_name.to_owned();
                 let func_schema = func_schema.clone();
-                instance.func_new(&func_name.clone(), move |mut ctx, params, results| {
+                instance.func_new(&func_name.clone(), move |mut ctx, _ty, params, results| {
                     call_resource_method(
                         &mut ctx,
                         &import_name,

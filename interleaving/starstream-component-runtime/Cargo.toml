@@ -13,8 +13,8 @@ starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 thiserror = "2.0.17"
 wasm_runtime_layer = "0.6.0"
-wasmtime_runtime_layer = "38.0.0"
-wasmtime = { version = "38.0.4", default-features = false, features = ["std", "runtime", "cranelift", "gc", "gc-null", "component-model"] }
+wasmtime_runtime_layer = "39.0.0"
+wasmtime = { version = "39.0", default-features = false, features = ["std", "runtime", "cranelift", "gc", "gc-null", "component-model"] }
 imbl = "6.1.0"
 
 [dev-dependencies]
