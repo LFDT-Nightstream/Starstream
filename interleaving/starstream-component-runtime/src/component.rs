@@ -5,7 +5,9 @@ use starstream_interleaving_spec::{
 };
 use std::collections::{HashMap, HashSet};
 use wasmtime::component::types::ComponentItem;
-use wasmtime::component::{Component, Linker, Resource, ResourceType, Val as WasmtimeVal};
+use wasmtime::component::{
+    Component, Linker, Resource, ResourceAny, ResourceType, Val as WasmtimeVal,
+};
 use wasmtime::{Config, Engine, Store};
 
 pub type ScalarComponent = Component;
@@ -168,11 +170,34 @@ impl WasmtimeComponentStarstreamExecutor {
         self.run_export(pid, instance, "main")
     }
 
+    pub fn run_main_with_resource(
+        &mut self,
+        pid: ProcessId,
+        instance: &wasmtime::component::Instance,
+        resource: u32,
+    ) -> Result<(), ScalarComponentError> {
+        let arg = ResourceAny::try_from_resource(
+            Resource::<UtxoResource>::new_own(resource),
+            &mut self.store,
+        )?;
+        self.run_export_with_args(pid, instance, "main", &[WasmtimeVal::Resource(arg)])
+    }
+
     pub fn run_export(
         &mut self,
         pid: ProcessId,
         instance: &wasmtime::component::Instance,
         export_name: &'static str,
+    ) -> Result<(), ScalarComponentError> {
+        self.run_export_with_args(pid, instance, export_name, &[])
+    }
+
+    fn run_export_with_args(
+        &mut self,
+        pid: ProcessId,
+        instance: &wasmtime::component::Instance,
+        export_name: &'static str,
+        params: &[WasmtimeVal],
     ) -> Result<(), ScalarComponentError> {
         self.store.data_mut().current_process = pid;
         self.store.data_mut().executed_steps.push(pid);
@@ -187,7 +212,7 @@ impl WasmtimeComponentStarstreamExecutor {
             .get_func(&mut self.store, export_name)
             .ok_or(ScalarComponentError::MissingExport(export_name))?;
         let mut results = [];
-        main.call(&mut self.store, &[], &mut results)?;
+        main.call(&mut self.store, params, &mut results)?;
         main.post_return(&mut self.store)?;
         let needs_implicit_return = self
             .store

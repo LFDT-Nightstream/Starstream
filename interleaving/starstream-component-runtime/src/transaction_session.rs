@@ -251,15 +251,22 @@ mod tests {
             return;
         }
 
-        match wit_component::decode(wasm) {
-            Ok(decoded) => {
-                let mut printer = wit_component::WitPrinter::default();
-                match printer.print(decoded.resolve(), decoded.package(), &[]) {
-                    Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
-                    Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+        let decoded = std::panic::catch_unwind(|| wit_component::decode(wasm));
+        match decoded {
+            Ok(Ok(decoded)) => {
+                let printed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mut printer = wit_component::WitPrinter::default();
+                    match printer.print(decoded.resolve(), decoded.package(), &[]) {
+                        Ok(()) => eprintln!("--- WIT: {name} ---\n{}", printer.output),
+                        Err(err) => eprintln!("--- WIT: {name} (print failed: {err}) ---"),
+                    }
+                }));
+                if printed.is_err() {
+                    eprintln!("--- WIT: {name} (print panicked) ---");
                 }
             }
-            Err(err) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
+            Ok(Err(err)) => eprintln!("--- WIT: {name} (decode failed: {err}) ---"),
+            Err(_) => eprintln!("--- WIT: {name} (decode panicked) ---"),
         }
     }
 
@@ -455,31 +462,29 @@ mod tests {
             (component
               (import "{import_name}" (instance $utxo-api
                 (export "utxo" (type (sub resource)))
-                (export "handle" (func $handle (result (own 0))))
                 (export "[method]utxo.amount" (func $amount (param "self" (borrow 0)) (result u64)))
                 (export "[method]utxo.spend" (func $spend (param "self" (borrow 0)) (param "tokens" u64)))
               ))
 
-              (core func $handle-lowered (canon lower (func $utxo-api "handle")))
+              (alias export $utxo-api "utxo" (type $utxo))
               (core func $amount-lowered (canon lower (func $utxo-api "[method]utxo.amount")))
               (core func $spend-lowered (canon lower (func $utxo-api "[method]utxo.spend")))
 
               (core module $m
-                (import "{import_name}" "handle" (func $handle (result i32)))
                 (import "{import_name}" "[method]utxo.amount" (func $amount (param i32) (result i64)))
                 (import "{import_name}" "[method]utxo.spend" (func $spend (param i32 i64)))
-                (func (export "main") (local i32)
-                  call $handle
-                  local.tee 0
+                (func (export "main") (param i32) (local i32)
+                  local.get 0
+                  local.tee 1
                   call $amount
                   drop
-                  local.get 0
+                  local.get 1
                   i64.const {first_spend_amount}
                   call $spend
-                  local.get 0
+                  local.get 1
                   call $amount
                   drop
-                  local.get 0
+                  local.get 1
                   i64.const {second_spend_amount}
                   call $spend)
               )
@@ -487,14 +492,13 @@ mod tests {
               (core instance $i
                 (instantiate $m
                   (with "{import_name}" (instance
-                    (export "handle" (func $handle-lowered))
                     (export "[method]utxo.amount" (func $amount-lowered))
                     (export "[method]utxo.spend" (func $spend-lowered))
                   ))
                 )
               )
 
-              (func (export "main") (canon lift (core func $i "main"))))
+              (func (export "main") (param "target" (own $utxo)) (canon lift (core func $i "main"))))
             "#,
             import_name = import_name,
             first_spend_amount = first_spend_amount,
@@ -547,10 +551,11 @@ mod tests {
 
         let mut session = TransactionSession::new(ledger.clone());
         session.bind_input(&mut runtime, UTXO_RESOURCE, utxo_pid, input_utxo_id.clone());
-        runtime.bind_import_resource("utxo-api", UTXO_RESOURCE);
         session.register_coord(coord_pid);
 
-        runtime.run_main(coord_pid, &coord_instance).unwrap();
+        runtime
+            .run_main_with_resource(coord_pid, &coord_instance, UTXO_RESOURCE)
+            .unwrap();
         print_runtime_traces(&runtime);
 
         let mut tx = session.build_transaction(&runtime).unwrap();
