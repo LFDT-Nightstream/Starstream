@@ -385,17 +385,15 @@ fn build_linker(
                 continue;
             }
 
-            if let Some((_, method_name)) = parse_resource_method_name(func_name) {
+            if parse_resource_method_name(func_name).is_some() {
                 let import_name = import_name.clone();
                 let func_name = func_name.clone();
-                let method_name = method_name.to_owned();
                 let func_schema = func_schema.clone();
                 instance.func_new(&func_name.clone(), move |mut ctx, _ty, params, results| {
                     call_resource_method(
                         &mut ctx,
                         &import_name,
                         &func_name,
-                        &method_name,
                         &func_schema,
                         params,
                         results,
@@ -412,12 +410,17 @@ fn call_resource_method(
     ctx: &mut wasmtime::StoreContextMut<'_, ComponentHostState>,
     import_name: &str,
     func_name: &str,
-    method_name: &str,
     func_schema: &FunctionSchema,
     params: &[WasmtimeVal],
     results: &mut [WasmtimeVal],
 ) -> anyhow::Result<()> {
-    let target = expect_utxo_resource(ctx, params, 0, func_name)?;
+    let target = match params.first() {
+        Some(WasmtimeVal::Resource(resource)) => {
+            Resource::<UtxoResource>::try_from_resource_any(*resource, &mut *ctx)?.rep()
+        }
+        _ => anyhow::bail!("invalid resource arg 0 for {func_name}"),
+    };
+
     let caller = ctx.data().current_process;
     let target_pid = ctx
         .data()
@@ -477,6 +480,8 @@ fn call_resource_method(
         .filter_map(|(value, schema)| schema.as_ref().map(|schema| schema.encode(value)))
         .collect::<anyhow::Result<Vec<_>>>()?;
 
+    let (_, method_name) = parse_resource_method_name(func_name)
+        .ok_or_else(|| anyhow::anyhow!("invalid resource method name `{func_name}`"))?;
     let func = instance
         .get_func(&mut *ctx, method_name)
         .ok_or_else(|| anyhow::anyhow!("missing target export `{method_name}`"))?;
@@ -536,20 +541,6 @@ fn call_resource_method(
         *dst = schema.encode(&value)?;
     }
     Ok(())
-}
-
-fn expect_utxo_resource(
-    ctx: &mut wasmtime::StoreContextMut<'_, ComponentHostState>,
-    params: &[WasmtimeVal],
-    idx: usize,
-    func: &str,
-) -> anyhow::Result<u32> {
-    let resource = match params.get(idx) {
-        Some(WasmtimeVal::Resource(resource)) => resource,
-        _ => anyhow::bail!("invalid resource arg {idx} for {func}"),
-    };
-    let resource = Resource::<UtxoResource>::try_from_resource_any(*resource, &mut *ctx)?;
-    Ok(resource.rep())
 }
 
 fn decode_value_arg(

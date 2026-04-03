@@ -342,6 +342,11 @@ mod tests {
         wat::parse_str(&format!(
             r#"
             (component
+              (import "utxo-api" (instance $shared-utxo-api
+                (export "utxo" (type (sub resource)))
+              ))
+              (alias export $shared-utxo-api "utxo" (type $shared-utxo))
+
               (import "ledger" (instance $ledger
                 (export "burn" (func $burn))
               ))
@@ -352,6 +357,7 @@ mod tests {
                 (import "ledger" "burn" (func $burn))
                 (global $amount (mut i64) (i64.const {initial_amount}))
                 (global $owner (mut i64) (i64.const 7))
+                (func $utxo-dtor (param i32))
 
                 (func $main-impl
                   global.get $amount
@@ -371,6 +377,20 @@ mod tests {
                   local.get 0
                   i64.sub
                   global.set $amount
+                  call $main-impl)
+
+                (func (export "utxo-api#[method]utxo.amount") (param i32) (result i64)
+                  local.get 0
+                  drop
+                  global.get $amount)
+
+                (func (export "utxo-api#[method]utxo.spend") (param i32 i64)
+                  local.get 0
+                  drop
+                  global.get $amount
+                  local.get 1
+                  i64.sub
+                  global.set $amount
                   call $main-impl))
 
               (core instance $i
@@ -381,9 +401,44 @@ mod tests {
                 )
               )
 
+              (type $utxo-amount-type (func (param "self" (borrow $shared-utxo)) (result u64)))
+              (alias core export $i "utxo-api#[method]utxo.amount" (core func $utxo-amount-core))
+              (func $utxo-amount-lifted
+                (type $utxo-amount-type)
+                (canon lift (core func $utxo-amount-core)))
+
+              (type $utxo-spend-type (func (param "self" (borrow $shared-utxo)) (param "tokens" u64)))
+              (alias core export $i "utxo-api#[method]utxo.spend" (core func $utxo-spend-core))
+              (func $utxo-spend-lifted
+                (type $utxo-spend-type)
+                (canon lift (core func $utxo-spend-core)))
+
+              (component $utxo-api
+                (import "import-type-utxo" (type $import-utxo (sub resource)))
+                (import "import-method-utxo-amount"
+                  (func $import-utxo-amount (param "self" (borrow $import-utxo)) (result u64)))
+                (import "import-method-utxo-spend"
+                  (func $import-utxo-spend (param "self" (borrow $import-utxo)) (param "tokens" u64)))
+                (export $utxo "utxo" (type $import-utxo))
+                (export "[method]utxo.amount"
+                  (func $import-utxo-amount)
+                  (func (param "self" (borrow $utxo)) (result u64)))
+                (export "[method]utxo.spend"
+                  (func $import-utxo-spend)
+                  (func (param "self" (borrow $utxo)) (param "tokens" u64))))
+
+              (instance $utxo-api-instance
+                (instantiate $utxo-api
+                  (with "import-type-utxo" (type $shared-utxo))
+                  (with "import-method-utxo-amount" (func $utxo-amount-lifted))
+                  (with "import-method-utxo-spend" (func $utxo-spend-lifted))
+                )
+              )
+
               (func (export "main") (canon lift (core func $i "main")))
               (func (export "amount") (result u64) (canon lift (core func $i "amount")))
-              (func (export "spend") (param "tokens" u64) (canon lift (core func $i "spend"))))
+              (func (export "spend") (param "tokens" u64) (canon lift (core func $i "spend")))
+              (export "utxo-api" (instance $utxo-api-instance)))
             "#,
             initial_amount = initial_amount,
         ))
