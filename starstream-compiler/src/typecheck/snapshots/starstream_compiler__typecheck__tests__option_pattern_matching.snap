@@ -3,11 +3,11 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x = Option::Some(42);\n    let y = match x {\n        Option::Some(v) => {\n            v\n        },\n        Option::None => {\n            0\n        },\n    };\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let x = Option::Some(42); ⇒ Option<i64>
-    T-EnumCtor: {} ⊢ Option::Some(42) ⇒ Option<i64>
-      T-Int: {} ⊢ 42 ⇒ i64
+  T-Let: {test: fn() -> ()} ⊢ let x = Option::Some(42); ⇒ Option<i64>
+    T-EnumCtor: {test: fn() -> ()} ⊢ Option::Some(42) ⇒ Option<i64>
+      T-Int: {test: fn() -> ()} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t4}
-  T-Let: {x: Option<i64>} ⊢ let y = match x {
+  T-Let: {test: fn() -> (), x: Option<i64>} ⊢ let y = match x {
     Option::Some(v) => {
         v
     },
@@ -15,7 +15,7 @@ T-Fn: test => ()
         0
     },
 }; ⇒ i64
-    T-Match: {x: Option<i64>} ⊢ match x {
+    T-Match: {test: fn() -> (), x: Option<i64>} ⊢ match x {
     Option::Some(v) => {
         v
     },
@@ -23,13 +23,13 @@ T-Fn: test => ()
         0
     },
 } ⇒ i64
-      T-Var: {x: Option<i64>} ⊢ x ⇒ Option<i64>
+      T-Var: {test: fn() -> (), x: Option<i64>} ⊢ x ⇒ Option<i64>
       Unify-Enum: Option<i64> ~ Option<t5> => {i64/t3}
         Unify-Var: i64 ~ t5 => {i64/t3}
       T-Tail: v => i64
-        T-Var: {v: i64, x: Option<i64>} ⊢ v ⇒ i64
+        T-Var: {test: fn() -> (), v: i64, x: Option<i64>} ⊢ v ⇒ i64
       Unify-Enum: Option<i64> ~ Option<t6> => {i64/t5}
         Unify-Var: i64 ~ t6 => {i64/t5}
       T-Tail: 0 => i64
-        T-Int: {x: Option<i64>} ⊢ 0 ⇒ i64
+        T-Int: {test: fn() -> (), x: Option<i64>} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64

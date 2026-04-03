@@ -95,9 +95,9 @@ Program {
 ==== Inference trace ====
 T-Fn: add => i64
   T-ReturnTail: x + y => i64
-    T-Bin-Add: {x: i64, y: i64} ⊢ x + y ⇒ i64
-      T-Var: {x: i64, y: i64} ⊢ x ⇒ i64
-      T-Var: {x: i64, y: i64} ⊢ y ⇒ i64
+    T-Bin-Add: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ x + y ⇒ i64
+      T-Var: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ x ⇒ i64
+      T-Var: {add: fn(i64, i64) -> i64, x: i64, y: i64} ⊢ y ⇒ i64
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 

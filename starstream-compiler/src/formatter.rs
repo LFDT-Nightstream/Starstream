@@ -465,7 +465,7 @@ fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str, comments: &CommentMap)
             )
             .append(RcDoc::line())
             .append("}"),
-        UtxoPart::MainFn(function) => function_to_doc(function, source, comments),
+        UtxoPart::Function(function) => function_to_doc(function, source, comments),
     }
 }
 

@@ -4,10 +4,10 @@ description: "Source:\n\nfn greet() -> i64 {\n    42\n}\n\nfn test() {\n    let 
 ---
 T-Fn: greet => i64
   T-ReturnTail: 42 => i64
-    T-Int: {} ⊢ 42 ⇒ i64
+    T-Int: {greet: fn() -> i64} ⊢ 42 ⇒ i64
     Unify-Var: i64 ~ i64 => {i64/t3}
 
 T-Fn: test => ()
-  T-Let: {} ⊢ let value = greet(); ⇒ i64
-    T-Call: {} ⊢ greet() ⇒ i64
-      T-Var: {} ⊢ greet ⇒ fn() -> i64
+  T-Let: {greet: fn() -> i64, test: fn() -> ()} ⊢ let value = greet(); ⇒ i64
+    T-Call: {greet: fn() -> i64, test: fn() -> ()} ⊢ greet() ⇒ i64
+      T-Var: {greet: fn() -> i64, test: fn() -> ()} ⊢ greet ⇒ fn() -> i64

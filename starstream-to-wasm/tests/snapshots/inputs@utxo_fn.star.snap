@@ -1,0 +1,296 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_fn.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "FooAbi",
+                        span: 4..10,
+                    },
+                    parts: [
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "HelloEvent",
+                                    span: 23..33,
+                                },
+                                params: [],
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..40,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 45..51,
+                    },
+                    parts: [
+                        Function(
+                            FunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "private_fn",
+                                    span: 61..71,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Emit {
+                                                        event: Identifier {
+                                                            name: "HelloEvent",
+                                                            span: 89..99,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 84..101,
+                                                },
+                                            ),
+                                            span: 84..107,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 74..113,
+                                },
+                            },
+                        ),
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "hello_utxo",
+                                    span: 121..131,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Call {
+                                                        callee: Spanned {
+                                                            node: Identifier(
+                                                                Identifier {
+                                                                    name: "private_fn",
+                                                                    span: 144..154,
+                                                                },
+                                                            ),
+                                                            span: 144..154,
+                                                        },
+                                                        args: [],
+                                                    },
+                                                    span: 144..156,
+                                                },
+                                            ),
+                                            span: 144..162,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 134..164,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 40..166,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Utxo: MyUtxo => 
+  T-Fn: private_fn => ()
+    T-Expr: {private_fn: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
+      T-Emit: {private_fn: fn() -> ()} ⊢ emit HelloEvent() ⇒ ()
+  T-Fn: hello_utxo => ()
+    T-Expr: {hello_utxo: fn() -> (), private_fn: fn() -> ()} ⊢ private_fn(); ⇒ ()
+      T-Call: {hello_utxo: fn() -> (), private_fn: fn() -> ()} ⊢ private_fn() ⇒ ()
+        T-Var: {hello_utxo: fn() -> (), private_fn: fn() -> ()} ⊢ private_fn ⇒ fn() -> ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "FooAbi",
+                    span: 4..10,
+                },
+                parts: [
+                    Event(
+                        TypedEventDef {
+                            name: Identifier {
+                                name: "HelloEvent",
+                                span: 23..33,
+                            },
+                            params: [],
+                        },
+                    ),
+                ],
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: 45..51,
+                },
+                parts: [
+                    Function(
+                        TypedFunctionDef {
+                            export: None,
+                            name: Identifier {
+                                name: "private_fn",
+                                span: 61..71,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Emit {
+                                                    event: Identifier {
+                                                        name: "HelloEvent",
+                                                        span: 89..99,
+                                                    },
+                                                    args: [],
+                                                },
+                                            },
+                                            span: 84..101,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                UtxoMain,
+                            ),
+                            name: Identifier {
+                                name: "hello_utxo",
+                                span: 121..131,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Call {
+                                                    callee: Spanned {
+                                                        node: TypedExpr {
+                                                            ty: Function {
+                                                                params: [],
+                                                                param_spans: [],
+                                                                result: Unit,
+                                                                effect: Pure,
+                                                                name_span: 61..71,
+                                                            },
+                                                            kind: Identifier(
+                                                                Identifier {
+                                                                    name: "private_fn",
+                                                                    span: 144..154,
+                                                                },
+                                                            ),
+                                                        },
+                                                        span: 144..154,
+                                                    },
+                                                    args: [],
+                                                },
+                                            },
+                                            span: 144..156,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func))
+  (import "foo-abi" "hello-event" (func (;0;) (type 0)))
+  (export "hello-utxo" (func 2))
+  (func (;1;) (type 0)
+    (call 0)
+  )
+  (func (;2;) (type 0)
+    (call 1)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "my-utxo" (type (;0;) (sub resource)))
+              (type (;1;) (func))
+              (export (;0;) "hello-utxo" (func (type 1)))
+              (type (;2;)
+                (instance
+                  (type (;0;) (func))
+                  (export (;0;) "hello-event" (func (type 0)))
+                )
+              )
+              (import "foo-abi" (instance (;0;) (type 2)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import foo-abi: interface {
+    hello-event: func();
+  }
+
+  resource my-utxo;
+
+  export hello-utxo: func();
+}

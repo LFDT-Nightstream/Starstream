@@ -708,7 +708,7 @@ impl DocumentState {
                         }
                     }
                 }
-                TypedUtxoPart::MainFn(function) => {
+                TypedUtxoPart::Function(function) => {
                     self.collect_function(function, scopes, None);
                 }
             }
@@ -1437,7 +1437,7 @@ impl DocumentState {
                                     self.collect_type_annotation_node(&var.ty);
                                 }
                             }
-                            untyped_ast::UtxoPart::MainFn(function) => {
+                            untyped_ast::UtxoPart::Function(function) => {
                                 self.collect_type_annotation_function(function);
                             }
                         }
@@ -1889,7 +1889,7 @@ impl DocumentState {
                         }
                     }
                 }
-                TypedUtxoPart::MainFn(function) => {
+                TypedUtxoPart::Function(function) => {
                     children.extend(self.function_symbol(function));
                 }
             }

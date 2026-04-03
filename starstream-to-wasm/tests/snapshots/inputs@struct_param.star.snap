@@ -141,11 +141,11 @@ Program {
 
 T-Fn: total_value => i64
   T-ReturnTail: token.amount * token.price => i64
-    T-Bin-Mul: {token: Token} ⊢ token.amount * token.price ⇒ i64
-      T-FieldAccess: {token: Token} ⊢ token.amount ⇒ i64
-        T-Var: {token: Token} ⊢ token ⇒ Token
-      T-FieldAccess: {token: Token} ⊢ token.price ⇒ i64
-        T-Var: {token: Token} ⊢ token ⇒ Token
+    T-Bin-Mul: {token: Token, total_value: fn(Token) -> i64} ⊢ token.amount * token.price ⇒ i64
+      T-FieldAccess: {token: Token, total_value: fn(Token) -> i64} ⊢ token.amount ⇒ i64
+        T-Var: {token: Token, total_value: fn(Token) -> i64} ⊢ token ⇒ Token
+      T-FieldAccess: {token: Token, total_value: fn(Token) -> i64} ⊢ token.price ⇒ i64
+        T-Var: {token: Token, total_value: fn(Token) -> i64} ⊢ token ⇒ Token
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 

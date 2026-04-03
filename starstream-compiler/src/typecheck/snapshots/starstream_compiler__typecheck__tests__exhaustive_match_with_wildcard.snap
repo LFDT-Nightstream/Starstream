@@ -11,7 +11,7 @@ T-Fn: test => i64
         1
     },
 } => i64
-    T-Match: {c: Color} ⊢ match c {
+    T-Match: {c: Color, test: fn(Color) -> i64} ⊢ match c {
     Color::Red => {
         0
     },
@@ -19,11 +19,11 @@ T-Fn: test => i64
         1
     },
 } ⇒ i64
-      T-Var: {c: Color} ⊢ c ⇒ Color
+      T-Var: {c: Color, test: fn(Color) -> i64} ⊢ c ⇒ Color
       Unify-Enum: Color ~ Color => {}
       T-Tail: 0 => i64
-        T-Int: {c: Color} ⊢ 0 ⇒ i64
+        T-Int: {c: Color, test: fn(Color) -> i64} ⊢ 0 ⇒ i64
       T-Tail: 1 => i64
-        T-Int: {c: Color} ⊢ 1 ⇒ i64
+        T-Int: {c: Color, test: fn(Color) -> i64} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => i64
     Unify-Var: i64 ~ i64 => {i64/t3}

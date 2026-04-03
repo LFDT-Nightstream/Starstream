@@ -3,31 +3,31 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nstruct User {\n    name: i64,\n    age: i64,\n    email: i64,\n}\n\nstruct ZOrder {\n    z: i64,\n    a: i64,\n}\n\nfn test() {\n    let u = User {\n        name: 1,\n        age: 2,\n        email: 3,\n    };\n    let z = ZOrder {\n        z: 1,\n        a: 2,\n    };\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let u = User {
+  T-Let: {test: fn() -> ()} ⊢ let u = User {
     name: 1,
     age: 2,
     email: 3,
 }; ⇒ User
-    T-StructLit: {} ⊢ User {
+    T-StructLit: {test: fn() -> ()} ⊢ User {
     name: 1,
     age: 2,
     email: 3,
 } ⇒ User
-      T-Int: {} ⊢ 1 ⇒ i64
+      T-Int: {test: fn() -> ()} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t3}
-      T-Int: {} ⊢ 2 ⇒ i64
+      T-Int: {test: fn() -> ()} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t4}
-      T-Int: {} ⊢ 3 ⇒ i64
+      T-Int: {test: fn() -> ()} ⊢ 3 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t5}
-  T-Let: {u: User} ⊢ let z = ZOrder {
+  T-Let: {test: fn() -> (), u: User} ⊢ let z = ZOrder {
     z: 1,
     a: 2,
 }; ⇒ ZOrder
-    T-StructLit: {u: User} ⊢ ZOrder {
+    T-StructLit: {test: fn() -> (), u: User} ⊢ ZOrder {
     z: 1,
     a: 2,
 } ⇒ ZOrder
-      T-Int: {u: User} ⊢ 1 ⇒ i64
+      T-Int: {test: fn() -> (), u: User} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t6}
-      T-Int: {u: User} ⊢ 2 ⇒ i64
+      T-Int: {test: fn() -> (), u: User} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t7}

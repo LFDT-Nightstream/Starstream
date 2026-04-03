@@ -72,7 +72,9 @@ module.exports = grammar({
         "fn",
         $.identifier,
         "(",
-        optional(seq($.function_parameter, repeat(seq(",", $.function_parameter)))),
+        optional(
+          seq($.function_parameter, repeat(seq(",", $.function_parameter))),
+        ),
         ")",
         optional(seq("->", $.type_annotation)),
         $.block,
@@ -131,14 +133,14 @@ module.exports = grammar({
     utxo_definition: ($) =>
       seq("utxo", $.identifier, "{", repeat($._utxo_part), "}"),
 
-    _utxo_part: ($) => choice($.storage_utxo_part, $.main_fn_utxo_part),
+    _utxo_part: ($) => choice($.storage_utxo_part, $.fn_utxo_part),
 
     storage_utxo_part: ($) => seq("storage", "{", repeat($.utxo_global), "}"),
 
     utxo_global: ($) =>
       seq("let", "mut", $.identifier, ":", $.type_annotation, ";"),
 
-    main_fn_utxo_part: ($) => seq("main", $._function),
+    fn_utxo_part: ($) => seq(optional("main"), $._function),
 
     abi_definition: ($) =>
       seq("abi", $.identifier, "{", repeat($._abi_part), "}"),

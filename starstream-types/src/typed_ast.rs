@@ -122,7 +122,7 @@ pub struct TypedUtxoDef {
 #[derive(Clone, Debug)]
 pub enum TypedUtxoPart {
     Storage(Vec<TypedUtxoGlobal>),
-    MainFn(TypedFunctionDef),
+    Function(TypedFunctionDef),
 }
 
 #[derive(Clone, Debug)]

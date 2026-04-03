@@ -36,7 +36,7 @@ Program {
                         span: 45..51,
                     },
                     parts: [
-                        MainFn(
+                        Function(
                             FunctionDef {
                                 export: Some(
                                     UtxoMain,
@@ -82,8 +82,8 @@ Program {
 
 T-Utxo: MyUtxo => 
   T-Fn: hello_utxo => ()
-    T-Expr: {} ⊢ emit HelloEvent(); ⇒ ()
-      T-Emit: {} ⊢ emit HelloEvent() ⇒ ()
+    T-Expr: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent(); ⇒ ()
+      T-Emit: {hello_utxo: fn() -> ()} ⊢ emit HelloEvent() ⇒ ()
 
 ==== Typed AST ====
 TypedProgram {
@@ -114,7 +114,7 @@ TypedProgram {
                     span: 45..51,
                 },
                 parts: [
-                    MainFn(
+                    Function(
                         TypedFunctionDef {
                             export: Some(
                                 UtxoMain,
