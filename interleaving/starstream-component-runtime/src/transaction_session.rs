@@ -349,18 +349,23 @@ mod tests {
         wat::parse_str(&format!(
             r#"
             (component
-              (import "utxo-api" (instance $shared-utxo-api
-                (export "utxo" (type (sub resource)))
-              ))
-              (alias export $shared-utxo-api "utxo" (type $shared-utxo))
-
               (import "ledger" (instance $ledger
                 (export "burn" (func $burn))
               ))
 
               (core func $burn-lowered (canon lower (func $ledger "burn")))
+              (type $utxo (resource (rep i32)))
+              (core func $resource.new (canon resource.new $utxo))
+              (core func $resource.rep (canon resource.rep $utxo))
+              (core func $resource.drop (canon resource.drop $utxo))
+              (core instance $export-utxo-api
+                (export "[resource-new]utxo" (func $resource.new))
+                (export "[resource-rep]utxo" (func $resource.rep))
+                (export "[resource-drop]utxo" (func $resource.drop))
+              )
 
               (core module $m
+                (import "[export]utxo-api" "[resource-new]utxo" (func $new-utxo (param i32) (result i32)))
                 (import "ledger" "burn" (func $burn))
                 (global $amount (mut i64) (i64.const {initial_amount}))
                 (global $owner (mut i64) (i64.const 7))
@@ -373,18 +378,14 @@ mod tests {
                     call $burn
                   end)
 
-                (func (export "main")
-                  call $main-impl)
-
-                (func (export "amount") (result i64)
-                  global.get $amount)
-
-                (func (export "spend") (param i64)
-                  global.get $amount
+                (func (export "utxo-api#[method]utxo.main") (param i32)
                   local.get 0
-                  i64.sub
-                  global.set $amount
+                  drop
                   call $main-impl)
+
+                (func (export "utxo-api#[constructor]utxo") (result i32)
+                  i32.const 0
+                  call $new-utxo)
 
                 (func (export "utxo-api#[method]utxo.amount") (param i32) (result i64)
                   local.get 0
@@ -402,19 +403,32 @@ mod tests {
 
               (core instance $i
                 (instantiate $m
+                  (with "[export]utxo-api" (instance $export-utxo-api))
                   (with "ledger" (instance
                     (export "burn" (func $burn-lowered))
                   ))
                 )
               )
 
-              (type $utxo-amount-type (func (param "self" (borrow $shared-utxo)) (result u64)))
+              (type $utxo-main-type (func (param "self" (borrow $utxo))))
+              (alias core export $i "utxo-api#[method]utxo.main" (core func $utxo-main-core))
+              (func $utxo-main-lifted
+                (type $utxo-main-type)
+                (canon lift (core func $utxo-main-core)))
+
+              (type $utxo-constructor-type (func (result (own $utxo))))
+              (alias core export $i "utxo-api#[constructor]utxo" (core func $utxo-constructor-core))
+              (func $utxo-constructor-lifted
+                (type $utxo-constructor-type)
+                (canon lift (core func $utxo-constructor-core)))
+
+              (type $utxo-amount-type (func (param "self" (borrow $utxo)) (result u64)))
               (alias core export $i "utxo-api#[method]utxo.amount" (core func $utxo-amount-core))
               (func $utxo-amount-lifted
                 (type $utxo-amount-type)
                 (canon lift (core func $utxo-amount-core)))
 
-              (type $utxo-spend-type (func (param "self" (borrow $shared-utxo)) (param "tokens" u64)))
+              (type $utxo-spend-type (func (param "self" (borrow $utxo)) (param "tokens" u64)))
               (alias core export $i "utxo-api#[method]utxo.spend" (core func $utxo-spend-core))
               (func $utxo-spend-lifted
                 (type $utxo-spend-type)
@@ -422,29 +436,53 @@ mod tests {
 
               (component $utxo-api
                 (import "import-type-utxo" (type $import-utxo (sub resource)))
+                (type $own-import-utxo (own $import-utxo))
+                (type $constructor-import-utxo (func (result $own-import-utxo)))
+                (import "import-constructor-utxo" (func $import-constructor-utxo (type $constructor-import-utxo)))
+                (type $borrow-import-utxo-main (borrow $import-utxo))
+                (type $method-import-utxo-main (func (param "self" $borrow-import-utxo-main)))
+                (import "import-method-utxo-main"
+                  (func $import-utxo-main (type $method-import-utxo-main)))
+                (type $borrow-import-utxo (borrow $import-utxo))
+                (type $method-import-utxo-amount (func (param "self" $borrow-import-utxo) (result u64)))
                 (import "import-method-utxo-amount"
-                  (func $import-utxo-amount (param "self" (borrow $import-utxo)) (result u64)))
+                  (func $import-utxo-amount (type $method-import-utxo-amount)))
+                (type $borrow-import-utxo-2 (borrow $import-utxo))
+                (type $method-import-utxo-spend (func (param "self" $borrow-import-utxo-2) (param "tokens" u64)))
                 (import "import-method-utxo-spend"
-                  (func $import-utxo-spend (param "self" (borrow $import-utxo)) (param "tokens" u64)))
+                  (func $import-utxo-spend (type $method-import-utxo-spend)))
                 (export $utxo "utxo" (type $import-utxo))
+                (type $own-utxo (own $utxo))
+                (type $constructor-utxo (func (result $own-utxo)))
+                (export "[constructor]utxo"
+                  (func $import-constructor-utxo)
+                  (func (type $constructor-utxo)))
+                (type $borrow-utxo-main (borrow $utxo))
+                (type $method-utxo-main (func (param "self" $borrow-utxo-main)))
+                (export "[method]utxo.main"
+                  (func $import-utxo-main)
+                  (func (type $method-utxo-main)))
+                (type $borrow-utxo (borrow $utxo))
+                (type $method-utxo-amount (func (param "self" $borrow-utxo) (result u64)))
                 (export "[method]utxo.amount"
                   (func $import-utxo-amount)
-                  (func (param "self" (borrow $utxo)) (result u64)))
+                  (func (type $method-utxo-amount)))
+                (type $borrow-utxo-2 (borrow $utxo))
+                (type $method-utxo-spend (func (param "self" $borrow-utxo-2) (param "tokens" u64)))
                 (export "[method]utxo.spend"
                   (func $import-utxo-spend)
-                  (func (param "self" (borrow $utxo)) (param "tokens" u64))))
+                  (func (type $method-utxo-spend))))
 
               (instance $utxo-api-instance
                 (instantiate $utxo-api
-                  (with "import-type-utxo" (type $shared-utxo))
+                  (with "import-type-utxo" (type $utxo))
+                  (with "import-method-utxo-main" (func $utxo-main-lifted))
+                  (with "import-constructor-utxo" (func $utxo-constructor-lifted))
                   (with "import-method-utxo-amount" (func $utxo-amount-lifted))
                   (with "import-method-utxo-spend" (func $utxo-spend-lifted))
                 )
               )
 
-              (func (export "main") (canon lift (core func $i "main")))
-              (func (export "amount") (result u64) (canon lift (core func $i "amount")))
-              (func (export "spend") (param "tokens" u64) (canon lift (core func $i "spend")))
               (export "utxo-api" (instance $utxo-api-instance)))
             "#,
             initial_amount = initial_amount,
@@ -462,29 +500,32 @@ mod tests {
             (component
               (import "{import_name}" (instance $utxo-api
                 (export "utxo" (type (sub resource)))
+                (export "[constructor]utxo" (func $construct (result (own 0))))
                 (export "[method]utxo.amount" (func $amount (param "self" (borrow 0)) (result u64)))
                 (export "[method]utxo.spend" (func $spend (param "self" (borrow 0)) (param "tokens" u64)))
               ))
 
               (alias export $utxo-api "utxo" (type $utxo))
+              (core func $construct-lowered (canon lower (func $utxo-api "[constructor]utxo")))
               (core func $amount-lowered (canon lower (func $utxo-api "[method]utxo.amount")))
               (core func $spend-lowered (canon lower (func $utxo-api "[method]utxo.spend")))
 
               (core module $m
+                (import "{import_name}" "[constructor]utxo" (func $construct (result i32)))
                 (import "{import_name}" "[method]utxo.amount" (func $amount (param i32) (result i64)))
                 (import "{import_name}" "[method]utxo.spend" (func $spend (param i32 i64)))
-                (func (export "main") (param i32) (local i32)
-                  local.get 0
-                  local.tee 1
+                (func (export "main") (local i32)
+                  call $construct
+                  local.tee 0
                   call $amount
                   drop
-                  local.get 1
+                  local.get 0
                   i64.const {first_spend_amount}
                   call $spend
-                  local.get 1
+                  local.get 0
                   call $amount
                   drop
-                  local.get 1
+                  local.get 0
                   i64.const {second_spend_amount}
                   call $spend)
               )
@@ -492,13 +533,14 @@ mod tests {
               (core instance $i
                 (instantiate $m
                   (with "{import_name}" (instance
+                    (export "[constructor]utxo" (func $construct-lowered))
                     (export "[method]utxo.amount" (func $amount-lowered))
                     (export "[method]utxo.spend" (func $spend-lowered))
                   ))
                 )
               )
 
-              (func (export "main") (param "target" (own $utxo)) (canon lift (core func $i "main"))))
+              (func (export "main") (canon lift (core func $i "main"))))
             "#,
             import_name = import_name,
             first_spend_amount = first_spend_amount,
@@ -553,9 +595,7 @@ mod tests {
         session.bind_input(&mut runtime, UTXO_RESOURCE, utxo_pid, input_utxo_id.clone());
         session.register_coord(coord_pid);
 
-        runtime
-            .run_main_with_resource(coord_pid, &coord_instance, UTXO_RESOURCE)
-            .unwrap();
+        runtime.run_main(coord_pid, &coord_instance).unwrap();
         print_runtime_traces(&runtime);
 
         let mut tx = session.build_transaction(&runtime).unwrap();

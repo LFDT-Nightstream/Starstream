@@ -56,7 +56,7 @@ pub struct ComponentHostState {
     pub executed_steps: Vec<ProcessId>,
     pub pending_activations: HashMap<ProcessId, (Ref, ProcessId)>,
     pub instances: HashMap<ProcessId, wasmtime::component::Instance>,
-    pub interface_resource_bindings: HashMap<String, u32>,
+    pub callee_handles: HashMap<ProcessId, ResourceAny>,
     import_instance_schemas: HashMap<String, ImportInstanceSchema>,
     pub executor: StarstreamExecutor<u32>,
 }
@@ -70,7 +70,7 @@ impl Default for ComponentHostState {
             executed_steps: Vec::new(),
             pending_activations: HashMap::new(),
             instances: HashMap::new(),
-            interface_resource_bindings: HashMap::new(),
+            callee_handles: HashMap::new(),
             import_instance_schemas: HashMap::new(),
             executor: StarstreamExecutor::new(),
         }
@@ -119,13 +119,6 @@ impl WasmtimeComponentStarstreamExecutor {
         self.store.data_mut().input_resources = resources;
     }
 
-    pub fn bind_import_resource(&mut self, import_name: impl Into<String>, resource: u32) {
-        self.store
-            .data_mut()
-            .interface_resource_bindings
-            .insert(import_name.into(), resource);
-    }
-
     pub fn compile_component(
         &mut self,
         program: &ProgramDefinition,
@@ -158,6 +151,20 @@ impl WasmtimeComponentStarstreamExecutor {
         component: &ScalarComponent,
     ) -> Result<wasmtime::component::Instance, ScalarComponentError> {
         let instance = self.instantiate_component(component)?;
+        if let Some(interface_index) = instance.get_export_index(&mut self.store, None, "utxo-api")
+        {
+            if let Some(constructor_index) = instance.get_export_index(
+                &mut self.store,
+                Some(&interface_index),
+                "[constructor]utxo",
+            ) {
+                let constructor = instance
+                    .get_typed_func::<(), (ResourceAny,)>(&mut self.store, &constructor_index)?;
+                let (handle,) = constructor.call(&mut self.store, ())?;
+                constructor.post_return(&mut self.store)?;
+                self.store.data_mut().callee_handles.insert(pid, handle);
+            }
+        }
         self.store.data_mut().instances.insert(pid, instance);
         Ok(instance)
     }
@@ -168,19 +175,6 @@ impl WasmtimeComponentStarstreamExecutor {
         instance: &wasmtime::component::Instance,
     ) -> Result<(), ScalarComponentError> {
         self.run_export(pid, instance, "main")
-    }
-
-    pub fn run_main_with_resource(
-        &mut self,
-        pid: ProcessId,
-        instance: &wasmtime::component::Instance,
-        resource: u32,
-    ) -> Result<(), ScalarComponentError> {
-        let arg = ResourceAny::try_from_resource(
-            Resource::<UtxoResource>::new_own(resource),
-            &mut self.store,
-        )?;
-        self.run_export_with_args(pid, instance, "main", &[WasmtimeVal::Resource(arg)])
     }
 
     pub fn run_export(
@@ -393,17 +387,13 @@ fn build_linker(
         }
 
         for (func_name, func_schema) in &schema.functions {
-            if func_name == "handle" {
-                let import_name = import_name.clone();
-                instance.func_wrap("handle", move |ctx, (): ()| {
-                    let resource = ctx
-                        .data()
-                        .interface_resource_bindings
-                        .get(&import_name)
-                        .copied()
-                        .or_else(|| ctx.data().input_resources.first().copied())
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("no handle bound for import `{import_name}`")
+            if let Some(resource_name) = parse_constructor_name(func_name) {
+                let func_name = func_name.clone();
+                let resource_name = resource_name.to_string();
+                instance.func_wrap(&func_name, move |ctx, (): ()| {
+                    let resource =
+                        ctx.data().input_resources.first().copied().ok_or_else(|| {
+                            anyhow::anyhow!("no resource bound for constructor `{resource_name}`")
                         })?;
                     Ok((Resource::<UtxoResource>::new_own(resource),))
                 })?;
@@ -429,6 +419,10 @@ fn build_linker(
     }
 
     Ok(linker)
+}
+
+fn parse_constructor_name(func_name: &str) -> Option<&str> {
+    func_name.strip_prefix("[constructor]")
 }
 
 fn call_resource_method(
@@ -499,17 +493,32 @@ fn call_resource_method(
         .traces()
         .get(&target_pid)
         .map_or(0, |trace| trace.len());
-    let callee_params = value_args
-        .iter()
-        .zip(func_schema.params.iter().skip(1))
-        .filter_map(|(value, schema)| schema.as_ref().map(|schema| schema.encode(value)))
-        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut callee_params = Vec::with_capacity(1 + value_args.len());
+    let callee_handle = *ctx
+        .data()
+        .callee_handles
+        .get(&target_pid)
+        .ok_or_else(|| anyhow::anyhow!("missing cached callee handle for {target_pid:?}"))?;
+    callee_params.push(WasmtimeVal::Resource(callee_handle));
+    callee_params.extend(
+        value_args
+            .iter()
+            .zip(func_schema.params.iter().skip(1))
+            .filter_map(|(value, schema)| schema.as_ref().map(|schema| schema.encode(value)))
+            .collect::<anyhow::Result<Vec<_>>>()?,
+    );
 
-    let (_, method_name) = parse_resource_method_name(func_name)
-        .ok_or_else(|| anyhow::anyhow!("invalid resource method name `{func_name}`"))?;
+    let interface_index = instance
+        .get_export_index(&mut *ctx, None, import_name)
+        .ok_or_else(|| anyhow::anyhow!("missing target exported instance `{import_name}`"))?;
+    let func_index = instance
+        .get_export_index(&mut *ctx, Some(&interface_index), func_name)
+        .ok_or_else(|| {
+            anyhow::anyhow!("missing target interface method `{import_name}.{func_name}`")
+        })?;
     let func = instance
-        .get_func(&mut *ctx, method_name)
-        .ok_or_else(|| anyhow::anyhow!("missing target export `{method_name}`"))?;
+        .get_func(&mut *ctx, &func_index)
+        .ok_or_else(|| anyhow::anyhow!("missing target export `{import_name}.{func_name}`"))?;
     let mut callee_results = func_schema
         .results
         .iter()
@@ -537,7 +546,7 @@ fn call_resource_method(
                 .results
                 .iter()
                 .zip(callee_results.iter())
-                .map(|(schema, value)| schema.decode(value, method_name))
+                .map(|(schema, value)| schema.decode(value, func_name))
                 .collect::<anyhow::Result<Vec<_>>>()?;
             let payload_value = match returned_values.len() {
                 0 => ComponentValueIr::Tuple(vec![]),
@@ -557,12 +566,7 @@ fn call_resource_method(
         .resolve_resume_output(caller, target_pid, yielded_ref)?;
 
     for (dst, schema) in results.iter_mut().zip(func_schema.results.iter()) {
-        let value = read_ref_value(
-            ctx.data().executor.state(),
-            yielded_ref,
-            schema,
-            method_name,
-        )?;
+        let value = read_ref_value(ctx.data().executor.state(), yielded_ref, schema, func_name)?;
         *dst = schema.encode(&value)?;
     }
     Ok(())
