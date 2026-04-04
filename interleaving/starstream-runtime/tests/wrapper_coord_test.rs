@@ -216,7 +216,6 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call resume(utxo1_id, cell_init);
         }
         if pc == 2 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
             let resume_slot = call get_datum(7);
@@ -233,7 +232,6 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call resume(utxo2_id, cell_init);
         }
         if pc == 3 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
             let resume_slot = call get_datum(7);

@@ -129,7 +129,6 @@ fn test_dex_swap_flow() {
             call resume(utxo_id, start);
         }
         if pc == 1 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -150,7 +149,6 @@ fn test_dex_swap_flow() {
             call resume(token_y_id, get_amt);
         }
         if pc == 2 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -174,7 +172,6 @@ fn test_dex_swap_flow() {
             call resume(caller_next, add);
         }
         if pc == 3 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -195,7 +192,6 @@ fn test_dex_swap_flow() {
             call resume(caller, remove);
         }
         if pc == 4 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -218,7 +214,6 @@ fn test_dex_swap_flow() {
             call resume(token_x_id, read_x);
         }
         if pc == 5 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -238,7 +233,6 @@ fn test_dex_swap_flow() {
             call resume(token_x_id, bind_x);
         }
         if pc == 6 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -259,7 +253,6 @@ fn test_dex_swap_flow() {
             call resume(caller_next, end);
         }
         if pc == 7 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(3);
             let last_val = call get_datum(4);
             let resume_slot = call get_datum(5);
@@ -457,7 +450,6 @@ fn test_dex_swap_flow() {
             call resume(token_y_id, bind_y);
         }
         if pc == 1 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
             let resume_slot = call get_datum(6);
@@ -479,7 +471,6 @@ fn test_dex_swap_flow() {
             call resume(token_x_id, bind_x);
         }
         if pc == 2 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
             let resume_slot = call get_datum(6);
@@ -500,7 +491,6 @@ fn test_dex_swap_flow() {
             call resume(token_y_id, read_y);
         }
         if pc == 3 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
             let resume_slot = call get_datum(6);
@@ -521,7 +511,6 @@ fn test_dex_swap_flow() {
             call resume(token_x_id, read_x);
         }
         if pc == 4 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
             let resume_slot = call get_datum(6);
@@ -542,7 +531,6 @@ fn test_dex_swap_flow() {
             call resume(utxo_id, noop);
         }
         if pc == 5 {
-            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
             let resume_slot = call get_datum(6);
