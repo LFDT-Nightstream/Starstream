@@ -24,6 +24,8 @@ const elements = {
   proofOutput: document.getElementById("proof-output"),
   proofPublicStatement: document.getElementById("proof-public-statement"),
   proofTransactionDebug: document.getElementById("proof-transaction-debug"),
+  ledgerBeforeDetails: document.getElementById("ledger-before-details"),
+  ledgerAfterDetails: document.getElementById("ledger-after-details"),
   ledgerBeforeDebug: document.getElementById("ledger-before-debug"),
   ledgerAfterDebug: document.getElementById("ledger-after-debug"),
   interleavedTrace: document.getElementById("interleaved-trace"),
@@ -678,9 +680,14 @@ function bindEvents() {
   });
 
   elements.applyTransactionButton.addEventListener("click", () => {
-    runAction("Applying transaction", () =>
-      request("/api/apply-transaction", { method: "POST" }),
-    );
+    runAction("Applying transaction", async () => {
+      const response = await request("/api/apply-transaction", { method: "POST" });
+      if (response?.ok) {
+        elements.ledgerBeforeDetails.open = true;
+        elements.ledgerAfterDetails.open = true;
+      }
+      return response;
+    });
   });
 
   elements.applyContracts.addEventListener("click", () => {
