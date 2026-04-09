@@ -159,7 +159,8 @@ fn test_transaction_with_coord_and_utxos() {
             val: spend_input_2_ref.into(),
             caller: ProcessId(4).into(),
         },
-        WitLedgerEffect::Burn { ret: burned_2_ref },
+        WitLedgerEffect::Burn {},
+        WitLedgerEffect::Yield { val: burned_2_ref },
     ];
 
     let utxo_a_trace = vec![
@@ -476,7 +477,8 @@ fn test_burn_with_continuation_fails() {
                 WitLedgerEffect::RefPush {
                     vals: v7(b"burned"),
                 },
-                WitLedgerEffect::Burn { ret: Ref(0) },
+                WitLedgerEffect::Burn {},
+                WitLedgerEffect::Yield { val: Ref(0) },
             ],
         )
         .with_entrypoint(0)
@@ -627,7 +629,8 @@ fn test_duplicate_input_utxo_fails() {
                     ret: Ref(1).into(),
                 },
                 WitLedgerEffect::RefPush { vals: v7(b"") },
-                WitLedgerEffect::Burn { ret: Ref(0) },
+                WitLedgerEffect::Burn {},
+                WitLedgerEffect::Yield { val: Ref(0) },
             ],
         )
         .with_coord_script(

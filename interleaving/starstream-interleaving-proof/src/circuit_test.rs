@@ -1,7 +1,7 @@
 use crate::{logging::setup_logger, prove};
 use starstream_interleaving_spec::{
-    FunctionId, Hash, InterleavingInstance, InterleavingWitness, LedgerEffectsCommitment,
-    ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
+    CoroutineState, FunctionId, Hash, InterleavingInstance, InterleavingWitness,
+    LedgerEffectsCommitment, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
 };
 
 pub fn h<T>(n: u8) -> Hash<T> {
@@ -238,6 +238,58 @@ fn test_circuit_small() {
         ownership_out: vec![None, None],
         host_calls_roots,
         input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+
+    let result = prove(instance, wit);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_circuit_burn_then_yield_sat() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+    let p1 = ProcessId(1);
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+
+    let utxo_trace = vec![
+        enter_effect(FunctionId(0)),
+        WitLedgerEffect::Activation {
+            val: ref_0.into(),
+            caller: p1.into(),
+        },
+        WitLedgerEffect::Burn {},
+        WitLedgerEffect::Yield { val: ref_0 },
+    ];
+
+    let coord_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        resume_effect(p0, ref_0, ref_0, None),
+    ];
+
+    let traces = vec![utxo_trace, coord_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 1,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p1,
+        process_table: vec![h(0), h(1)],
+        is_utxo: vec![true, false],
+        is_token: vec![false, false],
+        must_burn: vec![true, false],
+        ownership_in: vec![None, None],
+        ownership_out: vec![None, None],
+        host_calls_roots,
+        input_states: vec![CoroutineState::Utxo { storage: vec![] }],
     };
 
     let wit = InterleavingWitness { traces };

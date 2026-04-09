@@ -425,36 +425,27 @@ Rule: Call Effect Handler
 
 ## Burn
 
-Terminates the UTXO. No matching output is created in the ledger.
+Marks the UTXO as burned. No matching continuation output is created in the
+ledger, but the coroutine still returns control through a later `Yield`.
 
 ```text
 Rule: Burn
 ==========
-Destroys the UTXO state.
+Marks the UTXO as burned.
 
-    op = Burn(ret)
+    op = Burn()
 
     1. is_utxo[id_curr]
     2. initialized[id_curr]
     3. must_burn[id_curr] == True
 
-    4. if expected_input[id_prev] is set, it must equal ret
-
-    (Resume receives ret)
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. finalized'[id_curr]      <- True
-    2. id_curr'                 <- id_prev
+    1. did_burn'[id_curr]       <- True
 
-    (Control flow goes to caller)
-
-    3. initialized'[id_curr]    <- False
-
-    (It's not possible to return to this, maybe it should be a different flag though)
-
-    5. activation'[id_curr]     <- None
-    6. did_burn'[id_curr]       <- True
+The actual returned value is still carried by a later `Yield(val_ref)`. Burn does
+not itself satisfy the caller's pending claim and does not switch control flow.
+After Burn, the burned UTXO must still terminate with a final `Yield`.
 ```
 
 # 6. Tokens

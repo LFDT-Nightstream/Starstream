@@ -424,7 +424,7 @@ impl ModuleBuilder {
             ],
             &[ValType::I64],
         );
-        let burn = self.import_func("env", "starstream-burn", &[ValType::I64], &[]);
+        let burn = self.import_func("env", "starstream-burn", &[], &[]);
         let bind = self.import_func("env", "starstream-bind", &[ValType::I64], &[]);
         let unbind = self.import_func("env", "starstream-unbind", &[ValType::I64], &[]);
         let init = self.import_func("env", "starstream-init", &[ValType::I32], &[]);

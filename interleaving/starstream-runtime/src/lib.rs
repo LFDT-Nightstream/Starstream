@@ -153,9 +153,7 @@ fn decode_effect_from_commit_abi(
             ),
             handler_id: WitEffectOutput::Resolved(ProcessId(arg(ArgName::Target) as usize)),
         },
-        EffectDiscriminant::Burn => WitLedgerEffect::Burn {
-            ret: Ref(arg(ArgName::Ret)),
-        },
+        EffectDiscriminant::Burn => WitLedgerEffect::Burn {},
         EffectDiscriminant::Activation => WitLedgerEffect::Activation {
             val: WitEffectOutput::Resolved(Ref(arg(ArgName::Val))),
             caller: WitEffectOutput::Resolved(ProcessId(arg(ArgName::ActivationCaller) as usize)),
@@ -881,12 +879,11 @@ impl Runtime {
         env.func_wrap(
             "starstream-burn",
             |mut store: wasmtime::StoreContextMut<'_, RuntimeState>,
-             (ret,): (u64,)|
+             (): ()|
              -> wasmtime::Result<()> {
                 let current_pid = store.data().current_process;
                 store.data_mut().must_burn.insert(current_pid);
-                store.data_mut().pending_host_effect =
-                    Some(WitLedgerEffect::Burn { ret: Ref(ret) });
+                store.data_mut().pending_host_effect = Some(WitLedgerEffect::Burn {});
                 Ok(())
             },
         )
@@ -1218,7 +1215,7 @@ impl UnprovenTransaction {
                         ));
                     }
                 }
-                WitLedgerEffect::Burn { .. } => {
+                WitLedgerEffect::Burn {} => {
                     let caller = *runtime
                         .store
                         .data()

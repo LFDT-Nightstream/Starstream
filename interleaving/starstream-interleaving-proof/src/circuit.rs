@@ -192,10 +192,6 @@ impl Wires {
         self.opcode_args[kind.idx()].clone()
     }
 
-    fn id_prev_is_some(&self) -> Result<Boolean<F>, SynthesisError> {
-        self.id_prev.is_some()
-    }
-
     fn id_prev_value(&self) -> Result<FpVar<F>, SynthesisError> {
         self.id_prev.decode_or_zero()
     }
@@ -570,9 +566,7 @@ impl LedgerOperation<crate::F> {
                 config.execution_switches.burn = true;
 
                 config.mem_switches_curr.activation = true;
-                config.mem_switches_curr.finalized = true;
                 config.mem_switches_curr.did_burn = true;
-                config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.initialized = true;
                 config.mem_switches_curr.must_exit = true;
 
@@ -788,13 +782,10 @@ impl LedgerOperation<crate::F> {
                 curr_write.finalized = true;
                 curr_write.must_exit = false;
             }
-            LedgerOperation::Burn { ret } => {
-                // The current UTXO is burned.
-                curr_write.activation = F::ZERO; // Represents None
-                curr_write.finalized = true;
+            LedgerOperation::Burn {} => {
+                // The current UTXO is marked as burned; the final return still
+                // happens on the later Yield.
                 curr_write.did_burn = true;
-                curr_write.expected_input = OptionalF::new(*ret); // Sets its final return value.
-                curr_write.must_exit = false;
             }
             LedgerOperation::NewUtxo { val, target: _, .. }
             | LedgerOperation::NewToken { val, target: _, .. }
@@ -1175,7 +1166,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 }
                 LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
-                LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
+                LedgerOperation::Burn { .. } => None,
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewToken { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
@@ -1270,11 +1261,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         irw.id_curr = parent;
                     }
                 }
-                LedgerOperation::Burn { .. } => {
-                    let old_curr = irw.id_curr;
-                    irw.id_curr = irw.id_prev.decode_or_zero();
-                    irw.id_prev = OptionalF::new(old_curr);
-                }
+                LedgerOperation::Burn { .. } => {}
                 _ => {}
             }
 
@@ -1711,51 +1698,26 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     fn visit_burn(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.burn;
 
-        // ---
-        // Ckecks from the mocked verifier
-        // ---
-
-        // 1. Current process must be a UTXO.
         wires
             .is_utxo_curr
             .is_one()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 2. Must be initialized.
         wires
             .curr_read_wires
             .initialized
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 3. This UTXO must be marked for burning.
         wires
             .must_burn_curr
             .is_one()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 4. Parent must exist.
-        wires
-            .id_prev_is_some()?
-            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
-
-        // 5. Claim check: burned value `ret` must match parent's `expected_input` (if set).
-        // Parent's state is in `target_read_wires`.
-        wires
-            .target_read_wires
-            .expected_input
-            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Ret))?;
-
         // ---
         // IVC state updates
         // ---
-        // Like yield, current program becomes the parent, and new prev is the one that burned.
-        let prev_value = wires.id_prev_value()?;
-        let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
-        let next_id_prev = OptionalFpVar::select_encoded(
-            switch,
-            &OptionalFpVar::from_pid(&wires.id_curr),
-            &wires.id_prev,
-        )?;
+        let next_id_curr = wires.id_curr.clone();
+        let next_id_prev = wires.id_prev.clone();
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
 

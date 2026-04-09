@@ -189,8 +189,8 @@ where
                     WitLedgerEffect::Yield { val: payload },
                     HostImportOutcome::None,
                 ),
-                HostImportCall::Burn { payload } => (
-                    WitLedgerEffect::Burn { ret: payload },
+                HostImportCall::Burn => (
+                    WitLedgerEffect::Burn { ret: Ref(0) },
                     HostImportOutcome::None,
                 ),
                 HostImportCall::Return => (WitLedgerEffect::Return {}, HostImportOutcome::None),

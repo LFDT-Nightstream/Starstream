@@ -128,10 +128,7 @@ pub enum WitLedgerEffect {
     },
 
     // UTXO-only
-    Burn {
-        // in
-        ret: Ref,
-    },
+    Burn {},
 
     Activation {
         // out

@@ -361,7 +361,7 @@ pub fn verify_interleaving_semantics(
         if rom.must_burn[i] {
             let has_burn = rom.traces[i]
                 .iter()
-                .any(|hc| matches!(hc, WitLedgerEffect::Burn { ret: _ }));
+                .any(|hc| matches!(hc, WitLedgerEffect::Burn {}));
             if !has_burn {
                 return Err(InterleavingError::BurnedInputNoBurn { pid: ProcessId(i) });
             }
@@ -977,7 +977,7 @@ pub fn state_transition(
             }
         }
 
-        WitLedgerEffect::Burn { ret } => {
+        WitLedgerEffect::Burn {} => {
             if !rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::UtxoOnly(id_curr));
             }
@@ -986,38 +986,7 @@ pub fn state_transition(
                 return Err(InterleavingError::UtxoShouldNotBurn(id_curr));
             }
 
-            let parent = state
-                .id_prev
-                .ok_or(InterleavingError::BurnWithNoParent { pid: id_curr })?;
-
-            let ret_val = state
-                .ref_store
-                .get(&ret)
-                .ok_or(InterleavingError::RefNotFound(ret))?;
-
-            if let Some(expected_ref) = state.expected_input[parent.0] {
-                let expected_val = state
-                    .ref_store
-                    .get(&expected_ref)
-                    .ok_or(InterleavingError::RefNotFound(expected_ref))?;
-
-                if expected_val != ret_val {
-                    // Burn is the final return of the coroutine
-                    return Err(InterleavingError::YieldClaimMismatch {
-                        id_prev: state.id_prev,
-                        expected: expected_val.clone(),
-                        got: ret_val.clone(),
-                    });
-                }
-            }
-
-            state.activation[id_curr.0] = None;
-            state.finalized[id_curr.0] = true;
             state.did_burn[id_curr.0] = true;
-            state.must_exit[id_curr.0] = false;
-            state.expected_input[id_curr.0] = Some(ret);
-            state.id_prev = Some(id_curr);
-            state.id_curr = parent;
         }
 
         WitLedgerEffect::Bind { owner_id } => {

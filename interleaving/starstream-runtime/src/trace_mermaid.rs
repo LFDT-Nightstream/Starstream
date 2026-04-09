@@ -217,7 +217,7 @@ fn effect_matches_control(effect: &WitLedgerEffect, control: &WitLedgerEffect) -
         ) => i1 == i2 && v1 == v2,
         (WitLedgerEffect::Yield { val: v1 }, WitLedgerEffect::Yield { val: v2 }) => v1 == v2,
         (WitLedgerEffect::Return {}, WitLedgerEffect::Return {}) => true,
-        (WitLedgerEffect::Burn { ret: r1 }, WitLedgerEffect::Burn { ret: r2 }) => r1 == r2,
+        (WitLedgerEffect::Burn {}, WitLedgerEffect::Burn {}) => true,
         _ => false,
     }
 }

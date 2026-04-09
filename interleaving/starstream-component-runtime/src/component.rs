@@ -560,7 +560,6 @@ fn call_resource_method(
         .and_then(|trace| trace.last())
         .and_then(|effect| match effect {
             starstream_interleaving_spec::WitLedgerEffect::Yield { val } => Some(*val),
-            starstream_interleaving_spec::WitLedgerEffect::Burn { ret } => Some(*ret),
             _ => None,
         });
     let yielded_ref = match yielded_ref {

@@ -39,9 +39,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             val: F::from(val.0),
         },
         WitLedgerEffect::Return {} => LedgerOperation::Return {},
-        WitLedgerEffect::Burn { ret } => LedgerOperation::Burn {
-            ret: F::from(ret.0),
-        },
+        WitLedgerEffect::Burn {} => LedgerOperation::Burn {},
         WitLedgerEffect::ProgramHash {
             target,
             program_hash,
@@ -208,10 +206,7 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Val.idx()] = *val;
         }
         LedgerOperation::Return {} => {}
-        LedgerOperation::Burn { ret } => {
-            args[ArgName::Target.idx()] = F::zero();
-            args[ArgName::Ret.idx()] = *ret;
-        }
+        LedgerOperation::Burn {} => {}
         LedgerOperation::ProgramHash {
             target,
             program_hash,

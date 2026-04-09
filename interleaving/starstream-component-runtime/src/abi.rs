@@ -25,9 +25,7 @@ pub enum HostImportCall<Resource> {
     Yield {
         payload: Ref,
     },
-    Burn {
-        payload: Ref,
-    },
+    Burn,
     Return,
     NewUtxo {
         program_hash: Hash<WasmModule>,

@@ -55,9 +55,7 @@ pub enum LedgerOperation<F: PrimeField> {
         val: F,
         target: F,
     },
-    Burn {
-        ret: F,
-    },
+    Burn {},
     Activation {
         val: F,
         caller: F,
