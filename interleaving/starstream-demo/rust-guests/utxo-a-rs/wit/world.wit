@@ -1,0 +1,19 @@
+package starstream-demo:utxo-a-rs;
+
+interface ledger {
+    burn: func();
+}
+
+interface utxo-a-api {
+    resource utxo {
+        constructor();
+        get-data: func() -> u64;
+    }
+}
+
+world demo {
+    import ledger;
+    export utxo-a-api;
+    export snapshot-state: func() -> u64;
+    export snapshot-restore: func(state: u64);
+}

@@ -13,6 +13,10 @@ members = [
   "interleaving/starstream-interleaving-spec",
   "interleaving/starstream-component-runtime",
   "interleaving/starstream-runtime",
+  "interleaving/starstream-demo",
+  "interleaving/starstream-demo/rust-guests/coord-rs",
+  "interleaving/starstream-demo/rust-guests/utxo-a-rs",
+  "interleaving/starstream-demo/rust-guests/utxo-b-rs",
   "ark-poseidon2",
   "ark-goldilocks"
 ]

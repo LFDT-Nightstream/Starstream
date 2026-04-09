@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starstream Demo</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.min.js"></script>
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Starstream Demo</h1>
+          <p class="subtitle">
+            Wasm component model cross-contract call proving demo.
+          </p>
+        </div>
+      </header>
+
+      <main class="stack-layout">
+        <section class="panel card panel-wide">
+          <div class="panel-header">
+            <div>
+              <h2>Contracts</h2>
+              <p class="section-copy">
+                Inspect and edit the contract sources directly.
+              </p>
+            </div>
+          </div>
+
+          <div class="panel-header secondary">
+            <div class="state-inputs">
+              <label class="state-field">
+                <span>UTXO A initial</span>
+                <input id="initial-state-utxo-a" type="number" min="0" step="1" />
+              </label>
+              <label class="state-field">
+                <span>UTXO B initial</span>
+                <input id="initial-state-utxo-b" type="number" min="0" step="1" />
+              </label>
+              <div class="state-actions">
+                <button id="apply-initial-states">Apply State</button>
+                <span id="initial-state-status" class="pill pill-muted">Applied</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-header secondary contracts-toolbar">
+            <div class="tabs" id="contract-tabs">
+              <button data-contract="utxo-a" class="tab active">UTXO A</button>
+              <button data-contract="utxo-b" class="tab">UTXO B</button>
+              <button data-contract="coord" class="tab">Coord</button>
+            </div>
+            <div class="inline-actions">
+              <button id="apply-contracts" class="accent">Compile</button>
+            </div>
+          </div>
+
+          <div class="contract-grid single-column">
+            <article class="contract-card active-contract" data-contract-panel="utxo-a">
+              <div class="contract-card-header">
+                <h3>UTXO A</h3>
+                <span id="contract-status-utxo-a" class="pill pill-muted">Not compiled</span>
+              </div>
+              <div id="contract-view-tabs-utxo-a" class="contract-view-tabs"></div>
+              <div id="contract-files-utxo-a" class="contract-file-tabs"></div>
+              <div id="contract-editor-utxo-a" class="contract-editor active"></div>
+              <pre id="contract-wat-utxo-a" class="code-block contract-wat empty">No compiled WAT yet.</pre>
+              <pre id="contract-error-utxo-a" class="contract-error empty">No compile errors.</pre>
+            </article>
+
+            <article class="contract-card" data-contract-panel="utxo-b">
+              <div class="contract-card-header">
+                <h3>UTXO B</h3>
+                <span id="contract-status-utxo-b" class="pill pill-muted">Not compiled</span>
+              </div>
+              <div id="contract-view-tabs-utxo-b" class="contract-view-tabs"></div>
+              <div id="contract-files-utxo-b" class="contract-file-tabs"></div>
+              <div id="contract-editor-utxo-b" class="contract-editor active"></div>
+              <pre id="contract-wat-utxo-b" class="code-block contract-wat empty">No compiled WAT yet.</pre>
+              <pre id="contract-error-utxo-b" class="contract-error empty">No compile errors.</pre>
+            </article>
+
+            <article class="contract-card" data-contract-panel="coord">
+              <div class="contract-card-header">
+                <h3>Coord</h3>
+                <span id="contract-status-coord" class="pill pill-muted">Not compiled</span>
+              </div>
+              <div id="contract-view-tabs-coord" class="contract-view-tabs"></div>
+              <div id="contract-files-coord" class="contract-file-tabs"></div>
+              <div id="contract-editor-coord" class="contract-editor active"></div>
+              <pre id="contract-wat-coord" class="code-block contract-wat empty">No compiled WAT yet.</pre>
+              <pre id="contract-error-coord" class="contract-error empty">No compile errors.</pre>
+            </article>
+          </div>
+        </section>
+
+        <section class="bridge-actions">
+          <button id="trace" class="bridge-button">
+            <span class="button-label">Trace</span>
+            <span class="button-spinner" aria-hidden="true"></span>
+          </button>
+          <div class="bridge-arrow" aria-hidden="true">↓</div>
+        </section>
+
+        <section class="panel card panel-wide">
+          <div class="panel-header">
+            <div>
+              <h2>Traces</h2>
+              <p class="section-copy">
+                Generate the per-program traces first, then step them into the interleaving view.
+              </p>
+            </div>
+            <div class="inline-actions">
+              <span id="semantic-status" class="pill pill-muted">Semantics unchecked</span>
+              <button id="reset-execution">Reset Interleave</button>
+            </div>
+          </div>
+
+          <div class="trace-stage">
+            <div class="program-traces">
+              <div class="snapshot-box" id="trace-box-utxo-a">
+              <h3>UTXO A Trace</h3>
+              <div id="trace-utxo-a" class="trace-list empty"></div>
+            </div>
+              <div class="snapshot-box" id="trace-box-utxo-b">
+              <h3>UTXO B Trace</h3>
+              <div id="trace-utxo-b" class="trace-list empty"></div>
+            </div>
+              <div class="snapshot-box" id="trace-box-coord">
+              <h3>Coord Trace</h3>
+              <div id="trace-coord" class="trace-list empty"></div>
+            </div>
+            </div>
+
+            <div class="trace-divider">
+              <button id="step" class="step-button" title="Step Interleaving">→</button>
+              <div id="current-edge" class="current-edge">No active edge</div>
+            </div>
+
+            <div class="interleave-column">
+              <div class="snapshot-box" id="interleaved-box">
+                <h3>Interleaved Trace</h3>
+                <div id="interleaved-trace" class="trace-list empty"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="bridge-actions">
+          <button id="fold" class="bridge-button">
+            <span class="button-label">Fold</span>
+            <span class="button-spinner" aria-hidden="true"></span>
+          </button>
+          <div class="bridge-arrow" aria-hidden="true">↓</div>
+        </section>
+
+        <section class="panel card panel-wide">
+          <div class="panel-header">
+            <h2>Proof</h2>
+          </div>
+          <pre id="proof-output" class="code-block compact empty">No proof yet.</pre>
+          <details class="proof-details">
+            <summary>Public Statement</summary>
+            <pre id="proof-public-statement" class="code-block compact empty">No public statement yet.</pre>
+          </details>
+          <details class="proof-details">
+            <summary>Transaction Structure</summary>
+            <pre id="proof-transaction-debug" class="code-block compact empty">No transaction structure yet.</pre>
+          </details>
+        </section>
+
+        <section class="bridge-actions">
+          <button id="apply-transaction" class="bridge-button">
+            <span class="button-label">Apply to Ledger (Verify)</span>
+            <span class="button-spinner" aria-hidden="true"></span>
+          </button>
+          <div class="bridge-arrow" aria-hidden="true">↓</div>
+        </section>
+
+        <section class="panel card panel-wide">
+          <div class="panel-header">
+            <h2>Ledger</h2>
+          </div>
+          <details class="proof-details">
+            <summary>Ledger Before</summary>
+            <pre id="ledger-before-debug" class="code-block compact empty">No ledger snapshot yet.</pre>
+          </details>
+          <details class="proof-details">
+            <summary>Ledger After</summary>
+            <pre id="ledger-after-debug" class="code-block compact empty">No ledger snapshot yet.</pre>
+          </details>
+        </section>
+      </main>
+    </div>
+
+    <div id="floating-tooltip" class="floating-tooltip" aria-hidden="true"></div>
+
+    <script src="/app.js" defer></script>
+  </body>
+  </html>

@@ -1,0 +1,22 @@
+[package]
+name = "starstream-demo"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0"
+ark-ff = "0.5.0"
+ark-poseidon2 = { path = "../../ark-poseidon2" }
+axum = { version = "0.8.4", features = ["macros"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1.0"
+starstream-component-runtime = { path = "../starstream-component-runtime" }
+starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "net"] }
+wasmprinter.workspace = true
+wat = "1.240.0"
+wit-component.workspace = true

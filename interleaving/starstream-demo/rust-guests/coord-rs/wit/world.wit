@@ -1,0 +1,23 @@
+package starstream-demo:coord-rs;
+
+interface utxo-a-api {
+    resource utxo {
+        constructor();
+        get-data: func() -> u64;
+    }
+}
+
+interface utxo-b-api {
+    resource utxo {
+        constructor();
+        increment: func();
+    }
+}
+
+world demo {
+    import utxo-a-api;
+    import utxo-b-api;
+    use utxo-a-api.{utxo as utxo-a};
+    use utxo-b-api.{utxo as utxo-b};
+    export main: func(utxo-a: borrow<utxo-a>, utxo-b: borrow<utxo-b>);
+}

@@ -1,0 +1,14 @@
+package starstream-demo:utxo-b-rs;
+
+interface utxo-b-api {
+    resource utxo {
+        constructor();
+        increment: func();
+    }
+}
+
+world demo {
+    export utxo-b-api;
+    export snapshot-state: func() -> u64;
+    export snapshot-restore: func(state: u64);
+}
