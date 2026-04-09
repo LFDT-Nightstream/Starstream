@@ -3183,6 +3183,8 @@ name = "starstream-component-runtime"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "ark-ff",
+ "ark-poseidon2",
  "imbl",
  "starstream-interleaving-proof",
  "starstream-interleaving-spec",
