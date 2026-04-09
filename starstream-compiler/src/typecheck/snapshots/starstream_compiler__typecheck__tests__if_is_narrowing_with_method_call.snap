@@ -6,14 +6,14 @@ T-Fn: test => ()
   T-ReturnTail: if x is TokenAbi {
     x.transfer(100);
 } => ()
-    T-If: {x: Utxo} ⊢ if x is TokenAbi {
+    T-If: {test: fn(Utxo) -> (), x: Utxo} ⊢ if x is TokenAbi {
     x.transfer(100);
 } ⇒ ()
-      T-Expr: {x: TokenAbi} ⊢ x.transfer(100); ⇒ ()
-        T-Call: {x: TokenAbi} ⊢ x.transfer(100) ⇒ bool
-          T-FieldAccess: {x: TokenAbi} ⊢ x.transfer ⇒ fn(i64) -> bool
-            T-Var: {x: TokenAbi} ⊢ x ⇒ TokenAbi
-          T-Int: {x: TokenAbi} ⊢ 100 ⇒ i64
+      T-Expr: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x.transfer(100); ⇒ ()
+        T-Call: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x.transfer(100) ⇒ bool
+          T-FieldAccess: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x.transfer ⇒ fn(i64) -> bool
+            T-Var: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x ⇒ TokenAbi
+          T-Int: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ 100 ⇒ i64
           Unify-Var: i64 ~ i64 => {i64/t3}
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}

@@ -1160,8 +1160,10 @@ impl Compiler {
             match &item.ty {
                 Type::Function {
                     params,
+                    param_spans: _,
                     result,
                     effect: _,
+                    name_span: _,
                 } => {
                     let mut core_params = Vec::with_capacity(16);
                     let mut core_results = Vec::with_capacity(1);
@@ -1316,7 +1318,7 @@ impl Compiler {
                         });
                     }
                 }
-                TypedUtxoPart::MainFn(function) => {
+                TypedUtxoPart::Function(function) => {
                     self.visit_function(
                         &to_kebab_case(function.name.as_str()),
                         function,

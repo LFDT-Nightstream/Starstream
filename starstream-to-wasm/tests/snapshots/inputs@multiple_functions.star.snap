@@ -170,34 +170,34 @@ Program {
 
 ==== Inference trace ====
 T-Fn: main => ()
-  T-Let: {} ⊢ let flag = true; ⇒ bool
-    T-Bool: {} ⊢ true ⇒ bool
+  T-Let: {main: fn() -> ()} ⊢ let flag = true; ⇒ bool
+    T-Bool: {main: fn() -> ()} ⊢ true ⇒ bool
   T-ReturnTail: if (flag) {
     return;
 } else {
     return;
 } => ()
-    T-If: {flag: bool} ⊢ if (flag) {
+    T-If: {flag: bool, main: fn() -> ()} ⊢ if (flag) {
     return;
 } else {
     return;
 } ⇒ ()
-      T-Var: {flag: bool} ⊢ flag ⇒ bool
+      T-Var: {flag: bool, main: fn() -> ()} ⊢ flag ⇒ bool
       Check-Bool: bool => ok
-      T-ReturnUnit: {flag: bool} ⊢ return; ⇒ ()
+      T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
-      T-ReturnUnit: {flag: bool} ⊢ return; ⇒ ()
+      T-ReturnUnit: {flag: bool, main: fn() -> ()} ⊢ return; ⇒ ()
         Unify-Const: () ~ () => {}
       Unify-Const: () ~ () => {}
     Unify-Const: () ~ () => {}
 
 T-Fn: compute => i64
-  T-Let: {} ⊢ let base = 41; ⇒ i64
-    T-Int: {} ⊢ 41 ⇒ i64
+  T-Let: {compute: fn() -> i64, main: fn() -> ()} ⊢ let base = 41; ⇒ i64
+    T-Int: {compute: fn() -> i64, main: fn() -> ()} ⊢ 41 ⇒ i64
   T-ReturnTail: base + 1 => i64
-    T-Bin-Add: {base: i64} ⊢ base + 1 ⇒ i64
-      T-Var: {base: i64} ⊢ base ⇒ i64
-      T-Int: {base: i64} ⊢ 1 ⇒ i64
+    T-Bin-Add: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ base + 1 ⇒ i64
+      T-Var: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ base ⇒ i64
+      T-Int: {base: i64, compute: fn() -> i64, main: fn() -> ()} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t3}
     Unify-Var: i64 ~ i64 => {i64/t4}
 

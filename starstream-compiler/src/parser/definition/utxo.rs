@@ -27,14 +27,18 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
         )
         .map(UtxoPart::Storage);
 
-    let main_fn_part = just("main")
+    let fn_part = just("main")
         .padded()
-        .ignore_then(function_with_body())
-        .map(|def| {
-            UtxoPart::MainFn(FunctionDef {
-                export: Some(FunctionExport::UtxoMain),
-                ..def
-            })
+        .or_not()
+        .then(function_with_body())
+        .map(|(main, def)| {
+            UtxoPart::Function(
+                FunctionDef {
+                    export: main.map(|_| FunctionExport::UtxoMain),
+                    ..def
+                }
+                .into(),
+            )
         });
 
     let utxo_abi_fn = function_with_body();
@@ -51,7 +55,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
         )
         .map(|(abi, parts)| UtxoPart::AbiImpl { abi, parts });
 
-    let part = choice((storage_part, main_fn_part, abi_impl_part));
+    let part = choice((storage_part, fn_part, abi_impl_part));
 
     just("utxo")
         .padded()

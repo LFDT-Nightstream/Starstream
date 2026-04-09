@@ -4,17 +4,17 @@ description: "Source:\n\nfn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n\nfn tes
 ---
 T-Fn: add => i64
   T-ReturnTail: a + b => i64
-    T-Bin-Add: {a: i64, b: i64} ⊢ a + b ⇒ i64
-      T-Var: {a: i64, b: i64} ⊢ a ⇒ i64
-      T-Var: {a: i64, b: i64} ⊢ b ⇒ i64
+    T-Bin-Add: {a: i64, add: fn(i64, i64) -> i64, b: i64} ⊢ a + b ⇒ i64
+      T-Var: {a: i64, add: fn(i64, i64) -> i64, b: i64} ⊢ a ⇒ i64
+      T-Var: {a: i64, add: fn(i64, i64) -> i64, b: i64} ⊢ b ⇒ i64
       Unify-Const: i64 ~ i64 => {}
     Unify-Const: i64 ~ i64 => {}
 
 T-Fn: test => ()
-  T-Let: {} ⊢ let result = add(1, 2); ⇒ i64
-    T-Call: {} ⊢ add(1, 2) ⇒ i64
-      T-Var: {} ⊢ add ⇒ fn(i64, i64) -> i64
-      T-Int: {} ⊢ 1 ⇒ i64
+  T-Let: {add: fn(i64, i64) -> i64, test: fn() -> ()} ⊢ let result = add(1, 2); ⇒ i64
+    T-Call: {add: fn(i64, i64) -> i64, test: fn() -> ()} ⊢ add(1, 2) ⇒ i64
+      T-Var: {add: fn(i64, i64) -> i64, test: fn() -> ()} ⊢ add ⇒ fn(i64, i64) -> i64
+      T-Int: {add: fn(i64, i64) -> i64, test: fn() -> ()} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t3}
-      T-Int: {} ⊢ 2 ⇒ i64
+      T-Int: {add: fn(i64, i64) -> i64, test: fn() -> ()} ⊢ 2 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t4}

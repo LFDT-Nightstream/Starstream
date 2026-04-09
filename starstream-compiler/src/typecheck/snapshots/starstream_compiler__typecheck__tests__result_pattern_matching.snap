@@ -3,14 +3,14 @@ source: starstream-compiler/src/typecheck/tests.rs
 description: "Source:\n\nfn test() {\n    let x: Result<i64, bool> = Result::Ok(42);\n    let y = match x {\n        Result::Ok(v) => {\n            v\n        },\n        Result::Err(e) => {\n            0\n        },\n    };\n}\n"
 ---
 T-Fn: test => ()
-  T-Let: {} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result<i64, bool>
-    T-EnumCtor: {} ⊢ Result::Ok(42) ⇒ Result<i64, t4>
-      T-Int: {} ⊢ 42 ⇒ i64
+  T-Let: {test: fn() -> ()} ⊢ let x: Result<i64, bool> = Result::Ok(42); ⇒ Result<i64, bool>
+    T-EnumCtor: {test: fn() -> ()} ⊢ Result::Ok(42) ⇒ Result<i64, t4>
+      T-Int: {test: fn() -> ()} ⊢ 42 ⇒ i64
       Unify-Var: i64 ~ t3 => {i64/t5}
     Unify-Enum: Result<i64, bool> ~ Result<i64, t4> => {bool/t4, i64/t3}
       Unify-Var: bool ~ t4 => {bool/t4}
       Unify-Var: i64 ~ i64 => {i64/t3}
-  T-Let: {x: Result<i64, bool>} ⊢ let y = match x {
+  T-Let: {test: fn() -> (), x: Result<i64, bool>} ⊢ let y = match x {
     Result::Ok(v) => {
         v
     },
@@ -18,7 +18,7 @@ T-Fn: test => ()
         0
     },
 }; ⇒ i64
-    T-Match: {x: Result<i64, bool>} ⊢ match x {
+    T-Match: {test: fn() -> (), x: Result<i64, bool>} ⊢ match x {
     Result::Ok(v) => {
         v
     },
@@ -26,15 +26,15 @@ T-Fn: test => ()
         0
     },
 } ⇒ i64
-      T-Var: {x: Result<i64, bool>} ⊢ x ⇒ Result<i64, bool>
+      T-Var: {test: fn() -> (), x: Result<i64, bool>} ⊢ x ⇒ Result<i64, bool>
       Unify-Enum: Result<i64, bool> ~ Result<t6, t7> => {bool/t7, i64/t6}
         Unify-Var: bool ~ t7 => {bool/t7}
         Unify-Var: i64 ~ t6 => {i64/t6}
       T-Tail: v => i64
-        T-Var: {v: i64, x: Result<i64, bool>} ⊢ v ⇒ i64
+        T-Var: {test: fn() -> (), v: i64, x: Result<i64, bool>} ⊢ v ⇒ i64
       Unify-Enum: Result<i64, bool> ~ Result<t8, t9> => {bool/t9, i64/t8}
         Unify-Var: bool ~ t9 => {bool/t9}
         Unify-Var: i64 ~ t8 => {i64/t8}
       T-Tail: 0 => i64
-        T-Int: {e: bool, x: Result<i64, bool>} ⊢ 0 ⇒ i64
+        T-Int: {e: bool, test: fn() -> (), x: Result<i64, bool>} ⊢ 0 ⇒ i64
       Unify-Var: i64 ~ i64 => i64

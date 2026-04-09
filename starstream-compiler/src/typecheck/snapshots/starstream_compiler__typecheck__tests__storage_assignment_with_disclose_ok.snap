@@ -4,7 +4,7 @@ description: "Source:\n\nutxo Counter {\n    storage {\n        let mut counter:
 ---
 T-Utxo: Counter => 
   T-Fn: update => ()
-    T-Assign: {counter: i64, nextCounter: i64} ⊢ counter = disclose(nextCounter); ⇒ i64
-      T-Disclose: {counter: i64, nextCounter: i64} ⊢ disclose(nextCounter) ⇒ i64
-        T-Var: {counter: i64, nextCounter: i64} ⊢ nextCounter ⇒ i64
+    T-Assign: {counter: i64, nextCounter: i64, update: fn(i64) -> ()} ⊢ counter = disclose(nextCounter); ⇒ i64
+      T-Disclose: {counter: i64, nextCounter: i64, update: fn(i64) -> ()} ⊢ disclose(nextCounter) ⇒ i64
+        T-Var: {counter: i64, nextCounter: i64, update: fn(i64) -> ()} ⊢ nextCounter ⇒ i64
       Unify-Const: i64 ~ i64 => {}

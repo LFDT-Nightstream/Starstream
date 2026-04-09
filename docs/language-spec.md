@@ -88,14 +88,14 @@ utxo_definition ::=
 
 utxo_part ::=
   | storage_utxo_part
-  | main_fn_utxo_part
+  | fn_utxo_part
   | abi_impl_utxo_part
 
 storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
 utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
 
-main_fn_utxo_part ::= "main" function
+fn_utxo_part ::= ("main")? function
 
 abi_impl_utxo_part ::= "impl" identifier "{" impl_part* "}"
 

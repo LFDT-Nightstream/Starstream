@@ -250,7 +250,6 @@ struct Inferencer {
     /// Tracks the literal value associated with each integer type variable for range checking.
     int_literal_values: HashMap<TypeVarId, (i128, Span)>,
     types: TypeRegistry,
-    functions: FunctionRegistry,
     events: EventRegistry,
     abis: AbiRegistry,
     namespaces: NamespaceRegistry,
@@ -258,26 +257,6 @@ struct Inferencer {
     warnings: Vec<TypeWarning>,
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
-}
-
-struct FunctionRegistry {
-    entries: HashMap<String, FunctionInfo>,
-}
-
-impl FunctionRegistry {
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-        }
-    }
-
-    fn insert(&mut self, name: String, info: FunctionInfo) {
-        self.entries.insert(name, info);
-    }
-
-    fn get(&self, name: &str) -> Option<&FunctionInfo> {
-        self.entries.get(name)
-    }
 }
 
 #[derive(Clone)]
@@ -410,7 +389,6 @@ impl Inferencer {
             int_vars: HashSet::new(),
             int_literal_values: HashMap::new(),
             types: TypeRegistry::new(),
-            functions: FunctionRegistry::new(),
             events: EventRegistry::new(),
             abis: AbiRegistry::new(),
             namespaces: NamespaceRegistry::new(),
@@ -564,39 +542,9 @@ impl Inferencer {
         Ok(())
     }
 
-    fn register_function(&mut self, def: &FunctionDef) -> Result<(), TypeError> {
-        let name = def.name.name.clone();
-        let name_span = def.name.span();
-
-        if let Some(existing) = self.functions.get(&name) {
-            return Err(
-                TypeError::new(TypeErrorKind::FunctionAlreadyDefined { name }, name_span)
-                    .with_secondary(existing.name_span, "previously defined here"),
-            );
-        }
-
-        let mut param_types = Vec::with_capacity(def.params.len());
-        let mut param_spans = Vec::with_capacity(def.params.len());
-        for param in &def.params {
-            let ty = self.type_from_annotation(&param.ty)?;
-            param_types.push(ty);
-            param_spans.push(param.ty.name.span());
-        }
-        let return_type = match &def.return_type {
-            Some(annotation) => self.type_from_annotation(annotation)?,
-            None => Type::unit(),
-        };
-        // User-defined functions are currently always pure
-        self.functions.insert(
-            name,
-            FunctionInfo {
-                param_types,
-                param_spans,
-                return_type,
-                effect: EffectKind::Pure,
-                name_span,
-            },
-        );
+    fn register_function(&mut self, _def: &FunctionDef) -> Result<(), TypeError> {
+        // TODO: hoist function type discovery back here, out of `infer_function`,
+        // so that code can call functions declared later in the file.
         Ok(())
     }
 
@@ -655,19 +603,7 @@ impl Inferencer {
                         )
                     })?;
 
-                    // Register the function in our function registry under the local name
-                    self.functions.insert(
-                        item.local.name.clone(),
-                        FunctionInfo {
-                            param_types: builtin.params.clone(),
-                            param_spans: vec![], // No source spans for builtins
-                            return_type: builtin.return_type.clone(),
-                            effect: builtin.effect,
-                            name_span: item.local.span(),
-                        },
-                    );
-
-                    // Also add to the type environment so it can be looked up as a variable
+                    // Add function to the type environment so it can be looked up
                     env.insert(
                         item.local.name.clone(),
                         Binding {
@@ -1159,6 +1095,8 @@ impl Inferencer {
         env: &mut TypeEnv,
         def: &UtxoDef,
     ) -> Result<(TypedUtxoDef, InferenceTree), TypeError> {
+        env.push_scope();
+
         let mut parts = Vec::with_capacity(def.parts.len());
         let mut traces = Vec::with_capacity(def.parts.len());
 
@@ -1169,8 +1107,10 @@ impl Inferencer {
                         .map(|var| self.infer_utxo_global(env, var))
                         .collect::<Result<Vec<_>, _>>()?,
                 ),
-                UtxoPart::MainFn(function) => {
-                    if function.return_type.is_some() {
+                UtxoPart::Function(function) => {
+                    if function.export == Some(starstream_types::FunctionExport::UtxoMain)
+                        && function.return_type.is_some()
+                    {
                         return Err(TypeError::new(
                             TypeErrorKind::ReturnTypeNotAllowed,
                             function.name.span(),
@@ -1178,11 +1118,13 @@ impl Inferencer {
                     }
                     let (func, trace) = self.infer_function(env, function)?;
                     traces.push(trace);
-                    TypedUtxoPart::MainFn(func)
+                    TypedUtxoPart::Function(func.into())
                 }
                 UtxoPart::AbiImpl { abi, parts } => todo!(),
             });
         }
+
+        env.pop_scope();
 
         Ok((
             TypedUtxoDef {
@@ -1655,11 +1597,56 @@ impl Inferencer {
         env: &mut TypeEnv,
         function: &FunctionDef,
     ) -> Result<(TypedFunctionDef, InferenceTree), TypeError> {
+        // Visit param & return types.
+        let param_types = function
+            .params
+            .iter()
+            .map(|param| self.type_from_annotation(&param.ty))
+            .collect::<Result<Vec<_>, _>>()?;
+        let (expected_return, return_span) = match &function.return_type {
+            Some(annotation) => (
+                self.type_from_annotation(annotation)?,
+                annotation.name.span_or(function.name.span()),
+            ),
+            None => (Type::unit(), function.name.span()),
+        };
+
+        // Insert function into environment. Happens before code so that recursion is allowed.
+        if let Some(existing) = env.get_in_current_scope(function.name.as_str()) {
+            return Err(TypeError::new(
+                TypeErrorKind::FunctionAlreadyDefined {
+                    name: function.name.to_string(),
+                },
+                function.name.span,
+            )
+            .with_secondary(existing.decl_span, "previously defined here"));
+        }
+        let param_spans = function
+            .params
+            .iter()
+            .map(|param| param.ty.name.span)
+            .collect::<Vec<_>>();
+        env.insert(
+            function.name.to_string(),
+            Binding {
+                decl_span: function.name.span,
+                mutable: false,
+                scheme: Scheme::monomorphic(Type::Function {
+                    params: param_types.clone(),
+                    param_spans,
+                    result: Box::new(expected_return.clone()),
+                    effect: EffectKind::Pure,
+                    name_span: function.name.span,
+                }),
+                class: BindingClass::Local,
+                visibility: BindingVisibility::Private,
+            },
+        );
+
         env.push_scope();
         let mut typed_params = Vec::with_capacity(function.params.len());
         let mut private_param_decl_spans = Vec::new();
-        for param in &function.params {
-            let ty = self.type_from_annotation(&param.ty)?;
+        for (param, ty) in function.params.iter().zip(param_types) {
             let decl_span = param.name.span_or(function.name.span());
             if !param.public {
                 private_param_decl_spans.push(decl_span);
@@ -1684,14 +1671,6 @@ impl Inferencer {
                 ty,
             });
         }
-
-        let (expected_return, return_span) = match &function.return_type {
-            Some(annotation) => (
-                self.type_from_annotation(annotation)?,
-                annotation.name.span_or(function.name.span()),
-            ),
-            None => (Type::unit(), function.name.span()),
-        };
 
         let mut ctx = FunctionCtx {
             expected_return: expected_return.clone(),
@@ -2119,8 +2098,6 @@ impl Inferencer {
             Expr::Identifier(ident) => {
                 let ty = if let Some(binding) = env.get(ident.as_str()).cloned() {
                     self.instantiate(&binding.scheme)
-                } else if let Some(func_info) = self.functions.get(ident.as_str()) {
-                    Type::function(func_info.param_types.clone(), func_info.return_type.clone())
                 } else {
                     let span = ident.span_or(expr.span);
                     return Err(TypeError::new(
@@ -2541,8 +2518,10 @@ impl Inferencer {
                             })?;
                         Type::Function {
                             params: method.param_types.clone(),
+                            param_spans: method.param_spans.clone(),
                             result: Box::new(method.return_type.clone()),
                             effect: EffectKind::Pure,
+                            name_span: method.name_span,
                         }
                     }
                     _ => {
@@ -2674,7 +2653,7 @@ impl Inferencer {
                                 expected: expected_ty.clone(),
                                 found: self.apply_for_display(&actual_ty),
                                 position: index + 1,
-                                param_span: None,
+                                param_span: func_info.param_spans.get(index).copied(),
                             },
                         )?;
 
@@ -2686,8 +2665,10 @@ impl Inferencer {
                     // Build the typed call - we use TypedExprKind::Call with a synthetic callee
                     let callee_ty = Type::Function {
                         params: param_types.clone(),
+                        param_spans: Vec::new(),
                         result: Box::new(return_type.clone()),
                         effect,
+                        name_span: func_info.name_span,
                     };
 
                     let callee_ident = Identifier::new(
@@ -3277,40 +3258,18 @@ impl Inferencer {
                     None
                 };
 
-                let (param_types, param_spans, return_type, effect) = match &callee_ty {
-                    Type::Function {
-                        params,
-                        result,
-                        effect,
-                    } => {
-                        let (spans, eff) = callee_name
-                            .and_then(|name| self.functions.get(name))
-                            .map(|info| (info.param_spans.clone(), info.effect))
-                            .unwrap_or_else(|| (vec![], *effect));
-                        (params.clone(), spans, (**result).clone(), eff)
-                    }
-                    _ => {
-                        if let Some(name) = callee_name {
-                            if let Some(info) = self.functions.get(name) {
-                                (
-                                    info.param_types.clone(),
-                                    info.param_spans.clone(),
-                                    info.return_type.clone(),
-                                    info.effect,
-                                )
-                            } else {
-                                return Err(TypeError::new(
-                                    TypeErrorKind::NotAFunction { found: callee_ty },
-                                    callee.span,
-                                ));
-                            }
-                        } else {
-                            return Err(TypeError::new(
-                                TypeErrorKind::NotAFunction { found: callee_ty },
-                                callee.span,
-                            ));
-                        }
-                    }
+                let Type::Function {
+                    params: ref param_types,
+                    ref param_spans,
+                    result: ref return_type,
+                    effect,
+                    name_span: _,
+                } = callee_ty
+                else {
+                    return Err(TypeError::new(
+                        TypeErrorKind::NotAFunction { found: callee_ty },
+                        callee.span,
+                    ));
                 };
 
                 // Check effect: effectful functions can only be called inside `raise`
@@ -3343,25 +3302,24 @@ impl Inferencer {
 
                 // Check linearity: if the callee is a field access on an AbiNarrow target,
                 // enforce the one-method-call-per-block constraint.
-                if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind {
-                    if let Type::AbiNarrow(_) = &target.node.ty {
-                        if let TypedExprKind::Identifier(ident) = &target.node.kind {
-                            for tracker in self.abi_call_trackers.iter_mut().rev() {
-                                if tracker.var_name == ident.name {
-                                    if let Some(first_span) = tracker.first_call_span {
-                                        return Err(TypeError::new(
-                                            TypeErrorKind::LinearMethodCallViolation {
-                                                var_name: tracker.var_name.clone(),
-                                                abi_name: tracker.abi_name.clone(),
-                                            },
-                                            expr.span,
-                                        )
-                                        .with_secondary(first_span, "first method call here"));
-                                    }
-                                    tracker.first_call_span = Some(expr.span);
-                                    break;
-                                }
+                if let TypedExprKind::FieldAccess { target, .. } = &typed_callee.node.kind
+                    && let Type::AbiNarrow(_) = &target.node.ty
+                    && let TypedExprKind::Identifier(ident) = &target.node.kind
+                {
+                    for tracker in self.abi_call_trackers.iter_mut().rev() {
+                        if tracker.var_name == ident.name {
+                            if let Some(first_span) = tracker.first_call_span {
+                                return Err(TypeError::new(
+                                    TypeErrorKind::LinearMethodCallViolation {
+                                        var_name: tracker.var_name.clone(),
+                                        abi_name: tracker.abi_name.clone(),
+                                    },
+                                    expr.span,
+                                )
+                                .with_secondary(first_span, "first method call here"));
                             }
+                            tracker.first_call_span = Some(expr.span);
+                            break;
                         }
                     }
                 }
@@ -3405,7 +3363,7 @@ impl Inferencer {
 
                 let typed = Spanned::new(
                     TypedExpr::new(
-                        return_type.clone(),
+                        (**return_type).clone(),
                         TypedExprKind::Call {
                             callee: Box::new(typed_callee),
                             args: typed_args,
@@ -3414,7 +3372,7 @@ impl Inferencer {
                     expr.span,
                 );
 
-                let result_repr = self.maybe_string(|| self.format_type(&return_type));
+                let result_repr = self.maybe_string(|| self.format_type(return_type));
 
                 let tree =
                     self.make_trace("T-Call", env_context, subject_repr, result_repr, || {
@@ -3619,6 +3577,7 @@ impl Inferencer {
             None
         }
     }
+    #[allow(clippy::only_used_in_recursion)]
     fn source_expr_visibility(&self, env: &TypeEnv, expr: &Spanned<Expr>) -> BindingVisibility {
         match &expr.node {
             Expr::Literal(_) => BindingVisibility::Public,
@@ -3941,12 +3900,16 @@ impl Inferencer {
             },
             Type::Function {
                 params,
+                param_spans,
                 result,
                 effect,
+                name_span,
             } => Type::Function {
                 params: params.iter().map(|t| self.apply_for_display(t)).collect(),
+                param_spans: param_spans.clone(),
                 result: Box::new(self.apply_for_display(result)),
                 effect: *effect,
+                name_span: *name_span,
             },
             Type::Tuple(items) => {
                 Type::Tuple(items.iter().map(|t| self.apply_for_display(t)).collect())
@@ -4010,12 +3973,16 @@ impl Inferencer {
             },
             Type::Function {
                 params,
+                param_spans,
                 result,
                 effect,
+                name_span,
             } => Type::Function {
                 params: params.iter().map(|t| self.apply(t)).collect(),
+                param_spans: param_spans.clone(),
                 result: Box::new(self.apply(result)),
                 effect: *effect,
+                name_span: *name_span,
             },
             Type::Tuple(items) => Type::Tuple(items.iter().map(|t| self.apply(t)).collect()),
             Type::Record(record) => Type::Record(RecordType {
@@ -4096,7 +4063,7 @@ impl Inferencer {
                         var.ty = self.apply(&var.ty);
                     }
                 }
-                TypedUtxoPart::MainFn(func) => {
+                TypedUtxoPart::Function(func) => {
                     self.apply_function(func);
                 }
             }
@@ -4456,8 +4423,10 @@ impl Inferencer {
             (
                 Type::Function {
                     params: lp,
+                    param_spans: lps,
                     result: lr,
                     effect: le,
+                    name_span: lns,
                 },
                 Type::Function {
                     params: rp,
@@ -4475,8 +4444,10 @@ impl Inferencer {
                 Ok((
                     Type::Function {
                         params: lp,
+                        param_spans: lps,
                         result: lr,
                         effect: le,
+                        name_span: lns,
                     },
                     children,
                     "Unify-Arrow",
@@ -4638,8 +4609,10 @@ impl Inferencer {
             (
                 Type::Function {
                     params: lp,
+                    param_spans: lps,
                     result: lr,
                     effect: le,
+                    name_span: lns,
                 },
                 Type::Function {
                     params: rp,
@@ -4682,8 +4655,10 @@ impl Inferencer {
                 (
                     Type::Function {
                         params: lp,
+                        param_spans: lps,
                         result: lr,
                         effect: le,
+                        name_span: lns,
                     },
                     arrow_children,
                     "Unify-Arrow",
@@ -4885,15 +4860,19 @@ fn substitute_type(ty: &Type, mapping: &HashMap<TypeVarId, Type>) -> Type {
         Type::Var(id) => mapping.get(id).cloned().unwrap_or(Type::Var(*id)),
         Type::Function {
             params,
+            param_spans,
             result,
             effect,
+            name_span,
         } => Type::Function {
             params: params
                 .iter()
                 .map(|ty| substitute_type(ty, mapping))
                 .collect(),
+            param_spans: param_spans.clone(),
             result: Box::new(substitute_type(result, mapping)),
             effect: *effect,
+            name_span: *name_span,
         },
         Type::Tuple(items) => Type::Tuple(
             items

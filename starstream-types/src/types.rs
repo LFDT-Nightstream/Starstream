@@ -9,6 +9,8 @@ use pretty::RcDoc;
 use std::collections::HashMap;
 use std::fmt;
 
+use crate::{DUMMY_SPAN, Span};
+
 const TYPE_FORMAT_WIDTH: usize = 80;
 
 /// Integer width and signedness.
@@ -163,8 +165,10 @@ pub enum Type {
     /// Function type `(params) -> result` with an optional effect.
     Function {
         params: Vec<Type>,
+        param_spans: Vec<Span>,
         result: Box<Type>,
         effect: EffectKind,
+        name_span: Span,
     },
     /// Tuple type `(T0, T1, …)`.
     Tuple(Vec<Type>),
@@ -214,30 +218,16 @@ impl Type {
         })
     }
 
-    /// Pure function type helper.
+    /// Anonymous pure function type helper.
+    ///
+    /// Use `Type::Function { ... }` directly to set full details.
     pub fn function(params: Vec<Type>, result: Type) -> Self {
         Type::Function {
             params,
+            param_spans: Vec::new(),
             result: Box::new(result),
             effect: EffectKind::Pure,
-        }
-    }
-
-    /// Effectful function type helper.
-    pub fn effectful_function(params: Vec<Type>, result: Type) -> Self {
-        Type::Function {
-            params,
-            result: Box::new(result),
-            effect: EffectKind::Effectful,
-        }
-    }
-
-    /// Runtime function type helper.
-    pub fn runtime_function(params: Vec<Type>, result: Type) -> Self {
-        Type::Function {
-            params,
-            result: Box::new(result),
-            effect: EffectKind::Runtime,
+            name_span: DUMMY_SPAN,
         }
     }
 }
@@ -276,8 +266,10 @@ impl Type {
             Type::Unit => RcDoc::text("()"),
             Type::Function {
                 params: fn_params,
+                param_spans: _,
                 result,
                 effect,
+                name_span: _,
             } => {
                 let params_doc = if fn_params.is_empty() {
                     RcDoc::text("()")

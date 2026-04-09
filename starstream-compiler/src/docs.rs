@@ -42,7 +42,7 @@ pub enum TypeRef {
         params: Vec<TypeRef>,
         #[serde(rename = "returnType")]
         return_type: Box<TypeRef>,
-        effect: String,
+        effect: &'static str,
     },
 }
 
@@ -75,15 +75,17 @@ impl From<&Type> for TypeRef {
             },
             Type::Function {
                 params,
+                param_spans: _,
                 result,
                 effect,
+                name_span: _,
             } => TypeRef::Function {
                 params: params.iter().map(TypeRef::from).collect(),
                 return_type: Box::new(TypeRef::from(result.as_ref())),
                 effect: match effect {
-                    EffectKind::Pure => "pure".to_string(),
-                    EffectKind::Effectful => "effectful".to_string(),
-                    EffectKind::Runtime => "runtime".to_string(),
+                    EffectKind::Pure => "pure",
+                    EffectKind::Effectful => "effectful",
+                    EffectKind::Runtime => "runtime",
                 },
             },
             Type::UtxoAny => TypeRef::Resource {

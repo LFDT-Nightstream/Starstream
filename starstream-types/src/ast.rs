@@ -277,7 +277,7 @@ pub struct UtxoDef {
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum UtxoPart {
     Storage(Vec<UtxoGlobal>),
-    MainFn(FunctionDef),
+    Function(Box<FunctionDef>),
     AbiImpl {
         abi: Identifier,
         parts: Vec<FunctionDef>,

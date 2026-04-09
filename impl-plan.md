@@ -64,7 +64,7 @@ Language features:
 - [ ] UTXO elements
   - [x] `storage` blocks to declare UTXO state (Wasm globals)
   - [x] basic `main fn`s
-  - [ ] private method `fn`s
+  - [x] private method `fn`s
   - [ ] public method `pub fn`s ?
   - [ ] abi impl blocks
   - [ ] coroutine support (yield/resume)
@@ -81,8 +81,8 @@ Language features:
   - ~~`f32` and `f64`~~ (determinism/proving trouble)
   - [x] literals infer their type from context
 - [ ] variable privacy
-  - [ ] `disclose` builtin
-  - [ ] check that `if` conditions are disclosed
+  - [x] `disclose` builtin
+  - [x] check that `if` conditions are disclosed
   - [ ] check that variables across yield points are disclosed
 - [ ] typedefs
   - [ ] basic `type A = B;`

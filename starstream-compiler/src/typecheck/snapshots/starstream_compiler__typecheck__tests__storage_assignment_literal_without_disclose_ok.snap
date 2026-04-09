@@ -4,6 +4,6 @@ description: "Source:\n\nutxo Counter {\n    storage {\n        let mut counter:
 ---
 T-Utxo: Counter => 
   T-Fn: update => ()
-    T-Assign: {counter: i64} ⊢ counter = 1; ⇒ i64
-      T-Int: {counter: i64} ⊢ 1 ⇒ i64
+    T-Assign: {counter: i64, update: fn() -> ()} ⊢ counter = 1; ⇒ i64
+      T-Int: {counter: i64, update: fn() -> ()} ⊢ 1 ⇒ i64
       Unify-Var: i64 ~ i64 => {i64/t3}
