@@ -100,9 +100,13 @@ abi_definition ::=
 
 abi_part ::=
   | event_definition
+  | abi_fn_declaration
 
 event_definition ::=
   "event" identifier "(" ( parameter ( "," parameter )* )? ")" ";"
+
+abi_fn_declaration ::=
+  "fn" identifier "(" ( parameter ( "," parameter )* )? ")" ( "->" type_annotation )? ";"
 
 (* Type syntax *)
 
@@ -212,7 +216,11 @@ enum_pattern_tuple_payload ::= "(" ( pattern ( "," pattern )* )? ")"
 
 enum_pattern_struct_payload ::= "{" ( struct_field_pattern ( "," struct_field_pattern )* )? "}"
 
-if_expression ::= "if" "(" expression ")" block ( "else" "if" "(" expression ")" block )* ( "else" block )?
+if_condition ::=
+  | "(" expression ")"
+  | identifier "is" identifier
+
+if_expression ::= "if" if_condition block ( "else" "if" if_condition block )* ( "else" block )?
 
 unary_expression ::= ("-" | "!") expression
 
@@ -274,6 +282,7 @@ The following reserved words may not be used as identifiers:
 - `raise`
 - `runtime`
 - `disclose`
+- `is`
 
 <!--
   NOTE: When updating this grammar, also update:

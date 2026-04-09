@@ -1,0 +1,26 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi AbiA {\n    fn foo() -> i64;\n}\n\nabi AbiB {\n    fn bar() -> bool;\n}\n\nfn test(x: Utxo) {\n    if x is AbiA {\n        x.foo();\n    } else if x is AbiB {\n        x.bar();\n    }\n}\n"
+---
+T-Fn: test => ()
+  T-ReturnTail: if x is AbiA {
+    x.foo();
+} else if x is AbiB {
+    x.bar();
+} => ()
+    T-If: {test: fn(Utxo) -> (), x: Utxo} ⊢ if x is AbiA {
+    x.foo();
+} else if x is AbiB {
+    x.bar();
+} ⇒ ()
+      T-Expr: {test: fn(Utxo) -> (), x: AbiA} ⊢ x.foo(); ⇒ ()
+        T-Call: {test: fn(Utxo) -> (), x: AbiA} ⊢ x.foo() ⇒ i64
+          T-FieldAccess: {test: fn(Utxo) -> (), x: AbiA} ⊢ x.foo ⇒ fn() -> i64
+            T-Var: {test: fn(Utxo) -> (), x: AbiA} ⊢ x ⇒ AbiA
+      T-Expr: {test: fn(Utxo) -> (), x: AbiB} ⊢ x.bar(); ⇒ ()
+        T-Call: {test: fn(Utxo) -> (), x: AbiB} ⊢ x.bar() ⇒ bool
+          T-FieldAccess: {test: fn(Utxo) -> (), x: AbiB} ⊢ x.bar ⇒ fn() -> bool
+            T-Var: {test: fn(Utxo) -> (), x: AbiB} ⊢ x ⇒ AbiB
+      Unify-Const: () ~ () => {}
+      Unify-Const: () ~ () => {}
+    Unify-Const: () ~ () => {}

@@ -44,15 +44,17 @@ Program {
                                 node: If {
                                     branches: [
                                         (
-                                            Spanned {
-                                                node: Identifier(
-                                                    Identifier {
-                                                        name: "flag",
-                                                        span: 41..45,
-                                                    },
-                                                ),
-                                                span: 41..45,
-                                            },
+                                            Bool(
+                                                Spanned {
+                                                    node: Identifier(
+                                                        Identifier {
+                                                            name: "flag",
+                                                            span: 41..45,
+                                                        },
+                                                    ),
+                                                    span: 41..45,
+                                                },
+                                            ),
                                             Block {
                                                 statements: [
                                                     Spanned {
@@ -241,18 +243,20 @@ TypedProgram {
                                 kind: If {
                                     branches: [
                                         (
-                                            Spanned {
-                                                node: TypedExpr {
-                                                    ty: Bool,
-                                                    kind: Identifier(
-                                                        Identifier {
-                                                            name: "flag",
-                                                            span: 41..45,
-                                                        },
-                                                    ),
+                                            Bool(
+                                                Spanned {
+                                                    node: TypedExpr {
+                                                        ty: Bool,
+                                                        kind: Identifier(
+                                                            Identifier {
+                                                                name: "flag",
+                                                                span: 41..45,
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: 41..45,
                                                 },
-                                                span: 41..45,
-                                            },
+                                            ),
                                             TypedBlock {
                                                 statements: [
                                                     Return(

@@ -29,10 +29,13 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
         .or_not()
         .then(function_with_body())
         .map(|(main, def)| {
-            UtxoPart::Function(FunctionDef {
-                export: main.map(|_| FunctionExport::UtxoMain),
-                ..def
-            })
+            UtxoPart::Function(
+                FunctionDef {
+                    export: main.map(|_| FunctionExport::UtxoMain),
+                    ..def
+                }
+                .into(),
+            )
         });
 
     let part = choice((storage_part, fn_part));

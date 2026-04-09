@@ -1,0 +1,46 @@
+---
+source: starstream-compiler/src/parser/definition/abi.rs
+description: "Code:\n\nabi TokenAbi {\n    fn transfer(amount: i64) -> bool;\n}\n"
+---
+AbiDef {
+    name: Identifier {
+        name: "TokenAbi",
+        span: 4..12,
+    },
+    parts: [
+        FnDecl(
+            AbiMethodDecl {
+                name: Identifier {
+                    name: "transfer",
+                    span: 22..30,
+                },
+                params: [
+                    FunctionParam {
+                        public: false,
+                        name: Identifier {
+                            name: "amount",
+                            span: 31..37,
+                        },
+                        ty: TypeAnnotation {
+                            name: Identifier {
+                                name: "i64",
+                                span: 39..42,
+                            },
+                            generics: [],
+                        },
+                    },
+                ],
+                return_type: Some(
+                    TypeAnnotation {
+                        name: Identifier {
+                            name: "bool",
+                            span: 47..51,
+                        },
+                        generics: [],
+                    },
+                ),
+                span: 19..53,
+            },
+        ),
+    ],
+}

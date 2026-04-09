@@ -1,0 +1,19 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi TokenAbi {\n    fn transfer(amount: i64) -> bool;\n}\n\nfn test(x: Utxo) {\n    if x is TokenAbi {\n        x.transfer(100);\n    }\n}\n"
+---
+T-Fn: test => ()
+  T-ReturnTail: if x is TokenAbi {
+    x.transfer(100);
+} => ()
+    T-If: {test: fn(Utxo) -> (), x: Utxo} ⊢ if x is TokenAbi {
+    x.transfer(100);
+} ⇒ ()
+      T-Expr: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x.transfer(100); ⇒ ()
+        T-Call: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x.transfer(100) ⇒ bool
+          T-FieldAccess: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x.transfer ⇒ fn(i64) -> bool
+            T-Var: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ x ⇒ TokenAbi
+          T-Int: {test: fn(Utxo) -> (), x: TokenAbi} ⊢ 100 ⇒ i64
+          Unify-Var: i64 ~ i64 => {i64/t3}
+      Unify-Const: () ~ () => {}
+    Unify-Const: () ~ () => {}

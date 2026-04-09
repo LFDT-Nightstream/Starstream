@@ -1,22 +1,21 @@
 ---
 source: starstream-compiler/src/parser/expression/primary/if_expr.rs
-description: "Code:\n\nif (a) { 1 } else if (b) { 2 } else { 3 }\n"
+description: "Code:\n\nif x is AbiA { 1 } else if (flag) { 2 } else { 3 }\n"
 ---
 Spanned {
     node: If {
         branches: [
             (
-                Bool(
-                    Spanned {
-                        node: Identifier(
-                            Identifier {
-                                name: "a",
-                                span: 4..5,
-                            },
-                        ),
-                        span: 4..5,
+                Is {
+                    name: Identifier {
+                        name: "x",
+                        span: 3..4,
                     },
-                ),
+                    abi_name: Identifier {
+                        name: "AbiA",
+                        span: 8..12,
+                    },
+                },
                 Block {
                     statements: [],
                     tail_expression: Some(
@@ -26,10 +25,10 @@ Spanned {
                                     1,
                                 ),
                             ),
-                            span: 9..10,
+                            span: 15..16,
                         },
                     ),
-                    span: 7..13,
+                    span: 13..19,
                 },
             ),
             (
@@ -37,11 +36,11 @@ Spanned {
                     Spanned {
                         node: Identifier(
                             Identifier {
-                                name: "b",
-                                span: 22..23,
+                                name: "flag",
+                                span: 28..32,
                             },
                         ),
-                        span: 22..23,
+                        span: 28..32,
                     },
                 ),
                 Block {
@@ -53,10 +52,10 @@ Spanned {
                                     2,
                                 ),
                             ),
-                            span: 27..28,
+                            span: 36..37,
                         },
                     ),
-                    span: 25..31,
+                    span: 34..40,
                 },
             ),
         ],
@@ -70,12 +69,12 @@ Spanned {
                                 3,
                             ),
                         ),
-                        span: 38..39,
+                        span: 47..48,
                     },
                 ),
-                span: 36..42,
+                span: 45..51,
             },
         ),
     },
-    span: 0..42,
+    span: 0..51,
 }

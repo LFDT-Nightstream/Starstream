@@ -1,0 +1,16 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi MyAbi {\n    fn transfer(amount: i64) -> bool;\n    fn balance() -> i64;\n}\n\nfn test(x: Utxo) {\n    if x is MyAbi {\n        x.transfer(100);\n        x.balance();\n    }\n}\n"
+---
+E0049 (https://starstream.nightstream.dev/errors/E0049)
+
+  x only one method call is allowed on narrowed variable `x` (ABI `MyAbi`)
+    ,-[test.star:9:9]
+  7 |     if x is MyAbi {
+  8 |         x.transfer(100);
+    :         ^^^^^^^|^^^^^^^
+    :                `-- first method call here
+  9 |         x.balance();
+    :         ^^^^^^^^^^^
+ 10 |     }
+    `----

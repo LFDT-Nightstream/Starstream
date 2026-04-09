@@ -1,0 +1,13 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\nabi MyAbi {\n    fn transfer(amount: i64) -> bool;\n}\n\nfn test(x: Utxo) {\n    if x is MyAbi {\n        x.nonexistent();\n    }\n}\n"
+---
+E0048 (https://starstream.nightstream.dev/errors/E0048)
+
+  x ABI `MyAbi` has no method named `nonexistent`
+   ,-[test.star:7:11]
+ 6 |     if x is MyAbi {
+ 7 |         x.nonexistent();
+   :           ^^^^^^^^^^^
+ 8 |     }
+   `----
