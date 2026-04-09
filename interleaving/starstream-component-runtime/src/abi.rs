@@ -20,7 +20,7 @@ pub enum HostImportCall<Resource> {
     Resume {
         target: Resource,
         payload: Ref,
-        function_id: u32,
+        function_id: u64,
     },
     Yield {
         payload: Ref,
@@ -44,6 +44,6 @@ pub enum HostImportCall<Resource> {
     CallEffectHandler {
         interface_id: InterfaceId,
         payload: Ref,
-        function_id: u32,
+        function_id: u64,
     },
 }

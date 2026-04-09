@@ -1,7 +1,9 @@
 use crate::abi::HostImportCall;
 use crate::executor::{ExecutorError, HostImportOutcome, ProgramDefinition, StarstreamExecutor};
+use ark_ff::PrimeField;
+use ark_poseidon2::F;
 use starstream_interleaving_spec::{
-    FunctionId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
+    CoroutineState, FunctionId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
 };
 use std::collections::{HashMap, HashSet};
 use wasmtime::component::types::ComponentItem;
@@ -58,7 +60,7 @@ pub struct ComponentHostState {
     pub pending_activations: HashMap<ProcessId, (Ref, ProcessId)>,
     pub instances: HashMap<ProcessId, wasmtime::component::Instance>,
     pub callee_handles: HashMap<ProcessId, ResourceAny>,
-    import_instance_schemas: HashMap<String, ImportInstanceSchema>,
+    pub callee_interfaces: HashMap<ProcessId, String>,
     pub executor: StarstreamExecutor<u32>,
 }
 
@@ -73,7 +75,7 @@ impl Default for ComponentHostState {
             pending_activations: HashMap::new(),
             instances: HashMap::new(),
             callee_handles: HashMap::new(),
-            import_instance_schemas: HashMap::new(),
+            callee_interfaces: HashMap::new(),
             executor: StarstreamExecutor::new(),
         }
     }
@@ -89,9 +91,8 @@ pub struct WasmtimeComponentStarstreamExecutor {
 impl WasmtimeComponentStarstreamExecutor {
     pub fn new() -> Result<Self, ScalarComponentError> {
         let engine = component_runtime();
-        let mut store = Store::new(&engine, ComponentHostState::default());
+        let store = Store::new(&engine, ComponentHostState::default());
         let import_instance_schemas = HashMap::new();
-        store.data_mut().import_instance_schemas = import_instance_schemas.clone();
         let linker = build_linker(&engine, &import_instance_schemas)?;
         Ok(Self {
             engine,
@@ -142,7 +143,6 @@ impl WasmtimeComponentStarstreamExecutor {
     }
 
     fn rebuild_linker(&mut self) -> Result<(), ScalarComponentError> {
-        self.store.data_mut().import_instance_schemas = self.import_instance_schemas.clone();
         self.linker = build_linker(&self.engine, &self.import_instance_schemas)?;
         Ok(())
     }
@@ -181,6 +181,10 @@ impl WasmtimeComponentStarstreamExecutor {
             let (handle,) = constructor.call(&mut self.store, ())?;
             constructor.post_return(&mut self.store)?;
             self.store.data_mut().callee_handles.insert(pid, handle);
+            self.store
+                .data_mut()
+                .callee_interfaces
+                .insert(pid, export_name.to_owned());
             break;
         }
         self.store.data_mut().instances.insert(pid, instance);
@@ -193,6 +197,23 @@ impl WasmtimeComponentStarstreamExecutor {
         instance: &wasmtime::component::Instance,
     ) -> Result<(), ScalarComponentError> {
         self.run_export(pid, instance, "main")
+    }
+
+    pub fn run_main_with_resources(
+        &mut self,
+        pid: ProcessId,
+        instance: &wasmtime::component::Instance,
+        resources: &[u32],
+    ) -> Result<(), ScalarComponentError> {
+        let params = resources
+            .iter()
+            .map(|resource| {
+                Resource::<UtxoResource>::new_own(*resource)
+                    .try_into_resource_any(&mut self.store)
+                    .map(WasmtimeVal::Resource)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.run_export_with_args(pid, instance, "main", &params)
     }
 
     pub fn run_export(
@@ -239,7 +260,7 @@ impl WasmtimeComponentStarstreamExecutor {
                     effect,
                     WitLedgerEffect::Yield { .. }
                         | WitLedgerEffect::Return { .. }
-                        | WitLedgerEffect::Burn { .. }
+                        | WitLedgerEffect::Burn {}
                 )
             });
         if needs_implicit_return {
@@ -249,6 +270,46 @@ impl WasmtimeComponentStarstreamExecutor {
                 .append_effect(pid, WitLedgerEffect::Return {});
         }
         Ok(())
+    }
+
+    pub fn snapshot_process_state(
+        &mut self,
+        pid: ProcessId,
+    ) -> Result<Option<CoroutineState>, ScalarComponentError> {
+        let Some(instance) = self.store.data().instances.get(&pid).copied() else {
+            return Ok(None);
+        };
+        let Some(snapshot) = instance.get_func(&mut self.store, "snapshot-state") else {
+            return Ok(None);
+        };
+        let mut results = [WasmtimeVal::U64(0)];
+        snapshot.call(&mut self.store, &[], &mut results)?;
+        snapshot.post_return(&mut self.store)?;
+        match &results[0] {
+            WasmtimeVal::U64(value) => Ok(Some(CoroutineState::Utxo {
+                storage: vec![Value(*value)],
+            })),
+            _ => Err(anyhow::anyhow!("snapshot-state returned unexpected value").into()),
+        }
+    }
+
+    pub fn restore_process_state(
+        &mut self,
+        pid: ProcessId,
+        state: &CoroutineState,
+    ) -> Result<bool, ScalarComponentError> {
+        let Some(instance) = self.store.data().instances.get(&pid).copied() else {
+            return Ok(false);
+        };
+        let Some(restore) = instance.get_func(&mut self.store, "snapshot-restore") else {
+            return Ok(false);
+        };
+        let value = state.storage().first().copied().unwrap_or(Value(0));
+        let params = [WasmtimeVal::U64(value.0)];
+        let mut results = [];
+        restore.call(&mut self.store, &params, &mut results)?;
+        restore.post_return(&mut self.store)?;
+        Ok(true)
     }
 }
 
@@ -376,22 +437,27 @@ fn build_linker(
     import_schemas: &HashMap<String, ImportInstanceSchema>,
 ) -> Result<Linker<ComponentHostState>, ScalarComponentError> {
     let mut linker = Linker::<ComponentHostState>::new(engine);
-    {
-        let mut ledger = linker.instance("ledger")?;
-
+    let mut ledger_names = vec!["ledger".to_owned()];
+    for import_name in import_schemas.keys() {
+        if import_name == "ledger" || import_name.ends_with("/ledger") {
+            if !ledger_names.iter().any(|name| name == import_name) {
+                ledger_names.push(import_name.clone());
+            }
+        }
+    }
+    for ledger_name in ledger_names {
+        let mut ledger = linker.instance(&ledger_name)?;
         ledger.func_new("burn", |mut ctx, _ty, _params, _results| {
             let caller = ctx.data().current_process;
-            let payload =
-                allocate_payload_ref(ctx.data_mut(), caller, ComponentValueIr::Tuple(vec![]))?;
             ctx.data_mut()
                 .executor
-                .record_import(caller, HostImportCall::Burn { payload })?;
+                .record_import(caller, HostImportCall::Burn)?;
             Ok(())
         })?;
     }
 
     for (import_name, schema) in import_schemas {
-        if import_name == "ledger" {
+        if import_name == "ledger" || import_name.ends_with("/ledger") {
             continue;
         }
 
@@ -499,7 +565,7 @@ fn call_resource_method(
     let previous_process = ctx.data().current_process;
     ctx.data_mut().current_process = target_pid;
     ctx.data_mut().executed_steps.push(target_pid);
-    let method_f_id = FunctionId(method_function_id(import_name, func_name) as usize);
+    let method_f_id = FunctionId::from(method_function_id(import_name, func_name));
     ctx.data_mut()
         .executor
         .append_effect(target_pid, WitLedgerEffect::Enter { f_id: method_f_id });
@@ -532,9 +598,17 @@ fn call_resource_method(
             .collect::<anyhow::Result<Vec<_>>>()?,
     );
 
+    let target_interface_name = ctx
+        .data()
+        .callee_interfaces
+        .get(&target_pid)
+        .cloned()
+        .unwrap_or_else(|| import_name.to_owned());
     let interface_index = instance
-        .get_export_index(&mut *ctx, None, import_name)
-        .ok_or_else(|| anyhow::anyhow!("missing target exported instance `{import_name}`"))?;
+        .get_export_index(&mut *ctx, None, &target_interface_name)
+        .ok_or_else(|| {
+            anyhow::anyhow!("missing target exported instance `{target_interface_name}`")
+        })?;
     let func_index = instance
         .get_export_index(&mut *ctx, Some(&interface_index), func_name)
         .ok_or_else(|| {
@@ -589,7 +663,7 @@ fn call_resource_method(
         .resolve_resume_output(caller, target_pid, yielded_ref)?;
 
     for (dst, schema) in results.iter_mut().zip(func_schema.results.iter()) {
-        let value = read_ref_value(ctx.data().executor.state(), yielded_ref, schema, func_name)?;
+        let value = read_ref_value(ctx.data_mut(), caller, yielded_ref, schema, func_name)?;
         *dst = schema.encode(&value)?;
     }
     Ok(())
@@ -642,19 +716,37 @@ fn allocate_payload_ref(
 }
 
 fn read_ref_value(
-    state: &crate::state::StarstreamState<u32>,
+    state: &mut ComponentHostState,
+    caller: ProcessId,
     reff: Ref,
     schema: &ComponentTypeIr,
     func: &str,
 ) -> anyhow::Result<ComponentValueIr> {
-    if flat_arg_count(schema) == 0 {
-        return decode_lanes_to_value([Value::nil(); 4], schema, func);
+    let scalar_count = flat_arg_count(schema);
+    if scalar_count == 0 {
+        return decode_lanes_to_value(Vec::new(), schema, func);
     }
-    let lanes = state
-        .refs
-        .read_lanes(reff, 0)
-        .ok_or_else(|| anyhow::anyhow!("missing ref payload {reff:?} for {func}"))?;
-    decode_lanes_to_value(lanes, schema, func)
+    let word_count = scalar_count.div_ceil(4);
+    let mut scalars = Vec::with_capacity(scalar_count);
+    for offset in 0..word_count {
+        let lanes = match state.executor.record_import(
+            caller,
+            HostImportCall::RefGet {
+                reff,
+                offset_words: offset as u32,
+            },
+        )? {
+            HostImportOutcome::Lanes(lanes) => lanes,
+            _ => anyhow::bail!("ref-get expected lane result for {func}"),
+        };
+        scalars.extend(
+            lanes
+                .into_iter()
+                .take(scalar_count.saturating_sub(scalars.len()))
+                .map(|value| WasmtimeVal::U64(value.0)),
+        );
+    }
+    decode_lanes_to_value(scalars, schema, func)
 }
 
 fn extract_import_instance_schemas(
@@ -747,13 +839,26 @@ fn merge_single_import_schema(
     Ok(changed)
 }
 
-fn method_function_id(import_name: &str, func_name: &str) -> u32 {
-    let mut hash = 2166136261u32;
-    for byte in import_name.bytes().chain([0]).chain(func_name.bytes()) {
-        hash ^= u32::from(byte);
-        hash = hash.wrapping_mul(16777619);
+fn pack_bytes_to_safe_limbs(bytes: &[u8]) -> Vec<F> {
+    let mut out = Vec::with_capacity(bytes.len().div_ceil(7));
+    for chunk in bytes.chunks(7) {
+        let mut limb = [0u8; 8];
+        limb[..chunk.len()].copy_from_slice(chunk);
+        out.push(F::from(u64::from_le_bytes(limb)));
     }
-    hash
+    out
+}
+
+// TODO: This is wrong. We should include the entire hash, but then use indexes
+// with a lookup in the circuit
+fn method_function_id(import_name: &str, func_name: &str) -> u64 {
+    let mut msg = pack_bytes_to_safe_limbs("starstream/function_id/v1/poseidon2".as_bytes());
+    msg.push(F::from(import_name.len() as u64));
+    msg.extend(pack_bytes_to_safe_limbs(import_name.as_bytes()));
+    msg.push(F::from(func_name.len() as u64));
+    msg.extend(pack_bytes_to_safe_limbs(func_name.as_bytes()));
+    let hash = ark_poseidon2::sponge_12_trace(&msg).expect("poseidon2 method id");
+    hash[0].into_bigint().0[0]
 }
 
 fn default_val_for_schema(schema: &ComponentTypeIr) -> WasmtimeVal {
@@ -822,16 +927,10 @@ fn tuple_items_to_scalar(value: &WasmtimeVal) -> anyhow::Result<&WasmtimeVal> {
 }
 
 fn decode_lanes_to_value(
-    lanes: [Value; 4],
+    scalars: Vec<WasmtimeVal>,
     schema: &ComponentTypeIr,
     func: &str,
 ) -> anyhow::Result<ComponentValueIr> {
-    let arity = flat_arg_count(schema);
-    let scalars: Vec<WasmtimeVal> = lanes
-        .into_iter()
-        .take(arity)
-        .map(|value| WasmtimeVal::U64(value.0))
-        .collect();
     let flat = WasmtimeVal::Tuple(scalars);
     match schema {
         ComponentTypeIr::Tuple(_) => schema.decode(&flat, func),
@@ -840,6 +939,12 @@ fn decode_lanes_to_value(
                 WasmtimeVal::Tuple(items) => items,
                 _ => anyhow::bail!("expected tuple lowering for record decode in {func}"),
             };
+            anyhow::ensure!(
+                tuple_items.len() >= fields.len(),
+                "not enough flattened scalars to decode record in {func}: expected {}, got {}",
+                fields.len(),
+                tuple_items.len()
+            );
             let record = WasmtimeVal::Record(
                 fields
                     .iter()

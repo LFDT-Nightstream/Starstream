@@ -49,6 +49,9 @@ impl TransactionSession {
         pid: ProcessId,
         utxo_id: UtxoId,
     ) {
+        if let Some(entry) = self.ledger.utxos.get(&utxo_id) {
+            let _ = runtime.restore_process_state(pid, &entry.state);
+        }
         runtime.executor_mut().bind_resource(resource, pid);
         self.inputs.push(SessionInputBinding {
             resource,
@@ -64,11 +67,10 @@ impl TransactionSession {
 
     pub fn build_transaction(
         &self,
-        runtime: &WasmtimeComponentStarstreamExecutor,
+        runtime: &mut WasmtimeComponentStarstreamExecutor,
     ) -> Result<ProvenTransaction, TransactionSessionError> {
         let traces = runtime.executor().traces().clone();
-        let state = runtime.executor().state();
-        let spawn_map = collect_spawn_edges(&traces);
+        let spawn_map = collect_spawn_edges(&traces)?;
 
         let mut builder = TransactionBuilder::new();
 
@@ -77,7 +79,13 @@ impl TransactionSession {
                 .get(&input.pid)
                 .cloned()
                 .ok_or(TransactionSessionError::MissingTrace(input.pid))?;
-            let continuation = derive_input_continuation(&self.ledger, &input.utxo_id, &trace)?;
+            let continuation = derive_input_continuation(
+                &self.ledger,
+                runtime,
+                &input.utxo_id,
+                input.pid,
+                &trace,
+            )?;
             let host_calls_root = trace_commitment(&trace);
             builder = builder.with_input_and_trace_commitment(
                 input.utxo_id.clone(),
@@ -91,6 +99,7 @@ impl TransactionSession {
         let coord_pids: BTreeSet<usize> = self.coord_pids.iter().map(|pid| pid.0).collect();
         let mut created_pids = BTreeSet::new();
         created_pids.extend(spawn_map.keys().map(|pid| pid.0));
+        let state = runtime.executor().state();
 
         for pid_idx in created_pids {
             let pid = ProcessId(pid_idx);
@@ -144,7 +153,7 @@ impl TransactionSession {
 
     pub fn apply_transaction(
         &self,
-        runtime: &WasmtimeComponentStarstreamExecutor,
+        runtime: &mut WasmtimeComponentStarstreamExecutor,
     ) -> Result<Ledger, TransactionSessionError> {
         let tx = self.build_transaction(runtime)?;
         Ok(self.ledger.apply_transaction(&tx)?)
@@ -153,14 +162,19 @@ impl TransactionSession {
 
 fn derive_input_continuation(
     ledger: &Ledger,
+    runtime: &mut WasmtimeComponentStarstreamExecutor,
     utxo_id: &UtxoId,
+    pid: ProcessId,
     trace: &[WitLedgerEffect],
 ) -> Result<Option<CoroutineState>, TransactionSessionError> {
     if trace
         .iter()
-        .any(|effect| matches!(effect, WitLedgerEffect::Burn { .. }))
+        .any(|effect| matches!(effect, WitLedgerEffect::Burn {}))
     {
         return Ok(None);
+    }
+    if let Ok(Some(state)) = runtime.snapshot_process_state(pid) {
+        return Ok(Some(state));
     }
     let entry = ledger
         .utxos
@@ -171,7 +185,7 @@ fn derive_input_continuation(
 
 fn collect_spawn_edges(
     traces: &HashMap<ProcessId, Vec<WitLedgerEffect>>,
-) -> HashMap<ProcessId, (ProcessId, Ref, Hash<WasmModule>)> {
+) -> Result<HashMap<ProcessId, (ProcessId, Ref, Hash<WasmModule>)>, TransactionSessionError> {
     let mut edges = HashMap::new();
     for (caller, trace) in traces {
         for effect in trace {
@@ -181,12 +195,12 @@ fn collect_spawn_edges(
                 id,
             } = effect
             {
-                let pid = id.unwrap();
-                edges.insert(pid, (*caller, *val, *program_hash));
+                let WitEffectOutput::Resolved(pid) = id;
+                edges.insert(*pid, (*caller, *val, *program_hash));
             }
         }
     }
-    edges
+    Ok(edges)
 }
 
 fn prepend_if_missing(trace: &mut Vec<WitLedgerEffect>, effect: WitLedgerEffect) {
@@ -227,13 +241,11 @@ fn index_after_optional_enter(trace: &[WitLedgerEffect]) -> usize {
 
 #[cfg(test)]
 mod tests {
-    #![allow(dead_code)]
-
     use super::*;
     use crate::component::WasmtimeComponentStarstreamExecutor;
     use crate::state::ProcessKind;
     use imbl::HashMap as ImHashMap;
-    use starstream_interleaving_spec::{CoroutineId, UtxoEntry};
+    use starstream_interleaving_spec::{CoroutineId, UtxoEntry, Value};
 
     fn print_wat(name: &str, wasm: &[u8]) {
         if std::env::var_os("DEBUG_COMPONENTS").is_none() {
@@ -315,7 +327,7 @@ mod tests {
         Hash(bytes, std::marker::PhantomData)
     }
 
-    fn genesis_ledger(input_hash: Hash<WasmModule>) -> (Ledger, UtxoId) {
+    fn genesis_ledger(input_hash: Hash<WasmModule>, initial_amount: u64) -> (Ledger, UtxoId) {
         let utxo_id = UtxoId {
             contract_hash: input_hash,
             nonce: 0,
@@ -333,7 +345,9 @@ mod tests {
         ledger.utxos.insert(
             utxo_id.clone(),
             UtxoEntry {
-                state: CoroutineState::Utxo { storage: vec![] },
+                state: CoroutineState::Utxo {
+                    storage: vec![starstream_interleaving_spec::Value(initial_amount)],
+                },
                 contract_hash: input_hash,
             },
         );
@@ -399,7 +413,14 @@ mod tests {
                   local.get 1
                   i64.sub
                   global.set $amount
-                  call $main-impl))
+                  call $main-impl)
+
+                (func (export "snapshot-state") (result i64)
+                  global.get $amount)
+
+                (func (export "snapshot-restore") (param i64)
+                  local.get 0
+                  global.set $amount))
 
               (core instance $i
                 (instantiate $m
@@ -433,6 +454,18 @@ mod tests {
               (func $utxo-spend-lifted
                 (type $utxo-spend-type)
                 (canon lift (core func $utxo-spend-core)))
+
+              (type $snapshot-state-type (func (result u64)))
+              (alias core export $i "snapshot-state" (core func $snapshot-state-core))
+              (func (export "snapshot-state")
+                (type $snapshot-state-type)
+                (canon lift (core func $snapshot-state-core)))
+
+              (type $snapshot-restore-type (func (param "state" u64)))
+              (alias core export $i "snapshot-restore" (core func $snapshot-restore-core))
+              (func (export "snapshot-restore")
+                (type $snapshot-restore-type)
+                (canon lift (core func $snapshot-restore-core)))
 
               (component $utxo-api
                 (import "import-type-utxo" (type $import-utxo (sub resource)))
@@ -560,7 +593,7 @@ mod tests {
         let mut runtime = WasmtimeComponentStarstreamExecutor::new().unwrap();
         let input_hash = hash([5, 6, 7, 8]);
         let coord_hash = hash([21, 22, 23, 24]);
-        let (ledger, input_utxo_id) = genesis_ledger(input_hash);
+        let (ledger, input_utxo_id) = genesis_ledger(input_hash, INITIAL_AMOUNT);
 
         let utxo_program = spendable_utxo_component(INITIAL_AMOUNT);
         let coord_program = amount_and_spend_coord_component("utxo-api", FIRST_SPEND, FINAL_SPEND);
@@ -598,7 +631,7 @@ mod tests {
         runtime.run_main(coord_pid, &coord_instance).unwrap();
         print_runtime_traces(&runtime);
 
-        let mut tx = session.build_transaction(&runtime).unwrap();
+        let mut tx = session.build_transaction(&mut runtime).unwrap();
         print_transaction_traces(&tx);
         assert_eq!(tx.body.inputs, vec![input_utxo_id.clone()]);
         assert_eq!(tx.body.new_outputs.len(), 0);
@@ -622,5 +655,56 @@ mod tests {
 
         let applied = ledger.apply_transaction(&tx).unwrap();
         assert!(!applied.utxos.contains_key(&input_utxo_id));
+    }
+
+    #[test]
+    fn test_snapshot_state_updates_utxo_continuation() {
+        const UTXO_RESOURCE: u32 = 1;
+        const INITIAL_AMOUNT: u64 = 55;
+        const FIRST_SPEND: u64 = 13;
+        const SECOND_SPEND: u64 = 10;
+        const EXPECTED_REMAINING: u64 = INITIAL_AMOUNT - FIRST_SPEND - SECOND_SPEND;
+
+        let mut runtime = WasmtimeComponentStarstreamExecutor::new().unwrap();
+        let input_hash = hash([41, 42, 43, 44]);
+        let coord_hash = hash([51, 52, 53, 54]);
+        let (ledger, input_utxo_id) = genesis_ledger(input_hash, INITIAL_AMOUNT);
+
+        let utxo_program = spendable_utxo_component(INITIAL_AMOUNT);
+        let coord_program = amount_and_spend_coord_component("utxo-api", FIRST_SPEND, SECOND_SPEND);
+
+        let (utxo_pid, utxo_component) = runtime
+            .compile_component(&crate::ProgramDefinition {
+                kind: ProcessKind::Utxo,
+                program_hash: input_hash,
+                module_bytes: utxo_program,
+            })
+            .unwrap();
+        let _utxo_instance = runtime
+            .instantiate_process(utxo_pid, &utxo_component)
+            .unwrap();
+
+        let (coord_pid, coord_component) = runtime
+            .compile_component(&crate::ProgramDefinition {
+                kind: ProcessKind::Coord,
+                program_hash: coord_hash,
+                module_bytes: coord_program,
+            })
+            .unwrap();
+        let coord_instance = runtime.instantiate_component(&coord_component).unwrap();
+
+        let mut session = TransactionSession::new(ledger.clone());
+        session.bind_input(&mut runtime, UTXO_RESOURCE, utxo_pid, input_utxo_id.clone());
+        session.register_coord(coord_pid);
+
+        runtime.run_main(coord_pid, &coord_instance).unwrap();
+
+        let tx = session.build_transaction(&mut runtime).unwrap();
+        match tx.body.continuations.as_slice() {
+            [Some(CoroutineState::Utxo { storage })] => {
+                assert_eq!(storage.as_slice(), &[Value(EXPECTED_REMAINING)]);
+            }
+            _ => panic!("unexpected continuation shape"),
+        }
     }
 }

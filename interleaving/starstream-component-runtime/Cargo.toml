@@ -9,6 +9,8 @@ license.workspace = true
 
 [dependencies]
 anyhow = "1.0.100"
+ark-ff = "0.5.0"
+ark-poseidon2 = { path = "../../ark-poseidon2" }
 starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
 starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 thiserror = "2.0.17"

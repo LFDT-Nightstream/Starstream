@@ -177,7 +177,7 @@ where
                     (
                         WitLedgerEffect::Resume {
                             target,
-                            f_id: starstream_interleaving_spec::FunctionId(function_id as usize),
+                            f_id: starstream_interleaving_spec::FunctionId::from(function_id),
                             val: payload,
                             ret: WitEffectOutput::Resolved(Ref(0)),
                             caller: WitEffectOutput::Resolved(None),
@@ -189,10 +189,7 @@ where
                     WitLedgerEffect::Yield { val: payload },
                     HostImportOutcome::None,
                 ),
-                HostImportCall::Burn => (
-                    WitLedgerEffect::Burn { ret: Ref(0) },
-                    HostImportOutcome::None,
-                ),
+                HostImportCall::Burn => (WitLedgerEffect::Burn {}, HostImportOutcome::None),
                 HostImportCall::Return => (WitLedgerEffect::Return {}, HostImportOutcome::None),
                 HostImportCall::NewUtxo { program_hash, init } => {
                     let target = self.state.push_process(
@@ -253,7 +250,7 @@ where
                 } => (
                     WitLedgerEffect::CallEffectHandler {
                         interface_id,
-                        f_id: FunctionId(function_id as usize),
+                        f_id: FunctionId::from(function_id),
                         val: payload,
                         ret: WitEffectOutput::Resolved(Ref(0)),
                     },
