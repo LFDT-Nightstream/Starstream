@@ -1,7 +1,9 @@
 use crate::{F, OptionalF, ledger_operation::LedgerOperation};
 use ark_ff::Zero;
 pub use starstream_interleaving_spec::{ArgName, OPCODE_ARG_COUNT};
-use starstream_interleaving_spec::{EffectDiscriminant, LedgerEffectsCommitment, WitLedgerEffect};
+use starstream_interleaving_spec::{
+    EffectDiscriminant, FunctionId, LedgerEffectsCommitment, WitLedgerEffect,
+};
 
 pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffectsCommitment {
     let ledger_op = ledger_operation_from_wit(&op);
@@ -18,6 +20,10 @@ pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffec
     LedgerEffectsCommitment(compressed)
 }
 
+fn proof_function_id(f_id: FunctionId) -> F {
+    F::from(f_id.as_u64())
+}
+
 pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation<F> {
     match op {
         WitLedgerEffect::Resume {
@@ -28,7 +34,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             caller,
         } => LedgerOperation::Resume {
             target: F::from(target.0 as u64),
-            f_id: F::from(f_id.0 as u64),
+            f_id: proof_function_id(*f_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
             caller: OptionalF::from_option(
@@ -125,12 +131,12 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             ret,
         } => LedgerOperation::CallEffectHandler {
             interface_id: interface_id.0.map(F::from),
-            f_id: F::from(f_id.0 as u64),
+            f_id: proof_function_id(*f_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
         },
         WitLedgerEffect::Enter { f_id } => LedgerOperation::Enter {
-            f_id: F::from(f_id.0 as u64),
+            f_id: proof_function_id(*f_id),
         },
     }
 }

@@ -90,7 +90,7 @@ fn decode_effect_from_commit_abi(
     let effect = match disc {
         EffectDiscriminant::Resume => WitLedgerEffect::Resume {
             target: ProcessId(arg(ArgName::Target) as usize),
-            f_id: FunctionId(arg(ArgName::FunctionId1) as usize),
+            f_id: FunctionId::from(arg(ArgName::FunctionId1)),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
             caller: WitEffectOutput::Resolved(decode_optional_pid(arg(ArgName::Caller))),
@@ -217,12 +217,12 @@ fn decode_effect_from_commit_abi(
                 arg(ArgName::InterfaceId2),
                 arg(ArgName::InterfaceId3),
             ),
-            f_id: FunctionId(arg(ArgName::FunctionId0) as usize),
+            f_id: FunctionId::from(arg(ArgName::FunctionId0)),
             val: Ref(arg(ArgName::Val)),
             ret: WitEffectOutput::Resolved(Ref(arg(ArgName::Ret))),
         },
         EffectDiscriminant::Enter => WitLedgerEffect::Enter {
-            f_id: FunctionId(arg(ArgName::FunctionId0) as usize),
+            f_id: FunctionId::from(arg(ArgName::FunctionId0)),
         },
     };
     Ok(effect)
@@ -469,7 +469,7 @@ impl Runtime {
 
                 store.data_mut().pending_host_effect = Some(WitLedgerEffect::Resume {
                     target,
-                    f_id: FunctionId(0),
+                    f_id: FunctionId::from(0u64),
                     val,
                     ret,
                     caller: WitEffectOutput::Resolved(None),
@@ -669,7 +669,7 @@ impl Runtime {
                 let interface_id = Hash([h0, h1, h2, h3], std::marker::PhantomData);
                 store.data_mut().pending_host_effect = Some(WitLedgerEffect::CallEffectHandler {
                     interface_id,
-                    f_id: FunctionId(0),
+                    f_id: FunctionId::from(0u64),
                     val: Ref(val),
                     ret: WitEffectOutput::Resolved(Ref(0)),
                 });
