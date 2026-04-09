@@ -52,6 +52,7 @@ pub fn component_runtime() -> Engine {
 pub struct ComponentHostState {
     pub current_process: ProcessId,
     pub input_resources: Vec<u32>,
+    pub import_resource_bindings: HashMap<String, u32>,
     pub next_resource_rep: u32,
     pub executed_steps: Vec<ProcessId>,
     pub pending_activations: HashMap<ProcessId, (Ref, ProcessId)>,
@@ -66,6 +67,7 @@ impl Default for ComponentHostState {
         Self {
             current_process: ProcessId(0),
             input_resources: Vec::new(),
+            import_resource_bindings: HashMap::new(),
             next_resource_rep: 1,
             executed_steps: Vec::new(),
             pending_activations: HashMap::new(),
@@ -119,6 +121,13 @@ impl WasmtimeComponentStarstreamExecutor {
         self.store.data_mut().input_resources = resources;
     }
 
+    pub fn bind_import_resource(&mut self, import_name: impl Into<String>, resource: u32) {
+        self.store
+            .data_mut()
+            .import_resource_bindings
+            .insert(import_name.into(), resource);
+    }
+
     pub fn compile_component(
         &mut self,
         program: &ProgramDefinition,
@@ -151,19 +160,28 @@ impl WasmtimeComponentStarstreamExecutor {
         component: &ScalarComponent,
     ) -> Result<wasmtime::component::Instance, ScalarComponentError> {
         let instance = self.instantiate_component(component)?;
-        if let Some(interface_index) = instance.get_export_index(&mut self.store, None, "utxo-api")
-        {
-            if let Some(constructor_index) = instance.get_export_index(
+        for (export_name, item) in component.component_type().exports(&self.engine) {
+            if !matches!(item, ComponentItem::ComponentInstance(_)) {
+                continue;
+            }
+            let Some(interface_index) =
+                instance.get_export_index(&mut self.store, None, export_name)
+            else {
+                continue;
+            };
+            let Some(constructor_index) = instance.get_export_index(
                 &mut self.store,
                 Some(&interface_index),
                 "[constructor]utxo",
-            ) {
-                let constructor = instance
-                    .get_typed_func::<(), (ResourceAny,)>(&mut self.store, &constructor_index)?;
-                let (handle,) = constructor.call(&mut self.store, ())?;
-                constructor.post_return(&mut self.store)?;
-                self.store.data_mut().callee_handles.insert(pid, handle);
-            }
+            ) else {
+                continue;
+            };
+            let constructor = instance
+                .get_typed_func::<(), (ResourceAny,)>(&mut self.store, &constructor_index)?;
+            let (handle,) = constructor.call(&mut self.store, ())?;
+            constructor.post_return(&mut self.store)?;
+            self.store.data_mut().callee_handles.insert(pid, handle);
+            break;
         }
         self.store.data_mut().instances.insert(pid, instance);
         Ok(instance)
@@ -390,9 +408,15 @@ fn build_linker(
             if let Some(resource_name) = parse_constructor_name(func_name) {
                 let func_name = func_name.clone();
                 let resource_name = resource_name.to_string();
+                let import_name = import_name.clone();
                 instance.func_wrap(&func_name, move |ctx, (): ()| {
-                    let resource =
-                        ctx.data().input_resources.first().copied().ok_or_else(|| {
+                    let resource = ctx
+                        .data()
+                        .import_resource_bindings
+                        .get(&import_name)
+                        .copied()
+                        .or_else(|| ctx.data().input_resources.first().copied())
+                        .ok_or_else(|| {
                             anyhow::anyhow!("no resource bound for constructor `{resource_name}`")
                         })?;
                     Ok((Resource::<UtxoResource>::new_own(resource),))
