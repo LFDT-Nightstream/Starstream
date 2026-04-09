@@ -727,6 +727,10 @@
         {
           "type": "SYMBOL",
           "name": "main_fn_utxo_part"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "abi_impl_utxo_part"
         }
       ]
     },
@@ -790,6 +794,43 @@
           "type": "STRING",
           "value": "main"
         },
+        {
+          "type": "SYMBOL",
+          "name": "_function"
+        }
+      ]
+    },
+    "abi_impl_utxo_part": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "impl"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "identifier"
+        },
+        {
+          "type": "STRING",
+          "value": "{"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "impl_part"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "}"
+        }
+      ]
+    },
+    "impl_part": {
+      "type": "CHOICE",
+      "members": [
         {
           "type": "SYMBOL",
           "name": "_function"
