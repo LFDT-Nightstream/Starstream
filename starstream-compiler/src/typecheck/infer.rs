@@ -1180,6 +1180,7 @@ impl Inferencer {
                     traces.push(trace);
                     TypedUtxoPart::MainFn(func)
                 }
+                UtxoPart::AbiImpl { abi, parts } => todo!(),
             });
         }
 
