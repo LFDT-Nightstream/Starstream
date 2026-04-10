@@ -61,9 +61,9 @@ fn inputs() {
             let formatted_source =
                 starstream_compiler::formatter::program(&program, &source, &comments)
                     .expect("formatter error");
-            assert_eq!(
-                source, formatted_source,
-                "formatted source differs from original"
+            assert!(
+                source == formatted_source,
+                "formatted source differs from original; replace with:\n{formatted_source}"
             );
 
             match starstream_compiler::typecheck_program(

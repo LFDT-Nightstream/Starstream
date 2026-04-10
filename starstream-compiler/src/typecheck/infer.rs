@@ -1141,7 +1141,7 @@ impl Inferencer {
                             span,
                         ));
                     };
-                    Self::check_abi_impl(abi_info, &parts)?;
+                    self.check_abi_impl(abi, abi_info, &parts)?;
 
                     let abi = Type::AbiNarrow(abi.to_string());
                     TypedUtxoPart::AbiImpl { abi, span, parts }
@@ -1161,8 +1161,73 @@ impl Inferencer {
         ))
     }
 
-    fn check_abi_impl(abi: &AbiInfo, methods: &[TypedFunctionDef]) -> Result<(), TypeError> {
-        // TODO
+    fn check_abi_impl(
+        &self,
+        abi_name: &Identifier,
+        abi: &AbiInfo,
+        methods: &[TypedFunctionDef],
+    ) -> Result<(), TypeError> {
+        // TODO: Reusing existing error codes, may want them to be more specific.
+        let mut abi_methods = abi
+            .methods
+            .iter()
+            .map(|method| (method.name.as_str(), method))
+            .collect::<HashMap<_, _>>();
+
+        for impl_method in methods {
+            if let Some(abi_method) = abi_methods.remove(impl_method.name.as_str()) {
+                // Method found, make sure parameters match
+                for (i, (abi_param_ty, impl_param)) in abi_method
+                    .param_types
+                    .iter()
+                    .zip(impl_method.params.iter())
+                    .enumerate()
+                {
+                    if *abi_param_ty != impl_param.ty {
+                        return Err(TypeError::new(
+                            TypeErrorKind::ArgumentTypeMismatch {
+                                expected: abi_param_ty.clone(),
+                                found: impl_param.ty.clone(),
+                                position: i,
+                                param_span: Some(abi_method.param_spans[i]),
+                            },
+                            impl_param.name.span(),
+                        ));
+                    }
+                }
+                // And return type must match
+                if abi_method.return_type != impl_method.return_type {
+                    return Err(TypeError::new(
+                        TypeErrorKind::ReturnMismatch {
+                            expected: abi_method.return_type.clone(),
+                            found: impl_method.return_type.clone(),
+                        },
+                        abi_method.name_span,
+                    ));
+                }
+            } else {
+                // Method not in ABI
+                return Err(TypeError::new(
+                    TypeErrorKind::AbiMethodNotFound {
+                        abi_name: abi_name.to_string(),
+                        method_name: impl_method.name.to_string(),
+                    },
+                    impl_method.name.span(),
+                ));
+            }
+        }
+
+        for (abi_method_name, _) in abi_methods {
+            // ABI has methods not in impl block
+            return Err(TypeError::new(
+                TypeErrorKind::AbiMethodNotFound {
+                    abi_name: abi_name.to_string(),
+                    method_name: abi_method_name.to_owned(),
+                },
+                abi_name.span(),
+            ));
+        }
+
         Ok(())
     }
 

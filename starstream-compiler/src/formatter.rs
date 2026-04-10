@@ -470,17 +470,21 @@ fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str, comments: &CommentMap)
             .append(RcDoc::space())
             .append(identifier_to_doc(abi, source))
             .append(RcDoc::space())
-            .append("{")
-            .append(
-                RcDoc::line()
-                    .append(RcDoc::intersperse(
-                        parts.iter().map(|x| function_to_doc(x, source, comments)),
-                        RcDoc::line(),
-                    ))
-                    .nest(INDENT),
-            )
-            .append(RcDoc::line())
-            .append("}"),
+            .append(if parts.is_empty() {
+                RcDoc::text("{ }")
+            } else {
+                RcDoc::text("{")
+                    .append(
+                        RcDoc::line()
+                            .append(RcDoc::intersperse(
+                                parts.iter().map(|x| function_to_doc(x, source, comments)),
+                                RcDoc::line(),
+                            ))
+                            .nest(INDENT),
+                    )
+                    .append(RcDoc::line())
+                    .append("}")
+            }),
     }
 }
 

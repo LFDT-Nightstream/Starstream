@@ -180,7 +180,8 @@ pub enum Type {
     UtxoAny,
     /// The type created by a `utxo` definition.
     UtxoNamed(String),
-    /// A Utxo narrowed to a specific ABI type via `if x is AbiName`.
+    /// The type created by an `abi` definition. Also the type of a Utxo
+    /// narrowed via `if x is AbiName`.
     AbiNarrow(String),
 }
 
