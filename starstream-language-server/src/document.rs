@@ -1506,6 +1506,11 @@ impl DocumentState {
                             untyped_ast::UtxoPart::Function(function) => {
                                 self.collect_type_annotation_function(function);
                             }
+                            untyped_ast::UtxoPart::AbiImpl { abi: _, parts } => {
+                                for part in parts {
+                                    self.collect_type_annotation_function(part);
+                                }
+                            }
                         }
                     }
                 }
