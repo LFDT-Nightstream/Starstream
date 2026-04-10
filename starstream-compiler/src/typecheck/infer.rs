@@ -1120,7 +1120,19 @@ impl Inferencer {
                     traces.push(trace);
                     TypedUtxoPart::Function(func.into())
                 }
-                UtxoPart::AbiImpl { abi, parts } => todo!(),
+                UtxoPart::AbiImpl { abi, parts } => {
+                    let span = abi.span();
+                    let abi = self.type_from_annotation(&TypeAnnotation::from(abi.clone()))?;
+                    let parts = parts
+                        .iter()
+                        .map(|function| {
+                            let (func, trace) = self.infer_function(env, function)?;
+                            traces.push(trace);
+                            Ok(func)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    TypedUtxoPart::AbiImpl { abi, span, parts }
+                }
             });
         }
 
@@ -4065,6 +4077,16 @@ impl Inferencer {
                 }
                 TypedUtxoPart::Function(func) => {
                     self.apply_function(func);
+                }
+                TypedUtxoPart::AbiImpl {
+                    abi,
+                    span: _,
+                    parts,
+                } => {
+                    *abi = self.apply(abi);
+                    for part in parts {
+                        self.apply_function(part);
+                    }
                 }
             }
         }

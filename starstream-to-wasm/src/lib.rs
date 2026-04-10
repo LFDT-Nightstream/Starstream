@@ -1325,6 +1325,7 @@ impl Compiler {
                         &(&() as &dyn Locals, &utxo_storage),
                     );
                 }
+                TypedUtxoPart::AbiImpl { span, abi, parts } => todo!(),
             }
         }
 

@@ -123,6 +123,11 @@ pub struct TypedUtxoDef {
 pub enum TypedUtxoPart {
     Storage(Vec<TypedUtxoGlobal>),
     Function(Box<TypedFunctionDef>),
+    AbiImpl {
+        span: Span,
+        abi: Type,
+        parts: Vec<TypedFunctionDef>,
+    },
 }
 
 #[derive(Clone, Debug)]

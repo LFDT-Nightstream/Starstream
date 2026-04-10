@@ -333,6 +333,15 @@ pub struct TypeAnnotation {
     pub generics: Vec<TypeAnnotation>,
 }
 
+impl From<Identifier> for TypeAnnotation {
+    fn from(name: Identifier) -> Self {
+        TypeAnnotation {
+            name,
+            generics: Default::default(),
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // Statements
 
