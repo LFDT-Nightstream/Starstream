@@ -196,7 +196,6 @@ pub fn typecheck_program(
             }
             Err(error) => {
                 errors.push(error);
-                break;
             }
         }
     }

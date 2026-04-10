@@ -200,3 +200,21 @@ Program {
    :            ^^^^^^^
  8 |     }
    `----
+]8;;https://starstream.nightstream.dev/errors/E0048\E0048 (link)]8;;\
+
+  x ABI `MyAbi` has no method named `hello`
+    ,-[12:10]
+ 11 | utxo MyUtxo2 {
+ 12 |     impl MyAbi { }
+    :          ^^^^^
+ 13 | }
+    `----
+]8;;https://starstream.nightstream.dev/errors/E0009\E0009 (link)]8;;\
+
+  x return type `i32` does not match function signature `()`
+   ,-[2:8]
+ 1 | abi MyAbi {
+ 2 |     fn hello();
+   :        ^^^^^
+ 3 | }
+   `----
