@@ -1122,7 +1122,7 @@ impl Inferencer {
                 }
                 UtxoPart::AbiImpl { abi, parts } => {
                     let span = abi.span();
-                    let abi = self.type_from_annotation(&TypeAnnotation::from(abi.clone()))?;
+
                     let parts = parts
                         .iter()
                         .map(|function| {
@@ -1131,6 +1131,19 @@ impl Inferencer {
                             Ok(func)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
+
+                    // Assert that the signature sets match
+                    let Some(abi_info) = self.abis.get(abi.as_str()) else {
+                        return Err(TypeError::new(
+                            TypeErrorKind::UnknownAbi {
+                                name: abi.to_string(),
+                            },
+                            span,
+                        ));
+                    };
+                    Self::check_abi_impl(abi_info, &parts)?;
+
+                    let abi = Type::AbiNarrow(abi.to_string());
                     TypedUtxoPart::AbiImpl { abi, span, parts }
                 }
             });
@@ -1146,6 +1159,11 @@ impl Inferencer {
             },
             self.make_trace("T-Utxo", None, Some(def.name.to_string()), None, || traces),
         ))
+    }
+
+    fn check_abi_impl(abi: &AbiInfo, methods: &[TypedFunctionDef]) -> Result<(), TypeError> {
+        // TODO
+        Ok(())
     }
 
     fn infer_utxo_global(

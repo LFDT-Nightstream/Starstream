@@ -1325,7 +1325,20 @@ impl Compiler {
                         &(&() as &dyn Locals, &utxo_storage),
                     );
                 }
-                TypedUtxoPart::AbiImpl { span, abi, parts } => todo!(),
+                TypedUtxoPart::AbiImpl {
+                    span: _,
+                    abi,
+                    parts,
+                } => {
+                    _ = abi; // TODO: generate cast functions
+                    for function in parts {
+                        self.visit_function(
+                            &to_kebab_case(function.name.as_str()),
+                            function,
+                            &(&() as &dyn Locals, &utxo_storage),
+                        );
+                    }
+                }
             }
         }
 
