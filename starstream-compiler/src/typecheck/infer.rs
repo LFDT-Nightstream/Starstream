@@ -1216,7 +1216,7 @@ impl Inferencer {
             }
         }
 
-        for (abi_method_name, _) in abi_methods {
+        if let Some((abi_method_name, _)) = abi_methods.into_iter().next() {
             // ABI has methods not in impl block
             return Err(TypeError::new(
                 TypeErrorKind::AbiMethodNotFound {
