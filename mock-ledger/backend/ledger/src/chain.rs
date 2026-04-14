@@ -39,6 +39,7 @@ impl Chain {
                 let instance_pre = linker.instantiate_pre(&component)?;
 
                 let digest = poseidon2_hash_bytes(component_bytes);
+                // TODO: change to sha256
                 let contract_hash = format!(
                     "0x{:016X}{:016X}{:016X}{:016X}",
                     digest[0].as_canonical_u64(),
