@@ -96,6 +96,7 @@
 (match_expression "match" @keyword)
 (match_arm "=>" @operator)
 (utxo_definition "utxo" @keyword)
+(abi_impl_utxo_part "impl" @keyword)
 (storage_utxo_part "storage" @keyword)
 (fn_utxo_part "main" @keyword)
 ; ABI and events

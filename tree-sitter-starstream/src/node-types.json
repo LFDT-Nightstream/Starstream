@@ -46,6 +46,25 @@
     }
   },
   {
+    "type": "abi_impl_utxo_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "impl_part",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "arguments",
     "named": true,
     "fields": {},
@@ -719,6 +738,33 @@
     }
   },
   {
+    "type": "impl_part",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "function_parameter",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "type_annotation",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "import_definition",
     "named": true,
     "fields": {},
@@ -1212,6 +1258,10 @@
       "required": true,
       "types": [
         {
+          "type": "abi_impl_utxo_part",
+          "named": true
+        },
+        {
           "type": "fn_utxo_part",
           "named": true
         },
@@ -1435,6 +1485,10 @@
   },
   {
     "type": "if",
+    "named": false
+  },
+  {
+    "type": "impl",
     "named": false
   },
   {

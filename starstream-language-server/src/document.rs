@@ -715,6 +715,15 @@ impl DocumentState {
                 TypedUtxoPart::Function(function) => {
                     self.collect_function(function, scopes, None);
                 }
+                TypedUtxoPart::AbiImpl {
+                    abi: _,
+                    span: _,
+                    parts,
+                } => {
+                    for part in parts {
+                        self.collect_function(part, scopes, None);
+                    }
+                }
             }
         }
     }
@@ -1506,6 +1515,11 @@ impl DocumentState {
                             untyped_ast::UtxoPart::Function(function) => {
                                 self.collect_type_annotation_function(function);
                             }
+                            untyped_ast::UtxoPart::AbiImpl { abi: _, parts } => {
+                                for part in parts {
+                                    self.collect_type_annotation_function(part);
+                                }
+                            }
                         }
                     }
                 }
@@ -1965,6 +1979,23 @@ impl DocumentState {
                 }
                 TypedUtxoPart::Function(function) => {
                     children.extend(self.function_symbol(function));
+                }
+                TypedUtxoPart::AbiImpl { abi, span, parts } => {
+                    let impl_children = parts
+                        .iter()
+                        .flat_map(|function| self.function_symbol(function))
+                        .collect::<Vec<_>>();
+                    children.push(DocumentSymbol {
+                        name: abi.to_compact_string(),
+                        detail: Some(abi.to_string()),
+                        kind: SymbolKind::INTERFACE,
+                        tags: None,
+                        #[allow(deprecated)]
+                        deprecated: None,
+                        range: self.span_to_range(*span),
+                        selection_range: self.span_to_range(*span),
+                        children: Some(impl_children),
+                    });
                 }
             }
         }

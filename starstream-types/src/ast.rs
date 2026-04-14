@@ -278,6 +278,10 @@ pub struct UtxoDef {
 pub enum UtxoPart {
     Storage(Vec<UtxoGlobal>),
     Function(Box<FunctionDef>),
+    AbiImpl {
+        abi: Identifier,
+        parts: Vec<FunctionDef>,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -327,6 +331,15 @@ pub struct EventDef {
 pub struct TypeAnnotation {
     pub name: Identifier,
     pub generics: Vec<TypeAnnotation>,
+}
+
+impl From<Identifier> for TypeAnnotation {
+    fn from(name: Identifier) -> Self {
+        TypeAnnotation {
+            name,
+            generics: Default::default(),
+        }
+    }
 }
 
 // ----------------------------------------------------------------------------

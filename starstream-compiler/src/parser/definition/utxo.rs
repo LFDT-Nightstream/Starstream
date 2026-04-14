@@ -2,7 +2,10 @@ use chumsky::prelude::*;
 use starstream_types::{FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart};
 
 use crate::parser::{
-    context::Extra, definition::function::function_with_body, primitives, type_annotation,
+    context::Extra,
+    definition::function::function_with_body,
+    primitives::{self, identifier},
+    type_annotation,
 };
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
@@ -38,7 +41,21 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
             )
         });
 
-    let part = choice((storage_part, fn_part));
+    let utxo_abi_fn = function_with_body();
+
+    let abi_impl_part = just("impl")
+        .padded()
+        .ignore_then(identifier())
+        .padded()
+        .then(
+            utxo_abi_fn
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|(abi, parts)| UtxoPart::AbiImpl { abi, parts });
+
+    let part = choice((storage_part, fn_part, abi_impl_part));
 
     just("utxo")
         .padded()

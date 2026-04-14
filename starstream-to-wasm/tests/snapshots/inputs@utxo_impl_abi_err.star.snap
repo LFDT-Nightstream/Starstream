@@ -1,0 +1,220 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_impl_abi_err.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "MyAbi",
+                        span: 4..9,
+                    },
+                    parts: [
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "hello",
+                                    span: 19..24,
+                                },
+                                params: [],
+                                return_type: None,
+                                span: 16..28,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..31,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 36..42,
+                    },
+                    parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "MyAbi",
+                                span: 54..59,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "goodbye",
+                                        span: 73..80,
+                                    },
+                                    params: [],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: None,
+                                        span: 83..91,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 31..96,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo2",
+                        span: 101..108,
+                    },
+                    parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "MyAbi",
+                                span: 120..125,
+                            },
+                            parts: [],
+                        },
+                    ],
+                },
+            ),
+            span: 96..133,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo3",
+                        span: 138..145,
+                    },
+                    parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "MyAbi",
+                                span: 157..162,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "hello",
+                                        span: 176..181,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: false,
+                                            name: Identifier {
+                                                name: "x",
+                                                span: 182..183,
+                                            },
+                                            ty: TypeAnnotation {
+                                                name: Identifier {
+                                                    name: "i32",
+                                                    span: 185..188,
+                                                },
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: None,
+                                        span: 190..198,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 133..203,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo4",
+                        span: 208..215,
+                    },
+                    parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "MyAbi",
+                                span: 227..232,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "hello",
+                                        span: 246..251,
+                                    },
+                                    params: [],
+                                    return_type: Some(
+                                        TypeAnnotation {
+                                            name: Identifier {
+                                                name: "i32",
+                                                span: 257..260,
+                                            },
+                                            generics: [],
+                                        },
+                                    ),
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: Some(
+                                            Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        17,
+                                                    ),
+                                                ),
+                                                span: 275..277,
+                                            },
+                                        ),
+                                        span: 261..292,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 203..296,
+        },
+    ],
+}
+
+==== Type error ====
+]8;;https://starstream.nightstream.dev/errors/E0048\E0048 (link)]8;;\
+
+  x ABI `MyAbi` has no method named `goodbye`
+   ,-[7:12]
+ 6 |     impl MyAbi {
+ 7 |         fn goodbye() { }
+   :            ^^^^^^^
+ 8 |     }
+   `----
+]8;;https://starstream.nightstream.dev/errors/E0048\E0048 (link)]8;;\
+
+  x ABI `MyAbi` has no method named `hello`
+    ,-[12:10]
+ 11 | utxo MyUtxo2 {
+ 12 |     impl MyAbi { }
+    :          ^^^^^
+ 13 | }
+    `----
+]8;;https://starstream.nightstream.dev/errors/E0009\E0009 (link)]8;;\
+
+  x return type `i32` does not match function signature `()`
+   ,-[2:8]
+ 1 | abi MyAbi {
+ 2 |     fn hello();
+   :        ^^^^^
+ 3 | }
+   `----

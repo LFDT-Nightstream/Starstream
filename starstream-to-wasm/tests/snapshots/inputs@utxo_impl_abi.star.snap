@@ -1,0 +1,213 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/utxo_impl_abi.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "MyAbi",
+                        span: 4..9,
+                    },
+                    parts: [
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "hello",
+                                    span: 19..24,
+                                },
+                                params: [],
+                                return_type: Some(
+                                    TypeAnnotation {
+                                        name: Identifier {
+                                            name: "i32",
+                                            span: 30..33,
+                                        },
+                                        generics: [],
+                                    },
+                                ),
+                                span: 16..35,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..38,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 43..49,
+                    },
+                    parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "MyAbi",
+                                span: 61..66,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "hello",
+                                        span: 80..85,
+                                    },
+                                    params: [],
+                                    return_type: Some(
+                                        TypeAnnotation {
+                                            name: Identifier {
+                                                name: "i32",
+                                                span: 91..94,
+                                            },
+                                            generics: [],
+                                        },
+                                    ),
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: Some(
+                                            Spanned {
+                                                node: Literal(
+                                                    Integer(
+                                                        17,
+                                                    ),
+                                                ),
+                                                span: 109..111,
+                                            },
+                                        ),
+                                        span: 95..126,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 38..130,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Utxo: MyUtxo => 
+  T-Fn: hello => i32
+    T-ReturnTail: 17 => i32
+      T-Int: {hello: fn() -> i32} ⊢ 17 ⇒ i64
+      Unify-Var: i64 ~ i32 => {i32/t3}
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "MyAbi",
+                    span: 4..9,
+                },
+                parts: [
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "hello",
+                                span: 19..24,
+                            },
+                            params: [],
+                            return_type: Int(
+                                I32,
+                            ),
+                            span: 16..35,
+                        },
+                    ),
+                ],
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: 43..49,
+                },
+                parts: [
+                    AbiImpl {
+                        span: 61..66,
+                        abi: AbiNarrow(
+                            "MyAbi",
+                        ),
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "hello",
+                                    span: 80..85,
+                                },
+                                params: [],
+                                return_type: Int(
+                                    I32,
+                                ),
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [],
+                                    tail_expression: Some(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Int(
+                                                    I32,
+                                                ),
+                                                kind: Literal(
+                                                    Integer(
+                                                        17,
+                                                    ),
+                                                ),
+                                            },
+                                            span: 109..111,
+                                        },
+                                    ),
+                                },
+                            },
+                        ],
+                    },
+                ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (result i32)))
+  (func (;0;) (type 0) (result i32)
+    (i32.const 17)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "my-utxo" (type (;0;) (sub resource)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  resource my-utxo;
+}

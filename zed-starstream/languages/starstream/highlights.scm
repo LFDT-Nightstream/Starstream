@@ -28,6 +28,7 @@
   "raise"
   "runtime"
   "disclose"
+  "is"
 ] @keyword
 
 ; Literals
@@ -95,6 +96,7 @@
 (match_expression "match" @keyword)
 (match_arm "=>" @operator)
 (utxo_definition "utxo" @keyword)
+(abi_impl_utxo_part "impl" @keyword)
 (storage_utxo_part "storage" @keyword)
 (fn_utxo_part "main" @keyword)
 ; ABI and events
@@ -127,6 +129,14 @@
 
 ; Disclose expression
 (disclose_expression "disclose" @keyword)
+
+; Is condition
+(is_condition "is" @keyword)
+
+; ABI method declaration
+(abi_fn_declaration
+  "fn" @keyword
+  (identifier) @function.method)
 
 (comment) @comment
 (doc_comment) @comment.documentation

@@ -68,6 +68,7 @@ function ::=
 function_parameter ::= ("pub")? identifier ":" type_annotation
 
 parameter ::= identifier ":" type_annotation
+
 struct_definition ::=
   "struct" identifier "{" ( struct_field ( "," struct_field )* )? "}"
 
@@ -88,12 +89,20 @@ utxo_definition ::=
 utxo_part ::=
   | storage_utxo_part
   | fn_utxo_part
+  | abi_impl_utxo_part
 
 storage_utxo_part ::= "storage" "{" utxo_global* "}"
 
 utxo_global ::= "let" "mut" identifier ":" type_annotation ";"
 
 fn_utxo_part ::= ("main")? function
+
+abi_impl_utxo_part ::= "impl" identifier "{" impl_part* "}"
+
+impl_part ::=
+  | fn_impl_part
+
+fn_impl_part ::= function
 
 abi_definition ::=
   "abi" identifier "{" abi_part* "}"
