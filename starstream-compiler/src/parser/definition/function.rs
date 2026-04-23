@@ -37,7 +37,7 @@ fn return_type<'a>() -> impl Parser<'a, &'a str, Option<TypeAnnotation>, Extra<'
 
 // Note: FunctionDef's export is not parsed, always None.
 // Maybe splitting another struct out is cleaner long-term?
-pub fn function_with_body<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+pub fn function<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
     just("fn")
         .padded()
         .ignore_then(primitives::identifier())
@@ -56,11 +56,11 @@ pub fn function_with_body<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'
 /// Parse `function_definition` grammar node.
 ///
 /// Like `script fn foo(bar: i32) -> i32 { bar }`.
-pub fn parser<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+pub fn function_with_export<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
     function_export()
         .padded()
         .or_not()
-        .then(function_with_body())
+        .then(function())
         .map(|(export, func)| FunctionDef { export, ..func })
 }
 
@@ -75,7 +75,7 @@ mod tests {
 
     macro_rules! assert_function_snapshot {
         ($code:expr) => {{
-            let parsed = parser()
+            let parsed = function_with_export()
                 .parse(indoc! { $code })
                 .into_result()
                 .expect("function should parse");

@@ -3,7 +3,7 @@ use starstream_types::{FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPar
 
 use crate::parser::{
     context::Extra,
-    definition::function::function_with_body,
+    definition::function::function,
     primitives::{self, identifier},
     type_annotation,
 };
@@ -30,7 +30,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
     let fn_part = just("main")
         .padded()
         .or_not()
-        .then(function_with_body())
+        .then(function())
         .map(|(main, def)| {
             UtxoPart::Function(
                 FunctionDef {
@@ -41,7 +41,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
             )
         });
 
-    let utxo_abi_fn = function_with_body();
+    let utxo_abi_fn = function();
 
     let abi_impl_part = just("impl")
         .padded()
