@@ -1,8 +1,8 @@
 use crate::F;
-use crate::circuit::MemoryTag;
 use crate::opcode_dsl::OpcodeDsl;
 use ark_r1cs_std::{eq::EqGadget as _, fields::fp::FpVar, prelude::Boolean};
 use ark_relations::gr1cs::SynthesisError;
+use starstream_interleaving_spec::RamMemoryTag;
 
 pub fn coroutine_args_ops<D: OpcodeDsl>(
     dsl: &mut D,
@@ -10,8 +10,8 @@ pub fn coroutine_args_ops<D: OpcodeDsl>(
     init_cond: &D::Bool,
     addr: &D::Val,
 ) -> Result<(D::Val, D::Val), D::Error> {
-    let activation = dsl.read(activation_cond, MemoryTag::Activation, addr)?;
-    let init = dsl.read(init_cond, MemoryTag::Init, addr)?;
+    let activation = dsl.read(activation_cond, RamMemoryTag::Activation, addr)?;
+    let init = dsl.read(init_cond, RamMemoryTag::Init, addr)?;
     Ok((activation, init))
 }
 

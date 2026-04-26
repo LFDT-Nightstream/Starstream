@@ -13,11 +13,13 @@ use crate::F;
 pub(crate) struct ExecutionSwitches<T> {
     pub(crate) resume: T,
     pub(crate) call_effect_handler: T,
+    pub(crate) enter: T,
     pub(crate) yield_op: T,
     pub(crate) return_op: T,
     pub(crate) burn: T,
     pub(crate) program_hash: T,
     pub(crate) new_utxo: T,
+    pub(crate) new_token: T,
     pub(crate) new_coord: T,
     pub(crate) activation: T,
     pub(crate) init: T,
@@ -43,12 +45,14 @@ impl ExecutionSwitches<bool> {
         let switches = [
             self.resume,
             self.call_effect_handler,
+            self.enter,
             self.yield_op,
             self.return_op,
             self.nop,
             self.burn,
             self.program_hash,
             self.new_utxo,
+            self.new_token,
             self.new_coord,
             self.activation,
             self.init,
@@ -84,12 +88,14 @@ impl ExecutionSwitches<bool> {
         let [
             resume,
             call_effect_handler,
+            enter,
             yield_op,
             return_op,
             nop,
             burn,
             program_hash,
             new_utxo,
+            new_token,
             new_coord,
             activation,
             init,
@@ -113,11 +119,13 @@ impl ExecutionSwitches<bool> {
                 call_effect_handler,
                 EffectDiscriminant::CallEffectHandler as u64,
             ),
+            (enter, EffectDiscriminant::Enter as u64),
             (yield_op, EffectDiscriminant::Yield as u64),
             (return_op, EffectDiscriminant::Return as u64),
             (burn, EffectDiscriminant::Burn as u64),
             (program_hash, EffectDiscriminant::ProgramHash as u64),
             (new_utxo, EffectDiscriminant::NewUtxo as u64),
+            (new_token, EffectDiscriminant::NewToken as u64),
             (new_coord, EffectDiscriminant::NewCoord as u64),
             (activation, EffectDiscriminant::Activation as u64),
             (init, EffectDiscriminant::Init as u64),
@@ -144,12 +152,14 @@ impl ExecutionSwitches<bool> {
         Ok(ExecutionSwitches {
             resume: resume.clone(),
             call_effect_handler: call_effect_handler.clone(),
+            enter: enter.clone(),
             yield_op: yield_op.clone(),
             return_op: return_op.clone(),
             nop: nop.clone(),
             burn: burn.clone(),
             program_hash: program_hash.clone(),
             new_utxo: new_utxo.clone(),
+            new_token: new_token.clone(),
             new_coord: new_coord.clone(),
             activation: activation.clone(),
             init: init.clone(),
@@ -186,6 +196,13 @@ impl ExecutionSwitches<bool> {
         }
     }
 
+    pub(crate) fn enter() -> Self {
+        Self {
+            enter: true,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn yield_op() -> Self {
         Self {
             yield_op: true,
@@ -217,6 +234,13 @@ impl ExecutionSwitches<bool> {
     pub(crate) fn new_utxo() -> Self {
         Self {
             new_utxo: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn new_token() -> Self {
+        Self {
+            new_token: true,
             ..Self::default()
         }
     }
@@ -311,11 +335,13 @@ impl Default for ExecutionSwitches<bool> {
         Self {
             resume: false,
             call_effect_handler: false,
+            enter: false,
             yield_op: false,
             return_op: false,
             burn: false,
             program_hash: false,
             new_utxo: false,
+            new_token: false,
             new_coord: false,
             activation: false,
             init: false,

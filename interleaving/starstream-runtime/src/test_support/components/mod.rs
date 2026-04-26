@@ -6,6 +6,8 @@ package starstream:dsl@0.1.0;
 world runtime {
     import env: interface {
         starstream-trace: func(a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64, a7: u64);
+        starstream-trace-reserve-slot: func() -> u64;
+        starstream-trace-fill-slot: func(slot: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64, a6: u64, a7: u64);
         starstream-get-datum: func(slot: u64) -> u64;
         starstream-set-datum: func(slot: u64, val: u64);
         starstream-activation: func() -> tuple<u64, u64>;
@@ -22,8 +24,9 @@ world runtime {
         starstream-yield: func(val: u64);
         starstream-return: func();
         starstream-new-utxo: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64) -> u64;
+        starstream-new-token: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64) -> u64;
         starstream-new-coord: func(h0: u64, h1: u64, h2: u64, h3: u64, val: u64) -> u64;
-        starstream-burn: func(ret: u64);
+        starstream-burn: func();
         starstream-bind: func(owner-id: u64);
         starstream-unbind: func(token-id: u64);
         starstream-init: func() -> tuple<u64, u64>;

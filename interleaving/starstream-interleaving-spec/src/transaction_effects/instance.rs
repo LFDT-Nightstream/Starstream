@@ -4,7 +4,7 @@ use neo_memory::ProgramIO;
 use p3_field::PrimeCharacteristicRing;
 
 use crate::{
-    CoroutineState, Hash, WasmModule, mocked_verifier::InterleavingError,
+    CoroutineState, Hash, RamMemoryTag, WasmModule, mocked_verifier::InterleavingError,
     mocked_verifier::LedgerEffectsCommitment, transaction_effects::ProcessId,
 };
 
@@ -18,6 +18,7 @@ pub struct InterleavingInstance {
     /// Process table in canonical order: inputs, new_outputs, coord scripts.
     pub process_table: Vec<Hash<WasmModule>>,
     pub is_utxo: Vec<bool>,
+    pub is_token: Vec<bool>,
 
     /// Burned/continuation mask for inputs (length = #inputs).
     pub must_burn: Vec<bool>,
@@ -51,7 +52,6 @@ pub struct InterleavingInstance {
 }
 
 impl InterleavingInstance {
-    #[allow(clippy::result_large_err)]
     pub fn check_shape(&self) -> Result<(), InterleavingError> {
         // ---------- shape checks ----------
         // TODO: a few of these may be redundant
@@ -61,6 +61,21 @@ impl InterleavingInstance {
 
         if self.is_utxo.len() != n {
             return Err(InterleavingError::Shape("is_utxo len != process_table len"));
+        }
+        if self.is_token.len() != n {
+            return Err(InterleavingError::Shape(
+                "is_token len != process_table len",
+            ));
+        }
+        if self
+            .is_token
+            .iter()
+            .zip(self.is_utxo.iter())
+            .any(|(is_token, is_utxo)| *is_token && !*is_utxo)
+        {
+            return Err(InterleavingError::Shape(
+                "is_token implies is_utxo for every process",
+            ));
         }
 
         if self.ownership_in.len() != self.n_inputs + self.n_new
@@ -101,8 +116,7 @@ impl InterleavingInstance {
 
         // TraceCommitments RAM index in the sorted twist_id list (see proof MemoryTag ordering).
         //
-        // TODO: de-harcode the 12
-        // it's supposed to be the twist index of the TraceCommitments memory
-        OutputBindingConfig::new(num_bits, program_io).with_mem_idx(12)
+        OutputBindingConfig::new(num_bits, program_io)
+            .with_mem_idx(RamMemoryTag::TraceCommitments.mem_index())
     }
 }

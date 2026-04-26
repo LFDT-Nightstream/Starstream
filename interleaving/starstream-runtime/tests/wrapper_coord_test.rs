@@ -85,6 +85,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let utxo1_bin = wasm_module!(utxo1_builder, {
         let pc = call get_datum(0);
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (init_ref, caller) = call activation();
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
             let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
@@ -96,13 +97,17 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(11, 2, cell_ref, 42, 0, 0, 0, 0);
 
             call set_datum(1, req);
+            let handler_slot = call trace_reserve_slot();
+            call set_datum(2, handler_slot);
             call set_datum(0, 1);
             call call_effect_handler(1, 2, 3, 4, req);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let req = call get_datum(1);
+            let handler_slot = call get_datum(2);
             let (resp, _caller_effect) = call activation();
-            call trace(18, 0, req, resp, 1, 2, 3, 4);
+            call trace_fill_slot(handler_slot, 18, 0, req, resp, 1, 2, 3, 4);
             let done = call new_ref(1);
             call trace(10, 0, 0, done, 1, 0, 0, 0);
             call ref_push(0, 0, 0, 0);
@@ -117,6 +122,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let utxo2_bin = wasm_module!(utxo2_builder, {
         let pc = call get_datum(0);
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (init_ref, caller) = call activation();
             call trace(8, 0, init_ref, 0, caller, 0, 0, 0);
             let (cell_ref, _b, _c, _d) = call ref_get(init_ref, 0);
@@ -128,13 +134,17 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(11, 3, cell_ref, 0, 0, 0, 0, 0);
 
             call set_datum(1, req);
+            let handler_slot = call trace_reserve_slot();
+            call set_datum(2, handler_slot);
             call set_datum(0, 1);
             call call_effect_handler(1, 2, 3, 4, req);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let req = call get_datum(1);
+            let handler_slot = call get_datum(2);
             let (resp, _caller_effect) = call activation();
-            call trace(18, 0, req, resp, 1, 2, 3, 4);
+            call trace_fill_slot(handler_slot, 18, 0, req, resp, 1, 2, 3, 4);
             let (_disc, val, _c2, _d2) = call ref_get(resp, 0);
             call trace(12, _disc, resp, val, 0, _c2, _d2, 0);
             assert_eq val, 42;
@@ -158,6 +168,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let inner_coord_bin = wasm_module!(inner_builder, {
         let pc = call get_datum(0);
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (init_ref, caller) = call init();
             call trace(9, 0, init_ref, 0, caller, 0, 0, 0);
             let (utxo1_id, utxo2_id, _c, _d) = call ref_get(init_ref, 0);
@@ -174,15 +185,19 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(11, 1, 0, 0, 0, 0, 0, 0);
             call set_datum(5, handler_id);
             call set_datum(6, req_new);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(7, resume_slot);
             call set_datum(0, 1);
             call resume(handler_id, req_new);
         }
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (resp_new, caller2) = call activation();
             let caller2_enc = add caller2, 1;
-            call trace(0, last_target, last_val, resp_new, caller2_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, resp_new, caller2_enc, 0, 0, 0);
             let (_disc, cell_ref, _c2, _d2) = call ref_get(resp_new, 0);
             call trace(12, _disc, resp_new, cell_ref, 0, _c2, _d2, 0);
 
@@ -195,28 +210,34 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             let utxo1_id = call get_datum(1);
             call set_datum(5, utxo1_id);
             call set_datum(6, cell_init);
+            let resume_slot2 = call trace_reserve_slot();
+            call set_datum(7, resume_slot2);
             call set_datum(0, 2);
             call resume(utxo1_id, cell_init);
         }
         if pc == 2 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (ret1, caller3) = call activation();
             let caller3_enc = add caller3, 1;
-            call trace(0, last_target, last_val, ret1, caller3_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, ret1, caller3_enc, 0, 0, 0);
             let utxo2_id = call get_datum(2);
             let cell_init = call get_datum(4);
             call set_datum(5, utxo2_id);
             call set_datum(6, cell_init);
+            let resume_slot2 = call trace_reserve_slot();
+            call set_datum(7, resume_slot2);
             call set_datum(0, 3);
             call resume(utxo2_id, cell_init);
         }
         if pc == 3 {
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (ret2, caller4) = call activation();
             let caller4_enc = add caller4, 1;
-            call trace(0, last_target, last_val, ret2, caller4_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, ret2, caller4_enc, 0, 0, 0);
             let handler_id = call get_datum(3);
             let req_end = call new_ref(1);
             call trace(10, 0, 0, req_end, 1, 0, 0, 0);
@@ -224,15 +245,19 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(11, 4, 0, 0, 0, 0, 0, 0);
             call set_datum(5, handler_id);
             call set_datum(6, req_end);
+            let resume_slot2 = call trace_reserve_slot();
+            call set_datum(7, resume_slot2);
             call set_datum(0, 4);
             call resume(handler_id, req_end);
         }
         if pc == 4 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(5);
             let last_val = call get_datum(6);
+            let resume_slot = call get_datum(7);
             let (resp_end, caller5) = call activation();
             let caller5_enc = add caller5, 1;
-            call trace(0, last_target, last_val, resp_end, caller5_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, resp_end, caller5_enc, 0, 0, 0);
             call set_datum(0, 5);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();
@@ -246,6 +271,7 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
     let wrapper_coord_bin = wasm_module!(wrapper_builder, {
         let pc = call get_datum(0);
         if pc == 0 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let (init_ref, caller) = call init();
             call trace(9, 0, init_ref, 0, caller, 0, 0, 0);
             let (inner_id, _inner_init, _c, _d) = call ref_get(init_ref, 0);
@@ -256,16 +282,20 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
             call trace(4, 0, 0, 0, 1, 2, 3, 4);
             call set_datum(4, inner_id);
             call set_datum(5, 0);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(6, resume_slot);
             call set_datum(0, 1);
             call resume(inner_id, 0);
         }
 
         if pc == 1 {
+            call trace(20, 0, 0, 0, 0, 0, 0, 0);
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
+            let resume_slot = call get_datum(6);
             let (req, caller) = call activation();
             let caller_enc = add caller, 1;
-            call trace(0, last_target, last_val, req, caller_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, req, caller_enc, 0, 0, 0);
             let (disc, _cell_ref, value, _d2) = call ref_get(req, 0);
             call trace(12, disc, req, _cell_ref, 0, value, _d2, 0);
 
@@ -276,6 +306,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 call trace(11, 13, 0, 0, 0, 0, 0, 0);
                 call set_datum(4, caller);
                 call set_datum(5, resp);
+                let resume_slot2 = call trace_reserve_slot();
+                call set_datum(6, resume_slot2);
                 call set_datum(0, 2);
                 call resume(caller, resp);
             }
@@ -288,6 +320,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 call trace(11, 11, cell_id, 0, 0, 0, 0, 0);
                 call set_datum(4, caller);
                 call set_datum(5, resp);
+                let resume_slot2 = call trace_reserve_slot();
+                call set_datum(6, resume_slot2);
                 call set_datum(0, 1);
                 call resume(caller, resp);
             }
@@ -300,6 +334,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 call trace(11, 10, 0, 0, 0, 0, 0, 0);
                 call set_datum(4, caller);
                 call set_datum(5, resp);
+                let resume_slot2 = call trace_reserve_slot();
+                call set_datum(6, resume_slot2);
                 call set_datum(0, 1);
                 call resume(caller, resp);
             }
@@ -312,6 +348,8 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
                 call trace(11, 12, cell_val, 0, 0, 0, 0, 0);
                 call set_datum(4, caller);
                 call set_datum(5, resp);
+                let resume_slot2 = call trace_reserve_slot();
+                call set_datum(6, resume_slot2);
                 call set_datum(0, 1);
                 call resume(caller, resp);
             }
@@ -320,9 +358,10 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
         if pc == 2 {
             let last_target = call get_datum(4);
             let last_val = call get_datum(5);
+            let resume_slot = call get_datum(6);
             let (ret, caller) = call activation();
             let caller_enc = add caller, 1;
-            call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, ret, caller_enc, 0, 0, 0);
             call uninstall_handler(1, 2, 3, 4);
             call trace(5, 0, 0, 0, 1, 2, 3, 4);
             call set_datum(0, 3);
@@ -434,15 +473,18 @@ fn test_runtime_wrapper_coord_newcoord_handlers() {
 
             call set_datum(1, wrapper_id);
             call set_datum(2, wrapper_init);
+            let resume_slot = call trace_reserve_slot();
+            call set_datum(3, resume_slot);
             call set_datum(0, 1);
             call resume(wrapper_id, wrapper_init);
         }
         if pc == 1 {
             let last_target = call get_datum(1);
             let last_val = call get_datum(2);
+            let resume_slot = call get_datum(3);
             let (ret, caller) = call activation();
             let caller_enc = add caller, 1;
-            call trace(0, last_target, last_val, ret, caller_enc, 0, 0, 0);
+            call trace_fill_slot(resume_slot, 0, last_target, last_val, ret, caller_enc, 0, 0, 0);
             call set_datum(0, 2);
             call trace(17, 0, 0, 0, 0, 0, 0, 0);
             call return_();

@@ -1,7 +1,9 @@
 use crate::{F, OptionalF, ledger_operation::LedgerOperation};
 use ark_ff::Zero;
 pub use starstream_interleaving_spec::{ArgName, OPCODE_ARG_COUNT};
-use starstream_interleaving_spec::{EffectDiscriminant, LedgerEffectsCommitment, WitLedgerEffect};
+use starstream_interleaving_spec::{
+    EffectDiscriminant, FunctionId, LedgerEffectsCommitment, WitLedgerEffect,
+};
 
 pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffectsCommitment {
     let ledger_op = ledger_operation_from_wit(&op);
@@ -18,15 +20,21 @@ pub fn commit(prev: LedgerEffectsCommitment, op: WitLedgerEffect) -> LedgerEffec
     LedgerEffectsCommitment(compressed)
 }
 
+fn proof_function_id(f_id: FunctionId) -> F {
+    F::from(f_id.as_u64())
+}
+
 pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation<F> {
     match op {
         WitLedgerEffect::Resume {
             target,
+            f_id,
             val,
             ret,
             caller,
         } => LedgerOperation::Resume {
             target: F::from(target.0 as u64),
+            f_id: proof_function_id(*f_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
             caller: OptionalF::from_option(
@@ -37,9 +45,7 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             val: F::from(val.0),
         },
         WitLedgerEffect::Return {} => LedgerOperation::Return {},
-        WitLedgerEffect::Burn { ret } => LedgerOperation::Burn {
-            ret: F::from(ret.0),
-        },
+        WitLedgerEffect::Burn {} => LedgerOperation::Burn {},
         WitLedgerEffect::ProgramHash {
             target,
             program_hash,
@@ -52,6 +58,15 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
             val,
             id,
         } => LedgerOperation::NewUtxo {
+            program_hash: program_hash.0.map(F::from),
+            val: F::from(val.0),
+            target: F::from(id.unwrap().0 as u64),
+        },
+        WitLedgerEffect::NewToken {
+            program_hash,
+            val,
+            id,
+        } => LedgerOperation::NewToken {
             program_hash: program_hash.0.map(F::from),
             val: F::from(val.0),
             target: F::from(id.unwrap().0 as u64),
@@ -111,13 +126,17 @@ pub(crate) fn ledger_operation_from_wit(op: &WitLedgerEffect) -> LedgerOperation
         },
         WitLedgerEffect::CallEffectHandler {
             interface_id,
+            f_id,
             val,
             ret,
-            ..
         } => LedgerOperation::CallEffectHandler {
             interface_id: interface_id.0.map(F::from),
+            f_id: proof_function_id(*f_id),
             val: F::from(val.0),
             ret: ret.to_option().map(|r| F::from(r.0)).unwrap_or_default(),
+        },
+        WitLedgerEffect::Enter { f_id } => LedgerOperation::Enter {
+            f_id: proof_function_id(*f_id),
         },
     }
 }
@@ -129,11 +148,13 @@ pub(crate) fn opcode_discriminant(op: &LedgerOperation<F>) -> F {
         LedgerOperation::CallEffectHandler { .. } => {
             F::from(EffectDiscriminant::CallEffectHandler as u64)
         }
+        LedgerOperation::Enter { .. } => F::from(EffectDiscriminant::Enter as u64),
         LedgerOperation::Yield { .. } => F::from(EffectDiscriminant::Yield as u64),
         LedgerOperation::Return { .. } => F::from(EffectDiscriminant::Return as u64),
         LedgerOperation::Burn { .. } => F::from(EffectDiscriminant::Burn as u64),
         LedgerOperation::ProgramHash { .. } => F::from(EffectDiscriminant::ProgramHash as u64),
         LedgerOperation::NewUtxo { .. } => F::from(EffectDiscriminant::NewUtxo as u64),
+        LedgerOperation::NewToken { .. } => F::from(EffectDiscriminant::NewToken as u64),
         LedgerOperation::NewCoord { .. } => F::from(EffectDiscriminant::NewCoord as u64),
         LedgerOperation::Activation { .. } => F::from(EffectDiscriminant::Activation as u64),
         LedgerOperation::Init { .. } => F::from(EffectDiscriminant::Init as u64),
@@ -159,6 +180,7 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
         LedgerOperation::Nop {} => {}
         LedgerOperation::Resume {
             target,
+            f_id,
             val,
             ret,
             caller,
@@ -167,12 +189,15 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::Caller.idx()] = caller.encoded();
+            args[ArgName::FunctionId1.idx()] = *f_id;
         }
         LedgerOperation::CallEffectHandler {
             interface_id,
+            f_id,
             val,
             ret,
         } => {
+            args[ArgName::FunctionId0.idx()] = *f_id;
             args[ArgName::Val.idx()] = *val;
             args[ArgName::Ret.idx()] = *ret;
             args[ArgName::InterfaceId0.idx()] = interface_id[0];
@@ -180,14 +205,14 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::InterfaceId2.idx()] = interface_id[2];
             args[ArgName::InterfaceId3.idx()] = interface_id[3];
         }
+        LedgerOperation::Enter { f_id } => {
+            args[ArgName::FunctionId0.idx()] = *f_id;
+        }
         LedgerOperation::Yield { val } => {
             args[ArgName::Val.idx()] = *val;
         }
         LedgerOperation::Return {} => {}
-        LedgerOperation::Burn { ret } => {
-            args[ArgName::Target.idx()] = F::zero();
-            args[ArgName::Ret.idx()] = *ret;
-        }
+        LedgerOperation::Burn {} => {}
         LedgerOperation::ProgramHash {
             target,
             program_hash,
@@ -199,6 +224,11 @@ pub(crate) fn opcode_args(op: &LedgerOperation<F>) -> [F; OPCODE_ARG_COUNT] {
             args[ArgName::ProgramHash3.idx()] = program_hash[3];
         }
         LedgerOperation::NewUtxo {
+            program_hash,
+            val,
+            target,
+        }
+        | LedgerOperation::NewToken {
             program_hash,
             val,
             target,

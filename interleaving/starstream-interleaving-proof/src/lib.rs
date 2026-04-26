@@ -1,4 +1,4 @@
-mod abi;
+pub mod abi;
 mod circuit;
 #[cfg(test)]
 mod circuit_test;
@@ -8,7 +8,6 @@ mod handler_stack_gadget;
 mod ledger_operation;
 mod logging;
 mod memory;
-mod memory_tags;
 mod neo;
 mod opcode_dsl;
 mod optional;
@@ -141,7 +140,7 @@ pub fn prove(
 
     let prover_output = ZkTransactionProof::NeoProof {
         proof: run,
-        session,
+        session: Box::new(session),
         ccs: prover.ccs().clone(),
         mcss_public,
         steps_public,
@@ -162,7 +161,6 @@ fn make_interleaved_trace(
 ) -> Vec<LedgerOperation<crate::F>> {
     let mut ops = vec![];
     let mut id_curr = inst.entrypoint.0;
-    let mut id_prev: Option<usize> = None;
     let mut next_op_idx = vec![0usize; inst.process_table.len()];
     let mut on_yield = vec![true; inst.process_table.len()];
     let mut yield_to: Vec<Option<usize>> = vec![None; inst.process_table.len()];
@@ -193,7 +191,6 @@ fn make_interleaved_trace(
                     yield_to[target.0] = Some(id_curr);
                     on_yield[target.0] = false;
                 }
-                id_prev = Some(id_curr);
                 id_curr = target.0;
             }
             starstream_interleaving_spec::WitLedgerEffect::InstallHandler { interface_id } => {
@@ -217,7 +214,6 @@ fn make_interleaved_trace(
                     .get(&interface_id.0)
                     .and_then(|stack| stack.last())
                     .expect("CallEffectHandler with empty stack in interleaving trace");
-                id_prev = Some(id_curr);
                 id_curr = target;
             }
             starstream_interleaving_spec::WitLedgerEffect::Yield { .. } => {
@@ -225,25 +221,16 @@ fn make_interleaved_trace(
                 let Some(parent) = yield_to[id_curr] else {
                     break;
                 };
-                let old_id_curr = id_curr;
                 id_curr = parent;
-                id_prev = Some(old_id_curr);
             }
             starstream_interleaving_spec::WitLedgerEffect::Return {} => {
                 if let Some(parent) = yield_to[id_curr] {
-                    let old_id_curr = id_curr;
                     id_curr = parent;
-                    id_prev = Some(old_id_curr);
                 } else if id_curr != inst.entrypoint.0 {
                     break;
                 }
             }
-            starstream_interleaving_spec::WitLedgerEffect::Burn { .. } => {
-                let parent = id_prev.expect("Burn called without a parent process");
-                let old_id_curr = id_curr;
-                id_curr = parent;
-                id_prev = Some(old_id_curr);
-            }
+            starstream_interleaving_spec::WitLedgerEffect::Burn {} => {}
             _ => {}
         }
 
@@ -276,6 +263,7 @@ fn ccs_step_shape() -> Result<(ConstraintSystemRef<F>, TSMemLayouts, IvcWireLayo
         host_calls_roots: vec![],
         process_table: vec![hash],
         is_utxo: vec![false],
+        is_token: vec![false],
         must_burn: vec![false],
         n_inputs: 0,
         n_new: 0,

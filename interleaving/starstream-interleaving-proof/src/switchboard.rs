@@ -7,6 +7,7 @@ use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
 pub struct RomSwitchboard {
     pub read_is_utxo_curr: bool,
     pub read_is_utxo_target: bool,
+    pub read_is_token_target: bool,
     pub read_must_burn_curr: bool,
     pub read_program_hash_target: bool,
 }
@@ -15,6 +16,7 @@ pub struct RomSwitchboard {
 pub struct RomSwitchboardWires {
     pub read_is_utxo_curr: Boolean<F>,
     pub read_is_utxo_target: Boolean<F>,
+    pub read_is_token_target: Boolean<F>,
     pub read_must_burn_curr: Boolean<F>,
     pub read_program_hash_target: Boolean<F>,
 }
@@ -32,6 +34,8 @@ pub struct MemSwitchboard<B> {
     pub finalized: B,
     pub did_burn: B,
     pub ownership: B,
+    pub must_enter: B,
+    pub must_exit: B,
 }
 
 pub type MemSwitchboardBool = MemSwitchboard<bool>;
@@ -50,6 +54,8 @@ pub struct HandlerSwitchboard {
 pub struct RefArenaSwitchboard {
     pub ref_sizes_write: bool,
     pub ref_sizes_read: bool,
+    pub ref_bases_write: bool,
+    pub ref_bases_read: bool,
     pub ref_arena_read: bool,
     pub ref_arena_write: bool,
     pub ref_arena_write_is_push: bool,
@@ -68,6 +74,8 @@ pub struct HandlerSwitchboardWires {
 pub struct RefArenaSwitchboardWires {
     pub ref_sizes_write: Boolean<F>,
     pub ref_sizes_read: Boolean<F>,
+    pub ref_bases_write: Boolean<F>,
+    pub ref_bases_read: Boolean<F>,
     pub ref_arena_read: Boolean<F>,
     pub ref_arena_write: Boolean<F>,
     pub ref_arena_write_is_push: Boolean<F>,
@@ -90,6 +98,8 @@ impl MemSwitchboardWires {
             finalized: Boolean::new_witness(cs.clone(), || Ok(switches.finalized))?,
             did_burn: Boolean::new_witness(cs.clone(), || Ok(switches.did_burn))?,
             ownership: Boolean::new_witness(cs.clone(), || Ok(switches.ownership))?,
+            must_enter: Boolean::new_witness(cs.clone(), || Ok(switches.must_enter))?,
+            must_exit: Boolean::new_witness(cs.clone(), || Ok(switches.must_exit))?,
         })
     }
 }
@@ -103,6 +113,9 @@ impl RomSwitchboardWires {
             read_is_utxo_curr: Boolean::new_witness(cs.clone(), || Ok(switches.read_is_utxo_curr))?,
             read_is_utxo_target: Boolean::new_witness(cs.clone(), || {
                 Ok(switches.read_is_utxo_target)
+            })?,
+            read_is_token_target: Boolean::new_witness(cs.clone(), || {
+                Ok(switches.read_is_token_target)
             })?,
             read_must_burn_curr: Boolean::new_witness(cs.clone(), || {
                 Ok(switches.read_must_burn_curr)
@@ -137,6 +150,8 @@ impl RefArenaSwitchboardWires {
         Ok(Self {
             ref_sizes_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_sizes_write))?,
             ref_sizes_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_sizes_read))?,
+            ref_bases_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_bases_write))?,
+            ref_bases_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_bases_read))?,
             ref_arena_read: Boolean::new_witness(cs.clone(), || Ok(switches.ref_arena_read))?,
             ref_arena_write: Boolean::new_witness(cs.clone(), || Ok(switches.ref_arena_write))?,
             ref_arena_write_is_push: Boolean::new_witness(cs, || {

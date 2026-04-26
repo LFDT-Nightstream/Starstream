@@ -1,0 +1,25 @@
+[package]
+name = "starstream-component-runtime"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.100"
+ark-ff = "0.5.0"
+ark-poseidon2 = { path = "../../ark-poseidon2" }
+starstream-interleaving-proof = { path = "../starstream-interleaving-proof" }
+starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
+thiserror = "2.0.17"
+wasm_runtime_layer = "0.6.0"
+wasmtime_runtime_layer = "39.0.0"
+wasmtime = { version = "39.0", default-features = false, features = ["std", "runtime", "cranelift", "gc", "gc-null", "component-model"] }
+imbl = "6.1.0"
+
+[dev-dependencies]
+wat = "1.240.0"
+wasmprinter = { workspace = true }
+wit-component = { workspace = true }

@@ -28,7 +28,7 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, ref_store, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn)
+σ = (id_curr, id_prev, M, activation, init, ref_store, ref_sizes, ref_bases, ref_building_state, next_ref_id, next_ref_base, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn, must_enter, must_exit)
 
 Where:
   id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
@@ -40,6 +40,12 @@ Where:
   activation       : A map {ProcessID -> Option<(Ref, ProcessID)>}
   init             : A map {ProcessID -> Option<(Value, ProcessID)>}
   ref_store        : A map {Ref -> Value}
+  ref_sizes        : A map {Ref -> WordCount}
+  ref_bases        : A map {Ref -> ArenaOffset}
+  ref_building_state
+                  : A map {ProcessID -> Option<(Ref, WordOffset, WordCount)>}
+  next_ref_id      : Next fresh ref identifier
+  next_ref_base    : Next free base offset in the contiguous ref arena
   process_table    : Read-only map {ID -> ProgramHash} for attestation.
   host_calls       : A map {ProcessID -> Host-calls lookup table}
   must_burn        : Read-only map {ProcessID -> Bool} (inputs without continuation must burn)
@@ -49,6 +55,8 @@ Where:
   handler_stack    : A map {InterfaceID -> Stack<ProcessID>}
   ownership        : A map {ProcessID -> Option<ProcessID>} (token -> owner)
   did_burn         : A map {ProcessID -> Bool}
+  must_enter       : A map {ProcessID -> Option<HandlerId>}
+  must_exit        : A map {ProcessID -> Bool}
 ```
 
 Note that the maps are used here for convenience of notation. In practice they
@@ -78,10 +86,10 @@ new_state (assignments)
 
 # 2. Shared Operations
 
-## Resume (Call)
+## Resume
 
-The primary control flow operation. Transfers control to `target`. It records
-claims for the current process and consumes the target's pending claims after
+The primary call operation. Transfers control to `target`. It records claims
+for the current process and consumes the target's pending claims after
 validation.
 
 Since we are also resuming a currently suspended process, we can only do it if
@@ -94,7 +102,7 @@ change `yield_to` unless the process yields again.
 ```text
 Rule: Resume
 ============
-    op = Resume(target, val_ref) -> (ret_ref, caller)
+    op = Resume(target, f_id, val_ref) -> (ret_ref, caller)
 
     1. id_curr ≠ target
 
@@ -117,7 +125,7 @@ Rule: Resume
     (Can't jump to an unitialized process)
 --------------------------------------------------------------------------------------------
     1. expected_input[id_curr]   <- ret_ref   (Claim, needs to be checked later by future resumer)
-    2. expected_resumer[id_curr] <- caller   (Claim, needs to be checked later by future resumer)
+    2. expected_resumer[id_curr] <- caller    (Claim, needs to be checked later by future resumer)
     3. expected_input[target]    <- None      (Target claim consumed by this resume)
     4. expected_resumer[target]  <- None      (Target claim consumed by this resume)
     5. id_prev'                  <- id_curr   (Trace-local previous id)
@@ -126,6 +134,7 @@ Rule: Resume
            yield_to'[target]     <- Some(id_curr)
            on_yield'[target]     <- False
     8. activation'[target]       <- Some(val_ref, id_curr)
+    9. must_enter'[target]       <- Some(f_id)
 ```
 
 ## Activation
@@ -206,6 +215,40 @@ Rule: Program Hash
 -----------------------------------------------------------------------
     1. (No state changes)
 ```
+
+## Handlers
+
+Keep track of function frames for the purpose of proving "method" calls (which
+are named effect handlers).
+
+These "events" need to be emitted (or traced) by the process zkVM when entering
+a function scope, so these are not runtime-agnostic opcodes in that regard.
+
+For the current Starstream subset:
+
+- `Enter(function_id)` proves which Starstream-visible function began running.
+- `Return` ends the current function frame.
+- `Yield` does not end the current function frame; it suspends it.
+
+```text
+Rule: Handler Enter
+==================
+    (Enter the frame of a function call for checking effect call semantics)
+
+    op = Enter(function_id)
+
+    1. must_enter[id_curr] == function_id
+
+    (The handler must be scheduled to run)
+
+    2. must_exit[id_curr] == false
+
+    (No re-entrancy)
+
+-----------------------------------------------------------------------
+    1. must_exit'[id_curr] <- true
+```
+
 
 ---
 
@@ -346,7 +389,7 @@ space), and resolves to `handler_stack[interface_id].top()`.
 ```text
 Rule: Call Effect Handler
 =========================
-    op = CallEffectHandler(interface_id, val_ref) -> ret_ref
+    op = CallEffectHandler(interface_id, f_id, val_ref) -> ret_ref
 
     1. target = handler_stack[interface_id].top()
 
@@ -364,6 +407,7 @@ Rule: Call Effect Handler
 
     (Check that current process matches expected resumer for target)
 
+
 --------------------------------------------------------------------------------------------
     1. expected_input[id_curr]   <- ret_ref
     2. expected_resumer[id_curr] <- Some(target)
@@ -372,6 +416,7 @@ Rule: Call Effect Handler
     5. id_prev'                  <- id_curr
     6. id_curr'                  <- target
     7. activation'[target]       <- Some(val_ref, id_curr)
+    8. must_enter'[target]       <- Some(f_id)
 ```
 
 ---
@@ -380,36 +425,27 @@ Rule: Call Effect Handler
 
 ## Burn
 
-Terminates the UTXO. No matching output is created in the ledger.
+Marks the UTXO as burned. No matching continuation output is created in the
+ledger, but the coroutine still returns control through a later `Yield`.
 
 ```text
 Rule: Burn
 ==========
-Destroys the UTXO state.
+Marks the UTXO as burned.
 
-    op = Burn(ret)
+    op = Burn()
 
     1. is_utxo[id_curr]
     2. initialized[id_curr]
     3. must_burn[id_curr] == True
 
-    4. if expected_input[id_prev] is set, it must equal ret
-
-    (Resume receives ret)
-
     (Host call lookup condition)
 -----------------------------------------------------------------------
-    1. finalized'[id_curr]      <- True
-    2. id_curr'                 <- id_prev
+    1. did_burn'[id_curr]       <- True
 
-    (Control flow goes to caller)
-
-    3. initialized'[id_curr]    <- False
-
-    (It's not possible to return to this, maybe it should be a different flag though)
-
-    5. activation'[id_curr]     <- None
-    6. did_burn'[id_curr]       <- True
+The actual returned value is still carried by a later `Yield(val_ref)`. Burn does
+not itself satisfy the caller's pending claim and does not switch control flow.
+After Burn, the burned UTXO must still terminate with a final `Yield`.
 ```
 
 # 6. Tokens
@@ -469,6 +505,12 @@ Rule: Unbind (owner calls)
 
 Allocates a new reference with a specific size (in 4-value words).
 
+`NewRef` and the following `RefPush` sequence should be understood as one
+logical allocation+initialization operation that is decomposed into multiple
+trace rows because the witness/circuit uses fixed-width values. While a process
+has an active `ref_building_state`, the next effect for that process must be
+`RefPush` until the object is fully initialized.
+
 ```text
 Rule: NewRef
 ==============
@@ -477,9 +519,13 @@ Rule: NewRef
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. size fits in 16 bits
-    2. ref_store'[ref] <- [uninitialized; size_words * 4] (conceptually)
-    3. ref_sizes'[ref] <- size_words
-    5. ref_state[id_curr] <- (ref, 0, size_words) // storing the ref being built, current word offset, and total size
+    2. ref == next_ref_id
+    3. ref_store'[ref] <- [uninitialized; size_words * 4] (conceptually)
+    4. ref_sizes'[ref] <- size_words
+    5. ref_bases'[ref] <- next_ref_base
+    6. ref_building_state'[id_curr] <- Some(ref, 0, size_words)
+    7. next_ref_id' <- ref + 1
+    8. next_ref_base' <- next_ref_base + (size_words * 4)
 ```
 
 ## RefPush
@@ -491,14 +537,17 @@ Rule: RefPush
 ==============
     op = RefPush(vals[4])
 
-    1. let (ref, offset_words, size_words) = ref_state[id_curr]
+    1. let Some((ref, offset_words, size_words)) = ref_building_state[id_curr]
     2. offset_words < size_words
 
     (Host call lookup condition)
 -----------------------------------------------------------------------
     1. for i in 0..3:
             ref_store'[ref][(offset_words * 4) + i] <- vals[i]
-    2. ref_state[id_curr] <- (ref, offset_words + 1, size_words)
+    2. if offset_words + 1 == size_words then
+           ref_building_state'[id_curr] <- None
+       else
+           ref_building_state'[id_curr] <- Some(ref, offset_words + 1, size_words)
 ```
 
 ## RefGet

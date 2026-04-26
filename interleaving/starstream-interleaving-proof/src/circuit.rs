@@ -5,14 +5,15 @@ use crate::handler_stack_gadget::{
     HandlerState, InterfaceResolver, handler_stack_access_wires, trace_handler_stack_ops,
 };
 use crate::ledger_operation::{REF_GET_BATCH_SIZE, REF_PUSH_BATCH_SIZE};
-use crate::memory::{self, Address, IVCMemory, MemType};
-pub use crate::memory_tags::MemoryTag;
+use crate::memory::{self, Address, IVCMemory, MemType, MemoryTag as _};
 use crate::program_hash_gadget::{program_hash_access_wires, trace_program_hash_ops};
 use crate::program_state::{
     ProgramState, ProgramStateWires, program_state_read_wires, program_state_write_wires,
     trace_program_state_reads, trace_program_state_writes,
 };
-use crate::ref_arena_gadget::{ref_arena_access_wires, ref_arena_read_size, trace_ref_arena_ops};
+use crate::ref_arena_gadget::{
+    ref_arena_access_wires, ref_arena_read_base, ref_arena_read_size, trace_ref_arena_ops,
+};
 use crate::switchboard::{
     HandlerSwitchboard, HandlerSwitchboardWires, MemSwitchboardBool, MemSwitchboardWires,
     RefArenaSwitchboard, RefArenaSwitchboardWires, RomSwitchboard, RomSwitchboardWires,
@@ -29,7 +30,9 @@ use ark_relations::{
     gr1cs::{ConstraintSystemRef, SynthesisError},
     ns,
 };
-use starstream_interleaving_spec::{InterleavingInstance, LedgerEffectsCommitment};
+use starstream_interleaving_spec::{
+    InterleavingInstance, LedgerEffectsCommitment, RamMemoryTag, RomMemoryTag,
+};
 use std::marker::PhantomData;
 use std::ops::Not;
 use tracing::debug_span;
@@ -75,7 +78,8 @@ pub struct Wires {
     // irw
     id_curr: FpVar<F>,
     id_prev: OptionalFpVar<F>,
-    ref_arena_stack_ptr: FpVar<F>,
+    next_ref_id: FpVar<F>,
+    ref_arena_len: FpVar<F>,
     handler_stack_ptr: FpVar<F>,
 
     ref_building_remaining: FpVar<F>,
@@ -97,6 +101,7 @@ pub struct Wires {
     // ROM lookup results
     is_utxo_curr: FpVar<F>,
     is_utxo_target: FpVar<F>,
+    is_token_target: FpVar<F>,
     must_burn_curr: FpVar<F>,
     rom_program_hash: [FpVar<F>; 4],
 
@@ -129,7 +134,8 @@ pub struct PreWires {
 pub struct InterRoundWires {
     id_curr: F,
     id_prev: OptionalF<F>,
-    ref_arena_counter: F,
+    next_ref_id: F,
+    ref_arena_len: F,
     handler_stack_counter: F,
 
     ref_building_remaining: F,
@@ -140,7 +146,8 @@ pub struct InterRoundWires {
 pub struct IvcWireIndices {
     pub id_curr: usize,
     pub id_prev: usize,
-    pub ref_arena_stack_ptr: usize,
+    pub next_ref_id: usize,
+    pub ref_arena_len: usize,
     pub handler_stack_ptr: usize,
     pub ref_building_remaining: usize,
     pub ref_building_ptr: usize,
@@ -153,13 +160,14 @@ pub struct IvcWireLayout {
 }
 
 impl IvcWireLayout {
-    pub const FIELD_COUNT: usize = 6;
+    pub const FIELD_COUNT: usize = 7;
 
     pub fn input_indices(&self) -> [usize; Self::FIELD_COUNT] {
         [
             self.input.id_curr,
             self.input.id_prev,
-            self.input.ref_arena_stack_ptr,
+            self.input.next_ref_id,
+            self.input.ref_arena_len,
             self.input.handler_stack_ptr,
             self.input.ref_building_remaining,
             self.input.ref_building_ptr,
@@ -170,7 +178,8 @@ impl IvcWireLayout {
         [
             self.output.id_curr,
             self.output.id_prev,
-            self.output.ref_arena_stack_ptr,
+            self.output.next_ref_id,
+            self.output.ref_arena_len,
             self.output.handler_stack_ptr,
             self.output.ref_building_remaining,
             self.output.ref_building_ptr,
@@ -181,10 +190,6 @@ impl IvcWireLayout {
 impl Wires {
     fn arg(&self, kind: ArgName) -> FpVar<F> {
         self.opcode_args[kind.idx()].clone()
-    }
-
-    fn id_prev_is_some(&self) -> Result<Boolean<F>, SynthesisError> {
-        self.id_prev.is_some()
     }
 
     fn id_prev_value(&self) -> Result<FpVar<F>, SynthesisError> {
@@ -209,8 +214,8 @@ impl Wires {
         let id_prev = OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
             Ok(vals.irw.id_prev.encoded())
         })?);
-        let ref_arena_stack_ptr =
-            FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_counter))?;
+        let next_ref_id = FpVar::new_witness(cs.clone(), || Ok(vals.irw.next_ref_id))?;
+        let ref_arena_len = FpVar::new_witness(cs.clone(), || Ok(vals.irw.ref_arena_len))?;
         let handler_stack_counter =
             FpVar::new_witness(cs.clone(), || Ok(vals.irw.handler_stack_counter))?;
 
@@ -298,7 +303,7 @@ impl Wires {
             &rom_switches.read_is_utxo_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: MemoryTag::IsUtxo.allocate(cs.clone())?,
+                tag: RomMemoryTag::IsUtxo.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -307,7 +312,15 @@ impl Wires {
             &rom_switches.read_is_utxo_target,
             &Address {
                 addr: target_address.clone(),
-                tag: MemoryTag::IsUtxo.allocate(cs.clone())?,
+                tag: RomMemoryTag::IsUtxo.allocate(cs.clone())?,
+            },
+        )?[0]
+            .clone();
+        let is_token_target = rm.conditional_read(
+            &rom_switches.read_is_token_target,
+            &Address {
+                addr: target_address.clone(),
+                tag: RomMemoryTag::IsToken.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -316,7 +329,7 @@ impl Wires {
             &rom_switches.read_must_burn_curr,
             &Address {
                 addr: id_curr.clone(),
-                tag: MemoryTag::MustBurn.allocate(cs.clone())?,
+                tag: RomMemoryTag::MustBurn.allocate(cs.clone())?,
             },
         )?[0]
             .clone();
@@ -337,6 +350,14 @@ impl Wires {
         let ref_arena_read = {
             let ref_size_read =
                 ref_arena_read_size(cs.clone(), rm, &ref_arena_switches, &opcode_args, &val)?;
+            let ref_base_read = ref_arena_read_base(
+                cs.clone(),
+                rm,
+                &ref_arena_switches,
+                &ref_arena_len,
+                &opcode_args,
+                &val,
+            )?;
 
             ref_arena_access_wires(
                 cs.clone(),
@@ -345,7 +366,7 @@ impl Wires {
                 &opcode_args,
                 &ref_building_ptr,
                 &ref_building_remaining,
-                &val,
+                &ref_base_read,
                 &offset,
                 &ref_size_read,
             )?
@@ -364,7 +385,8 @@ impl Wires {
         Ok(Wires {
             id_curr,
             id_prev,
-            ref_arena_stack_ptr,
+            next_ref_id,
+            ref_arena_len,
             handler_stack_ptr: handler_stack_counter,
 
             ref_building_remaining,
@@ -385,6 +407,7 @@ impl Wires {
 
             is_utxo_curr,
             is_utxo_target,
+            is_token_target,
             must_burn_curr,
             rom_program_hash,
             ref_arena_read,
@@ -398,7 +421,8 @@ impl InterRoundWires {
         InterRoundWires {
             id_curr: F::from(entrypoint),
             id_prev: OptionalF::none(),
-            ref_arena_counter: F::ZERO,
+            next_ref_id: F::ZERO,
+            ref_arena_len: F::ZERO,
             handler_stack_counter: F::ZERO,
             ref_building_remaining: F::ZERO,
             ref_building_ptr: F::ZERO,
@@ -426,12 +450,13 @@ impl InterRoundWires {
         self.id_prev = OptionalF::from_encoded(res_id_prev);
 
         tracing::debug!(
-            "ref_arena_counter from {} to {}",
-            self.ref_arena_counter,
-            res.ref_arena_stack_ptr.value().unwrap()
+            "next_ref_id from {} to {}",
+            self.next_ref_id,
+            res.next_ref_id.value().unwrap()
         );
 
-        self.ref_arena_counter = res.ref_arena_stack_ptr.value().unwrap();
+        self.next_ref_id = res.next_ref_id.value().unwrap();
+        self.ref_arena_len = res.ref_arena_len.value().unwrap();
 
         tracing::debug!(
             "handler_stack_counter from {} to {}",
@@ -471,6 +496,7 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.activation = true;
                 config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.expected_resumer = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.mem_switches_target.activation = true;
                 config.mem_switches_target.expected_input = true;
@@ -479,6 +505,8 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_target.yield_to = true;
                 config.mem_switches_target.finalized = true;
                 config.mem_switches_target.initialized = true;
+                config.mem_switches_target.must_enter = true;
+                config.mem_switches_target.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
@@ -489,15 +517,24 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.activation = true;
                 config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.expected_resumer = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.mem_switches_target.activation = true;
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
                 config.mem_switches_target.finalized = true;
+                config.mem_switches_target.must_enter = true;
+                config.mem_switches_target.must_exit = true;
 
                 config.handler_switches.read_interface = true;
                 config.handler_switches.read_head = true;
                 config.handler_switches.read_node = true;
+            }
+            LedgerOperation::Enter { .. } => {
+                config.execution_switches.enter = true;
+
+                config.mem_switches_curr.must_enter = true;
+                config.mem_switches_curr.must_exit = true;
             }
             LedgerOperation::Yield { .. } => {
                 config.execution_switches.yield_op = true;
@@ -506,9 +543,11 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.on_yield = true;
                 config.mem_switches_curr.yield_to = true;
                 config.mem_switches_curr.finalized = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.mem_switches_target.expected_input = true;
                 config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.must_enter = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
             }
@@ -519,6 +558,7 @@ impl LedgerOperation<crate::F> {
                 config.mem_switches_curr.on_yield = true;
                 config.mem_switches_curr.yield_to = true;
                 config.mem_switches_curr.finalized = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
             }
@@ -526,10 +566,9 @@ impl LedgerOperation<crate::F> {
                 config.execution_switches.burn = true;
 
                 config.mem_switches_curr.activation = true;
-                config.mem_switches_curr.finalized = true;
                 config.mem_switches_curr.did_burn = true;
-                config.mem_switches_curr.expected_input = true;
                 config.mem_switches_curr.initialized = true;
+                config.mem_switches_curr.must_exit = true;
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_must_burn_curr = true;
@@ -552,6 +591,23 @@ impl LedgerOperation<crate::F> {
 
                 config.rom_switches.read_is_utxo_curr = true;
                 config.rom_switches.read_is_utxo_target = true;
+                config.rom_switches.read_is_token_target = true;
+                config.rom_switches.read_program_hash_target = true;
+            }
+            LedgerOperation::NewToken { .. } => {
+                config.execution_switches.new_token = true;
+
+                config.mem_switches_target.initialized = true;
+                config.mem_switches_target.init = true;
+                config.mem_switches_target.init_caller = true;
+                config.mem_switches_target.expected_input = true;
+                config.mem_switches_target.expected_resumer = true;
+                config.mem_switches_target.on_yield = true;
+                config.mem_switches_target.yield_to = true;
+
+                config.rom_switches.read_is_utxo_curr = true;
+                config.rom_switches.read_is_utxo_target = true;
+                config.rom_switches.read_is_token_target = true;
                 config.rom_switches.read_program_hash_target = true;
             }
             LedgerOperation::NewCoord { .. } => {
@@ -600,6 +656,7 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::NewRef { .. } => {
                 config.execution_switches.new_ref = true;
                 config.ref_arena_switches.ref_sizes_write = true;
+                config.ref_arena_switches.ref_bases_write = true;
             }
             LedgerOperation::RefPush { .. } => {
                 config.execution_switches.ref_push = true;
@@ -609,11 +666,13 @@ impl LedgerOperation<crate::F> {
             LedgerOperation::RefGet { .. } => {
                 config.execution_switches.get = true;
                 config.ref_arena_switches.ref_sizes_read = true;
+                config.ref_arena_switches.ref_bases_read = true;
                 config.ref_arena_switches.ref_arena_read = true;
             }
             LedgerOperation::RefWrite { .. } => {
                 config.execution_switches.ref_write = true;
                 config.ref_arena_switches.ref_sizes_read = true;
+                config.ref_arena_switches.ref_bases_read = true;
                 config.ref_arena_switches.ref_arena_write = true;
             }
             LedgerOperation::InstallHandler { .. } => {
@@ -670,37 +729,44 @@ impl LedgerOperation<crate::F> {
                 // Nop does nothing to the state
             }
             LedgerOperation::Resume {
-                val, ret, caller, ..
+                f_id,
+                val,
+                ret,
+                caller,
+                ..
             } => {
-                // Current process gives control to target.
-                // It's `arg` is cleared, and its `expected_input` is set to the return value `ret`.
-                curr_write.activation = F::ZERO; // Represents None
+                curr_write.activation = F::ZERO;
                 curr_write.expected_input = OptionalF::new(*ret);
                 curr_write.expected_resumer = *caller;
+                curr_write.must_exit = false;
 
-                // Target process receives control.
-                // Its `arg` is set to `val`, and it is no longer in a `finalized` state.
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
                 target_write.activation = *val;
                 target_write.finalized = false;
 
-                // If target was in a yield state, record who resumed it and clear the flag.
                 if target_read.on_yield && !curr_is_utxo {
                     target_write.yield_to = OptionalF::new(curr_id);
                 }
                 target_write.on_yield = false;
+                target_write.must_enter = OptionalF::new(*f_id);
             }
-            LedgerOperation::CallEffectHandler { val, ret, .. } => {
+            LedgerOperation::CallEffectHandler { f_id, val, ret, .. } => {
                 let target = target_id.expect("CallEffectHandler requires resolved handler target");
                 curr_write.activation = F::ZERO;
                 curr_write.expected_input = OptionalF::new(*ret);
                 curr_write.expected_resumer = OptionalF::new(target);
+                curr_write.must_exit = false;
 
                 target_write.expected_input = OptionalF::none();
                 target_write.expected_resumer = OptionalF::none();
                 target_write.activation = *val;
                 target_write.finalized = false;
+                target_write.must_enter = OptionalF::new(*f_id);
+            }
+            LedgerOperation::Enter { .. } => {
+                curr_write.must_enter = OptionalF::none();
+                curr_write.must_exit = true;
             }
             LedgerOperation::Yield { val: _, .. } => {
                 // Current process yields control back to its parent (the target of this operation).
@@ -708,20 +774,21 @@ impl LedgerOperation<crate::F> {
                 curr_write.activation = F::ZERO; // Represents None
                 curr_write.finalized = true;
                 curr_write.on_yield = true;
+                curr_write.must_exit = false;
             }
             LedgerOperation::Return {} => {
                 // Coordination script return is terminal for this transaction.
                 curr_write.activation = F::ZERO;
                 curr_write.finalized = true;
+                curr_write.must_exit = false;
             }
-            LedgerOperation::Burn { ret } => {
-                // The current UTXO is burned.
-                curr_write.activation = F::ZERO; // Represents None
-                curr_write.finalized = true;
+            LedgerOperation::Burn {} => {
+                // The current UTXO is marked as burned; the final return still
+                // happens on the later Yield.
                 curr_write.did_burn = true;
-                curr_write.expected_input = OptionalF::new(*ret); // Sets its final return value.
             }
             LedgerOperation::NewUtxo { val, target: _, .. }
+            | LedgerOperation::NewToken { val, target: _, .. }
             | LedgerOperation::NewCoord { val, target: _, .. } => {
                 // The current process is a coordinator creating a new process.
                 // The new process (target) is initialized.
@@ -783,11 +850,20 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         let wires_in = self.allocate_vars(i, rm, &irw)?;
         let next_wires = wires_in.clone();
 
+        // this is not an opcode, but an invariant
+        //
+        // basically if must_enter is set for a process, then no other opcode
+        // is valid
+        //
+        // but the Enter opcode semantics are enforced in visit_enter
+        let next_wires = self.visit_pending_enter(next_wires)?;
+
         // per opcode constraints
         let next_wires = self.visit_yield(next_wires)?;
         let next_wires = self.visit_return(next_wires)?;
         let next_wires = self.visit_call_effect_handler(next_wires)?;
         let next_wires = self.visit_resume(next_wires)?;
+        let next_wires = self.visit_enter(next_wires)?;
         let next_wires = self.visit_burn(next_wires)?;
         let next_wires = self.visit_program_hash(next_wires)?;
         let next_wires = self.visit_new_process(next_wires)?;
@@ -838,7 +914,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     mb.init(
                         Address {
                             addr: addr as u64,
-                            tag: MemoryTag::ProcessTable.into(),
+                            tag: RomMemoryTag::ProcessTable.memory_tag(),
                         },
                         vec![*field],
                     );
@@ -847,7 +923,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Initialized.into(),
+                        tag: RamMemoryTag::Initialized.memory_tag(),
                     },
                     vec![F::from(
                         if pid < self.instance.n_inputs || pid == self.instance.entrypoint.0 {
@@ -861,7 +937,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Finalized.into(),
+                        tag: RamMemoryTag::Finalized.memory_tag(),
                     },
                     vec![F::from(0u64)], // false
                 );
@@ -869,7 +945,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::DidBurn.into(),
+                        tag: RamMemoryTag::DidBurn.memory_tag(),
                     },
                     vec![F::from(0u64)], // false
                 );
@@ -877,7 +953,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::ExpectedInput.into(),
+                        tag: RamMemoryTag::ExpectedInput.memory_tag(),
                     },
                     vec![OptionalF::none().encoded()],
                 );
@@ -885,7 +961,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::ExpectedResumer.into(),
+                        tag: RamMemoryTag::ExpectedResumer.memory_tag(),
                     },
                     vec![OptionalF::none().encoded()],
                 );
@@ -893,7 +969,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::OnYield.into(),
+                        tag: RamMemoryTag::OnYield.memory_tag(),
                     },
                     vec![F::ONE], // true
                 );
@@ -901,7 +977,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::YieldTo.into(),
+                        tag: RamMemoryTag::YieldTo.memory_tag(),
                     },
                     vec![OptionalF::none().encoded()],
                 );
@@ -909,7 +985,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Activation.into(),
+                        tag: RamMemoryTag::Activation.memory_tag(),
                     },
                     vec![F::from(0u64)], // None
                 );
@@ -917,27 +993,27 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Init.into(),
+                        tag: RamMemoryTag::Init.memory_tag(),
                     },
                     vec![F::from(0u64)], // None
                 );
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::InitCaller.into(),
+                        tag: RamMemoryTag::InitCaller.memory_tag(),
                     },
                     vec![F::from(0u64)],
                 );
 
                 let trace_iv = LedgerEffectsCommitment::iv().0;
-                for offset in 0..4 {
+                for (offset, limb) in trace_iv.iter().enumerate() {
                     let addr = (pid * 4) + offset;
                     mb.init(
                         Address {
                             addr: addr as u64,
-                            tag: MemoryTag::TraceCommitments.into(),
+                            tag: RamMemoryTag::TraceCommitments.memory_tag(),
                         },
-                        vec![trace_iv[offset]],
+                        vec![*limb],
                     );
                 }
             }
@@ -946,7 +1022,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::MustBurn.into(),
+                        tag: RomMemoryTag::MustBurn.memory_tag(),
                     },
                     vec![F::from(if *must_burn { 1u64 } else { 0 })],
                 );
@@ -956,9 +1032,18 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::IsUtxo.into(),
+                        tag: RomMemoryTag::IsUtxo.memory_tag(),
                     },
                     vec![F::from(if *is_utxo { 1u64 } else { 0 })],
+                );
+            }
+            for (pid, is_token) in self.instance.is_token.iter().enumerate() {
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RomMemoryTag::IsToken.memory_tag(),
+                    },
+                    vec![F::from(if *is_token { 1u64 } else { 0 })],
                 );
             }
 
@@ -969,9 +1054,23 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mb.init(
                     Address {
                         addr: pid as u64,
-                        tag: MemoryTag::Ownership.into(),
+                        tag: RamMemoryTag::Ownership.memory_tag(),
                     },
                     vec![encoded_owner],
+                );
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RamMemoryTag::MustEnter.memory_tag(),
+                    },
+                    vec![OptionalF::none().encoded()],
+                );
+                mb.init(
+                    Address {
+                        addr: pid as u64,
+                        tag: RamMemoryTag::MustExit.memory_tag(),
+                    },
+                    vec![F::ZERO],
                 );
             }
 
@@ -992,8 +1091,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // Initialize IRW for the trace phase and update it as we process each operation
         let mut irw = InterRoundWires::new(self.instance.entrypoint.0 as u64);
 
-        let mut ref_building_id = F::ZERO;
-        let mut ref_building_offset = F::ZERO;
+        let mut next_ref_base = F::ZERO;
+        let mut ref_building_ptr = F::ZERO;
         let mut ref_building_remaining = F::ZERO;
 
         for instr in &self.ops {
@@ -1049,8 +1148,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             trace_ref_arena_ops(
                 &mut mb,
-                &mut ref_building_id,
-                &mut ref_building_offset,
+                &mut next_ref_base,
+                &mut ref_building_ptr,
                 &mut ref_building_remaining,
                 &ref_arena_switches,
                 instr,
@@ -1067,8 +1166,9 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 }
                 LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
                 LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
-                LedgerOperation::Burn { .. } => irw.id_prev.to_option(),
+                LedgerOperation::Burn { .. } => None,
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
+                LedgerOperation::NewToken { target: id, .. } => Some(*id),
                 LedgerOperation::NewCoord { target: id, .. } => Some(*id),
                 LedgerOperation::ProgramHash { target, .. } => Some(*target),
                 LedgerOperation::Unbind { token_id } => Some(*token_id),
@@ -1083,21 +1183,28 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 rom_switches.read_is_utxo_curr,
                 Address {
                     addr: irw.id_curr.into_bigint().0[0],
-                    tag: MemoryTag::IsUtxo.into(),
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_is_utxo_target,
                 Address {
                     addr: target_pid.unwrap_or(0),
-                    tag: MemoryTag::IsUtxo.into(),
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_token_target,
+                Address {
+                    addr: target_pid.unwrap_or(0),
+                    tag: RomMemoryTag::IsToken.memory_tag(),
                 },
             );
             mb.conditional_read(
                 rom_switches.read_must_burn_curr,
                 Address {
                     addr: irw.id_curr.into_bigint().0[0],
-                    tag: MemoryTag::MustBurn.into(),
+                    tag: RomMemoryTag::MustBurn.memory_tag(),
                 },
             );
             let target_pid_value = target_pid.unwrap_or(0);
@@ -1154,11 +1261,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                         irw.id_curr = parent;
                     }
                 }
-                LedgerOperation::Burn { .. } => {
-                    let old_curr = irw.id_curr;
-                    irw.id_curr = irw.id_prev.decode_or_zero();
-                    irw.id_prev = OptionalF::new(old_curr);
-                }
+                LedgerOperation::Burn { .. } => {}
                 _ => {}
             }
 
@@ -1189,7 +1292,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 mem.init(
                     Address {
                         addr: (index * 4 + limb) as u64,
-                        tag: MemoryTag::Interfaces.into(),
+                        tag: RomMemoryTag::Interfaces.memory_tag(),
                     },
                     vec![*field],
                 );
@@ -1198,7 +1301,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mem.init(
                 Address {
                     addr: index as u64,
-                    tag: MemoryTag::HandlerStackHeads.into(),
+                    tag: RamMemoryTag::HandlerStackHeads.memory_tag(),
                 },
                 vec![F::ZERO], // null pointer (empty stack)
             );
@@ -1215,14 +1318,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mem.init(
                 Address {
                     addr: i as u64,
-                    tag: MemoryTag::HandlerStackArenaProcess.into(),
+                    tag: RamMemoryTag::HandlerStackArenaProcess.memory_tag(),
                 },
                 vec![F::ZERO], // process_id
             );
             mem.init(
                 Address {
                     addr: i as u64,
-                    tag: MemoryTag::HandlerStackArenaNextPtr.into(),
+                    tag: RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
                 },
                 vec![F::ZERO], // next_ptr
             );
@@ -1286,6 +1389,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switches: ExecutionSwitches::call_effect_handler(),
                 ..default
             },
+            LedgerOperation::Enter { .. } => PreWires {
+                switches: ExecutionSwitches::enter(),
+                ..default
+            },
             LedgerOperation::Yield { .. } => PreWires {
                 switches: ExecutionSwitches::yield_op(),
                 ..default
@@ -1304,6 +1411,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             },
             LedgerOperation::NewUtxo { .. } => PreWires {
                 switches: ExecutionSwitches::new_utxo(),
+                ..default
+            },
+            LedgerOperation::NewToken { .. } => PreWires {
+                switches: ExecutionSwitches::new_token(),
                 ..default
             },
             LedgerOperation::NewCoord { .. } => PreWires {
@@ -1438,6 +1549,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .encoded()
             .conditional_enforce_equal(&wires.arg(ArgName::Caller), switch)?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // ---
         // IVC state updates
         // ---
@@ -1453,6 +1569,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
 
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_pending_enter(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let pending_enter = wires.curr_read_wires.must_enter.is_some()?;
+        pending_enter.conditional_enforce_equal(&wires.switches.enter, &wires.constant_true)?;
         Ok(wires)
     }
 
@@ -1518,6 +1641,11 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 switch,
             )?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // IVC state updates mirror resume-to-target.
         let next_id_curr = switch.select(
             &wires.handler_state.handler_stack_node_process,
@@ -1536,54 +1664,60 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
     }
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
+    fn visit_enter(&self, wires: Wires) -> Result<Wires, SynthesisError> {
+        let switch = &wires.switches.enter;
+        let pending = wires.curr_read_wires.must_enter.clone();
+
+        pending
+            .is_some()?
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        pending
+            .decode_or_zero()?
+            .conditional_enforce_equal(&wires.arg(ArgName::FunctionId0), switch)?;
+
+        wires
+            .curr_read_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
+        wires
+            .curr_write_wires
+            .must_enter
+            .encoded()
+            .conditional_enforce_equal(&FpVar::zero(), switch)?;
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
+
+        Ok(wires)
+    }
+
+    #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_burn(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
         let switch = &wires.switches.burn;
 
-        // ---
-        // Ckecks from the mocked verifier
-        // ---
-
-        // 1. Current process must be a UTXO.
         wires
             .is_utxo_curr
             .is_one()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 2. Must be initialized.
         wires
             .curr_read_wires
             .initialized
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 3. This UTXO must be marked for burning.
         wires
             .must_burn_curr
             .is_one()?
             .conditional_enforce_equal(&Boolean::TRUE, switch)?;
 
-        // 4. Parent must exist.
-        wires
-            .id_prev_is_some()?
-            .conditional_enforce_equal(&Boolean::TRUE, switch)?;
-
-        // 5. Claim check: burned value `ret` must match parent's `expected_input` (if set).
-        // Parent's state is in `target_read_wires`.
-        wires
-            .target_read_wires
-            .expected_input
-            .conditional_enforce_eq_if_some(switch, &wires.arg(ArgName::Ret))?;
-
         // ---
         // IVC state updates
         // ---
-        // Like yield, current program becomes the parent, and new prev is the one that burned.
-        let prev_value = wires.id_prev_value()?;
-        let next_id_curr = switch.select(&prev_value, &wires.id_curr)?;
-        let next_id_prev = OptionalFpVar::select_encoded(
-            switch,
-            &OptionalFpVar::from_pid(&wires.id_curr),
-            &wires.id_prev,
-        )?;
+        let next_id_curr = wires.id_curr.clone();
+        let next_id_prev = wires.id_prev.clone();
         wires.id_curr = next_id_curr;
         wires.id_prev = next_id_prev;
 
@@ -1661,6 +1795,17 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .encoded()
             .conditional_enforce_equal(&wires.curr_read_wires.yield_to.encoded(), switch)?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
+        wires
+            .target_write_wires
+            .must_enter
+            .encoded()
+            .conditional_enforce_equal(&wires.target_read_wires.must_enter.encoded(), switch)?;
+
         // ---
         // IVC state updates
         // ---
@@ -1700,8 +1845,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             .activation
             .conditional_enforce_equal(&FpVar::zero(), switch)?;
 
+        wires
+            .curr_write_wires
+            .must_exit
+            .conditional_enforce_equal(&Boolean::FALSE, switch)?;
+
         // If we have a parent, transfer control back like Yield.
         let has_parent_and_switch = switch & &has_parent;
+
         let parent = yield_to.decode_or_zero()?;
         let next_id_curr = has_parent_and_switch.select(&parent, &wires.id_curr)?;
         let next_id_prev = OptionalFpVar::select_encoded(
@@ -1717,7 +1868,8 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
     #[tracing::instrument(target = "gr1cs", skip(self, wires))]
     fn visit_new_process(&self, mut wires: Wires) -> Result<Wires, SynthesisError> {
-        let switch = &wires.switches.new_utxo | &wires.switches.new_coord;
+        let switch =
+            &wires.switches.new_utxo | &wires.switches.new_token | &wires.switches.new_coord;
 
         // The target is the new process being created.
         // The current process is the coordination script doing the creation.
@@ -1730,9 +1882,12 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
         // 2. Target type check
         let target_is_utxo = wires.is_utxo_target.is_one()?;
-        // if new_utxo_switch is true, target_is_utxo must be true.
-        // if new_utxo_switch is false (i.e. new_coord_switch is true), target_is_utxo must be false.
-        target_is_utxo.conditional_enforce_equal(&wires.switches.new_utxo, &switch)?;
+        let target_is_token = wires.is_token_target.is_one()?;
+        // new_utxo/new_token must target a UTXO process; new_coord must target a coord process.
+        let expected_target_is_utxo = &wires.switches.new_utxo | &wires.switches.new_token;
+        target_is_utxo.conditional_enforce_equal(&expected_target_is_utxo, &switch)?;
+        // new_token targets token processes; new_utxo/new_coord target non-token processes.
+        target_is_token.conditional_enforce_equal(&wires.switches.new_token, &switch)?;
 
         // 3. Program hash check
         let program_hash_args = [
@@ -1863,22 +2018,24 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // 2. Ret must be fresh ID
         wires
             .arg(ArgName::Ret)
-            .conditional_enforce_equal(&wires.ref_arena_stack_ptr, switch)?;
+            .conditional_enforce_equal(&wires.next_ref_id, switch)?;
 
         // 3. Init building state
         // remaining = size
         wires.ref_building_remaining =
             switch.select(&wires.arg(ArgName::Size), &wires.ref_building_remaining)?;
-        // ptr = ret
-        wires.ref_building_ptr =
-            switch.select(&wires.arg(ArgName::Ret), &wires.ref_building_ptr)?;
+        // ptr = current arena base
+        wires.ref_building_ptr = switch.select(&wires.ref_arena_len, &wires.ref_building_ptr)?;
 
-        // 4. Increment stack ptr by size
+        // 4. Increment next ref id by 1
+        wires.next_ref_id =
+            switch.select(&(&wires.next_ref_id + FpVar::one()), &wires.next_ref_id)?;
+
+        // 5. Increment arena base ptr by size * lane width
         let size = wires.arg(ArgName::Size);
-        wires.ref_arena_stack_ptr = switch.select(
-            &(&wires.ref_arena_stack_ptr
-                + size * FpVar::Constant(F::from(REF_PUSH_BATCH_SIZE as u64))),
-            &wires.ref_arena_stack_ptr,
+        wires.ref_arena_len = switch.select(
+            &(&wires.ref_arena_len + size * FpVar::Constant(F::from(REF_PUSH_BATCH_SIZE as u64))),
+            &wires.ref_arena_len,
         )?;
 
         Ok(wires)
@@ -2046,90 +2203,149 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
 fn register_memory_segments<M: IVCMemory<F>>(mb: &mut M) {
     mb.register_mem(
-        MemoryTag::ProcessTable.into(),
+        RomMemoryTag::ProcessTable.memory_tag(),
         1,
         MemType::Rom,
         "ROM_PROCESS_TABLE",
     );
-    mb.register_mem(MemoryTag::MustBurn.into(), 1, MemType::Rom, "ROM_MUST_BURN");
-    mb.register_mem(MemoryTag::IsUtxo.into(), 1, MemType::Rom, "ROM_IS_UTXO");
     mb.register_mem(
-        MemoryTag::Interfaces.into(),
+        RomMemoryTag::MustBurn.memory_tag(),
+        1,
+        MemType::Rom,
+        "ROM_MUST_BURN",
+    );
+    mb.register_mem(
+        RomMemoryTag::IsUtxo.memory_tag(),
+        1,
+        MemType::Rom,
+        "ROM_IS_UTXO",
+    );
+    mb.register_mem(
+        RomMemoryTag::Interfaces.memory_tag(),
         1,
         MemType::Rom,
         "ROM_INTERFACES",
     );
-    mb.register_mem(MemoryTag::RefArena.into(), 1, MemType::Ram, "RAM_REF_ARENA");
-    mb.register_mem(MemoryTag::RefSizes.into(), 1, MemType::Ram, "RAM_REF_SIZES");
     mb.register_mem(
-        MemoryTag::ExpectedInput.into(),
+        RamMemoryTag::RefArena.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_REF_ARENA",
+    );
+    mb.register_mem(
+        RamMemoryTag::RefSizes.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_REF_SIZES",
+    );
+    mb.register_mem(
+        RamMemoryTag::RefBases.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_REF_BASES",
+    );
+    mb.register_mem(
+        RamMemoryTag::ExpectedInput.memory_tag(),
         1,
         MemType::Ram,
         "RAM_EXPECTED_INPUT",
     );
     mb.register_mem(
-        MemoryTag::ExpectedResumer.into(),
+        RamMemoryTag::ExpectedResumer.memory_tag(),
         1,
         MemType::Ram,
         "RAM_EXPECTED_RESUMER",
     );
-    mb.register_mem(MemoryTag::OnYield.into(), 1, MemType::Ram, "RAM_ON_YIELD");
-    mb.register_mem(MemoryTag::YieldTo.into(), 1, MemType::Ram, "RAM_YIELD_TO");
     mb.register_mem(
-        MemoryTag::Activation.into(),
+        RamMemoryTag::OnYield.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_ON_YIELD",
+    );
+    mb.register_mem(
+        RamMemoryTag::YieldTo.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_YIELD_TO",
+    );
+    mb.register_mem(
+        RamMemoryTag::Activation.memory_tag(),
         1,
         MemType::Ram,
         "RAM_ACTIVATION",
     );
-    mb.register_mem(MemoryTag::Init.into(), 1, MemType::Ram, "RAM_INIT");
+    mb.register_mem(RamMemoryTag::Init.memory_tag(), 1, MemType::Ram, "RAM_INIT");
     mb.register_mem(
-        MemoryTag::InitCaller.into(),
+        RamMemoryTag::InitCaller.memory_tag(),
         1,
         MemType::Ram,
         "RAM_INIT_CALLER",
     );
     mb.register_mem(
-        MemoryTag::Initialized.into(),
+        RamMemoryTag::Initialized.memory_tag(),
         1,
         MemType::Ram,
         "RAM_INITIALIZED",
     );
     mb.register_mem(
-        MemoryTag::Finalized.into(),
+        RamMemoryTag::Finalized.memory_tag(),
         1,
         MemType::Ram,
         "RAM_FINALIZED",
     );
-    mb.register_mem(MemoryTag::DidBurn.into(), 1, MemType::Ram, "RAM_DID_BURN");
     mb.register_mem(
-        MemoryTag::Ownership.into(),
+        RamMemoryTag::DidBurn.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_DID_BURN",
+    );
+    mb.register_mem(
+        RamMemoryTag::Ownership.memory_tag(),
         1,
         MemType::Ram,
         "RAM_OWNERSHIP",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackArenaProcess.into(),
+        RamMemoryTag::MustEnter.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_MUST_ENTER",
+    );
+    mb.register_mem(
+        RamMemoryTag::MustExit.memory_tag(),
+        1,
+        MemType::Ram,
+        "RAM_MUST_EXIT",
+    );
+    mb.register_mem(
+        RamMemoryTag::HandlerStackArenaProcess.memory_tag(),
         1,
         MemType::Ram,
         "RAM_HANDLER_STACK_ARENA_PROCESS",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackArenaNextPtr.into(),
+        RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
         1,
         MemType::Ram,
         "RAM_HANDLER_STACK_ARENA_NEXT_PTR",
     );
     mb.register_mem(
-        MemoryTag::HandlerStackHeads.into(),
+        RamMemoryTag::HandlerStackHeads.memory_tag(),
         1,
         MemType::Ram,
         "RAM_HANDLER_STACK_HEADS",
     );
     mb.register_mem(
-        MemoryTag::TraceCommitments.into(),
+        RamMemoryTag::TraceCommitments.memory_tag(),
         1,
         MemType::Ram,
         "RAM_TRACE_COMMITMENTS",
+    );
+    mb.register_mem(
+        RomMemoryTag::IsToken.memory_tag(),
+        1,
+        MemType::Rom,
+        "ROM_IS_TOKEN",
     );
 }
 
@@ -2142,7 +2358,8 @@ fn ivc_wires(
     let input = IvcWireIndices {
         id_curr: fpvar_witness_index(cs, &wires_in.id_curr)?,
         id_prev: fpvar_witness_index(cs, &wires_in.id_prev.encoded())?,
-        ref_arena_stack_ptr: fpvar_witness_index(cs, &wires_in.ref_arena_stack_ptr)?,
+        next_ref_id: fpvar_witness_index(cs, &wires_in.next_ref_id)?,
+        ref_arena_len: fpvar_witness_index(cs, &wires_in.ref_arena_len)?,
         handler_stack_ptr: fpvar_witness_index(cs, &wires_in.handler_stack_ptr)?,
         ref_building_remaining: fpvar_witness_index(cs, &wires_in.ref_building_remaining)?,
         ref_building_ptr: fpvar_witness_index(cs, &wires_in.ref_building_ptr)?,
@@ -2151,7 +2368,8 @@ fn ivc_wires(
     let output = IvcWireIndices {
         id_curr: fpvar_witness_index(cs, &wires_out.id_curr)?,
         id_prev: fpvar_witness_index(cs, &wires_out.id_prev.encoded())?,
-        ref_arena_stack_ptr: fpvar_witness_index(cs, &wires_out.ref_arena_stack_ptr)?,
+        next_ref_id: fpvar_witness_index(cs, &wires_out.next_ref_id)?,
+        ref_arena_len: fpvar_witness_index(cs, &wires_out.ref_arena_len)?,
         handler_stack_ptr: fpvar_witness_index(cs, &wires_out.handler_stack_ptr)?,
         ref_building_remaining: fpvar_witness_index(cs, &wires_out.ref_building_remaining)?,
         ref_building_ptr: fpvar_witness_index(cs, &wires_out.ref_building_ptr)?,
@@ -2233,7 +2451,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         *slot = mb.conditional_read(
             true,
             Address {
-                tag: MemoryTag::TraceCommitments.into(),
+                tag: RamMemoryTag::TraceCommitments.memory_tag(),
                 addr: addr as u64,
             },
         )[0];
@@ -2251,7 +2469,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
             true,
             Address {
                 addr: addr as u64,
-                tag: MemoryTag::TraceCommitments.into(),
+                tag: RamMemoryTag::TraceCommitments.memory_tag(),
             },
             vec![*elem],
         );
@@ -2274,7 +2492,7 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
         let offset = FpVar::new_constant(cs.clone(), F::from(i as u64))?;
         let addr = &(id_curr.clone() * FpVar::new_constant(cs.clone(), F::from(4))?) + &offset;
         let address = Address {
-            tag: MemoryTag::TraceCommitments.allocate(cs.clone())?,
+            tag: RamMemoryTag::TraceCommitments.allocate(cs.clone())?,
             addr,
         };
 

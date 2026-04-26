@@ -218,6 +218,8 @@ pub struct ModuleBuilder {
 #[derive(Clone, Copy, Debug)]
 pub struct Imports {
     pub trace: FuncRef,
+    pub trace_reserve_slot: FuncRef,
+    pub trace_fill_slot: FuncRef,
     pub get_datum: FuncRef,
     pub set_datum: FuncRef,
     pub activation: FuncRef,
@@ -234,6 +236,7 @@ pub struct Imports {
     pub yield_: FuncRef,
     pub return_: FuncRef,
     pub new_utxo: FuncRef,
+    pub new_token: FuncRef,
     pub new_coord: FuncRef,
     pub burn: FuncRef,
     pub bind: FuncRef,
@@ -268,6 +271,24 @@ impl ModuleBuilder {
             "env",
             "starstream-trace",
             &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
+            &[],
+        );
+        let trace_reserve_slot =
+            self.import_func("env", "starstream-trace-reserve-slot", &[], &[ValType::I64]);
+        let trace_fill_slot = self.import_func(
+            "env",
+            "starstream-trace-fill-slot",
+            &[
+                ValType::I64,
                 ValType::I64,
                 ValType::I64,
                 ValType::I64,
@@ -379,6 +400,18 @@ impl ModuleBuilder {
             ],
             &[ValType::I64],
         );
+        let new_token = self.import_func(
+            "env",
+            "starstream-new-token",
+            &[
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+                ValType::I64,
+            ],
+            &[ValType::I64],
+        );
         let new_coord = self.import_func(
             "env",
             "starstream-new-coord",
@@ -391,13 +424,15 @@ impl ModuleBuilder {
             ],
             &[ValType::I64],
         );
-        let burn = self.import_func("env", "starstream-burn", &[ValType::I64], &[]);
+        let burn = self.import_func("env", "starstream-burn", &[], &[]);
         let bind = self.import_func("env", "starstream-bind", &[ValType::I64], &[]);
         let unbind = self.import_func("env", "starstream-unbind", &[ValType::I64], &[]);
         let init = self.import_func("env", "starstream-init", &[ValType::I32], &[]);
 
         Imports {
             trace,
+            trace_reserve_slot,
+            trace_fill_slot,
             get_datum,
             set_datum,
             activation,
@@ -414,6 +449,7 @@ impl ModuleBuilder {
             yield_,
             return_,
             new_utxo,
+            new_token,
             new_coord,
             burn,
             bind,

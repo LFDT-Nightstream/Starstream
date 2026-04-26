@@ -16,14 +16,19 @@ pub enum LedgerOperation<F: PrimeField> {
     /// with the corresponding value.
     Resume {
         target: F,
+        f_id: F,
         val: F,
         ret: F,
         caller: OptionalF<F>,
     },
     CallEffectHandler {
         interface_id: [F; 4],
+        f_id: F,
         val: F,
         ret: F,
+    },
+    Enter {
+        f_id: F,
     },
     /// Called by utxo to yield.
     ///
@@ -40,14 +45,17 @@ pub enum LedgerOperation<F: PrimeField> {
         val: F,
         target: F,
     },
+    NewToken {
+        program_hash: [F; 4],
+        val: F,
+        target: F,
+    },
     NewCoord {
         program_hash: [F; 4],
         val: F,
         target: F,
     },
-    Burn {
-        ret: F,
-    },
+    Burn {},
     Activation {
         val: F,
         caller: F,

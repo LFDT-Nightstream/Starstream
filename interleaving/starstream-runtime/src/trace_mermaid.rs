@@ -133,7 +133,10 @@ fn replay_effect_trace_prefix(
 
     let cursor = effect_cursor.entry(pid).or_insert(0);
     while *cursor < trace.len() {
-        let effect = &trace[*cursor];
+        let Some(effect) = trace[*cursor].as_ref() else {
+            *cursor += 1;
+            continue;
+        };
         apply_ref_mutations(pid, effect, ref_store, ref_state);
         update_handler_targets(pid, effect, handler_targets, handler_interfaces);
         *cursor += 1;
@@ -162,6 +165,11 @@ fn format_replayed_non_control_line(
         WitLedgerEffect::NewUtxo { val, id, .. } => {
             let created = labels.get(id.unwrap().0)?;
             let label = format!("new_utxo<br/>{}", format_ref_with_values(ref_store, *val));
+            Some(format!("{from} ->> {created}: {label}"))
+        }
+        WitLedgerEffect::NewToken { val, id, .. } => {
+            let created = labels.get(id.unwrap().0)?;
+            let label = format!("new_token<br/>{}", format_ref_with_values(ref_store, *val));
             Some(format!("{from} ->> {created}: {label}"))
         }
         WitLedgerEffect::NewCoord { val, id, .. } => {
@@ -209,7 +217,7 @@ fn effect_matches_control(effect: &WitLedgerEffect, control: &WitLedgerEffect) -
         ) => i1 == i2 && v1 == v2,
         (WitLedgerEffect::Yield { val: v1 }, WitLedgerEffect::Yield { val: v2 }) => v1 == v2,
         (WitLedgerEffect::Return {}, WitLedgerEffect::Return {}) => true,
-        (WitLedgerEffect::Burn { ret: r1 }, WitLedgerEffect::Burn { ret: r2 }) => r1 == r2,
+        (WitLedgerEffect::Burn {}, WitLedgerEffect::Burn {}) => true,
         _ => false,
     }
 }
@@ -421,6 +429,15 @@ fn format_edge_line(
             let created = ctx.labels.get(pid.0)?;
             let label = format!(
                 "new_utxo<br/>{}",
+                format_ref_with_values(ctx.ref_store, *val)
+            );
+            Some(format!("{from} ->> {created}: {label}"))
+        }
+        WitLedgerEffect::NewToken { val, id, .. } => {
+            let pid = id.unwrap();
+            let created = ctx.labels.get(pid.0)?;
+            let label = format!(
+                "new_token<br/>{}",
                 format_ref_with_values(ctx.ref_store, *val)
             );
             Some(format!("{from} ->> {created}: {label}"))

@@ -1,7 +1,6 @@
 use crate::F;
 use crate::coroutine_args_gadget::coroutine_args_ops;
 use crate::memory::{IVCMemory, IVCMemoryAllocated};
-use crate::memory_tags::MemoryTag;
 use crate::opcode_dsl::{OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::optional::{OptionalF, OptionalFpVar};
 use crate::switchboard::{MemSwitchboardBool, MemSwitchboardWires};
@@ -10,6 +9,7 @@ use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::fields::{FieldVar, fp::FpVar};
 use ark_r1cs_std::prelude::Boolean;
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use starstream_interleaving_spec::RamMemoryTag;
 
 #[derive(Clone, Debug)]
 pub struct ProgramState {
@@ -24,6 +24,8 @@ pub struct ProgramState {
     pub finalized: bool,
     pub did_burn: bool,
     pub ownership: OptionalF<F>, // encoded optional process id
+    pub must_enter: OptionalF<F>,
+    pub must_exit: bool,
 }
 
 /// IVC wires (state between steps)
@@ -40,6 +42,8 @@ pub struct ProgramStateWires {
     pub finalized: Boolean<F>,
     pub did_burn: Boolean<F>,
     pub ownership: OptionalFpVar<F>, // encoded optional process id
+    pub must_enter: OptionalFpVar<F>,
+    pub must_exit: Boolean<F>,
 }
 
 struct RawProgramState<V> {
@@ -54,6 +58,8 @@ struct RawProgramState<V> {
     finalized: V,
     did_burn: V,
     ownership: V,
+    must_enter: V,
+    must_exit: V,
 }
 
 fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
@@ -61,17 +67,22 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
     switches: &crate::switchboard::MemSwitchboard<D::Bool>,
     addr: &D::Val,
 ) -> Result<RawProgramState<D::Val>, D::Error> {
-    let expected_input = dsl.read(&switches.expected_input, MemoryTag::ExpectedInput, addr)?;
-    let expected_resumer =
-        dsl.read(&switches.expected_resumer, MemoryTag::ExpectedResumer, addr)?;
-    let on_yield = dsl.read(&switches.on_yield, MemoryTag::OnYield, addr)?;
-    let yield_to = dsl.read(&switches.yield_to, MemoryTag::YieldTo, addr)?;
+    let expected_input = dsl.read(&switches.expected_input, RamMemoryTag::ExpectedInput, addr)?;
+    let expected_resumer = dsl.read(
+        &switches.expected_resumer,
+        RamMemoryTag::ExpectedResumer,
+        addr,
+    )?;
+    let on_yield = dsl.read(&switches.on_yield, RamMemoryTag::OnYield, addr)?;
+    let yield_to = dsl.read(&switches.yield_to, RamMemoryTag::YieldTo, addr)?;
     let (activation, init) = coroutine_args_ops(dsl, &switches.activation, &switches.init, addr)?;
-    let init_caller = dsl.read(&switches.init_caller, MemoryTag::InitCaller, addr)?;
-    let initialized = dsl.read(&switches.initialized, MemoryTag::Initialized, addr)?;
-    let finalized = dsl.read(&switches.finalized, MemoryTag::Finalized, addr)?;
-    let did_burn = dsl.read(&switches.did_burn, MemoryTag::DidBurn, addr)?;
-    let ownership = dsl.read(&switches.ownership, MemoryTag::Ownership, addr)?;
+    let init_caller = dsl.read(&switches.init_caller, RamMemoryTag::InitCaller, addr)?;
+    let initialized = dsl.read(&switches.initialized, RamMemoryTag::Initialized, addr)?;
+    let finalized = dsl.read(&switches.finalized, RamMemoryTag::Finalized, addr)?;
+    let did_burn = dsl.read(&switches.did_burn, RamMemoryTag::DidBurn, addr)?;
+    let ownership = dsl.read(&switches.ownership, RamMemoryTag::Ownership, addr)?;
+    let must_enter = dsl.read(&switches.must_enter, RamMemoryTag::MustEnter, addr)?;
+    let must_exit = dsl.read(&switches.must_exit, RamMemoryTag::MustExit, addr)?;
 
     Ok(RawProgramState {
         expected_input,
@@ -85,6 +96,8 @@ fn program_state_read_ops<D: crate::opcode_dsl::OpcodeDsl>(
         finalized,
         did_burn,
         ownership,
+        must_enter,
+        must_exit,
     })
 }
 
@@ -96,64 +109,76 @@ fn program_state_write_ops<D: crate::opcode_dsl::OpcodeDsl>(
 ) -> Result<(), D::Error> {
     dsl.write(
         &switches.expected_input,
-        MemoryTag::ExpectedInput,
+        RamMemoryTag::ExpectedInput,
         addr,
         &state.expected_input,
     )?;
     dsl.write(
         &switches.expected_resumer,
-        MemoryTag::ExpectedResumer,
+        RamMemoryTag::ExpectedResumer,
         addr,
         &state.expected_resumer,
     )?;
     dsl.write(
         &switches.on_yield,
-        MemoryTag::OnYield,
+        RamMemoryTag::OnYield,
         addr,
         &state.on_yield,
     )?;
     dsl.write(
         &switches.yield_to,
-        MemoryTag::YieldTo,
+        RamMemoryTag::YieldTo,
         addr,
         &state.yield_to,
     )?;
     dsl.write(
         &switches.activation,
-        MemoryTag::Activation,
+        RamMemoryTag::Activation,
         addr,
         &state.activation,
     )?;
-    dsl.write(&switches.init, MemoryTag::Init, addr, &state.init)?;
+    dsl.write(&switches.init, RamMemoryTag::Init, addr, &state.init)?;
     dsl.write(
         &switches.init_caller,
-        MemoryTag::InitCaller,
+        RamMemoryTag::InitCaller,
         addr,
         &state.init_caller,
     )?;
     dsl.write(
         &switches.initialized,
-        MemoryTag::Initialized,
+        RamMemoryTag::Initialized,
         addr,
         &state.initialized,
     )?;
     dsl.write(
         &switches.finalized,
-        MemoryTag::Finalized,
+        RamMemoryTag::Finalized,
         addr,
         &state.finalized,
     )?;
     dsl.write(
         &switches.did_burn,
-        MemoryTag::DidBurn,
+        RamMemoryTag::DidBurn,
         addr,
         &state.did_burn,
     )?;
     dsl.write(
         &switches.ownership,
-        MemoryTag::Ownership,
+        RamMemoryTag::Ownership,
         addr,
         &state.ownership,
+    )?;
+    dsl.write(
+        &switches.must_enter,
+        RamMemoryTag::MustEnter,
+        addr,
+        &state.must_enter,
+    )?;
+    dsl.write(
+        &switches.must_exit,
+        RamMemoryTag::MustExit,
+        addr,
+        &state.must_exit,
     )?;
     Ok(())
 }
@@ -171,6 +196,8 @@ fn raw_from_state(state: &ProgramState) -> RawProgramState<F> {
         finalized: F::from(state.finalized),
         did_burn: F::from(state.did_burn),
         ownership: state.ownership.encoded(),
+        must_enter: state.must_enter.encoded(),
+        must_exit: F::from(state.must_exit),
     }
 }
 
@@ -187,6 +214,8 @@ fn raw_from_wires(state: &ProgramStateWires) -> RawProgramState<FpVar<F>> {
         finalized: state.finalized.clone().into(),
         did_burn: state.did_burn.clone().into(),
         ownership: state.ownership.encoded(),
+        must_enter: state.must_enter.encoded(),
+        must_exit: state.must_exit.clone().into(),
     }
 }
 
@@ -215,6 +244,10 @@ impl ProgramStateWires {
             ownership: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
                 Ok(write_values.ownership.encoded())
             })?),
+            must_enter: OptionalFpVar::new(FpVar::new_witness(cs.clone(), || {
+                Ok(write_values.must_enter.encoded())
+            })?),
+            must_exit: Boolean::new_witness(cs.clone(), || Ok(write_values.must_exit))?,
         })
     }
 }
@@ -268,6 +301,8 @@ pub fn trace_program_state_reads<M: IVCMemory<F>>(
         finalized: raw.finalized == F::ONE,
         did_burn: raw.did_burn == F::ONE,
         ownership: OptionalF::from_encoded(raw.ownership),
+        must_enter: OptionalF::from_encoded(raw.must_enter),
+        must_exit: raw.must_exit == F::ONE,
     }
 }
 
@@ -292,6 +327,8 @@ pub fn program_state_read_wires<M: IVCMemoryAllocated<F>>(
         finalized: raw.finalized.is_one()?,
         did_burn: raw.did_burn.is_one()?,
         ownership: OptionalFpVar::new(raw.ownership),
+        must_enter: OptionalFpVar::new(raw.must_enter),
+        must_exit: raw.must_exit.is_one()?,
     })
 }
 
@@ -309,6 +346,8 @@ impl ProgramState {
             initialized: false,
             did_burn: false,
             ownership: OptionalF::none(),
+            must_enter: OptionalF::none(),
+            must_exit: false,
         }
     }
 

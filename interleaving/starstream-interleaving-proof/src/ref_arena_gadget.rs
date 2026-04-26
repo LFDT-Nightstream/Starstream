@@ -1,4 +1,3 @@
-use crate::circuit::MemoryTag;
 use crate::opcode_dsl::{OpcodeDsl, OpcodeSynthDsl, OpcodeTraceDsl};
 use crate::switchboard::{RefArenaSwitchboard, RefArenaSwitchboardWires};
 use crate::{
@@ -16,6 +15,7 @@ use ark_r1cs_std::{
     prelude::Boolean,
 };
 use ark_relations::gr1cs::{ConstraintSystemRef, SynthesisError};
+use starstream_interleaving_spec::RamMemoryTag;
 use std::ops::Not;
 
 fn ref_sizes_access_ops<D: OpcodeDsl>(
@@ -26,8 +26,20 @@ fn ref_sizes_access_ops<D: OpcodeDsl>(
     read_cond: &D::Bool,
     read_addr: &D::Val,
 ) -> Result<D::Val, D::Error> {
-    dsl.write(write_cond, MemoryTag::RefSizes, write_addr, write_val)?;
-    dsl.read(read_cond, MemoryTag::RefSizes, read_addr)
+    dsl.write(write_cond, RamMemoryTag::RefSizes, write_addr, write_val)?;
+    dsl.read(read_cond, RamMemoryTag::RefSizes, read_addr)
+}
+
+fn ref_bases_access_ops<D: OpcodeDsl>(
+    dsl: &mut D,
+    write_cond: &D::Bool,
+    write_addr: &D::Val,
+    write_val: &D::Val,
+    read_cond: &D::Bool,
+    read_addr: &D::Val,
+) -> Result<D::Val, D::Error> {
+    dsl.write(write_cond, RamMemoryTag::RefBases, write_addr, write_val)?;
+    dsl.read(read_cond, RamMemoryTag::RefBases, read_addr)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -39,24 +51,24 @@ fn ref_arena_access_ops<D: OpcodeDsl>(
     push_vals: &[D::Val; REF_PUSH_BATCH_SIZE],
     write_vals: &[D::Val; REF_WRITE_BATCH_SIZE],
     ref_building_ptr: &D::Val,
-    val: &D::Val,
+    ref_base: &D::Val,
     offset: &D::Val,
 ) -> Result<[D::Val; REF_GET_BATCH_SIZE], D::Error> {
     let scale_get = dsl.const_u64(REF_GET_BATCH_SIZE as u64)?;
     let offset_scaled_get = dsl.mul(offset, &scale_get)?;
-    let get_base_addr = dsl.add(val, &offset_scaled_get)?;
+    let get_base_addr = dsl.add(ref_base, &offset_scaled_get)?;
 
     let mut ref_arena_read_vec = Vec::with_capacity(REF_GET_BATCH_SIZE);
     for i in 0..REF_GET_BATCH_SIZE {
         let off = dsl.const_u64(i as u64)?;
         let addr = dsl.add(&get_base_addr, &off)?;
-        let read = dsl.read(read_cond, MemoryTag::RefArena, &addr)?;
+        let read = dsl.read(read_cond, RamMemoryTag::RefArena, &addr)?;
         ref_arena_read_vec.push(read);
     }
 
     let scale_write = dsl.const_u64(REF_WRITE_BATCH_SIZE as u64)?;
     let offset_scaled_write = dsl.mul(offset, &scale_write)?;
-    let write_base_write = dsl.add(val, &offset_scaled_write)?;
+    let write_base_write = dsl.add(ref_base, &offset_scaled_write)?;
     let write_base_sel = dsl.select(write_is_push, ref_building_ptr, &write_base_write)?;
     let zero = dsl.zero();
     let write_base = dsl.select(write_cond, &write_base_sel, &zero)?;
@@ -66,7 +78,7 @@ fn ref_arena_access_ops<D: OpcodeDsl>(
         let addr = dsl.add(&write_base, &off)?;
         let val_sel = dsl.select(write_is_push, &push_vals[i], &write_vals[i])?;
         let val = dsl.select(write_cond, &val_sel, &zero)?;
-        dsl.write(write_cond, MemoryTag::RefArena, &addr, &val)?;
+        dsl.write(write_cond, RamMemoryTag::RefArena, &addr, &val)?;
     }
 
     let ref_arena_read: [D::Val; REF_GET_BATCH_SIZE] = ref_arena_read_vec
@@ -78,8 +90,8 @@ fn ref_arena_access_ops<D: OpcodeDsl>(
 
 pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     mb: &mut M,
-    ref_building_id: &mut F,
-    ref_building_offset: &mut F,
+    next_ref_base: &mut F,
+    ref_building_ptr: &mut F,
     ref_building_remaining: &mut F,
     switches: &RefArenaSwitchboard,
     instr: &LedgerOperation<F>,
@@ -88,6 +100,8 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     let mut ref_write_vals = std::array::from_fn(|_| F::ZERO);
     let ref_sizes_write = switches.ref_sizes_write;
     let ref_sizes_read = switches.ref_sizes_read;
+    let ref_bases_write = switches.ref_bases_write;
+    let ref_bases_read = switches.ref_bases_read;
     let ref_arena_read = switches.ref_arena_read;
     let ref_arena_write = switches.ref_arena_write;
     let write_is_push = switches.ref_arena_write_is_push;
@@ -96,11 +110,13 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     let mut ref_get_offset = F::ZERO;
     let mut ref_write_ref = F::ZERO;
     let mut ref_write_offset = F::ZERO;
+    let mut ref_base_write_val = F::ZERO;
     match instr {
-        LedgerOperation::NewRef { size, ret } => {
-            *ref_building_id = *ret;
-            *ref_building_offset = F::ZERO;
+        LedgerOperation::NewRef { size, ret: _ } => {
+            *ref_building_ptr = *next_ref_base;
             *ref_building_remaining = *size;
+            ref_base_write_val = *next_ref_base;
+            *next_ref_base += *size * F::from(REF_PUSH_BATCH_SIZE as u64);
         }
         LedgerOperation::RefPush { vals } => {
             ref_push_vals = *vals;
@@ -128,25 +144,33 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     } else {
         F::ZERO
     };
+    let ref_bases_ref_id = ref_sizes_ref_id;
 
     let mut dsl = OpcodeTraceDsl { mb };
     let _ = ref_sizes_access_ops(
         &mut dsl,
         &ref_sizes_write,
-        ref_building_id,
+        &match instr {
+            LedgerOperation::NewRef { ret, .. } => *ret,
+            _ => F::ZERO,
+        },
         ref_building_remaining,
         &ref_sizes_read,
         &ref_sizes_ref_id,
     )
     .expect("trace ref sizes access");
-
-    let op_val = if ref_arena_read {
-        ref_get_ref
-    } else if ref_arena_write && !write_is_push {
-        ref_write_ref
-    } else {
-        F::ZERO
-    };
+    let ref_base_read = ref_bases_access_ops(
+        &mut dsl,
+        &ref_bases_write,
+        &match instr {
+            LedgerOperation::NewRef { ret, .. } => *ret,
+            _ => F::ZERO,
+        },
+        &ref_base_write_val,
+        &ref_bases_read,
+        &ref_bases_ref_id,
+    )
+    .expect("trace ref bases access");
     let op_offset = if ref_arena_read {
         ref_get_offset
     } else if ref_arena_write && !write_is_push {
@@ -154,8 +178,6 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     } else {
         F::ZERO
     };
-
-    let push_ptr = *ref_building_id + *ref_building_offset;
     let _ = ref_arena_access_ops(
         &mut dsl,
         &ref_arena_read,
@@ -163,8 +185,8 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
         &write_is_push,
         &ref_push_vals,
         &ref_write_vals,
-        &push_ptr,
-        &op_val,
+        ref_building_ptr,
+        &ref_base_read,
         &op_offset,
     )
     .expect("trace ref arena access");
@@ -172,7 +194,7 @@ pub(crate) fn trace_ref_arena_ops<M: IVCMemory<F>>(
     let remaining = ref_building_remaining.into_bigint().0[0] as usize;
 
     if ref_arena_write && write_is_push {
-        *ref_building_offset += F::from(REF_PUSH_BATCH_SIZE as u64);
+        *ref_building_ptr += F::from(REF_PUSH_BATCH_SIZE as u64);
         *ref_building_remaining = F::from(remaining.saturating_sub(1) as u64);
     }
 }
@@ -202,6 +224,31 @@ pub(crate) fn ref_arena_read_size<M: IVCMemoryAllocated<F>>(
     )
 }
 
+pub(crate) fn ref_arena_read_base<M: IVCMemoryAllocated<F>>(
+    cs: ConstraintSystemRef<F>,
+    rm: &mut M,
+    switches: &RefArenaSwitchboardWires,
+    write_val: &FpVar<F>,
+    opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
+    addr: &FpVar<F>,
+) -> Result<FpVar<F>, SynthesisError> {
+    let write_cond = switches.ref_bases_write.clone();
+    let write_addr = opcode_args[ArgName::Ret.idx()].clone();
+
+    let read_cond = switches.ref_bases_read.clone();
+    let read_addr = read_cond.select(addr, &FpVar::zero())?;
+
+    let mut dsl = OpcodeSynthDsl { cs, rm };
+    ref_bases_access_ops(
+        &mut dsl,
+        &write_cond,
+        &write_addr,
+        write_val,
+        &read_cond,
+        &read_addr,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn ref_arena_access_wires<M: IVCMemoryAllocated<F>>(
     cs: ConstraintSystemRef<F>,
@@ -210,7 +257,7 @@ pub(crate) fn ref_arena_access_wires<M: IVCMemoryAllocated<F>>(
     opcode_args: &[FpVar<F>; OPCODE_ARG_COUNT],
     ref_building_ptr: &FpVar<F>,
     ref_building_remaining: &FpVar<F>,
-    val: &FpVar<F>,
+    ref_base: &FpVar<F>,
     offset: &FpVar<F>,
     ref_size_read: &FpVar<F>,
 ) -> Result<[FpVar<F>; REF_GET_BATCH_SIZE], SynthesisError> {
@@ -266,7 +313,7 @@ pub(crate) fn ref_arena_access_wires<M: IVCMemoryAllocated<F>>(
         &ref_push_vals,
         &ref_write_vals,
         ref_building_ptr,
-        val,
+        ref_base,
         offset,
     )
 }

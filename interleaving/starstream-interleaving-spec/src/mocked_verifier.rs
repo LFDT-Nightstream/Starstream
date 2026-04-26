@@ -11,7 +11,7 @@
 use crate::{
     Hash, InterleavingInstance, REF_GET_WIDTH, REF_PUSH_WIDTH, Ref, Value, WasmModule,
     transaction_effects::{
-        InterfaceId, ProcessId,
+        FunctionId, InterfaceId, ProcessId,
         witness::{REF_WRITE_WIDTH, WitLedgerEffect},
     },
 };
@@ -190,6 +190,8 @@ pub enum InterleavingError {
         expected: Option<ProcessId>,
         got: Option<ProcessId>,
     },
+    #[error("verification: token is live at end but unbound (pid={pid})")]
+    LiveTokenMustBeBound { pid: ProcessId },
     #[error("a process was not initialized {pid}")]
     ProcessNotInitialized { pid: ProcessId },
 
@@ -213,6 +215,19 @@ pub enum InterleavingError {
 
     #[error("NewRef result mismatch. Got: {0:?}. Expected: {0:?}")]
     RefInitializationMismatch(Ref, Ref),
+
+    #[error("process must enter function before continuing (pid={pid} expected={expected:?})")]
+    MustEnterPending {
+        pid: ProcessId,
+        expected: FunctionId,
+    },
+
+    #[error("enter mismatch (pid={pid} expected={expected:?} got={got:?})")]
+    EnterMismatch {
+        pid: ProcessId,
+        expected: FunctionId,
+        got: FunctionId,
+    },
 }
 
 // ---------------------------- verifier ----------------------------
@@ -221,6 +236,7 @@ pub struct Rom {
     process_table: Vec<Hash<WasmModule>>,
     must_burn: Vec<bool>,
     is_utxo: Vec<bool>,
+    is_token: Vec<bool>,
 
     // mocked, this should be only a commitment
     traces: Vec<Vec<WitLedgerEffect>>,
@@ -253,6 +269,8 @@ pub struct InterleavingState {
     finalized: Vec<bool>,
     /// Keep track of whether Burn is called
     did_burn: Vec<bool>,
+    must_enter: Vec<Option<FunctionId>>,
+    must_exit: Vec<bool>,
 
     /// token -> owner (both ProcessId). None => unowned.
     ownership: Vec<Option<ProcessId>>,
@@ -261,7 +279,6 @@ pub struct InterleavingState {
     handler_stack: HashMap<InterfaceId, Vec<ProcessId>>,
 }
 
-#[allow(clippy::result_large_err)]
 pub fn verify_interleaving_semantics(
     inst: &InterleavingInstance,
     wit: &InterleavingWitness,
@@ -284,6 +301,7 @@ pub fn verify_interleaving_semantics(
         process_table: inst.process_table.clone(),
         must_burn: inst.must_burn.clone(),
         is_utxo: inst.is_utxo.clone(),
+        is_token: inst.is_token.clone(),
         traces: wit.traces.clone(),
     };
 
@@ -306,6 +324,8 @@ pub fn verify_interleaving_semantics(
         initialized: vec![false; n],
         finalized: vec![false; n],
         did_burn: vec![false; n],
+        must_enter: vec![None; n],
+        must_exit: vec![false; n],
     };
 
     // Inputs exist already (on-ledger) so they start initialized.
@@ -341,7 +361,7 @@ pub fn verify_interleaving_semantics(
         if rom.must_burn[i] {
             let has_burn = rom.traces[i]
                 .iter()
-                .any(|hc| matches!(hc, WitLedgerEffect::Burn { ret: _ }));
+                .any(|hc| matches!(hc, WitLedgerEffect::Burn {}));
             if !has_burn {
                 return Err(InterleavingError::BurnedInputNoBurn { pid: ProcessId(i) });
             }
@@ -380,6 +400,15 @@ pub fn verify_interleaving_semantics(
         }
     }
 
+    // 6) every live token must be bound to an owner at transaction end
+    for pid in 0..(inst.n_inputs + inst.n_new) {
+        if rom.is_token[pid] && !state.did_burn[pid] && state.ownership[pid].is_none() {
+            return Err(InterleavingError::LiveTokenMustBeBound {
+                pid: ProcessId(pid),
+            });
+        }
+    }
+
     // every object had a constructor called by a coordination script.
     //
     // TODO: this may be redundant, since resume should not work on unitialized
@@ -395,7 +424,6 @@ pub fn verify_interleaving_semantics(
     Ok(())
 }
 
-#[allow(clippy::result_large_err)]
 pub fn state_transition(
     mut state: InterleavingState,
     rom: &Rom,
@@ -426,12 +454,23 @@ pub fn state_transition(
 
     next_op_idx[id_curr.0] += 1;
 
+    if let Some(expected_f_id) = state.must_enter[id_curr.0]
+        && !matches!(op, WitLedgerEffect::Enter { .. })
+    {
+        return Err(InterleavingError::MustEnterPending {
+            pid: id_curr,
+            expected: expected_f_id,
+        });
+    }
+
     match op {
         WitLedgerEffect::Resume {
             target,
+            f_id,
             val,
             ret,
             caller,
+            ..
         } => {
             if id_curr == target {
                 return Err(InterleavingError::SelfResume(id_curr));
@@ -482,6 +521,8 @@ pub fn state_transition(
 
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = caller.to_option().flatten();
+            state.must_exit[id_curr.0] = false;
+            state.must_enter[target.0] = Some(f_id);
 
             if state.on_yield[target.0] && !rom.is_utxo[id_curr.0] {
                 state.yield_to[target.0] = Some(id_curr);
@@ -540,6 +581,7 @@ pub fn state_transition(
             state.on_yield[id_curr.0] = true;
             state.id_prev = Some(id_curr);
             state.activation[id_curr.0] = None;
+            state.must_exit[id_curr.0] = false;
             state.id_curr = parent;
         }
         WitLedgerEffect::Return {} => {
@@ -549,6 +591,7 @@ pub fn state_transition(
 
             state.finalized[id_curr.0] = true;
             state.activation[id_curr.0] = None;
+            state.must_exit[id_curr.0] = false;
 
             if let Some(parent) = state.yield_to[id_curr.0] {
                 state.id_prev = Some(id_curr);
@@ -587,6 +630,9 @@ pub fn state_transition(
             if !rom.is_utxo[id.0] {
                 return Err(InterleavingError::Shape("NewUtxo id must be utxo"));
             }
+            if rom.is_token[id.0] {
+                return Err(InterleavingError::Shape("NewUtxo id must not be token"));
+            }
             if rom.process_table[id.0] != program_hash {
                 return Err(InterleavingError::ProgramHashMismatch {
                     target: id,
@@ -597,6 +643,40 @@ pub fn state_transition(
             if state.initialized[id.0] {
                 return Err(InterleavingError::Shape(
                     "NewUtxo requires initialized[id]==false",
+                ));
+            }
+            state.initialized[id.0] = true;
+            state.init[id.0] = Some((val, id_curr));
+            state.expected_input[id.0] = None;
+            state.expected_resumer[id.0] = None;
+            state.on_yield[id.0] = true;
+            state.yield_to[id.0] = None;
+        }
+        WitLedgerEffect::NewToken {
+            program_hash,
+            val,
+            id,
+        } => {
+            let id = id.unwrap();
+            if rom.is_utxo[id_curr.0] {
+                return Err(InterleavingError::CoordOnly(id_curr));
+            }
+            if !rom.is_utxo[id.0] {
+                return Err(InterleavingError::Shape("NewToken id must be utxo"));
+            }
+            if !rom.is_token[id.0] {
+                return Err(InterleavingError::Shape("NewToken id must be token"));
+            }
+            if rom.process_table[id.0] != program_hash {
+                return Err(InterleavingError::ProgramHashMismatch {
+                    target: id,
+                    expected: rom.process_table[id.0],
+                    got: program_hash,
+                });
+            }
+            if state.initialized[id.0] {
+                return Err(InterleavingError::Shape(
+                    "NewToken requires initialized[id]==false",
                 ));
             }
             state.initialized[id.0] = true;
@@ -692,6 +772,7 @@ pub fn state_transition(
         }
         WitLedgerEffect::CallEffectHandler {
             interface_id,
+            f_id,
             val,
             ret,
         } => {
@@ -736,10 +817,34 @@ pub fn state_transition(
             state.activation[target.0] = Some((val, id_curr));
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = Some(target);
+            state.must_exit[id_curr.0] = false;
+            state.must_enter[target.0] = Some(f_id);
 
             state.id_prev = Some(id_curr);
             state.id_curr = target;
             state.finalized[target.0] = false;
+        }
+
+        WitLedgerEffect::Enter { f_id } => {
+            let expected =
+                state.must_enter[id_curr.0].ok_or(InterleavingError::MustEnterPending {
+                    pid: id_curr,
+                    expected: f_id,
+                })?;
+            if expected != f_id {
+                return Err(InterleavingError::EnterMismatch {
+                    pid: id_curr,
+                    expected,
+                    got: f_id,
+                });
+            }
+            if state.must_exit[id_curr.0] {
+                return Err(InterleavingError::Shape(
+                    "Enter called while function frame already active",
+                ));
+            }
+            state.must_enter[id_curr.0] = None;
+            state.must_exit[id_curr.0] = true;
         }
 
         WitLedgerEffect::Activation { val, caller } => {
@@ -769,13 +874,16 @@ pub fn state_transition(
         }
 
         WitLedgerEffect::NewRef { size, ret } => {
+            // Starting a new ref while one is still being built is invalid.
+            // The runtime does not police this so the semantic checker/circuit
+            // remains responsible for rejecting it.
             if state.ref_building.contains_key(&id_curr) {
                 return Err(InterleavingError::BuildingRefButCalledOther(id_curr));
             }
             let new_ref = Ref(state.ref_counter);
             let size_words = size;
             let size_elems = size_words * REF_PUSH_WIDTH;
-            state.ref_counter += size_elems as u64;
+            state.ref_counter += 1;
             if new_ref != ret.unwrap() {
                 return Err(InterleavingError::RefInitializationMismatch(
                     ret.unwrap(),
@@ -784,7 +892,9 @@ pub fn state_transition(
             }
             state.ref_store.insert(new_ref, vec![Value(0); size_elems]);
             state.ref_sizes.insert(new_ref, size_words);
-            state.ref_building.insert(id_curr, (new_ref, 0, size_words));
+            if size_words > 0 {
+                state.ref_building.insert(id_curr, (new_ref, 0, size_words));
+            }
         }
 
         WitLedgerEffect::RefPush { vals } => {
@@ -867,7 +977,7 @@ pub fn state_transition(
             }
         }
 
-        WitLedgerEffect::Burn { ret } => {
+        WitLedgerEffect::Burn {} => {
             if !rom.is_utxo[id_curr.0] {
                 return Err(InterleavingError::UtxoOnly(id_curr));
             }
@@ -876,37 +986,7 @@ pub fn state_transition(
                 return Err(InterleavingError::UtxoShouldNotBurn(id_curr));
             }
 
-            let parent = state
-                .id_prev
-                .ok_or(InterleavingError::BurnWithNoParent { pid: id_curr })?;
-
-            let ret_val = state
-                .ref_store
-                .get(&ret)
-                .ok_or(InterleavingError::RefNotFound(ret))?;
-
-            if let Some(expected_ref) = state.expected_input[parent.0] {
-                let expected_val = state
-                    .ref_store
-                    .get(&expected_ref)
-                    .ok_or(InterleavingError::RefNotFound(expected_ref))?;
-
-                if expected_val != ret_val {
-                    // Burn is the final return of the coroutine
-                    return Err(InterleavingError::YieldClaimMismatch {
-                        id_prev: state.id_prev,
-                        expected: expected_val.clone(),
-                        got: ret_val.clone(),
-                    });
-                }
-            }
-
-            state.activation[id_curr.0] = None;
-            state.finalized[id_curr.0] = true;
             state.did_burn[id_curr.0] = true;
-            state.expected_input[id_curr.0] = Some(ret);
-            state.id_prev = Some(id_curr);
-            state.id_curr = parent;
         }
 
         WitLedgerEffect::Bind { owner_id } => {
