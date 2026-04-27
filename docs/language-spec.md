@@ -521,6 +521,8 @@ visibility modifier:
   booleans.
   - `&&` and `||` are short-circuiting.
 - Structural records/enums are compared by shape, not name. Two structs with identical field sets and types are interchangeable; enum variants must likewise line up by name and payload shape.
+- `yield` expressions mark points where a Utxo's execution can be suspended to the ledger.
+  They are only valid inside Utxo `main fn`s.
 
 | Syntax rule                 | Type rule                                                                                        | Value rule                        |
 | --------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |
