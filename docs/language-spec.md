@@ -177,6 +177,7 @@ primary_expression ::=
   | block
   | if_expression
   | match_expression
+  | yield_expression
 
 disclose_expression ::= "disclose" "(" expression ")"
 
@@ -230,6 +231,14 @@ if_condition ::=
   | identifier "is" identifier
 
 if_expression ::= "if" if_condition block ( "else" "if" if_condition block )* ( "else" block )?
+
+yield_expression ::= "yield" "{" yield_part* "}"
+
+yield_part ::=
+  (* freeform method *)
+  | function
+  (* yield-scoped impl block OR import of utxo-scoped impl block *)
+  | "impl" identifier ( ";" | "{" impl_part* "}" )
 
 unary_expression ::= ("-" | "!") expression
 
@@ -512,6 +521,8 @@ visibility modifier:
   booleans.
   - `&&` and `||` are short-circuiting.
 - Structural records/enums are compared by shape, not name. Two structs with identical field sets and types are interchangeable; enum variants must likewise line up by name and payload shape.
+- `yield` expressions mark points where a Utxo's execution can be suspended to the ledger.
+  They are only valid inside Utxo `main fn`s.
 
 | Syntax rule                 | Type rule                                                                                        | Value rule                        |
 | --------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |

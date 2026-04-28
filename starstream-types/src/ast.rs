@@ -280,9 +280,11 @@ pub enum UtxoPart {
     Function(Box<FunctionDef>),
     AbiImpl {
         abi: Identifier,
-        parts: Vec<FunctionDef>,
+        parts: Vec<AbiImplPart>,
     },
 }
+
+pub type AbiImplPart = FunctionDef;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct UtxoGlobal {
@@ -429,6 +431,8 @@ pub enum Expr {
         scrutinee: Box<Spanned<Expr>>,
         arms: Vec<MatchArm>,
     },
+    /// `yield { ... }`
+    Yield(Vec<YieldPart>),
     Call {
         callee: Box<Spanned<Expr>>,
         args: Vec<Spanned<Expr>>,
@@ -449,6 +453,19 @@ pub enum Expr {
     /// Runtime call: `runtime some_runtime_fn(...)`
     Runtime {
         expr: Box<Spanned<Expr>>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum YieldPart {
+    /// `fn foo() { ... }`
+    Function(FunctionDef),
+    /// `impl AbiName;`
+    AbiImplDefault(Identifier),
+    /// `impl AbiName { ... }`
+    AbiImpl {
+        abi: Identifier,
+        parts: Vec<AbiImplPart>,
     },
 }
 
