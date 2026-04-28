@@ -44,6 +44,6 @@ pub fn yield_<'a>(
                 .collect::<Vec<_>>()
                 .delimited_by(just('{').padded(), just('}').padded()),
         )
-        .map(|_| Expr::Literal(starstream_types::Literal::Unit))
+        .map(Expr::Yield)
         .spanned()
 }

@@ -432,7 +432,7 @@ pub enum Expr {
         arms: Vec<MatchArm>,
     },
     /// `yield { ... }`
-    // Yield(Vec<YieldPart>),
+    Yield(Vec<YieldPart>),
     Call {
         callee: Box<Spanned<Expr>>,
         args: Vec<Spanned<Expr>>,
