@@ -43,14 +43,12 @@ pub fn utxo<'a>(
             )
         });
 
-    let utxo_abi_fn = function(block);
-
     let abi_impl_part = just("impl")
         .padded()
         .ignore_then(identifier())
         .padded()
         .then(
-            utxo_abi_fn
+            function(block)
                 .repeated()
                 .collect::<Vec<_>>()
                 .delimited_by(just('{').padded(), just('}').padded()),

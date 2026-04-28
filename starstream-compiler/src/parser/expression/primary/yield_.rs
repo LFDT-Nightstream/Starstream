@@ -4,18 +4,36 @@ use starstream_types::{
     ast::{Block, Expr, Spanned},
 };
 
-use crate::parser::{ParserExt, context::Extra, definition::function};
+use crate::parser::{ParserExt, context::Extra, definition::function, primitives::identifier};
 
 pub fn yield_<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    // let impl_ = just("impl")
-    //     .padded()
-    //     .then(identifier())
-    //     .then(choice((just(";"), just("{").then() )));
+    let yield_part_function = function(block.clone()).map(YieldPart::Function);
+
+    let yield_part_abi_impl_default = just("impl")
+        .padded()
+        .ignore_then(identifier())
+        .padded()
+        .then_ignore(just(";"))
+        .map(YieldPart::AbiImplDefault);
+
+    let yield_part_abi_impl = just("impl")
+        .padded()
+        .ignore_then(identifier())
+        .padded()
+        .then(
+            function(block)
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded(), just('}').padded()),
+        )
+        .map(|(abi, parts)| YieldPart::AbiImpl { abi, parts });
+
     let yield_part = choice((
-        function(block).map(YieldPart::Function),
-        // TODO: AbiImpl and AbiImplDefault
+        yield_part_function,
+        yield_part_abi_impl,
+        yield_part_abi_impl_default,
     ));
 
     just("yield")
