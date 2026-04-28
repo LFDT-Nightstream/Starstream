@@ -4,12 +4,9 @@ use starstream_types::{
     ast::{Block, Expr, Spanned},
 };
 
-use crate::parser::{
-    ParserExt, context::Extra, definition::function, expression::primary::identifier, primitives,
-};
+use crate::parser::{ParserExt, context::Extra, definition::function};
 
-pub fn parser<'a>(
-    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+pub fn yield_<'a>(
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
     // let impl_ = just("impl")
@@ -17,7 +14,7 @@ pub fn parser<'a>(
     //     .then(identifier())
     //     .then(choice((just(";"), just("{").then() )));
     let yield_part = choice((
-        function().map(YieldPart::Function),
+        function(block).map(YieldPart::Function),
         // TODO: AbiImpl and AbiImplDefault
     ));
 

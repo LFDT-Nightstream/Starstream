@@ -1,10 +1,10 @@
 use chumsky::prelude::*;
 use starstream_types::{
-    FunctionExport, TypeAnnotation,
+    Block, FunctionExport, TypeAnnotation,
     ast::{FunctionDef, FunctionParam},
 };
 
-use crate::parser::{context::Extra, primitives, statement, type_annotation};
+use crate::parser::{context::Extra, primitives, type_annotation};
 
 fn parameter<'a>() -> impl Parser<'a, &'a str, FunctionParam, Extra<'a>> {
     just("pub")
@@ -37,13 +37,15 @@ fn return_type<'a>() -> impl Parser<'a, &'a str, Option<TypeAnnotation>, Extra<'
 
 // Note: FunctionDef's export is not parsed, always None.
 // Maybe splitting another struct out is cleaner long-term?
-pub fn function<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+pub fn function<'a>(
+    block: impl Parser<'a, &'a str, Block, Extra<'a>>,
+) -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
     just("fn")
         .padded()
         .ignore_then(primitives::identifier())
         .then(parameter_list())
         .then(return_type())
-        .then(statement::block_parser())
+        .then(block)
         .map(|(((name, params), return_type), body)| FunctionDef {
             export: None,
             name,
@@ -56,11 +58,13 @@ pub fn function<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
 /// Parse `function_definition` grammar node.
 ///
 /// Like `script fn foo(bar: i32) -> i32 { bar }`.
-pub fn function_with_export<'a>() -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
+pub fn function_with_export<'a>(
+    block: impl Parser<'a, &'a str, Block, Extra<'a>>,
+) -> impl Parser<'a, &'a str, FunctionDef, Extra<'a>> {
     function_export()
         .padded()
         .or_not()
-        .then(function())
+        .then(function(block))
         .map(|(export, func)| FunctionDef { export, ..func })
 }
 
@@ -75,7 +79,8 @@ mod tests {
 
     macro_rules! assert_function_snapshot {
         ($code:expr) => {{
-            let parsed = function_with_export()
+            let (_, block, _) = $crate::parser::recursives();
+            let parsed = function_with_export(block)
                 .parse(indoc! { $code })
                 .into_result()
                 .expect("function should parse");

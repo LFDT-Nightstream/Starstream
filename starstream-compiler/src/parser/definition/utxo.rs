@@ -1,5 +1,5 @@
 use chumsky::prelude::*;
-use starstream_types::{FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart};
+use starstream_types::{Block, FunctionDef, FunctionExport, UtxoDef, UtxoGlobal, UtxoPart};
 
 use crate::parser::{
     context::Extra,
@@ -8,7 +8,9 @@ use crate::parser::{
     type_annotation,
 };
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
+pub fn utxo<'a>(
+    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone,
+) -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
     let utxo_global = just("let")
         .padded()
         .then(just("mut"))
@@ -30,7 +32,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
     let fn_part = just("main")
         .padded()
         .or_not()
-        .then(function())
+        .then(function(block.clone()))
         .map(|(main, def)| {
             UtxoPart::Function(
                 FunctionDef {
@@ -41,7 +43,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, UtxoDef, Extra<'a>> {
             )
         });
 
-    let utxo_abi_fn = function();
+    let utxo_abi_fn = function(block);
 
     let abi_impl_part = just("impl")
         .padded()
@@ -75,7 +77,8 @@ mod tests {
 
     macro_rules! assert_utxo_snapshot {
         ($code:expr) => {{
-            let parsed = parser()
+            let (_, block, _) = $crate::parser::recursives();
+            let parsed = utxo(block)
                 .parse(indoc! { $code })
                 .into_result()
                 .expect("utxo should parse");

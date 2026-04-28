@@ -23,12 +23,12 @@ pub use match_expr::parser as match_expr;
 pub use raise::parser as raise;
 pub use runtime::parser as runtime;
 pub use struct_literal::parser as struct_literal;
-pub use yield_::parser as yield_;
+pub use yield_::yield_;
 
-pub fn parser<'a>(
+pub fn primary<'a>(
     expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
     block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
+) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone {
     let grouping = expression
         .clone()
         .delimited_by(just('(').padded(), just(')').padded())
@@ -52,10 +52,11 @@ pub fn parser<'a>(
         block_expr,
         if_expr(expression.clone(), block.clone()),
         match_expr(expression.clone(), block.clone()),
-        yield_(expression, block),
+        yield_(block),
         // Identifier last to prefer struct literals if possible
         identifier(),
     ))
+    .boxed()
 }
 
 #[cfg(test)]
