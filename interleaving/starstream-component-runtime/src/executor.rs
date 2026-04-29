@@ -1,7 +1,7 @@
 use crate::abi::HostImportCall;
 use crate::state::{ProcessDefinition, ProcessKind, ProgramHash, StarstreamState};
 use starstream_interleaving_spec::{
-    FunctionId, InterfaceId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
+    InterfaceId, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
 };
 use std::collections::HashMap;
 
@@ -168,7 +168,7 @@ where
                 HostImportCall::Resume {
                     target,
                     payload,
-                    function_id,
+                    function_id: _,
                 } => {
                     let target = self
                         .state
@@ -177,7 +177,6 @@ where
                     (
                         WitLedgerEffect::Resume {
                             target,
-                            f_id: starstream_interleaving_spec::FunctionId::from(function_id),
                             val: payload,
                             ret: WitEffectOutput::Resolved(Ref(0)),
                             caller: WitEffectOutput::Resolved(None),
@@ -246,11 +245,10 @@ where
                 HostImportCall::CallEffectHandler {
                     interface_id,
                     payload,
-                    function_id,
+                    function_id: _,
                 } => (
                     WitLedgerEffect::CallEffectHandler {
                         interface_id,
-                        f_id: FunctionId::from(function_id),
                         val: payload,
                         ret: WitEffectOutput::Resolved(Ref(0)),
                     },

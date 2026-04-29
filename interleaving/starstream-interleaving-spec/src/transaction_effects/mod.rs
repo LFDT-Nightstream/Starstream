@@ -1,6 +1,4 @@
 use crate::Hash;
-use neo_math::F;
-use p3_field::{PrimeCharacteristicRing, PrimeField64};
 
 pub mod abi;
 pub mod instance;
@@ -15,7 +13,7 @@ pub type InterfaceId = Hash<Blob>;
 pub struct ProcessId(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FunctionId(pub F);
+pub struct FunctionId(pub [u64; 4]);
 
 impl std::fmt::Display for ProcessId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -24,26 +22,44 @@ impl std::fmt::Display for ProcessId {
 }
 
 impl FunctionId {
-    pub fn as_u64(self) -> u64 {
-        self.0.as_canonical_u64()
+    pub const fn from_hash(hash: [u64; 4]) -> Self {
+        Self(hash)
+    }
+
+    pub const fn from_legacy_scalar(value: u64) -> Self {
+        Self([value, 0, 0, 0])
+    }
+
+    pub const fn as_hash(self) -> [u64; 4] {
+        self.0
     }
 }
 
 impl std::fmt::Display for FunctionId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_u64())
+        write!(
+            f,
+            "[{}, {}, {}, {}]",
+            self.0[0], self.0[1], self.0[2], self.0[3]
+        )
     }
 }
 
 impl From<u64> for FunctionId {
     fn from(value: u64) -> Self {
-        Self(F::from_u64(value))
+        Self::from_legacy_scalar(value)
     }
 }
 
 impl From<usize> for FunctionId {
     fn from(value: usize) -> Self {
-        Self(F::from_u64(value as u64))
+        Self::from_legacy_scalar(value as u64)
+    }
+}
+
+impl From<[u64; 4]> for FunctionId {
+    fn from(value: [u64; 4]) -> Self {
+        Self::from_hash(value)
     }
 }
 

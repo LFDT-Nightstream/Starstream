@@ -565,7 +565,11 @@ fn call_resource_method(
     let previous_process = ctx.data().current_process;
     ctx.data_mut().current_process = target_pid;
     ctx.data_mut().executed_steps.push(target_pid);
-    let method_f_id = FunctionId::from(method_function_id(import_name, func_name));
+    let method_f_id = method_function_id(import_name, func_name);
+    ctx.data_mut().executor.append_effect(
+        target_pid,
+        WitLedgerEffect::ResumeFunctionId { f_id: method_f_id },
+    );
     ctx.data_mut()
         .executor
         .append_effect(target_pid, WitLedgerEffect::Enter { f_id: method_f_id });
@@ -849,16 +853,14 @@ fn pack_bytes_to_safe_limbs(bytes: &[u8]) -> Vec<F> {
     out
 }
 
-// TODO: This is wrong. We should include the entire hash, but then use indexes
-// with a lookup in the circuit
-fn method_function_id(import_name: &str, func_name: &str) -> u64 {
+fn method_function_id(import_name: &str, func_name: &str) -> FunctionId {
     let mut msg = pack_bytes_to_safe_limbs("starstream/function_id/v1/poseidon2".as_bytes());
     msg.push(F::from(import_name.len() as u64));
     msg.extend(pack_bytes_to_safe_limbs(import_name.as_bytes()));
     msg.push(F::from(func_name.len() as u64));
     msg.extend(pack_bytes_to_safe_limbs(func_name.as_bytes()));
     let hash = ark_poseidon2::sponge_12_trace(&msg).expect("poseidon2 method id");
-    hash[0].into_bigint().0[0]
+    FunctionId::from(hash.map(|limb| limb.into_bigint().0[0]))
 }
 
 fn default_val_for_schema(schema: &ComponentTypeIr) -> WasmtimeVal {

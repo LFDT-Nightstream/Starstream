@@ -8,6 +8,7 @@ mod handler_stack_gadget;
 mod ledger_operation;
 mod logging;
 mod memory;
+mod must_enter_gadget;
 mod neo;
 mod opcode_dsl;
 mod optional;
