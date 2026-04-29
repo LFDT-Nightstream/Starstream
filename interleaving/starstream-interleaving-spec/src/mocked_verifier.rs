@@ -222,6 +222,14 @@ pub enum InterleavingError {
         expected: FunctionId,
     },
 
+    #[error(
+        "process must bind resumed function id before continuing (pid={pid} expected={expected:?})"
+    )]
+    MustResumeFunctionIdPending {
+        pid: ProcessId,
+        expected: FunctionId,
+    },
+
     #[error("enter mismatch (pid={pid} expected={expected:?} got={got:?})")]
     EnterMismatch {
         pid: ProcessId,
@@ -269,6 +277,7 @@ pub struct InterleavingState {
     finalized: Vec<bool>,
     /// Keep track of whether Burn is called
     did_burn: Vec<bool>,
+    pending_resume_function_id: bool,
     must_enter: Vec<Option<FunctionId>>,
     must_exit: Vec<bool>,
 
@@ -324,6 +333,7 @@ pub fn verify_interleaving_semantics(
         initialized: vec![false; n],
         finalized: vec![false; n],
         did_burn: vec![false; n],
+        pending_resume_function_id: false,
         must_enter: vec![None; n],
         must_exit: vec![false; n],
     };
@@ -463,10 +473,16 @@ pub fn state_transition(
         });
     }
 
+    if state.pending_resume_function_id && !matches!(op, WitLedgerEffect::ResumeFunctionId { .. }) {
+        return Err(InterleavingError::MustResumeFunctionIdPending {
+            pid: id_curr,
+            expected: FunctionId::from(0u64),
+        });
+    }
+
     match op {
         WitLedgerEffect::Resume {
             target,
-            f_id,
             val,
             ret,
             caller,
@@ -522,7 +538,6 @@ pub fn state_transition(
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = caller.to_option().flatten();
             state.must_exit[id_curr.0] = false;
-            state.must_enter[target.0] = Some(f_id);
 
             if state.on_yield[target.0] && !rom.is_utxo[id_curr.0] {
                 state.yield_to[target.0] = Some(id_curr);
@@ -532,6 +547,7 @@ pub fn state_transition(
             state.id_prev = Some(id_curr);
 
             state.id_curr = target;
+            state.pending_resume_function_id = true;
 
             state.finalized[target.0] = false;
         }
@@ -772,7 +788,6 @@ pub fn state_transition(
         }
         WitLedgerEffect::CallEffectHandler {
             interface_id,
-            f_id,
             val,
             ret,
         } => {
@@ -818,11 +833,22 @@ pub fn state_transition(
             state.expected_input[id_curr.0] = ret.to_option();
             state.expected_resumer[id_curr.0] = Some(target);
             state.must_exit[id_curr.0] = false;
-            state.must_enter[target.0] = Some(f_id);
 
             state.id_prev = Some(id_curr);
             state.id_curr = target;
+            state.pending_resume_function_id = true;
             state.finalized[target.0] = false;
+        }
+
+        WitLedgerEffect::ResumeFunctionId { f_id } => {
+            if !state.pending_resume_function_id {
+                return Err(InterleavingError::MustResumeFunctionIdPending {
+                    pid: id_curr,
+                    expected: f_id,
+                });
+            }
+            state.must_enter[id_curr.0] = Some(f_id);
+            state.pending_resume_function_id = false;
         }
 
         WitLedgerEffect::Enter { f_id } => {

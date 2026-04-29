@@ -1,4 +1,4 @@
-use starstream_interleaving_spec::{Hash, InterfaceId, Ref, Value, WasmModule};
+use starstream_interleaving_spec::{FunctionId, Hash, InterfaceId, Ref, Value, WasmModule};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HostImportCall<Resource> {
@@ -20,7 +20,7 @@ pub enum HostImportCall<Resource> {
     Resume {
         target: Resource,
         payload: Ref,
-        function_id: u64,
+        function_id: FunctionId,
     },
     Yield {
         payload: Ref,
@@ -44,6 +44,6 @@ pub enum HostImportCall<Resource> {
     CallEffectHandler {
         interface_id: InterfaceId,
         payload: Ref,
-        function_id: u64,
+        function_id: FunctionId,
     },
 }

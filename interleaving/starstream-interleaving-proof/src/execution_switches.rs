@@ -12,6 +12,7 @@ use crate::F;
 #[derive(Clone)]
 pub(crate) struct ExecutionSwitches<T> {
     pub(crate) resume: T,
+    pub(crate) resume_function_id: T,
     pub(crate) call_effect_handler: T,
     pub(crate) enter: T,
     pub(crate) yield_op: T,
@@ -44,6 +45,7 @@ impl ExecutionSwitches<bool> {
     ) -> Result<ExecutionSwitches<Boolean<F>>, SynthesisError> {
         let switches = [
             self.resume,
+            self.resume_function_id,
             self.call_effect_handler,
             self.enter,
             self.yield_op,
@@ -87,6 +89,7 @@ impl ExecutionSwitches<bool> {
 
         let [
             resume,
+            resume_function_id,
             call_effect_handler,
             enter,
             yield_op,
@@ -115,6 +118,10 @@ impl ExecutionSwitches<bool> {
 
         let terms = [
             (resume, EffectDiscriminant::Resume as u64),
+            (
+                resume_function_id,
+                EffectDiscriminant::ResumeFunctionId as u64,
+            ),
             (
                 call_effect_handler,
                 EffectDiscriminant::CallEffectHandler as u64,
@@ -151,6 +158,7 @@ impl ExecutionSwitches<bool> {
 
         Ok(ExecutionSwitches {
             resume: resume.clone(),
+            resume_function_id: resume_function_id.clone(),
             call_effect_handler: call_effect_handler.clone(),
             enter: enter.clone(),
             yield_op: yield_op.clone(),
@@ -185,6 +193,13 @@ impl ExecutionSwitches<bool> {
     pub(crate) fn resume() -> Self {
         Self {
             resume: true,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn resume_function_id() -> Self {
+        Self {
+            resume_function_id: true,
             ..Self::default()
         }
     }
@@ -334,6 +349,7 @@ impl Default for ExecutionSwitches<bool> {
     fn default() -> Self {
         Self {
             resume: false,
+            resume_function_id: false,
             call_effect_handler: false,
             enter: false,
             yield_op: false,
