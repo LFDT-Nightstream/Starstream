@@ -28,7 +28,7 @@ The global state of the interleaving machine σ is defined as:
 ```text
 Configuration (σ)
 =================
-σ = (id_curr, id_prev, M, activation, init, ref_store, ref_sizes, ref_bases, ref_building_state, next_ref_id, next_ref_base, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn, must_enter, must_exit)
+σ = (id_curr, id_prev, M, activation, init, ref_store, ref_sizes, ref_bases, ref_building_state, next_ref_id, next_ref_base, process_table, host_calls, must_burn, on_yield, yield_to, finalized, is_utxo, initialized, handler_stack, ownership, did_burn, pending_resume_function_id, must_enter, must_exit)
 
 Where:
   id_curr          : ID of the currently executing VM. In the range [0..#coord + #utxo]
@@ -55,9 +55,15 @@ Where:
   handler_stack    : A map {InterfaceID -> Stack<ProcessID>}
   ownership        : A map {ProcessID -> Option<ProcessID>} (token -> owner)
   did_burn         : A map {ProcessID -> Bool}
-  must_enter       : A map {ProcessID -> Option<HandlerId>}
+  pending_resume_function_id
+                  : Bool (the next opcode must be ResumeFunctionId)
+  must_enter       : A map {ProcessID -> Option<FunctionId>}
   must_exit        : A map {ProcessID -> Bool}
 ```
+
+`FunctionId` is the 4-limb Poseidon2 hash identifying the Starstream-visible
+function. In the circuit, `must_enter` is represented as four flat RAM cells per
+process: `pid * 4 + 0..3`.
 
 Note that the maps are used here for convenience of notation. In practice they
 are memory arguments enforced through an auxiliary protocol, like Twist And
@@ -102,7 +108,7 @@ change `yield_to` unless the process yields again.
 ```text
 Rule: Resume
 ============
-    op = Resume(target, f_id, val_ref) -> (ret_ref, caller)
+    op = Resume(target, val_ref) -> (ret_ref, caller)
 
     1. id_curr ≠ target
 
@@ -134,7 +140,7 @@ Rule: Resume
            yield_to'[target]     <- Some(id_curr)
            on_yield'[target]     <- False
     8. activation'[target]       <- Some(val_ref, id_curr)
-    9. must_enter'[target]       <- Some(f_id)
+    9. pending_resume_function_id' <- True
 ```
 
 ## Activation
@@ -227,8 +233,28 @@ a function scope, so these are not runtime-agnostic opcodes in that regard.
 For the current Starstream subset:
 
 - `Enter(function_id)` proves which Starstream-visible function began running.
+- `ResumeFunctionId(function_id)` binds the function id for the immediately
+  preceding `Resume` or `CallEffectHandler`.
 - `Return` ends the current function frame.
 - `Yield` does not end the current function frame; it suspends it.
+
+After `Resume` or `CallEffectHandler`, the next opcode must be
+`ResumeFunctionId(function_id)`. After `ResumeFunctionId`, the next opcode for
+that process must be `Enter(function_id)`.
+
+```text
+Rule: Resume Function Id
+========================
+    op = ResumeFunctionId(function_id)
+
+    1. pending_resume_function_id == True
+
+    (The previous control-transfer opcode must bind its target function id)
+
+-----------------------------------------------------------------------
+    1. must_enter'[id_curr]              <- Some(function_id)
+    2. pending_resume_function_id'       <- False
+```
 
 ```text
 Rule: Handler Enter
@@ -389,7 +415,7 @@ space), and resolves to `handler_stack[interface_id].top()`.
 ```text
 Rule: Call Effect Handler
 =========================
-    op = CallEffectHandler(interface_id, f_id, val_ref) -> ret_ref
+    op = CallEffectHandler(interface_id, val_ref) -> ret_ref
 
     1. target = handler_stack[interface_id].top()
 
@@ -416,7 +442,7 @@ Rule: Call Effect Handler
     5. id_prev'                  <- id_curr
     6. id_curr'                  <- target
     7. activation'[target]       <- Some(val_ref, id_curr)
-    8. must_enter'[target]       <- Some(f_id)
+    8. pending_resume_function_id' <- True
 ```
 
 ---

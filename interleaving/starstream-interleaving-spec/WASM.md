@@ -282,8 +282,9 @@ call F(args)
 ```
 
 where `F` is known, from component metadata, to correspond to a Starstream
-operation such as `Resume(target, f_id, val_ref)` or
-`CallEffectHandler(interface_id, f_id, val_ref)`.
+operation such as `Resume(target, val_ref)` followed by
+`ResumeFunctionId(function_id)`, or `CallEffectHandler(interface_id, val_ref)`
+followed by `ResumeFunctionId(function_id)`.
 
 The zkVM adapter should logically rewrite this as:
 
@@ -382,7 +383,8 @@ The corresponding Starstream trace fragment is:
 NewRef(2) -> r
 RefPush([4294967289, 9, 0, 5])
 RefPush([1, 1, 11, 0])
-Resume(target, f_id = foo, val_ref = r) -> (...)
+Resume(target, val_ref = r) -> (...)
+ResumeFunctionId(function_id = foo)
 ```
 
 TBD: the spec still needs to define how the guest-visible `target` handle in a
@@ -399,7 +401,8 @@ the expected trace fragment is:
 
 ```text
 NewRef(0) -> r
-Resume(target, f_id = foo, val_ref = r) -> (...)
+Resume(target, val_ref = r) -> (...)
+ResumeFunctionId(function_id = foo)
 ```
 
 For example:
@@ -411,7 +414,8 @@ call imported method target.amount()
 can rewrite to something like:
 
 ```text
-Resume(target_pid, f_id = amount, val_ref = r)
+Resume(target_pid, val_ref = r)
+ResumeFunctionId(function_id = amount)
 ```
 
 where `r` encodes the method arguments (possibly an empty tuple).
@@ -524,14 +528,13 @@ emit function-frame events:
 
 - `Enter(function_id)`
 
-These function ids come from component metadata plus a stable function-id
-assignment rule.
+These function ids are 4-limb Poseidon2 hashes derived from component metadata.
 
 The minimum requirement is:
 
 1. When Starstream transfers control to a process with
-   `Resume(..., f_id, ...)` or `CallEffectHandler(..., f_id, ...)`, the target
-   process must next emit `Enter(f_id)`.
+   `Resume(...)` or `CallEffectHandler(...)`, the target process must next emit
+   `ResumeFunctionId(function_id)`, followed by `Enter(function_id)`.
 2. `Return` closes the current Starstream-visible function frame.
 3. `Yield` does not close the current Starstream-visible function frame.
 4. `Burn` closes the frame and also ends the coroutine lifetime.
