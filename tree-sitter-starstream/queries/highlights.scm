@@ -29,6 +29,7 @@
   "runtime"
   "disclose"
   "is"
+  "yield"
 ] @keyword
 
 ; Literals

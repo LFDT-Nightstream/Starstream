@@ -1,8 +1,10 @@
 use chumsky::{prelude::*, span::SimpleSpan};
-use starstream_types::ast::{BinaryOp, Expr, Spanned};
+use starstream_types::{
+    Block,
+    ast::{BinaryOp, Expr, Spanned},
+};
 
 use super::context::Extra;
-use crate::parser::statement;
 
 /// Test helper macro for expression snapshot tests.
 /// Defined here so all expression submodules can use it.
@@ -12,7 +14,8 @@ macro_rules! assert_expression_snapshot {
         use chumsky::prelude::*;
         use indoc::indoc;
 
-        let parsed = $crate::parser::expression::parser()
+        let (_, _, expr) = $crate::parser::recursives();
+        let parsed = expr
             .parse(indoc! { $code })
             .into_result()
             .expect("expression should parse");
@@ -40,22 +43,22 @@ mod postfix;
 mod primary;
 mod unary;
 
-pub use primary::parser as primary;
+pub use primary::primary;
 
-pub fn parser<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
-    recursive(|expression| {
-        let block_parser = statement::block_parser_with_expr(expression.clone()).boxed();
-        let primary_parser = primary(expression.clone(), block_parser).boxed();
-        let postfix = postfix::parser(primary_parser, expression.clone()).boxed();
-        let unary = unary::parser(postfix).boxed();
-        let multiplicative = multiplicative::parser(unary).boxed();
-        let additive = additive::parser(multiplicative).boxed();
-        let comparison = comparison::parser(additive).boxed();
-        let equality = equality::parser(comparison).boxed();
-        let logical_and = logical_and::parser(equality).boxed();
+pub fn expr<'a>(
+    expression: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
+    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
+) -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone {
+    let primary_parser = primary(expression.clone(), block).boxed();
+    let postfix = postfix::parser(primary_parser, expression.clone()).boxed();
+    let unary = unary::parser(postfix).boxed();
+    let multiplicative = multiplicative::parser(unary).boxed();
+    let additive = additive::parser(multiplicative).boxed();
+    let comparison = comparison::parser(additive).boxed();
+    let equality = equality::parser(comparison).boxed();
+    let logical_and = logical_and::parser(equality).boxed();
 
-        logical_or::parser(logical_and).boxed()
-    })
+    logical_or::parser(logical_and).boxed()
 }
 
 pub(super) fn chain<'a>(

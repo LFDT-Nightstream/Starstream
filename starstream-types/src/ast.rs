@@ -280,9 +280,11 @@ pub enum UtxoPart {
     Function(Box<FunctionDef>),
     AbiImpl {
         abi: Identifier,
-        parts: Vec<FunctionDef>,
+        parts: Vec<AbiImplPart>,
     },
 }
+
+pub type AbiImplPart = FunctionDef;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct UtxoGlobal {
@@ -428,6 +430,11 @@ pub enum Expr {
     Match {
         scrutinee: Box<Spanned<Expr>>,
         arms: Vec<MatchArm>,
+    },
+    /// `yield` and `yield(AbiName, ...)`
+    Yield {
+        /// Empty for bare `yield`, or list of abi names
+        abis: Vec<Identifier>,
     },
     Call {
         callee: Box<Spanned<Expr>>,

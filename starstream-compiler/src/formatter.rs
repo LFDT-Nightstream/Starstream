@@ -450,6 +450,33 @@ fn utxo_definition_to_doc<'a>(
         .append("}")
 }
 
+fn abi_impl_to_doc<'a>(
+    abi: &Identifier,
+    parts: &[FunctionDef],
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
+    RcDoc::text("impl")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(abi, source))
+        .append(RcDoc::space())
+        .append(if parts.is_empty() {
+            RcDoc::text("{ }")
+        } else {
+            RcDoc::text("{")
+                .append(
+                    RcDoc::line()
+                        .append(RcDoc::intersperse(
+                            parts.iter().map(|x| function_to_doc(x, source, comments)),
+                            RcDoc::line(),
+                        ))
+                        .nest(INDENT),
+                )
+                .append(RcDoc::line())
+                .append("}")
+        })
+}
+
 fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
     match part {
         UtxoPart::Storage(vars) => RcDoc::text("storage")
@@ -466,25 +493,7 @@ fn utxo_part_to_doc<'a>(part: &UtxoPart, source: &'a str, comments: &CommentMap)
             .append(RcDoc::line())
             .append("}"),
         UtxoPart::Function(function) => function_to_doc(function, source, comments),
-        UtxoPart::AbiImpl { abi, parts } => RcDoc::text("impl")
-            .append(RcDoc::space())
-            .append(identifier_to_doc(abi, source))
-            .append(RcDoc::space())
-            .append(if parts.is_empty() {
-                RcDoc::text("{ }")
-            } else {
-                RcDoc::text("{")
-                    .append(
-                        RcDoc::line()
-                            .append(RcDoc::intersperse(
-                                parts.iter().map(|x| function_to_doc(x, source, comments)),
-                                RcDoc::line(),
-                            ))
-                            .nest(INDENT),
-                    )
-                    .append(RcDoc::line())
-                    .append("}")
-            }),
+        UtxoPart::AbiImpl { abi, parts } => abi_impl_to_doc(abi, parts, source, comments),
     }
 }
 
@@ -935,6 +944,7 @@ fn struct_pattern_fields_to_doc<'a>(
             .append(RcDoc::text("}"))
     }
 }
+
 fn expr_to_doc<'a>(expr: &Expr, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
     expr_with_prec(expr, PREC_LOWEST, ChildPosition::Top, source, comments)
 }
@@ -1039,6 +1049,16 @@ fn expr_with_prec<'a>(
                 Expr::Match { scrutinee, arms } => {
                     match_expr_to_doc(scrutinee, arms, source, comments)
                 }
+                Expr::Yield { abis } => RcDoc::text("yield").append(if abis.is_empty() {
+                    RcDoc::text("()")
+                } else {
+                    RcDoc::text("(")
+                        .append(RcDoc::intersperse(
+                            abis.iter().map(|i| identifier_to_doc(i, source)),
+                            ", ",
+                        ))
+                        .append(")")
+                }),
                 Expr::Call { callee, args } => {
                     let callee_doc = expr_with_prec(
                         &callee.node,
@@ -1156,7 +1176,9 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),
         Expr::FieldAccess { .. } | Expr::Call { .. } => PREC_FIELD_ACCESS,
-        Expr::If { .. } | Expr::Block { .. } | Expr::Match { .. } => PREC_LOWEST,
+        Expr::If { .. } | Expr::Block { .. } | Expr::Match { .. } | Expr::Yield { .. } => {
+            PREC_LOWEST
+        }
     }
 }
 
