@@ -14,7 +14,7 @@ mod utxo;
 
 pub use abi::parser as abi;
 pub use enum_def::parser as enum_def;
-pub use function::{function, function_with_export};
+pub use function::function_with_export;
 pub use import::parser as import;
 pub use struct_def::parser as struct_def;
 pub use utxo::utxo;

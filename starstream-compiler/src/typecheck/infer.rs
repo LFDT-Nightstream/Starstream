@@ -3311,7 +3311,7 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
-            Expr::Yield(_parts) => {
+            Expr::Yield { abis: _ } => {
                 todo!()
             }
             Expr::Disclose { expr: inner_expr } => {
@@ -3734,7 +3734,7 @@ impl Inferencer {
             | Expr::Emit { .. }
             | Expr::Raise { .. }
             | Expr::Runtime { .. }
-            | Expr::Yield(_) => BindingVisibility::Private,
+            | Expr::Yield { .. } => BindingVisibility::Private,
         }
     }
 

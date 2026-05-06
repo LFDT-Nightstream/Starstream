@@ -232,13 +232,7 @@ if_condition ::=
 
 if_expression ::= "if" if_condition block ( "else" "if" if_condition block )* ( "else" block )?
 
-yield_expression ::= "yield" "{" yield_part* "}"
-
-yield_part ::=
-  (* freeform method *)
-  | function
-  (* yield-scoped impl block OR import of utxo-scoped impl block *)
-  | "impl" identifier ( ";" | "{" impl_part* "}" )
+yield_expression ::= "yield" "(" ( identifier ( "," identifier )* )? ")"
 
 unary_expression ::= ("-" | "!") expression
 
@@ -301,6 +295,7 @@ The following reserved words may not be used as identifiers:
 - `runtime`
 - `disclose`
 - `is`
+- `yield`
 
 <!--
   NOTE: When updating this grammar, also update:

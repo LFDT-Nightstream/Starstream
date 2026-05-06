@@ -133,7 +133,8 @@ module.exports = grammar({
     utxo_definition: ($) =>
       seq("utxo", $.identifier, "{", repeat($._utxo_part), "}"),
 
-    _utxo_part: ($) => choice($.storage_utxo_part, $.fn_utxo_part, $.abi_impl_utxo_part),
+    _utxo_part: ($) =>
+      choice($.storage_utxo_part, $.fn_utxo_part, $.abi_impl_utxo_part),
 
     storage_utxo_part: ($) => seq("storage", "{", repeat($.utxo_global), "}"),
 
@@ -142,7 +143,8 @@ module.exports = grammar({
 
     fn_utxo_part: ($) => seq(optional("main"), $._function),
 
-    abi_impl_utxo_part: ($) => seq("impl", $.identifier, "{", repeat($.impl_part), "}"),
+    abi_impl_utxo_part: ($) =>
+      seq("impl", $.identifier, "{", repeat($.impl_part), "}"),
 
     impl_part: ($) => choice($._function),
 
@@ -275,8 +277,7 @@ module.exports = grammar({
 
     is_condition: ($) => seq($.identifier, "is", $.identifier),
 
-    _if_condition: ($) =>
-      choice(seq("(", $.expression, ")"), $.is_condition),
+    _if_condition: ($) => choice(seq("(", $.expression, ")"), $.is_condition),
 
     if_expression: ($) =>
       seq(
@@ -288,6 +289,14 @@ module.exports = grammar({
         repeat(seq("else", "if", $._if_condition, $.block)),
         // Final `else` branch.
         optional(seq("else", $.block)),
+      ),
+
+    yield_expression: ($) =>
+      seq(
+        "yield",
+        "(",
+        optional(seq($.identifier, repeat(seq(",", $.identifier)))),
+        ")",
       ),
 
     _primary_expression: ($) =>
@@ -303,6 +312,7 @@ module.exports = grammar({
         $.unit_literal,
         $.struct_literal,
         $.enum_constructor,
+        $.yield_expression,
         $.disclose_expression,
         $.emit_expression,
         $.raise_expression,

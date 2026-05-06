@@ -2,7 +2,7 @@ use pretty::RcDoc;
 use starstream_types::{
     AbiDef, AbiMethodDecl, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef,
     Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal, Spanned, Statement,
-    TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart, YieldPart,
+    TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
@@ -949,21 +949,6 @@ fn expr_to_doc<'a>(expr: &Expr, source: &'a str, comments: &CommentMap) -> RcDoc
     expr_with_prec(expr, PREC_LOWEST, ChildPosition::Top, source, comments)
 }
 
-fn yield_part_to_doc<'a>(
-    part: &YieldPart,
-    source: &'a str,
-    comments: &CommentMap,
-) -> RcDoc<'a, ()> {
-    match part {
-        YieldPart::Function(function) => function_to_doc(function, source, comments),
-        YieldPart::AbiImplDefault(abi) => RcDoc::text("impl")
-            .append(RcDoc::space())
-            .append(identifier_to_doc(abi, source))
-            .append(RcDoc::text(";")),
-        YieldPart::AbiImpl { abi, parts } => abi_impl_to_doc(abi, parts, source, comments),
-    }
-}
-
 fn expr_with_prec<'a>(
     expr: &Expr,
     parent_prec: u8,
@@ -1064,23 +1049,16 @@ fn expr_with_prec<'a>(
                 Expr::Match { scrutinee, arms } => {
                     match_expr_to_doc(scrutinee, arms, source, comments)
                 }
-                Expr::Yield(parts) => RcDoc::text("yield")
-                    .append(RcDoc::space())
-                    .append("{")
-                    .append(if parts.is_empty() {
-                        RcDoc::space()
-                    } else {
-                        RcDoc::line()
-                            .append(RcDoc::intersperse(
-                                parts
-                                    .iter()
-                                    .map(|part| yield_part_to_doc(part, source, comments)),
-                                RcDoc::line(),
-                            ))
-                            .append(RcDoc::line())
-                            .nest(INDENT)
-                    })
-                    .append(RcDoc::text("}")),
+                Expr::Yield { abis } => RcDoc::text("yield").append(if abis.is_empty() {
+                    RcDoc::text("()")
+                } else {
+                    RcDoc::text("(")
+                        .append(RcDoc::intersperse(
+                            abis.iter().map(|i| identifier_to_doc(i, source)),
+                            ", ",
+                        ))
+                        .append(")")
+                }),
                 Expr::Call { callee, args } => {
                     let callee_doc = expr_with_prec(
                         &callee.node,
@@ -1198,7 +1176,9 @@ fn precedence(expr: &Expr) -> u8 {
         Expr::Unary { .. } => PREC_UNARY,
         Expr::Binary { op, .. } => precedence_binary(op),
         Expr::FieldAccess { .. } | Expr::Call { .. } => PREC_FIELD_ACCESS,
-        Expr::If { .. } | Expr::Block { .. } | Expr::Match { .. } | Expr::Yield(_) => PREC_LOWEST,
+        Expr::If { .. } | Expr::Block { .. } | Expr::Match { .. } | Expr::Yield { .. } => {
+            PREC_LOWEST
+        }
     }
 }
 

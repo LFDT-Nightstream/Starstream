@@ -45,6 +45,7 @@ pub fn primary<'a>(
         unit(),
         struct_literal(expression.clone()),
         enum_constructor(expression.clone()),
+        yield_(),
         disclose(expression.clone()),
         emit(expression.clone()),
         raise(expression.clone()),
@@ -52,7 +53,6 @@ pub fn primary<'a>(
         block_expr,
         if_expr(expression.clone(), block.clone()),
         match_expr(expression.clone(), block.clone()),
-        yield_(block),
         // Identifier last to prefer struct literals if possible
         identifier(),
     ))

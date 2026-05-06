@@ -431,8 +431,11 @@ pub enum Expr {
         scrutinee: Box<Spanned<Expr>>,
         arms: Vec<MatchArm>,
     },
-    /// `yield { ... }`
-    Yield(Vec<YieldPart>),
+    /// `yield` and `yield(AbiName, ...)`
+    Yield {
+        /// Empty for bare `yield`, or list of abi names
+        abis: Vec<Identifier>,
+    },
     Call {
         callee: Box<Spanned<Expr>>,
         args: Vec<Spanned<Expr>>,
@@ -453,19 +456,6 @@ pub enum Expr {
     /// Runtime call: `runtime some_runtime_fn(...)`
     Runtime {
         expr: Box<Spanned<Expr>>,
-    },
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum YieldPart {
-    /// `fn foo() { ... }`
-    Function(FunctionDef),
-    /// `impl AbiName;`
-    AbiImplDefault(Identifier),
-    /// `impl AbiName { ... }`
-    AbiImpl {
-        abi: Identifier,
-        parts: Vec<AbiImplPart>,
     },
 }
 

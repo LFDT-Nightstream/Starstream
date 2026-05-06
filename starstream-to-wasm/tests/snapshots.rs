@@ -63,7 +63,7 @@ fn inputs() {
                     .expect("formatter error");
             assert!(
                 source == formatted_source,
-                "formatted source differs from original; replace with:\n{formatted_source}"
+                "==== Formatted source differs from original ====\n{program:#?}\n==== Replace with ====\n{formatted_source}"
             );
 
             match starstream_compiler::typecheck_program(
