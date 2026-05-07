@@ -1,36 +1,28 @@
-use chumsky::{prelude::*, recursive::Recursive};
+use chumsky::prelude::*;
 use starstream_types::ast::{Block, Expr, Spanned, Statement};
 
-use crate::parser::{ParserExt, type_annotation};
+use super::{ParserExt, context::Extra, primitives, type_annotation};
 
-use super::{context::Extra, expression, primitives};
-
-/// Parser for individual statements.
-pub fn parser<'a>() -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
-    let expr = expression::parser().boxed();
-    let (statement_parser, _) = build_parsers(expr);
-
-    statement_parser
+pub fn block<'a>(
+    statement: impl Parser<'a, &'a str, Statement, Extra<'a>> + 'a,
+    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + 'a,
+) -> impl Parser<'a, &'a str, Block, Extra<'a>> + Clone {
+    statement
+        .spanned()
+        .repeated()
+        .collect::<Vec<_>>()
+        .then(expr.padded().or_not())
+        .delimited_by(just('{').padded(), just('}').padded())
+        .map_with(|(statements, tail_expression), extra| Block {
+            statements,
+            tail_expression,
+            span: extra.span(),
+        })
+        .boxed()
 }
 
-/// Parser for `{ ... }` blocks, including optional tail expressions.
-pub fn block_parser<'a>() -> impl Parser<'a, &'a str, Block, Extra<'a>> {
-    let expr = expression::parser().boxed();
-    let (_, block_parser) = build_parsers(expr);
-
-    block_parser
-}
-
-pub fn block_parser_with_expr<'a>(
-    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> impl Parser<'a, &'a str, Block, Extra<'a>> {
-    let (_, block_parser) = build_parsers(expr);
-
-    block_parser
-}
-
-pub(super) fn parser_with_block<'a>(
-    block_parser: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
+pub fn statement<'a>(
+    block: impl Parser<'a, &'a str, Block, Extra<'a>> + Clone + 'a,
     expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
 ) -> impl Parser<'a, &'a str, Statement, Extra<'a>> {
     let variable_declaration = just("let")
@@ -64,7 +56,7 @@ pub(super) fn parser_with_block<'a>(
             expr.clone()
                 .delimited_by(just('(').padded(), just(')').padded()),
         )
-        .then(block_parser.clone())
+        .then(block.clone())
         .map(|(condition, body)| Statement::While { condition, body });
 
     let return_statement = just("return")
@@ -103,36 +95,6 @@ pub(super) fn parser_with_block<'a>(
     ))
 }
 
-fn build_parsers<'a>(
-    expr: impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> + Clone + 'a,
-) -> (
-    impl Parser<'a, &'a str, Statement, Extra<'a>>,
-    impl Parser<'a, &'a str, Block, Extra<'a>>,
-) {
-    let mut statement_parser = Recursive::declare();
-    let mut block_parser = Recursive::declare();
-
-    let block = statement_parser
-        .clone()
-        .spanned()
-        .repeated()
-        .collect::<Vec<_>>()
-        .then(expr.clone().padded().or_not())
-        .delimited_by(just('{').padded(), just('}').padded())
-        .map_with(|(statements, tail_expression), extra| Block {
-            statements,
-            tail_expression,
-            span: extra.span(),
-        })
-        .boxed();
-
-    block_parser.define(block);
-    let stmt = parser_with_block(block_parser.clone(), expr).boxed();
-    statement_parser.define(stmt);
-
-    (statement_parser, block_parser)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,7 +102,8 @@ mod tests {
 
     macro_rules! assert_statement_snapshot {
         ($code:expr) => {{
-            let stmt = parser()
+            let (statement, _, _) = $crate::parser::recursives();
+            let stmt = statement
                 .parse(indoc! { $code })
                 .into_result()
                 .expect("statement should parse");

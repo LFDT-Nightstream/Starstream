@@ -1848,6 +1848,56 @@
         }
       ]
     },
+    "yield_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "yield"
+        },
+        {
+          "type": "STRING",
+          "value": "("
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "identifier"
+                },
+                {
+                  "type": "REPEAT",
+                  "content": {
+                    "type": "SEQ",
+                    "members": [
+                      {
+                        "type": "STRING",
+                        "value": ","
+                      },
+                      {
+                        "type": "SYMBOL",
+                        "name": "identifier"
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "STRING",
+          "value": ")"
+        }
+      ]
+    },
     "_primary_expression": {
       "type": "CHOICE",
       "members": [
@@ -1895,6 +1945,10 @@
         {
           "type": "SYMBOL",
           "name": "enum_constructor"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "yield_expression"
         },
         {
           "type": "SYMBOL",

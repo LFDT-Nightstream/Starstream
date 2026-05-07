@@ -3311,6 +3311,9 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
+            Expr::Yield { abis: _ } => {
+                todo!()
+            }
             Expr::Disclose { expr: inner_expr } => {
                 let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
                 let result_ty = typed_inner.node.ty.clone();
@@ -3671,6 +3674,7 @@ impl Inferencer {
             None
         }
     }
+
     #[allow(clippy::only_used_in_recursion)]
     fn source_expr_visibility(&self, env: &TypeEnv, expr: &Spanned<Expr>) -> BindingVisibility {
         match &expr.node {
@@ -3729,7 +3733,8 @@ impl Inferencer {
             | Expr::Match { .. }
             | Expr::Emit { .. }
             | Expr::Raise { .. }
-            | Expr::Runtime { .. } => BindingVisibility::Private,
+            | Expr::Runtime { .. }
+            | Expr::Yield { .. } => BindingVisibility::Private,
         }
     }
 

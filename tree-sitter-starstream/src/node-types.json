@@ -219,6 +219,10 @@
           {
             "type": "unit_literal",
             "named": true
+          },
+          {
+            "type": "yield_expression",
+            "named": true
           }
         ]
       }
@@ -534,6 +538,10 @@
         {
           "type": "unit_literal",
           "named": true
+        },
+        {
+          "type": "yield_expression",
+          "named": true
         }
       ]
     }
@@ -626,6 +634,10 @@
           },
           {
             "type": "unit_literal",
+            "named": true
+          },
+          {
+            "type": "yield_expression",
             "named": true
           }
         ]
@@ -1338,6 +1350,21 @@
     }
   },
   {
+    "type": "yield_expression",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "!",
     "named": false
   },
@@ -1570,6 +1597,10 @@
   {
     "type": "wildcard_pattern",
     "named": true
+  },
+  {
+    "type": "yield",
+    "named": false
   },
   {
     "type": "{",
