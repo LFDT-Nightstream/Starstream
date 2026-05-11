@@ -16,7 +16,6 @@ members = [
   "ark-poseidon2",
   "ark-goldilocks"
 ]
-exclude = ["old"]
 
 [workspace.package]
 version = "0.0.0"
