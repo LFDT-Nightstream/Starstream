@@ -90,11 +90,24 @@ Tooling:
 
 Executor and VM:
 
-- `interleaving/`
-- `mock-ledger/`
-- TODO: [`IVC/`](./IVC/README.md)
-- TODO: [`MCC/`](./MCC/README.md)
-- TODO: [`lookups/`](./lookups/README.md)
+Starstream-specific executor and VM work lives under `interleaving/`. The
+underlying folding/IVC scheme, CCS, memory, and VM trace building blocks are
+implemented in [Nightstream](https://github.com/LFDT-Nightstream/Nightstream)
+and consumed here through pinned workspace dependencies such as `neo-fold`,
+`neo-ccs`, `neo-memory`, and `neo-vm-trace`.
+
+- `interleaving/starstream-interleaving-spec/` - Transaction and interleaving
+semantics, public instance types (tied to a demo ledger implementation), and
+witness types. Plus a Wasm spec for the requirements on the UTXO zkVM.
+- `interleaving/starstream-interleaving-proof/` - Starstream interleaving proof
+circuit (CCS) and Nightstream folding-session integration with MCC middleware
+for Twist and Shout (implemented in Nightstream).
+- `interleaving/starstream-component-runtime/` - Component execution runtime and
+transaction session wiring (witness generation for proving, currently only for
+the interleaving).
+- `interleaving/starstream-runtime/` - Minimal runtime for testing
+Wasm to interleaving proof semantics. Will be replaced completely by
+`starstream-component-runtime` eventually.
 
 Interfaces:
 

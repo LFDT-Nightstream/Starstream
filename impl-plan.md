@@ -127,7 +127,7 @@ Research:
 
 - try out [Verus](https://github.com/verus-lang/verus) as a way to verify the reference interpreter
 - specify (roughly) the Wasm ABI that the compiler must target (maybe use WIT?)
-  - this is what [`lookups`](../lookups) takes as input.
+  - this feeds the opcode and trace tables used by the interleaving proof and Nightstream-backed proving stack.
   - Wasm + the rough shape of external calls
     - how resource types (utxos, tokens) are named
     - how freestanding functions are named
@@ -136,6 +136,3 @@ Research:
   - import `./external_module.wasm` (wasm target only?)
   - JavaScript bindings (WIT?) so dApps can call into Starstream contracts compiled to Wasm
 - debugger
-- proving and ZK
-  - memory consistency checks (or how to handle memory)
-  - lookups
