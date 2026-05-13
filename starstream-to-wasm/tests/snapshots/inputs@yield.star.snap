@@ -125,10 +125,11 @@ TypedProgram {
 }
 
 ==== Core WebAssembly ====
-  x TODO: yield not yet implemented
-   ,-[1:1]
- 1 | utxo MyUtxo {
-   : ^
-   : `-- TODO: yield not yet implemented
+  x TODO: yield
+   ,-[3:9]
  2 |     main fn hello_utxo() {
+ 3 |         yield(Foo, Bar);
+   :         ^^^^^^^|^^^^^^^
+   :                `-- TODO: yield
+ 4 |     }
    `----

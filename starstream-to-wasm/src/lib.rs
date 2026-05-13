@@ -270,11 +270,6 @@ impl Compiler {
         ErrorToken
     }
 
-    fn todo(&mut self, why: String) -> ErrorToken {
-        // TODO: better span
-        self.push_error(DUMMY_SPAN, format!("TODO: {why}"))
-    }
-
     fn generate_storage_exports(
         &mut self,
         name: &Identifier,
@@ -1694,7 +1689,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Add({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Add({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1721,7 +1718,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Subtract({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1748,7 +1747,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Multiply({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1775,7 +1776,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Divide({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Divide({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1802,7 +1805,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Remainder({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Remainder({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Unary {
@@ -1824,7 +1829,7 @@ impl Compiler {
                         self.emit_truncate(func, *w);
                         Ok(())
                     }
-                    lhs => Err(self.todo(format!("Negate({lhs:?})"))),
+                    lhs => Err(self.push_error(span, format!("TODO: Negate({lhs:?})"))),
                 }
             }
             TypedExprKind::Unary {
@@ -1838,7 +1843,7 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    lhs => Err(self.todo(format!("Not({lhs:?})"))),
+                    lhs => Err(self.push_error(span, format!("TODO: Not({lhs:?})"))),
                 }
             }
             // Comparison operators
@@ -1866,7 +1871,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Equal({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Equal({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1893,7 +1900,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("NotEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: NotEqual({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1926,7 +1935,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Less({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Less({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1959,7 +1970,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Greater({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1992,7 +2005,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("LessEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: LessEqual({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -2025,7 +2040,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("GreaterEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("GreaterEqual({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             // Short-circuiting operators
@@ -2277,7 +2294,7 @@ impl Compiler {
             // Function calls
             TypedExprKind::Call { callee, args } => {
                 let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.todo("cannot call non-identifier".into()));
+                    return Err(self.push_error(span, "cannot call non-identifier"));
                 };
                 let target = *self
                     .callables
@@ -2297,7 +2314,7 @@ impl Compiler {
                     panic!("raise expr must be a call");
                 };
                 let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.todo("raise expr cannot call non-identifier".into()));
+                    return Err(self.push_error(span, "`raise` expr cannot call non-identifier"));
                 };
                 let target = *self
                     .callables
@@ -2310,7 +2327,7 @@ impl Compiler {
                     panic!("runtime expr must be a call");
                 };
                 let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.todo("runtime expr cannot call non-identifier".into()));
+                    return Err(self.push_error(span, "`runtime` expr cannot call non-identifier"));
                 };
                 let target = *self
                     .callables
@@ -2321,7 +2338,7 @@ impl Compiler {
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, locals, span, expr, scrutinee, arms)
             }
-            TypedExprKind::Yield { abis: _ } => Err(self.todo("yield not yet implemented".into())),
+            TypedExprKind::Yield { abis: _ } => Err(self.push_error(span, "TODO: yield")),
         }
     }
 
