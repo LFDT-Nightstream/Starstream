@@ -17,7 +17,7 @@ ImportDef {
             },
         ],
     ),
-    from: ImportSource {
+    from: Wit {
         namespace: Identifier {
             name: "starstream",
             span: 28..38,

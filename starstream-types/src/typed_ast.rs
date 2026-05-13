@@ -26,6 +26,8 @@ pub enum TypedDefinition {
     Enum(TypedEnumDef),
     Utxo(TypedUtxoDef),
     Abi(TypedAbiDef),
+    /// `contract;` marker carried through from the AST.
+    Contract,
 }
 
 #[derive(Clone, Debug)]
@@ -53,19 +55,36 @@ pub struct TypedImportNamedItem {
 }
 
 #[derive(Clone, Debug)]
-pub struct TypedImportSource {
-    pub namespace: Identifier,
-    pub package: Identifier,
-    pub interface: Option<Identifier>,
+pub enum TypedImportSource {
+    Wit {
+        namespace: Identifier,
+        package: Identifier,
+        interface: Option<Identifier>,
+    },
+    Path {
+        /// Raw path text as written in the source.
+        value: String,
+        /// Canonical absolute path of the resolved module, if known.
+        canonical: Option<std::path::PathBuf>,
+    },
 }
 
 impl std::fmt::Display for TypedImportSource {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}:{}", self.namespace, self.package)?;
-        if let Some(interface) = &self.interface {
-            write!(f, "/{}", interface)?;
+        match self {
+            TypedImportSource::Wit {
+                namespace,
+                package,
+                interface,
+            } => {
+                write!(f, "{}:{}", namespace, package)?;
+                if let Some(interface) = interface {
+                    write!(f, "/{}", interface)?;
+                }
+                Ok(())
+            }
+            TypedImportSource::Path { value, .. } => write!(f, "\"{}\"", value),
         }
-        Ok(())
     }
 }
 
@@ -368,5 +387,13 @@ impl TypedBlock {
 impl TypedProgram {
     pub fn new(definitions: Vec<TypedDefinition>) -> Self {
         Self { definitions }
+    }
+}
+
+impl Default for TypedProgram {
+    fn default() -> Self {
+        Self {
+            definitions: Vec::new(),
+        }
     }
 }

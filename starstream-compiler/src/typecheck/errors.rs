@@ -288,6 +288,13 @@ pub enum TypeErrorKind {
         var_name: String,
         abi_name: String,
     },
+    /// A path import names an item that the target module does not export.
+    UnknownPathExport {
+        /// The raw path text from the `from "…"` clause.
+        path: String,
+        /// The name that wasn't found.
+        name: String,
+    },
 }
 
 impl TypeErrorKind {
@@ -343,6 +350,7 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownAbi { .. } => error_code!(E0047),
             TypeErrorKind::AbiMethodNotFound { .. } => error_code!(E0048),
             TypeErrorKind::LinearMethodCallViolation { .. } => error_code!(E0049),
+            TypeErrorKind::UnknownPathExport { .. } => error_code!(E0050),
         }
     }
 }
@@ -701,6 +709,9 @@ impl fmt::Display for TypeErrorKind {
                     f,
                     "only one method call is allowed on narrowed variable `{var_name}` (ABI `{abi_name}`)"
                 )
+            }
+            TypeErrorKind::UnknownPathExport { path, name } => {
+                write!(f, "module `{path}` does not export `{name}`")
             }
         }
     }

@@ -1,0 +1,7 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nimport {   add  ,  Point   } from \"./helpers/math.star\";\n\nfn main() {}\n"
+---
+import { add, Point } from "./helpers/math.star";
+
+fn main() { }

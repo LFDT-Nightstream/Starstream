@@ -20,6 +20,7 @@ module.exports = grammar({
 
     _definition: ($) =>
       choice(
+        $.contract_definition,
         $.import_definition,
         $.function_definition,
         $.struct_definition,
@@ -27,6 +28,8 @@ module.exports = grammar({
         $.utxo_definition,
         $.abi_definition,
       ),
+
+    contract_definition: ($) => seq("contract", ";"),
 
     import_definition: ($) =>
       seq(
@@ -56,11 +59,26 @@ module.exports = grammar({
     import_namespace: ($) => $.identifier,
 
     import_source: ($) =>
+      choice($.import_wit_source, $.import_path_source),
+
+    import_wit_source: ($) =>
       seq(
         field("namespace", $.identifier),
         ":",
         field("package", $.identifier),
         optional(seq("/", field("interface", $.identifier))),
+      ),
+
+    // Quoted relative path to another `.star` file: `"./helpers/math.star"`.
+    import_path_source: ($) => $.string_literal,
+
+    string_literal: ($) =>
+      token(
+        seq(
+          '"',
+          repeat(choice(/[^"\\]/, seq("\\", /["\\nrt]/))),
+          '"',
+        ),
       ),
 
     function_definition: ($) => seq(optional($.function_export), $._function),

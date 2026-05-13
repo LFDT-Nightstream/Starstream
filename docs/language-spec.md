@@ -39,6 +39,7 @@ program ::= definition*
 (* Definitions *)
 
 definition ::=
+  | contract_definition
   | import_definition
   | function_definition
   | struct_definition
@@ -46,13 +47,17 @@ definition ::=
   | utxo_definition
   | abi_definition
 
+contract_definition ::= "contract" ";"
+
 import_definition ::=
   | "import" "{" import_named_item ( "," import_named_item )* "}" "from" import_source ";"
   | "import" identifier "from" import_source ";"
 
 import_named_item ::= identifier ( "as" identifier )?
 
-import_source ::= identifier ":" identifier "/" identifier
+import_source ::=
+  | identifier ":" identifier ( "/" identifier )?
+  | string_literal
 
 function_definition ::= ( function_export )? function
 
@@ -257,6 +262,10 @@ integer_literal ::= [0-9]+
 boolean_literal ::= "true" | "false"
 
 unit_literal ::= "(" ")"
+
+(* Quoted string used only as an `import_source`. Backslash-escapes are
+   limited to `\\`, `\"`, `\n`, `\r`, `\t`. *)
+string_literal ::= '"' ( [^"\\] | "\\" ["\\nrt] )* '"'
 ```
 
 Definitions live exclusively at the program (module) scope. Statements appear
@@ -296,6 +305,7 @@ The following reserved words may not be used as identifiers:
 - `disclose`
 - `is`
 - `yield`
+- `contract`
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -389,14 +399,152 @@ No user-defined generics at this time.
 - Unification succeeds for records when both sides have the same field names (order-insensitive) and each corresponding field type unifies. A similar rule holds for enums, matching variant names and payload arity/type.
 - Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
+## Contracts
+
+Any `.star` file that contains a bare `contract;` declaration is a **codegen
+entry point**. The marker may appear anywhere at the top level of the file;
+the formatter sorts it to the top.
+
+```starstream
+contract;
+
+script fn run() -> i64 {
+    42
+}
+```
+
+Files without `contract;` are *helpers* — reusable functions and types that
+contracts pull in via path imports.
+
+**One workspace, one module graph.** The scan-based CLI commands
+(`check`, `docs`, `build`) and the language server build a **single
+workspace-wide module graph** over every `.star` file they find (including
+files transitively pulled in by path imports). Type-checking runs **once**
+across that whole graph, so a helper shared by two contracts is parsed and
+checked exactly once. Code generation then runs once per `contract;` node,
+walking only the subgraph reachable from that contract.
+
+The `starstream wasm` command is the exception: it always builds a
+single-file mini-graph rooted at the file you point it at, treating that
+file as the contract regardless of whether it declares `contract;`.
+
+**Cross-contract imports are not supported yet.** Any edge in the graph
+whose *target* declares `contract;` is rejected, with an error pointing at
+the import statement that created the edge — whether the importer is itself
+a contract or a helper doesn't matter.
+
+**Orphan helpers** (files with no `contract;` that aren't reached by any
+contract's import chain) still participate in the workspace graph as loose
+nodes. They're type-checked along with everything else, so editors get
+real-time diagnostics on them even before they're imported anywhere. They
+just produce no wasm output.
+
+## Toolchain commands
+
+The `starstream` CLI exposes one single-file command (`wasm`) and three
+scan-based commands (`check`, `docs`, `build`) plus the language server
+(`lsp`).
+
+### Single-file: `starstream wasm`
+
+```
+starstream wasm -c <file> [--output-core PATH] [--output-component PATH]
+                          [--output-wit PATH] [--output-binary-wit PATH]
+                          [-M, --depfile PATH]
+```
+
+- Compiles **one** `.star` file.
+- The file is treated as a contract regardless of whether it declares
+  `contract;`. Path imports it pulls in still must NOT themselves declare
+  `contract;` — cross-contract imports remain a hard error.
+- Output flags follow the legacy single-file shape and write to whichever
+  paths the caller specifies. Nothing is written automatically.
+- Use this for one-off scripted compilation. For project-wide builds, see
+  `starstream build`.
+
+### Scan-based: `starstream check`, `docs`, `build`
+
+```
+starstream check [DIR] [-D | --deny-warnings]
+starstream docs  [DIR] [--pretty]
+starstream build [DIR]
+```
+
+All three share the same shared-workspace-graph model:
+
+- **Directory selection.**
+  - With no `DIR`: walk up from the current working directory looking for
+    `.git`. The first ancestor that contains `.git` becomes the scan
+    root. If no `.git` is ever found, scan the current working directory
+    itself.
+  - With an explicit `DIR`: scan exactly that directory. No walk-up.
+
+- **File discovery.** Within the scan root the compiler recursively walks
+  for `.star` files. Hidden directories (`.git`, `.vscode`, …) and the
+  conventional `target/` and `artifacts/` directories are skipped. Every
+  `.star` file becomes a node in the workspace graph; path imports may
+  pull in additional files outside the scan root, which join the graph
+  too. Files containing `contract;` are flagged as codegen entries.
+
+- **One graph, one typecheck.** All three commands build the workspace
+  graph once via `load_workspace`, then run `typecheck_modules` over the
+  whole graph in a single pass. Diagnostics are stamped with the module
+  they originated in. Cross-contract import edges (any edge whose target
+  declares `contract;`) are rejected at graph-build time.
+
+- **Per-command work on top of the shared graph:**
+  - **`check`** prints every diagnostic from the typecheck pass and exits
+    non-zero if there are any errors (or any warnings under `-D`). The
+    summary reports modules and contracts scanned.
+  - **`docs`** generates JSON per contract entry, writing it to
+    `<artifacts>/<filename-stem>/docs.json`.
+  - **`build`** runs `compile_contract` once per `contract;` entry. Each
+    invocation walks only the subgraph reachable from that contract via
+    path-import edges and emits `core.wasm`, `component.wasm`,
+    `contract.wit`, and a Make/Ninja-style `deps.d`.
+
+- **Artifacts location** (`docs` and `build`).
+  Walks up from the scanned directory looking for `.git`. The first
+  ancestor that contains `.git` is the **project root**; if none is
+  found, the project root is the scanned directory itself. Per-contract
+  outputs land at `<project-root>/artifacts/<filename-stem>/`.
+
+### Language server: `starstream lsp`
+
+The language server uses the same shared-workspace-graph model:
+
+1. **Pick a workspace root** by walking up from the open file's parent
+   directory until a `.git` directory is found. If none is found, the
+   open file's parent directory is used.
+2. **Build one workspace graph** via `load_workspace`. This is the same
+   graph the CLI scan-based commands build.
+3. **Locate the open file** in the graph by canonical absolute path.
+   - If found, run `typecheck_modules` once over the whole graph and
+     surface diagnostics for the open file's module id only. Other files'
+     diagnostics get published when those files are themselves analysed.
+   - If the file isn't in the workspace graph (for example, it lives
+     outside the scanned tree), or the workspace scan failed (cross-
+     contract edge somewhere we don't own), fall back to a single-file
+     graph rooted at the open file. This still goes through the multi-
+     file pipeline, so W0002 doesn't fire.
+
+The LSP **only** falls back to single-file `typecheck_program` when the
+document URI isn't a filesystem path — i.e. the browser playground, or
+`untitled:` / `vscode-vfs:` schemes. Single-file mode is the one place
+where the [W0002 path-import-ignored warning](./warnings/W0002.md) can
+fire.
+
 ## Imports
 
-Imports bring external functions into scope from WIT-style interface paths.
+Imports bring external functions into scope from WIT-style interface paths or
+from another `.star` file in the project via path imports.
 
 The available import sources are:
 
 - `starstream:std` - Starstream builtins known to the compiler.
   - `/cardano` - functions expected to be available when hosted on Cardano.
+- `"./relative/path.star"` - another `.star` file in the project (see
+  [Path imports](#path-imports)).
 
 ### Named imports
 
@@ -418,6 +566,61 @@ import cardano from starstream:std/cardano;
 ```
 
 Functions are accessed using namespace-qualified syntax: `cardano::blockHeight()`.
+
+### Path imports
+
+A path import references another `.star` file by a quoted relative path,
+resolved against the *importing* file's directory. The `.star` extension is
+required.
+
+```starstream
+import { add, Point } from "./helpers/math.star";
+import math from "./helpers/math.star";
+import { foo } from "../shared/util.star";
+```
+
+**Resolution rules:**
+
+- Paths must be relative — they must begin with `./` or `../`. Absolute paths
+  and bare module names are rejected.
+- Paths must end with the `.star` extension.
+- Paths are resolved relative to the directory of the importing file.
+- The path is canonicalized (`./` and `../` are normalized; symlinks are
+  resolved) so a file that is reached via two different relative paths is
+  loaded only once within a single contract graph.
+
+**Visibility:**
+
+- Named imports are strict: only the names listed in `{ ... }` are visible to
+  the importing module. Other top-level definitions in the target file are
+  not implicitly accessible.
+- Namespace imports expose all top-level functions of the target file under
+  the alias (e.g., `math::add(...)`). They do not expose types.
+- Top-level types (`struct`, `enum`, `abi`, `utxo`) are referenced by name —
+  importing one with `import { Point } from "./shapes.star";` makes `Point`
+  usable in the importing file's type annotations.
+
+**Cross-contract guard:**
+
+- A contract may not import from another file that also declares `contract;`.
+  The compiler raises a hard error. Cross-contract calls will land in a
+  future release.
+
+**Module graph and cycles:**
+
+- For each contract entry, the compiler builds a directed graph of the
+  `.star` files reachable through its path imports. The graph is
+  topologically sorted before type-checking, so dependencies are processed
+  before their dependents.
+- Cycles in the path-import graph are a hard compile error.
+
+**`script fn` semantics:**
+
+- Only `script fn`s declared in the **entry** file are exported as
+  transaction roots in the produced wasm.
+- Helper modules may declare `script fn`s for organizational purposes, but
+  they are compiled as ordinary internal functions and not exposed to the
+  outside world.
 
 ### Effect annotations
 

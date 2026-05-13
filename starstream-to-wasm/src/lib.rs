@@ -53,7 +53,64 @@ pub struct CompileResult {
 /// Compile a Starstream program to a Wasm module.
 pub fn compile(program: &TypedProgram) -> CompileResult {
     let mut compiler = Compiler::default();
+    compiler.is_entry_module = true;
     compiler.visit_program(program);
+    compiler.finish()
+}
+
+/// Compile one contract out of a typechecked workspace graph.
+///
+/// `entry` is the module id of the contract being compiled. Only the
+/// subgraph **reachable from `entry`** (via path-import edges) is emitted —
+/// helper modules unrelated to this contract are skipped, even if they live
+/// in the same workspace graph. Only `entry`'s `script fn`s become exported
+/// transaction roots; helpers' scripts compile to internal functions.
+pub fn compile_contract(
+    graph: &starstream_compiler::TypedModuleGraph,
+    entry: starstream_compiler::ModuleId,
+) -> CompileResult {
+    let mut compiler = Compiler::default();
+
+    // Build a reachable-from-entry set by chasing edges through the typed
+    // graph. We don't have the untyped graph's edges here, so we synthesize
+    // them from each module's `TypedDefinition::Import` entries. Cheaper
+    // than threading the source graph through.
+    use std::collections::HashSet;
+    let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
+    reachable.insert(entry);
+    let mut stack = vec![entry];
+    while let Some(id) = stack.pop() {
+        let module = graph.module(id);
+        for def in &module.program.definitions {
+            if let TypedDefinition::Import(import) = def {
+                if let TypedImportSource::Path {
+                    canonical: Some(canonical),
+                    ..
+                } = &import.from
+                {
+                    if let Some(target) = graph
+                        .modules
+                        .iter()
+                        .find(|m| &m.abs_path == canonical)
+                        .map(|m| m.id)
+                    {
+                        if reachable.insert(target) {
+                            stack.push(target);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for &module_id in &graph.topo_order {
+        if !reachable.contains(&module_id) {
+            continue;
+        }
+        let module = graph.module(module_id);
+        compiler.is_entry_module = module_id == entry;
+        compiler.visit_program(&module.program);
+    }
     compiler.finish()
 }
 
@@ -126,6 +183,11 @@ struct Compiler {
 
     // Memory building.
     bump_ptr: u32,
+
+    /// True while visiting the entry module of a multi-file build. Only the
+    /// entry module's `script fn`s are exported as transaction roots; helper
+    /// modules' scripts become ordinary internal functions.
+    is_entry_module: bool,
 }
 
 impl Compiler {
@@ -1134,6 +1196,7 @@ impl Compiler {
             match definition {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
+                TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
 
                 TypedDefinition::Function(func) => {
                     self.visit_function(&to_kebab_case(func.name.as_str()), func, &())
@@ -1146,6 +1209,15 @@ impl Compiler {
     }
 
     fn visit_import(&mut self, def: &TypedImportDef) {
+        // Path imports (`from "./other.star"`) don't produce WIT externals.
+        // Their imported names just need callable aliases so calls resolve to
+        // the correct wasm function index that was registered when the target
+        // module's `visit_function` ran.
+        if matches!(&def.from, TypedImportSource::Path { .. }) {
+            self.alias_path_import(def);
+            return;
+        }
+
         let (namespace, list) = match &def.items {
             TypedImportItems::Named(functions) => (None, functions),
             TypedImportItems::Namespace { alias, functions } => (Some(alias), functions),
@@ -1200,6 +1272,36 @@ impl Compiler {
                         .export(&kebab, ComponentTypeRef::Func(comp_fn_ty));
                 }
                 _ => todo!(),
+            }
+        }
+    }
+
+    /// Set up callable aliases for a path import. The target module has
+    /// already been visited (topo order), so its functions live in
+    /// `self.callables` keyed by their original short name. We just need to
+    /// add an alias when the local binding name differs (`as` rename) or for
+    /// namespace-qualified callees (`alias::name`).
+    fn alias_path_import(&mut self, def: &TypedImportDef) {
+        match &def.items {
+            TypedImportItems::Named(items) => {
+                for item in items {
+                    let imported = item.imported.as_str();
+                    let local = item.local.as_str();
+                    if imported == local {
+                        continue;
+                    }
+                    if let Some(&idx) = self.callables.get(imported) {
+                        self.callables.insert(local.to_string(), idx);
+                    }
+                }
+            }
+            TypedImportItems::Namespace { alias, functions } => {
+                for func in functions {
+                    let key = format!("{}::{}", alias.as_str(), func.imported.as_str());
+                    if let Some(&idx) = self.callables.get(func.imported.as_str()) {
+                        self.callables.insert(key, idx);
+                    }
+                }
             }
         }
     }
@@ -1274,7 +1376,12 @@ impl Compiler {
 
         match function.export {
             Some(FunctionExport::Script) => {
-                self.export_component_fn(wit_name, function, idx, &params, &results);
+                // Only the entry module's `script fn`s become exported
+                // transaction roots. Helpers' scripts are still typechecked
+                // and compiled as internal functions, but not exposed.
+                if self.is_entry_module {
+                    self.export_component_fn(wit_name, function, idx, &params, &results);
+                }
             }
             Some(FunctionExport::UtxoMain) => {
                 self.export_component_fn(wit_name, function, idx, &params, &results);

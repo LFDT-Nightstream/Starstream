@@ -1,0 +1,18 @@
+---
+source: starstream-compiler/src/parser/definition/import.rs
+description: "Code:\n\nimport math from \"./helpers/math.star\";"
+---
+ImportDef {
+    items: Namespace(
+        Identifier {
+            name: "math",
+            span: 7..11,
+        },
+    ),
+    from: Path(
+        ImportPath {
+            value: "./helpers/math.star",
+            span: 17..38,
+        },
+    ),
+}

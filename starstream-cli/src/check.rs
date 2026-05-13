@@ -1,21 +1,26 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::PathBuf;
 
 use clap::Args;
-use miette::{IntoDiagnostic, NamedSource};
-use starstream_compiler::{TypecheckOptions, parse_program, typecheck_program};
+use miette::IntoDiagnostic;
+use starstream_compiler::{TypecheckOptions, module_graph, typecheck_modules};
+use starstream_types::FileSystem;
 
-use crate::{diagnostics::print_diagnostic, starstream_files_excluding_gitignore, style};
+use crate::diagnostics::print_diagnostic;
+use crate::project::default_scan_dir;
+use crate::style;
+use crate::wasm::{build_named_sources, report_graph_error};
 
-/// Type-check Starstream source files.
+/// Build one workspace module graph for the target directory and type-check
+/// every module in it.
+///
+/// With no path argument, walks up from cwd for `.git` and scans that
+/// project root (falling back to cwd if no `.git`). With an explicit dir,
+/// scans exactly that dir.
 #[derive(Args, Debug)]
 pub struct Check {
-    /// Files or directories to check. Defaults to the current directory.
-    #[clap(default_value = ".")]
-    targets: Vec<String>,
+    /// Optional directory to scan. If omitted, walks up for `.git` and scans
+    /// the enclosing project root (falling back to cwd if no `.git` exists).
+    target_dir: Option<PathBuf>,
 
     /// Exit with a non-zero code if warnings are emitted.
     #[arg(short = 'D', long, visible_alias = "warnings-as-errors")]
@@ -23,101 +28,74 @@ pub struct Check {
 }
 
 impl Check {
-    /// Walk the requested paths, printing diagnostics and returning a non-zero
-    /// exit code if any errors were encountered.
     pub fn exec(self) -> miette::Result<()> {
-        let mut had_errors = false;
-        let mut total_errors = 0usize;
-        let mut total_warnings = 0usize;
+        let scan_dir = match self.target_dir {
+            Some(dir) => dir,
+            None => default_scan_dir().into_diagnostic()?,
+        };
 
-        for target in self.targets {
-            let path = PathBuf::from_str(&target).into_diagnostic()?;
+        let mut fs = FileSystem::new();
+        let graph = match module_graph::load_workspace(&scan_dir, &mut fs) {
+            Ok(g) => g,
+            Err(err) => {
+                report_graph_error(&err);
+                std::process::exit(1);
+            }
+        };
 
-            if path.is_dir() {
-                for file in starstream_files_excluding_gitignore(&path) {
-                    let result = check_file(&file)?;
+        if graph.modules().is_empty() {
+            eprintln!("no `.star` files found under `{}`", scan_dir.display());
+            return Ok(());
+        }
 
-                    had_errors |= result.errors > 0;
+        let sources = build_named_sources(&graph);
 
-                    total_errors += result.errors;
-                    total_warnings += result.warnings;
+        let mut errors = 0usize;
+        let mut warnings = 0usize;
+
+        match typecheck_modules(&graph, TypecheckOptions::default()) {
+            Ok(success) => {
+                for (module_id, warning) in success.warnings {
+                    if let Some(named) = sources.get(&module_id.0) {
+                        print_diagnostic(named.clone(), warning)?;
+                        warnings += 1;
+                    }
                 }
-            } else {
-                let result = check_file(&path)?;
-
-                had_errors |= result.errors > 0;
-
-                total_errors += result.errors;
-                total_warnings += result.warnings;
+            }
+            Err(failure) => {
+                for (module_id, warning) in failure.warnings {
+                    if let Some(named) = sources.get(&module_id.0) {
+                        print_diagnostic(named.clone(), warning)?;
+                        warnings += 1;
+                    }
+                }
+                for (module_id, error) in failure.errors {
+                    if let Some(named) = sources.get(&module_id.0) {
+                        print_diagnostic(named.clone(), error)?;
+                        errors += 1;
+                    }
+                }
             }
         }
 
-        if total_errors > 0 || total_warnings > 0 {
+        let contract_count = graph.contract_entries().len();
+        if errors > 0 || warnings > 0 {
             eprintln!(
-                "Summary: {} error{}, {} warning{}",
-                total_errors,
-                style::r_if_then(total_errors != 1, "s"),
-                total_warnings,
-                style::r_if_then(total_warnings != 1, "s")
+                "Summary: {} contract{}, {} module{}, {} error{}, {} warning{}",
+                contract_count,
+                style::r_if_then(contract_count != 1, "s"),
+                graph.modules().len(),
+                style::r_if_then(graph.modules().len() != 1, "s"),
+                errors,
+                style::r_if_then(errors != 1, "s"),
+                warnings,
+                style::r_if_then(warnings != 1, "s")
             );
         }
 
-        if had_errors || (self.deny_warnings && total_warnings > 0) {
+        if errors > 0 || (self.deny_warnings && warnings > 0) {
             std::process::exit(1);
-        } else {
-            Ok(())
         }
-    }
-}
-
-struct CheckResult {
-    errors: usize,
-    warnings: usize,
-}
-
-/// Parse and type-check a single file, returning the number of diagnostics
-/// emitted so the caller can aggregate totals and decide the exit status.
-fn check_file(path: &Path) -> miette::Result<CheckResult> {
-    let source = fs::read_to_string(path).into_diagnostic()?;
-
-    let parse_output = parse_program(&source);
-
-    let named = NamedSource::new(path.display().to_string(), source.clone());
-
-    let mut errors = 0usize;
-    let mut warnings = 0usize;
-
-    if !parse_output.errors().is_empty() {
-        for error in parse_output.errors {
-            print_diagnostic(named.clone(), error)?;
-
-            errors += 1;
-        }
-    }
-
-    let Some(program) = parse_output.program else {
-        return Ok(CheckResult { errors, warnings });
-    };
-
-    match typecheck_program(&program, TypecheckOptions::default()) {
-        Ok(success) => {
-            for warning in success.warnings {
-                print_diagnostic(named.clone(), warning)?;
-                warnings += 1;
-            }
-            Ok(CheckResult { errors, warnings })
-        }
-        Err(failure) => {
-            for warning in failure.warnings {
-                print_diagnostic(named.clone(), warning)?;
-                warnings += 1;
-            }
-            for error in failure.errors {
-                print_diagnostic(named.clone(), error)?;
-
-                errors += 1;
-            }
-            Ok(CheckResult { errors, warnings })
-        }
+        Ok(())
     }
 }

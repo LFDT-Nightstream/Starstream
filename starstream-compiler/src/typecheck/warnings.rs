@@ -64,15 +64,21 @@ impl Diagnostic for TypeWarning {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeWarningKind {
     UnnecessaryDisclose,
+    /// A path import (`from "./..."`) was seen by the single-file type-checker.
+    /// Multi-file resolution requires `typecheck_modules` (driven by the CLI).
+    PathImportIgnoredInSingleFile {
+        path: String,
+    },
 }
 
 impl TypeWarningKind {
     pub fn warning_code(&self) -> &'static WarningCode {
         match self {
             TypeWarningKind::UnnecessaryDisclose => warning_code!(W0001),
+            TypeWarningKind::PathImportIgnoredInSingleFile { .. } => warning_code!(W0002),
         }
     }
 }
@@ -84,6 +90,12 @@ impl fmt::Display for TypeWarningKind {
                 write!(
                     f,
                     "`disclose(...)` is unnecessary because the wrapped value is already public"
+                )
+            }
+            TypeWarningKind::PathImportIgnoredInSingleFile { path } => {
+                write!(
+                    f,
+                    "path import `{path}` was ignored because this file is being checked in isolation"
                 )
             }
         }

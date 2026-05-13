@@ -215,30 +215,168 @@ impl DocumentState {
 
         self.program = program;
 
-        if let Some(program) = self.program.as_ref() {
-            match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
-                Ok(typed) => {
-                    for warning in &typed.warnings {
+        if self.program.is_some() {
+            // For URIs that point at a real file on disk, always go through
+            // the multi-file graph driver — never fall through to single-file
+            // mode. That avoids surfacing the W0002 ("path import ignored
+            // in single-file mode") warning anywhere except the browser
+            // playground, where there's no filesystem to scan.
+            if !self.try_typecheck_via_workspace(uri, text) {
+                let program = self.program.clone().unwrap();
+                match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
+                    Ok(typed) => {
+                        for warning in &typed.warnings {
+                            self.push_type_warning(uri, warning.clone());
+                        }
+
+                        self.generic_types = typed.generic_types.clone();
+
+                        let program_ast = self.program.clone();
+                        self.build_indexes(&typed.program, program_ast.as_deref(), text);
+
+                        self.typed = Some(typed);
+                    }
+                    Err(failure) => {
+                        for warning in failure.warnings {
+                            self.push_type_warning(uri, warning);
+                        }
+                        for error in failure.errors {
+                            self.push_type_error(uri, error);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Type-check this document using the multi-file graph driver.
+    ///
+    /// Strategy:
+    ///   1. Walk up from the open file looking for `.git`; fall back to the
+    ///      file's parent directory if none.
+    ///   2. Scan that root for `.star` files declaring `contract;`. For each,
+    ///      build its module graph. If one of those graphs contains this
+    ///      file, drive typechecking through it (only diagnostics from this
+    ///      file are surfaced — other files publish their own).
+    ///   3. Otherwise the file is an unowned helper (or its own root):
+    ///      build a graph rooted at the file itself and use that. This still
+    ///      goes through `typecheck_modules`, so W0002 doesn't fire.
+    ///
+    /// Returns `false` only when the URI isn't a filesystem path (browser
+    /// playground, `untitled:`, etc.) — in that case the caller falls back
+    /// to `typecheck_program`, where W0002 *will* fire on path imports.
+    fn try_typecheck_via_workspace(&mut self, uri: &Uri, text: &str) -> bool {
+        let Some(file_path) = uri_to_file_path(uri) else {
+            return false;
+        };
+        let Ok(canonical_file) = std::fs::canonicalize(&file_path) else {
+            return false;
+        };
+
+        let workspace_root = workspace_root_for(&file_path);
+
+        // One workspace graph for the whole project; contracts are codegen
+        // entries inside it. The open file is just a node — it might be a
+        // contract, an imported helper, or a loose orphan. Either way the
+        // graph knows about it.
+        let mut fs = starstream_types::FileSystem::new();
+        let graph =
+            match starstream_compiler::module_graph::load_workspace(&workspace_root, &mut fs) {
+                Ok(g) => g,
+                Err(_) => {
+                    // If the workspace scan blew up (e.g. cross-contract import
+                    // somewhere we don't own), still try to give *this* file
+                    // diagnostics by rooting a single-file graph at it.
+                    let mut local_fs = starstream_types::FileSystem::new();
+                    let Ok(local_graph) = starstream_compiler::module_graph::load_from_entry(
+                        &canonical_file,
+                        &mut local_fs,
+                    ) else {
+                        return false;
+                    };
+                    let module_id = local_graph
+                        .find_by_path(&canonical_file)
+                        .expect("entry module is always in its own graph");
+                    self.run_graph_typecheck(uri, text, &local_graph, module_id);
+                    return true;
+                }
+            };
+
+        if let Some(module_id) = graph.find_by_path(&canonical_file) {
+            self.run_graph_typecheck(uri, text, &graph, module_id);
+            return true;
+        }
+
+        // The open file isn't reachable from the workspace scan (e.g. an
+        // ad-hoc file outside the scanned tree). Build a graph rooted at it.
+        let mut local_fs = starstream_types::FileSystem::new();
+        match starstream_compiler::module_graph::load_from_entry(&canonical_file, &mut local_fs) {
+            Ok(local_graph) => {
+                let module_id = local_graph
+                    .find_by_path(&canonical_file)
+                    .expect("entry module is always in its own graph");
+                self.run_graph_typecheck(uri, text, &local_graph, module_id);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn run_graph_typecheck(
+        &mut self,
+        uri: &Uri,
+        text: &str,
+        graph: &starstream_compiler::ModuleGraph,
+        module_id: starstream_compiler::ModuleId,
+    ) {
+        match starstream_compiler::typecheck_modules(graph, TypecheckOptions::default()) {
+            Ok(success) => {
+                for (id, warning) in &success.warnings {
+                    if *id == module_id {
                         self.push_type_warning(uri, warning.clone());
                     }
-
-                    self.generic_types = typed.generic_types.clone();
-
-                    let program_ast = self.program.clone();
-                    self.build_indexes(&typed.program, program_ast.as_deref(), text);
-
-                    self.typed = Some(typed);
                 }
-                Err(failure) => {
-                    for warning in failure.warnings {
+                self.apply_typed_module(text, &success, module_id);
+            }
+            Err(failure) => {
+                for (id, warning) in failure.warnings {
+                    if id == module_id {
                         self.push_type_warning(uri, warning);
                     }
-                    for error in failure.errors {
+                }
+                for (id, error) in failure.errors {
+                    if id == module_id {
                         self.push_type_error(uri, error);
                     }
                 }
             }
         }
+    }
+
+    fn apply_typed_module(
+        &mut self,
+        text: &str,
+        success: &starstream_compiler::TypedModuleGraph,
+        module_id: starstream_compiler::ModuleId,
+    ) {
+        self.generic_types = success.generic_types.clone();
+
+        let entry_typed = success
+            .modules
+            .iter()
+            .find(|m| m.id == module_id)
+            .expect("module id we just observed must be present");
+        let entry_program = entry_typed.program.clone();
+
+        let program_ast = self.program.clone();
+        self.build_indexes(&entry_program, program_ast.as_deref(), text);
+
+        self.typed = Some(TypecheckSuccess {
+            program: entry_program,
+            traces: Vec::new(),
+            generic_types: success.generic_types.clone(),
+            warnings: Vec::new(),
+        });
     }
 
     fn push_parse_error(&mut self, uri: &Uri, error: &ParseError) {
@@ -474,6 +612,9 @@ impl DocumentState {
                     _ => None,
                 });
                 self.collect_abi(definition, untyped_abi, source, doc.clone())
+            }
+            TypedDefinition::Contract => {
+                // `contract;` is a pure marker — no symbols, no hover info.
             }
         }
     }
@@ -1545,6 +1686,9 @@ impl DocumentState {
                 untyped_ast::Definition::Import(_) => {
                     // Imports don't have type annotations to collect
                 }
+                untyped_ast::Definition::Contract => {
+                    // `contract;` has no annotations.
+                }
             }
         }
     }
@@ -1819,7 +1963,7 @@ impl DocumentState {
             .definitions
             .iter()
             .filter_map(|definition| match definition {
-                TypedDefinition::Import(_) => None,
+                TypedDefinition::Import(_) | TypedDefinition::Contract => None,
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),
@@ -2257,4 +2401,69 @@ impl DefinitionEntry {
 struct StructTypeEntry {
     name: String,
     ty: Type,
+}
+
+/// Convert an LSP `Uri` (`file:///abs/path/to/foo.star`) to a `PathBuf`.
+/// Returns `None` for non-file URIs (e.g. `untitled:`, `vscode-vfs:`) or if
+/// the URI can't be percent-decoded.
+fn uri_to_file_path(uri: &Uri) -> Option<std::path::PathBuf> {
+    let s = uri.as_str();
+    let raw = s.strip_prefix("file://")?;
+    // On Windows VS Code emits `file:///C:/...`; on Unix it's `file:///abs/...`.
+    // After stripping `file://`, both look like `/...` (Unix) or `/C:/...` (Win).
+    let decoded = percent_decode(raw);
+    Some(std::path::PathBuf::from(decoded))
+}
+
+/// Minimal percent-decoder. The LSP only sends URIs the editor produced, so
+/// we don't need to handle every edge case — only `%20`-style escapes.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Walk up from `start` until a directory containing `.git` is found; fall
+/// back to the file's parent directory if no git root exists.
+fn workspace_root_for(start: &std::path::Path) -> std::path::PathBuf {
+    let mut current = if start.is_dir() {
+        start
+    } else {
+        start.parent().unwrap_or(start)
+    };
+    loop {
+        if current.join(".git").exists() {
+            return current.to_path_buf();
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => {
+                return start
+                    .parent()
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+            }
+        }
+    }
 }

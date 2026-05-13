@@ -1,0 +1,7 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nimport math from \"./helpers/math.star\";\n\nfn main() {}\n"
+---
+import math from "./helpers/math.star";
+
+fn main() { }
