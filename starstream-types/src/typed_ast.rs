@@ -266,6 +266,11 @@ pub enum TypedExprKind {
         scrutinee: Box<Spanned<TypedExpr>>,
         arms: Vec<TypedMatchArm>,
     },
+    /// `yield` and `yield(AbiName, ...)`
+    Yield {
+        /// Empty for bare `yield`, or list of abi names
+        abis: Vec<Identifier>,
+    },
     Call {
         callee: Box<Spanned<TypedExpr>>,
         args: Vec<Spanned<TypedExpr>>,

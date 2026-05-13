@@ -1598,7 +1598,8 @@ impl Compiler {
             TypedExprKind::Call { .. }
             | TypedExprKind::Emit { .. }
             | TypedExprKind::Raise { .. }
-            | TypedExprKind::Runtime { .. } => {
+            | TypedExprKind::Runtime { .. }
+            | TypedExprKind::Yield { .. } => {
                 // Function calls could have any side effect, so always really
                 // call them then drop whatever they might have returned.
                 self.visit_expr_stack(func, locals, span, expr)?;
@@ -2320,6 +2321,7 @@ impl Compiler {
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, locals, span, expr, scrutinee, arms)
             }
+            TypedExprKind::Yield { abis: _ } => Err(self.todo("yield not yet implemented".into())),
         }
     }
 

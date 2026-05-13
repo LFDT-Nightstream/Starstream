@@ -1,0 +1,134 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/yield.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 5..11,
+                    },
+                    parts: [
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "hello_utxo",
+                                    span: 26..36,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Yield {
+                                                        abis: [
+                                                            Identifier {
+                                                                name: "Foo",
+                                                                span: 55..58,
+                                                            },
+                                                            Identifier {
+                                                                name: "Bar",
+                                                                span: 60..63,
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: 49..64,
+                                                },
+                                            ),
+                                            span: 49..70,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 39..72,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..74,
+        },
+    ],
+}
+
+==== Inference trace ====
+T-Utxo: MyUtxo => 
+  T-Fn: hello_utxo => ()
+    T-Expr: {hello_utxo: fn() -> ()} ⊢ yield(Foo, Bar); ⇒ ()
+
+==== Typed AST ====
+TypedProgram {
+    definitions: [
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: 5..11,
+                },
+                parts: [
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                UtxoMain,
+                            ),
+                            name: Identifier {
+                                name: "hello_utxo",
+                                span: 26..36,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Yield {
+                                                    abis: [
+                                                        Identifier {
+                                                            name: "Foo",
+                                                            span: 55..58,
+                                                        },
+                                                        Identifier {
+                                                            name: "Bar",
+                                                            span: 60..63,
+                                                        },
+                                                    ],
+                                                },
+                                            },
+                                            span: 49..64,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+  x TODO: yield not yet implemented
+   ,-[1:1]
+ 1 | utxo MyUtxo {
+   : ^
+   : `-- TODO: yield not yet implemented
+ 2 |     main fn hello_utxo() {
+   `----

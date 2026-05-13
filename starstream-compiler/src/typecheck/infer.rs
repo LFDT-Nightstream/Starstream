@@ -3311,9 +3311,13 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
-            Expr::Yield { abis: _ } => {
-                todo!()
-            }
+            Expr::Yield { abis } => Ok((
+                Spanned::new(
+                    TypedExpr::new(Type::Unit, TypedExprKind::Yield { abis: abis.clone() }),
+                    expr.span,
+                ),
+                Default::default(),
+            )),
             Expr::Disclose { expr: inner_expr } => {
                 let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
                 let result_ty = typed_inner.node.ty.clone();
@@ -4270,6 +4274,7 @@ impl Inferencer {
                     self.apply_block(&mut arm.body);
                 }
             }
+            TypedExprKind::Yield { abis: _ } => {}
             TypedExprKind::Call { callee, args } => {
                 self.apply_expr(callee);
 

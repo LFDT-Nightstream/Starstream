@@ -17,7 +17,8 @@ use starstream_compiler::{
     typecheck::{TypeError, TypeWarning, TypecheckOptions, TypecheckSuccess},
 };
 use starstream_types::{
-    CommentMap, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef, TypedUtxoPart,
+    CommentMap, DUMMY_SPAN, FunctionDef, GenericTypeDef, Span, Spanned, TypeVarId, TypedUtxoDef,
+    TypedUtxoPart,
     ast::{self as untyped_ast, Program, TypeAnnotation},
     typed_ast::{
         TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
@@ -895,7 +896,7 @@ impl DocumentState {
             TypedStatement::Assignment { target, value } => {
                 self.collect_expr(value, scopes);
 
-                self.add_usage(target.opt_span(), &target.name, scopes);
+                self.add_usage(target.span(), &target.name, scopes);
 
                 if let Some(span) = target.opt_span() {
                     self.add_hover_span(span, &value.node.ty);
@@ -934,7 +935,7 @@ impl DocumentState {
             TypedExprKind::Identifier(identifier) => {
                 let usage_span = identifier.span_or(expr.span);
 
-                self.add_usage(Some(usage_span), &identifier.name, scopes);
+                self.add_usage(usage_span, &identifier.name, scopes);
             }
             TypedExprKind::Unary { expr: inner, .. } => self.collect_expr(inner, scopes),
             TypedExprKind::Binary { left, right, .. } => {
@@ -1076,6 +1077,11 @@ impl DocumentState {
                     self.collect_match_arm(arm, scopes, scrutinee.node.ty.clone());
                 }
             }
+            TypedExprKind::Yield { abis } => {
+                for ident in abis {
+                    self.add_usage(expr.span, ident.as_str(), scopes);
+                }
+            }
             TypedExprKind::Call { callee, args } => {
                 // Check if callee is an identifier to look up function doc
                 if let TypedExprKind::Identifier(identifier) = &callee.node.kind {
@@ -1084,7 +1090,7 @@ impl DocumentState {
                     {
                         let usage_span = identifier.span_or(callee.span);
                         self.add_hover_label_with_doc(usage_span, signature, Some(doc));
-                        self.add_usage(Some(usage_span), &identifier.name, scopes);
+                        self.add_usage(usage_span, &identifier.name, scopes);
                     } else {
                         self.collect_expr(callee, scopes);
                     }
@@ -1313,12 +1319,14 @@ impl DocumentState {
         });
     }
 
-    fn add_usage(&mut self, span: Option<Span>, name: &str, scopes: &[HashMap<String, Span>]) {
-        let Some(usage_span) = span else { return };
+    fn add_usage(&mut self, span: Span, name: &str, scopes: &[HashMap<String, Span>]) {
+        if span == DUMMY_SPAN {
+            return;
+        }
 
         if let Some(target_span) = self.lookup_definition(name, scopes) {
             self.definition_entries.push(DefinitionEntry {
-                usage: usage_span,
+                usage: span,
                 target: target_span,
             });
         }
