@@ -31,6 +31,10 @@
       "members": [
         {
           "type": "SYMBOL",
+          "name": "contract_definition"
+        },
+        {
+          "type": "SYMBOL",
           "name": "import_definition"
         },
         {
@@ -52,6 +56,19 @@
         {
           "type": "SYMBOL",
           "name": "abi_definition"
+        }
+      ]
+    },
+    "contract_definition": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "contract"
+        },
+        {
+          "type": "STRING",
+          "value": ";"
         }
       ]
     },
@@ -190,6 +207,19 @@
       "name": "identifier"
     },
     "import_source": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "import_wit_source"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "import_path_source"
+        }
+      ]
+    },
+    "import_wit_source": {
       "type": "SEQ",
       "members": [
         {
@@ -238,6 +268,51 @@
           ]
         }
       ]
+    },
+    "import_path_source": {
+      "type": "SYMBOL",
+      "name": "string_literal"
+    },
+    "string_literal": {
+      "type": "TOKEN",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "STRING",
+            "value": "\""
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "PATTERN",
+                  "value": "[^\"\\\\]"
+                },
+                {
+                  "type": "SEQ",
+                  "members": [
+                    {
+                      "type": "STRING",
+                      "value": "\\"
+                    },
+                    {
+                      "type": "PATTERN",
+                      "value": "[\"\\\\nrt]"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "type": "STRING",
+            "value": "\""
+          }
+        ]
+      }
     },
     "function_definition": {
       "type": "SEQ",
