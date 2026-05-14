@@ -16,6 +16,9 @@ use crate::{
 /// Entire program with types attached.
 #[derive(Clone, Debug)]
 pub struct TypedProgram {
+    /// True if the program uses the `yield` expression anywhere.
+    pub has_yields: bool,
+    /// List of elements in the program.
     pub definitions: Vec<TypedDefinition>,
 }
 
@@ -377,11 +380,5 @@ impl TypedBlock {
             statements,
             tail_expression,
         }
-    }
-}
-
-impl TypedProgram {
-    pub fn new(definitions: Vec<TypedDefinition>) -> Self {
-        Self { definitions }
     }
 }

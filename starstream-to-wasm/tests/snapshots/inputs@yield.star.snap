@@ -112,6 +112,7 @@ T-Utxo: MyUtxo =>
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: true,
     definitions: [
         Abi(
             TypedAbiDef {
@@ -199,25 +200,23 @@ TypedProgram {
                                                 ty: Unit,
                                                 kind: Yield {
                                                     abis: [
-                                                        AbiNarrow(
-                                                            Abi {
-                                                                name: Identifier {
-                                                                    name: "Foo",
-                                                                    span: 4..7,
-                                                                },
-                                                                methods: [
-                                                                    TypedAbiMethodDecl {
-                                                                        name: Identifier {
-                                                                            name: "foo",
-                                                                            span: 17..20,
-                                                                        },
-                                                                        params: [],
-                                                                        return_type: Unit,
+                                                        Abi {
+                                                            name: Identifier {
+                                                                name: "Foo",
+                                                                span: 4..7,
+                                                            },
+                                                            methods: [
+                                                                TypedAbiMethodDecl {
+                                                                    name: Identifier {
+                                                                        name: "foo",
                                                                         span: 17..20,
                                                                     },
-                                                                ],
-                                                            },
-                                                        ),
+                                                                    params: [],
+                                                                    return_type: Unit,
+                                                                    span: 17..20,
+                                                                },
+                                                            ],
+                                                        },
                                                     ],
                                                 },
                                             },
@@ -240,10 +239,17 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func))
-  (export "hello-utxo" (func 1))
-  (func (;0;) (type 0))
-  (func (;1;) (type 0)
+  (type (;0;) (func (param i64 i64 i64 i64)))
+  (type (;1;) (func))
+  (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (export "hello-utxo" (func 2))
+  (func (;1;) (type 1))
+  (func (;2;) (type 1)
+    (call 0
+      (i64.const -8086495256948496852)
+      (i64.const 3765343665581825017)
+      (i64.const -6863622839687364077)
+      (i64.const -5843589418109203719))
     (return)
   )
   (@custom "component-type"
@@ -256,6 +262,14 @@ TypedProgram {
               (import "my-utxo" (type (;0;) (sub resource)))
               (type (;1;) (func))
               (export (;0;) "hello-utxo" (func (type 1)))
+              (type (;2;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "hash" 0)))
+                  (export (;0;) "implements-method" (func (type 1)))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 2)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -270,7 +284,14 @@ TypedProgram {
 package root:component;
 
 world root {
+  import starstream:std/builtin;
+
   resource my-utxo;
 
   export hello-utxo: func();
+}
+package starstream:std {
+  interface builtin {
+    implements-method: func(hash: tuple<u64, u64, u64, u64>);
+  }
 }

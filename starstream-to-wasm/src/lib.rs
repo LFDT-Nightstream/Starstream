@@ -1117,7 +1117,7 @@ impl Compiler {
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
         // First, import builtins.
-        {
+        if program.has_yields {
             let core_fn_ty = self.add_core_func_type(FuncType::new([ValType::I64; 4], []));
             self.builtin_implements_method =
                 self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);

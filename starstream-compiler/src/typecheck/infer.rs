@@ -219,7 +219,10 @@ pub fn typecheck_program(
         });
     }
 
-    let mut typed_program = TypedProgram::new(typed_definitions);
+    let mut typed_program = TypedProgram {
+        has_yields: inferencer.has_yields,
+        definitions: typed_definitions,
+    };
     inferencer.apply_substitutions_program(&mut typed_program);
 
     let traces = if options.capture_traces {
@@ -257,6 +260,7 @@ struct Inferencer {
     warnings: Vec<TypeWarning>,
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
+    has_yields: bool,
 }
 
 #[derive(Clone)]
@@ -380,6 +384,7 @@ impl Inferencer {
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
+            has_yields: false,
         };
         inferencer.register_prelude_types();
         inferencer
@@ -3274,6 +3279,7 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Yield { abis } => {
+                self.has_yields = true;
                 // Assert that we are inside a `main fn`.
                 if !ctx.is_coroutine {
                     return Err(TypeError::new(TypeErrorKind::YieldOutsideMainFn, expr.span));

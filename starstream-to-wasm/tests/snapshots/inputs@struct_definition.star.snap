@@ -54,6 +54,7 @@ Program {
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Struct(
             TypedStructDef {

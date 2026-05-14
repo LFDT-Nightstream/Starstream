@@ -151,6 +151,7 @@ T-Fn: total_value => i64
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Struct(
             TypedStructDef {
