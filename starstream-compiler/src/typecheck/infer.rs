@@ -376,6 +376,7 @@ struct FunctionCtx {
     inside_runtime: bool,
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
+    is_coroutine: bool,
 }
 
 impl Inferencer {
@@ -1773,6 +1774,7 @@ impl Inferencer {
             inside_raise: false,
             inside_runtime: false,
             private_param_decl_spans,
+            is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
 
         let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
@@ -3312,8 +3314,11 @@ impl Inferencer {
                 Ok((typed, tree))
             }
             Expr::Yield { abis } => {
-                // TODO: assert that we are inside a `main fn`
-                // TODO: assert that this utxo impls this abi
+                // Assert that we are inside a `main fn`.
+                if !ctx.is_coroutine {
+                    return Err(TypeError::new(TypeErrorKind::YieldOutsideMainFn, expr.span));
+                }
+                // TODO: assert that this utxo impls each abi named
                 let abis = abis
                     .iter()
                     .map(|abi| {

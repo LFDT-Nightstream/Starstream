@@ -1078,8 +1078,10 @@ impl DocumentState {
                 }
             }
             TypedExprKind::Yield { abis } => {
-                for ident in abis {
-                    self.add_usage(expr.span, ident.as_str(), scopes);
+                for abi in abis {
+                    if let Type::AbiNarrow(name) = abi {
+                        self.add_usage(expr.span, name, scopes);
+                    }
                 }
             }
             TypedExprKind::Call { callee, args } => {

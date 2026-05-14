@@ -288,6 +288,8 @@ pub enum TypeErrorKind {
         var_name: String,
         abi_name: String,
     },
+    /// `yield` appears outside Utxo `main fn`.
+    YieldOutsideMainFn,
 }
 
 impl TypeErrorKind {
@@ -343,6 +345,7 @@ impl TypeErrorKind {
             TypeErrorKind::UnknownAbi { .. } => error_code!(E0047),
             TypeErrorKind::AbiMethodNotFound { .. } => error_code!(E0048),
             TypeErrorKind::LinearMethodCallViolation { .. } => error_code!(E0049),
+            TypeErrorKind::YieldOutsideMainFn { .. } => error_code!(E0051),
         }
     }
 }
@@ -701,6 +704,9 @@ impl fmt::Display for TypeErrorKind {
                     f,
                     "only one method call is allowed on narrowed variable `{var_name}` (ABI `{abi_name}`)"
                 )
+            }
+            TypeErrorKind::YieldOutsideMainFn => {
+                write!(f, "`yield` can only be used inside a `main fn`")
             }
         }
     }
