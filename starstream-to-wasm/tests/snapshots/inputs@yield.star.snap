@@ -207,11 +207,38 @@ TypedProgram {
 }
 
 ==== Core WebAssembly ====
-  x TODO: yield
-    ,-[10:9]
-  9 |     main fn hello_utxo() {
- 10 |         yield(Foo);
-    :         ^^^^^|^^^^
-    :              `-- TODO: yield
- 11 |     }
-    `----
+(module
+  (type (;0;) (func))
+  (export "hello-utxo" (func 1))
+  (func (;0;) (type 0))
+  (func (;1;) (type 0)
+    (return)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "my-utxo" (type (;0;) (sub resource)))
+              (type (;1;) (func))
+              (export (;0;) "hello-utxo" (func (type 1)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  resource my-utxo;
+
+  export hello-utxo: func();
+}

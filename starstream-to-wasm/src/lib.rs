@@ -2338,7 +2338,12 @@ impl Compiler {
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, locals, span, expr, scrutinee, arms)
             }
-            TypedExprKind::Yield { abis: _ } => Err(self.push_error(span, "TODO: yield")),
+            TypedExprKind::Yield { abis: _ } => {
+                // TODO: emit calls to indicate ABIs exposed
+                // TODO: really coroutinize (basic block splitting?)
+                func.instructions().return_();
+                Ok(())
+            }
         }
     }
 
