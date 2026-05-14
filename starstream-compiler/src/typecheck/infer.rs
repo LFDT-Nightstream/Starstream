@@ -3290,7 +3290,7 @@ impl Inferencer {
                                 expr.span,
                             )
                         })?;
-                        Ok(Type::AbiNarrow(abi.clone()))
+                        Ok(abi.clone())
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok((

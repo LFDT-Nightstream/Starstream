@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
+use sha2::Digest;
 use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
@@ -107,6 +108,7 @@ struct Compiler {
     data: DataSection,
 
     imported_functions: u32,
+    builtin_implements_method: u32,
 
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
@@ -1114,6 +1116,32 @@ impl Compiler {
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
+        // First, import builtins.
+        {
+            let core_fn_ty = self.add_core_func_type(FuncType::new([ValType::I64; 4], []));
+            self.builtin_implements_method =
+                self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);
+
+            let builtin = self
+                .imported_interfaces
+                .entry("starstream:std/builtin".to_owned())
+                .or_default();
+            let implements_method_ty = builtin.encode_func(
+                [(
+                    "hash",
+                    Rc::new(ComponentAbiType::Tuple {
+                        fields: vec![Rc::new(ComponentAbiType::U64); 4],
+                    }),
+                )]
+                .into_iter(),
+                None,
+            );
+            builtin.inner.export(
+                "implements-method",
+                ComponentTypeRef::Func(implements_method_ty),
+            );
+        }
+
         // In the Wasm output, imported functions must precede defined
         // functions, so take care of them now.
         for definition in &program.definitions {
@@ -2338,7 +2366,19 @@ impl Compiler {
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, locals, span, expr, scrutinee, arms)
             }
-            TypedExprKind::Yield { abis: _ } => {
+            TypedExprKind::Yield { abis } => {
+                for abi in abis {
+                    for method in &abi.methods {
+                        let digest = sha2::Sha256::digest(method.identity());
+                        assert_eq!(digest.len(), 32);
+                        for chunk in digest.chunks_exact(8) {
+                            func.instructions()
+                                .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
+                        }
+                        func.instructions().call(self.builtin_implements_method);
+                    }
+                }
+
                 // TODO: emit calls to indicate ABIs exposed
                 // TODO: really coroutinize (basic block splitting?)
                 func.instructions().return_();

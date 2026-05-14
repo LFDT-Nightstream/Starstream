@@ -1079,9 +1079,7 @@ impl DocumentState {
             }
             TypedExprKind::Yield { abis } => {
                 for abi in abis {
-                    if let Type::AbiNarrow(abi) = abi {
-                        self.add_usage(expr.span, abi.name.as_str(), scopes);
-                    }
+                    self.add_usage(expr.span, abi.name.as_str(), scopes);
                 }
             }
             TypedExprKind::Call { callee, args } => {

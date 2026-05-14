@@ -5,8 +5,10 @@
 //! (formatting, codegen, LSP features) can rely on explicit type information
 //! without re-running inference.
 
+use std::sync::Arc;
+
 use crate::{
-    FunctionExport, Span, Spanned,
+    Abi, FunctionExport, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::{EffectKind, Type},
 };
@@ -156,6 +158,14 @@ pub struct TypedAbiMethodDecl {
     pub span: Span,
 }
 
+impl TypedAbiMethodDecl {
+    /// Get the stable hashable identity of this method type.
+    pub fn identity(&self) -> &str {
+        // TODO: specify hashing for types and include real type signature here
+        self.name.as_str()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct TypedEventDef {
     pub name: Identifier,
@@ -268,8 +278,8 @@ pub enum TypedExprKind {
     },
     /// `yield` and `yield(AbiName, ...)`
     Yield {
-        /// Empty for bare `yield`, or list of abi names
-        abis: Vec<Type>,
+        /// Empty for bare `yield`, or list of abi infos
+        abis: Vec<Arc<Abi>>,
     },
     Call {
         callee: Box<Spanned<TypedExpr>>,
