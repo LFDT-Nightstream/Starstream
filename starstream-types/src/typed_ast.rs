@@ -79,7 +79,7 @@ pub struct TypedFunctionDef {
     pub body: TypedBlock,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypedFunctionParam {
     pub public: bool,
     pub name: Identifier,
@@ -148,7 +148,7 @@ pub enum TypedAbiPart {
     FnDecl(TypedAbiMethodDecl),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypedAbiMethodDecl {
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,

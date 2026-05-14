@@ -8,8 +8,9 @@
 use pretty::RcDoc;
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
-use crate::{DUMMY_SPAN, Span};
+use crate::{DUMMY_SPAN, Identifier, Span, TypedAbiMethodDecl};
 
 const TYPE_FORMAT_WIDTH: usize = 80;
 
@@ -150,6 +151,13 @@ impl GenericTypeDef {
     }
 }
 
+/// Type-level contents of an `abi` block.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Abi {
+    pub name: Identifier,
+    pub methods: Vec<TypedAbiMethodDecl>,
+}
+
 /// Starstream type.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Type {
@@ -182,7 +190,7 @@ pub enum Type {
     UtxoNamed(String),
     /// The type created by an `abi` definition. Also the type of a Utxo
     /// narrowed via `if x is AbiName`.
-    AbiNarrow(String),
+    AbiNarrow(Arc<Abi>),
 }
 
 impl Type {
@@ -325,7 +333,7 @@ impl Type {
             },
             Type::UtxoAny => RcDoc::text("Utxo"),
             Type::UtxoNamed(id) => RcDoc::text(id.to_owned()),
-            Type::AbiNarrow(name) => RcDoc::text(name.to_owned()),
+            Type::AbiNarrow(abi) => RcDoc::text(abi.name.to_string()),
         }
     }
 }

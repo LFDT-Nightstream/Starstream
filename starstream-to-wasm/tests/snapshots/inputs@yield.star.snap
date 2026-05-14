@@ -128,7 +128,7 @@ TypedProgram {
                             },
                             params: [],
                             return_type: Unit,
-                            span: 14..24,
+                            span: 17..20,
                         },
                     ),
                 ],
@@ -144,7 +144,23 @@ TypedProgram {
                     AbiImpl {
                         span: 50..53,
                         abi: AbiNarrow(
-                            "Foo",
+                            Abi {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 4..7,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "foo",
+                                            span: 17..20,
+                                        },
+                                        params: [],
+                                        return_type: Unit,
+                                        span: 17..20,
+                                    },
+                                ],
+                            },
                         ),
                         parts: [
                             TypedFunctionDef {
@@ -184,7 +200,23 @@ TypedProgram {
                                                 kind: Yield {
                                                     abis: [
                                                         AbiNarrow(
-                                                            "Foo",
+                                                            Abi {
+                                                                name: Identifier {
+                                                                    name: "Foo",
+                                                                    span: 4..7,
+                                                                },
+                                                                methods: [
+                                                                    TypedAbiMethodDecl {
+                                                                        name: Identifier {
+                                                                            name: "foo",
+                                                                            span: 17..20,
+                                                                        },
+                                                                        params: [],
+                                                                        return_type: Unit,
+                                                                        span: 17..20,
+                                                                    },
+                                                                ],
+                                                            },
                                                         ),
                                                     ],
                                                 },

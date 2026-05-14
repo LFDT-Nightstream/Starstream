@@ -966,11 +966,11 @@ impl DocumentState {
 
                 // Add hover with doc comment for field access
                 if let Some(field_span) = field.opt_span() {
-                    if let Type::AbiNarrow(ref abi_name) = target.node.ty {
+                    if let Type::AbiNarrow(ref abi) = target.node.ty {
                         // ABI method access — show method signature with doc comment
                         if let Some((label, doc)) = self
                             .abi_method_info
-                            .get(abi_name)
+                            .get(abi.name.as_str())
                             .and_then(|methods| methods.get(&field.name))
                         {
                             self.add_hover_label_with_doc(field_span, label.clone(), doc.clone());
@@ -1079,8 +1079,8 @@ impl DocumentState {
             }
             TypedExprKind::Yield { abis } => {
                 for abi in abis {
-                    if let Type::AbiNarrow(name) = abi {
-                        self.add_usage(expr.span, name, scopes);
+                    if let Type::AbiNarrow(abi) = abi {
+                        self.add_usage(expr.span, abi.name.as_str(), scopes);
                     }
                 }
             }
