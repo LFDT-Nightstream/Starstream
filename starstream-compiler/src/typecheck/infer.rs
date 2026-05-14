@@ -3311,13 +3311,31 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
-            Expr::Yield { abis } => Ok((
-                Spanned::new(
-                    TypedExpr::new(Type::Unit, TypedExprKind::Yield { abis: abis.clone() }),
-                    expr.span,
-                ),
-                Default::default(),
-            )),
+            Expr::Yield { abis } => {
+                // TODO: assert that we are inside a `main fn`
+                // TODO: assert that this utxo impls this abi
+                let abis = abis
+                    .iter()
+                    .map(|abi| {
+                        self.abis.get(abi.as_str()).ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::UnknownAbi {
+                                    name: abi.to_string(),
+                                },
+                                expr.span,
+                            )
+                        })?;
+                        Ok(Type::AbiNarrow(abi.to_string()))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((
+                    Spanned::new(
+                        TypedExpr::new(Type::Unit, TypedExprKind::Yield { abis }),
+                        expr.span,
+                    ),
+                    Default::default(),
+                ))
+            }
             Expr::Disclose { expr: inner_expr } => {
                 let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
                 let result_ty = typed_inner.node.ty.clone();

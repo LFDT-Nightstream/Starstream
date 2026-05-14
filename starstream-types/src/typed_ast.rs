@@ -269,7 +269,7 @@ pub enum TypedExprKind {
     /// `yield` and `yield(AbiName, ...)`
     Yield {
         /// Empty for bare `yield`, or list of abi names
-        abis: Vec<Identifier>,
+        abis: Vec<Type>,
     },
     Call {
         callee: Box<Spanned<TypedExpr>>,

@@ -7,13 +7,59 @@ Program {
     shebang: None,
     definitions: [
         Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    parts: [
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "foo",
+                                    span: 17..20,
+                                },
+                                params: [],
+                                return_type: None,
+                                span: 14..24,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..27,
+        },
+        Spanned {
             node: Utxo(
                 UtxoDef {
                     name: Identifier {
                         name: "MyUtxo",
-                        span: 5..11,
+                        span: 32..38,
                     },
                     parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "Foo",
+                                span: 50..53,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: 67..70,
+                                    },
+                                    params: [],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: None,
+                                        span: 73..81,
+                                    },
+                                },
+                            ],
+                        },
                         Function(
                             FunctionDef {
                                 export: Some(
@@ -21,7 +67,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "hello_utxo",
-                                    span: 26..36,
+                                    span: 95..105,
                                 },
                                 params: [],
                                 return_type: None,
@@ -34,48 +80,89 @@ Program {
                                                         abis: [
                                                             Identifier {
                                                                 name: "Foo",
-                                                                span: 55..58,
-                                                            },
-                                                            Identifier {
-                                                                name: "Bar",
-                                                                span: 60..63,
+                                                                span: 124..127,
                                                             },
                                                         ],
                                                     },
-                                                    span: 49..64,
+                                                    span: 118..128,
                                                 },
                                             ),
-                                            span: 49..70,
+                                            span: 118..134,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 39..72,
+                                    span: 108..136,
                                 },
                             },
                         ),
                     ],
                 },
             ),
-            span: 0..74,
+            span: 27..138,
         },
     ],
 }
 
 ==== Inference trace ====
+
 T-Utxo: MyUtxo => 
+  T-Fn: foo => ()
   T-Fn: hello_utxo => ()
-    T-Expr: {hello_utxo: fn() -> ()} ⊢ yield(Foo, Bar); ⇒ ()
+    T-Expr: {foo: fn() -> (), hello_utxo: fn() -> ()} ⊢ yield(Foo); ⇒ ()
 
 ==== Typed AST ====
 TypedProgram {
     definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: 4..7,
+                },
+                parts: [
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "foo",
+                                span: 17..20,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            span: 14..24,
+                        },
+                    ),
+                ],
+            },
+        ),
         Utxo(
             TypedUtxoDef {
                 name: Identifier {
                     name: "MyUtxo",
-                    span: 5..11,
+                    span: 32..38,
                 },
                 parts: [
+                    AbiImpl {
+                        span: 50..53,
+                        abi: AbiNarrow(
+                            "Foo",
+                        ),
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "foo",
+                                    span: 67..70,
+                                },
+                                params: [],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [],
+                                    tail_expression: None,
+                                },
+                            },
+                        ],
+                    },
                     Function(
                         TypedFunctionDef {
                             export: Some(
@@ -83,7 +170,7 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "hello_utxo",
-                                span: 26..36,
+                                span: 95..105,
                             },
                             params: [],
                             return_type: Unit,
@@ -96,18 +183,13 @@ TypedProgram {
                                                 ty: Unit,
                                                 kind: Yield {
                                                     abis: [
-                                                        Identifier {
-                                                            name: "Foo",
-                                                            span: 55..58,
-                                                        },
-                                                        Identifier {
-                                                            name: "Bar",
-                                                            span: 60..63,
-                                                        },
+                                                        AbiNarrow(
+                                                            "Foo",
+                                                        ),
                                                     ],
                                                 },
                                             },
-                                            span: 49..64,
+                                            span: 118..128,
                                         },
                                     ),
                                 ],
@@ -126,10 +208,10 @@ TypedProgram {
 
 ==== Core WebAssembly ====
   x TODO: yield
-   ,-[3:9]
- 2 |     main fn hello_utxo() {
- 3 |         yield(Foo, Bar);
-   :         ^^^^^^^|^^^^^^^
-   :                `-- TODO: yield
- 4 |     }
-   `----
+    ,-[10:9]
+  9 |     main fn hello_utxo() {
+ 10 |         yield(Foo);
+    :         ^^^^^|^^^^
+    :              `-- TODO: yield
+ 11 |     }
+    `----
