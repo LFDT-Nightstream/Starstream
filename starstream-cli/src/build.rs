@@ -201,6 +201,27 @@ fn write_outputs(
     Ok(())
 }
 
+/*
+    Depfile grammar from https://cmake.org/cmake/help/latest/command/add_custom_command.html#grammar-token-depfile-depfile
+
+    depfile       ::= rule*
+    rule          ::= targets (':' (separator dependencies?)?)? eol
+    targets       ::= target (separator target)* separator*
+    target        ::= pathname
+    dependencies  ::= dependency (separator dependency)* separator*
+    dependency    ::= pathname
+    separator     ::= (space | line_continue)+
+    line_continue ::= '\' eol
+    space         ::= ' ' | '\t'
+    pathname      ::= character+
+    character     ::= std_character | dollar | hash | whitespace
+    std_character ::= <any character except '$', '#' or ' '>
+    dollar        ::= '$$'
+    hash          ::= '\#'
+    whitespace    ::= '\ '
+    eol           ::= '\r'? '\n'
+*/
+
 fn write_rule<'a>(
     dest: &mut impl std::io::Write,
     targets: impl Iterator<Item = &'a Path>,

@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// Entire program with types attached.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TypedProgram {
     pub definitions: Vec<TypedDefinition>,
 }
@@ -390,10 +390,3 @@ impl TypedProgram {
     }
 }
 
-impl Default for TypedProgram {
-    fn default() -> Self {
-        Self {
-            definitions: Vec::new(),
-        }
-    }
-}

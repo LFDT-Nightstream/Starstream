@@ -25,8 +25,6 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
     let (_, block, _) = recursives();
 
     choice((
-        // `contract;` must come before `function` so the bare `contract`
-        // keyword isn't mistaken for the start of something else.
         contract().map(|_| Definition::Contract),
         import().map(Definition::Import),
         function_with_export(block.clone()).map(Definition::Function),
