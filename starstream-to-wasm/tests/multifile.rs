@@ -91,7 +91,10 @@ fn entry_imports_helper_and_compiles() {
 }
 
 #[test]
-fn helper_script_is_not_exported() {
+fn helper_script_is_exported() {
+    // If you write `script fn` in a helper, you meant to expose it.
+    // Both the entry's `run` and the helper's `helper_script` should appear
+    // in the contract's WIT.
     let dir = tmp_dir("helper-script");
     write_file(
         &dir,
@@ -111,8 +114,8 @@ fn helper_script_is_not_exported() {
     let wit = print_wit(&wasm);
     assert!(wit.contains("run"));
     assert!(
-        !wit.contains("helper-script") && !wit.contains("helper_script"),
-        "helper's script must not be exported, WIT:\n{wit}"
+        wit.contains("helper-script") || wit.contains("helper_script"),
+        "helper's `script fn` should be exported, WIT:\n{wit}"
     );
 }
 

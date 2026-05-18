@@ -53,7 +53,6 @@ pub struct CompileResult {
 /// Compile a Starstream program to a Wasm module.
 pub fn compile(program: &TypedProgram) -> CompileResult {
     let mut compiler = Compiler::default();
-    compiler.is_entry_module = true;
     compiler.visit_program(program);
     compiler.finish()
 }
@@ -63,8 +62,10 @@ pub fn compile(program: &TypedProgram) -> CompileResult {
 /// `entry` is the module id of the contract being compiled. Only the
 /// subgraph **reachable from `entry`** (via path-import edges) is emitted —
 /// helper modules unrelated to this contract are skipped, even if they live
-/// in the same workspace graph. Only `entry`'s `script fn`s become exported
-/// transaction roots; helpers' scripts compile to internal functions.
+/// in the same workspace graph. Every `script fn` reachable from the entry
+/// becomes an exported transaction root, whether it's declared in the entry
+/// itself or in one of its helpers — if you wrote `script fn`, it gets
+/// exported.
 pub fn compile_contract(
     graph: &starstream_compiler::TypedModuleGraph,
     entry: starstream_compiler::ModuleId,
@@ -108,7 +109,6 @@ pub fn compile_contract(
             continue;
         }
         let module = graph.module(module_id);
-        compiler.is_entry_module = module_id == entry;
         compiler.visit_program(&module.program);
     }
     compiler.finish()
@@ -183,11 +183,6 @@ struct Compiler {
 
     // Memory building.
     bump_ptr: u32,
-
-    /// True while visiting the entry module of a multi-file build. Only the
-    /// entry module's `script fn`s are exported as transaction roots; helper
-    /// modules' scripts become ordinary internal functions.
-    is_entry_module: bool,
 }
 
 impl Compiler {
@@ -1375,15 +1370,7 @@ impl Compiler {
             .insert(function.name.as_str().to_owned(), idx);
 
         match function.export {
-            Some(FunctionExport::Script) => {
-                // Only the entry module's `script fn`s become exported
-                // transaction roots. Helpers' scripts are still typechecked
-                // and compiled as internal functions, but not exposed.
-                if self.is_entry_module {
-                    self.export_component_fn(wit_name, function, idx, &params, &results);
-                }
-            }
-            Some(FunctionExport::UtxoMain) => {
+            Some(FunctionExport::Script) | Some(FunctionExport::UtxoMain) => {
                 self.export_component_fn(wit_name, function, idx, &params, &results);
             }
             None => {}

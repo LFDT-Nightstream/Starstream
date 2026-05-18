@@ -524,11 +524,10 @@ import { foo } from "../shared/util.star";
 
 **`script fn` semantics:**
 
-- Only `script fn`s declared in the **entry** file are exported as
-  transaction roots in the produced wasm.
-- Helper modules may declare `script fn`s for organizational purposes, but
-  they are compiled as ordinary internal functions and not exposed to the
-  outside world.
+- Every `script fn` reachable from a contract's entry is exported as a
+  transaction root in that contract's wasm — whether it's declared in the
+  entry file itself or in one of its helpers. If you wrote `script fn`,
+  you meant to expose it; the compiler honors that.
 
 ### Effect annotations
 
