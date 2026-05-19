@@ -1,29 +1,16 @@
-//! End-to-end multi-file compilation: scan a project, build each contract.
+//! End-to-end multi-file compilation tests.
+//!
+//! Each scenario lives in its own subdirectory under `tests/multifile/`
+//! as real `.star` files on disk, so they can be opened in an editor and
+//! debugged the same way as a real project.
 
-use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-fn tmp_dir(name: &str) -> PathBuf {
-    let mut path = std::env::temp_dir();
-    path.push(format!(
-        "starstream-multifile-test-{}-{}",
-        name,
-        std::process::id()
-    ));
-    let _ = fs::remove_dir_all(&path);
-    fs::create_dir_all(&path).unwrap();
-    path
-}
-
-fn write_file(dir: &Path, name: &str, contents: &str) -> PathBuf {
-    let path = dir.join(name);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap();
-    }
-    let mut f = fs::File::create(&path).unwrap();
-    f.write_all(contents.as_bytes()).unwrap();
-    path
+fn fixture(scenario: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("multifile")
+        .join(scenario)
 }
 
 fn compile_contract(entry: &Path) -> Vec<u8> {
@@ -66,21 +53,7 @@ fn print_wit(wasm: &[u8]) -> String {
 
 #[test]
 fn entry_imports_helper_and_compiles() {
-    let dir = tmp_dir("entry-helper");
-    write_file(
-        &dir,
-        "helpers/math.star",
-        "fn add(a: i64, b: i64) -> i64 { a + b }\n",
-    );
-    let entry = write_file(
-        &dir,
-        "main.star",
-        "contract;\n\
-         import { add } from \"./helpers/math.star\";\n\
-         \n\
-         script fn run() -> i64 { add(2, 40) }\n",
-    );
-
+    let entry = fixture("entry_imports_helper").join("main.star");
     let wasm = compile_contract(&entry);
     let wit = print_wit(&wasm);
     assert!(wit.contains("run"), "expected `run` export, got:\n{wit}");
@@ -95,21 +68,7 @@ fn helper_script_is_exported() {
     // If you write `script fn` in a helper, you meant to expose it.
     // Both the entry's `run` and the helper's `helper_script` should appear
     // in the contract's WIT.
-    let dir = tmp_dir("helper-script");
-    write_file(
-        &dir,
-        "helpers/extra.star",
-        "script fn helper_script() -> i64 { 7 }\n",
-    );
-    let entry = write_file(
-        &dir,
-        "main.star",
-        "contract;\n\
-         import { helper_script } from \"./helpers/extra.star\";\n\
-         \n\
-         script fn run() -> i64 { helper_script() }\n",
-    );
-
+    let entry = fixture("helper_script_exported").join("main.star");
     let wasm = compile_contract(&entry);
     let wit = print_wit(&wasm);
     assert!(wit.contains("run"));
@@ -121,21 +80,9 @@ fn helper_script_is_exported() {
 
 #[test]
 fn imports_are_importer_relative() {
-    let dir = tmp_dir("relative");
-    write_file(
-        &dir,
-        "helpers/math.star",
-        "fn add(a: i64, b: i64) -> i64 { a + b }\n",
-    );
-    let entry = write_file(
-        &dir,
-        "sub/nested.star",
-        "contract;\n\
-         import { add } from \"../helpers/math.star\";\n\
-         \n\
-         script fn run() -> i64 { add(1, 2) }\n",
-    );
-
+    // Importer lives in `sub/`; its `import "../helpers/math.star"` resolves
+    // relative to the importer's directory.
+    let entry = fixture("importer_relative").join("sub").join("nested.star");
     let wasm = compile_contract(&entry);
     let wit = print_wit(&wasm);
     assert!(wit.contains("run"));
@@ -143,17 +90,8 @@ fn imports_are_importer_relative() {
 
 #[test]
 fn cross_contract_import_errors() {
-    let dir = tmp_dir("cross-contract");
-    // Helper file also declares `contract;` — must be rejected.
-    write_file(&dir, "other.star", "contract;\nfn helper() -> i64 { 9 }\n");
-    let entry = write_file(
-        &dir,
-        "main.star",
-        "contract;\n\
-         import { helper } from \"./other.star\";\n\
-         script fn run() -> i64 { helper() }\n",
-    );
-
+    // Helper file also declares `contract;` — must be rejected at graph build.
+    let entry = fixture("cross_contract").join("main.star");
     let mut tracker = starstream_types::FileSystem::new();
     match starstream_compiler::module_graph::load_from_entry(&entry, &mut tracker) {
         Err(starstream_compiler::ModuleGraphError::CrossContractImport { .. }) => {}
