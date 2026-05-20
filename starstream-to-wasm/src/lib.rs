@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
@@ -759,7 +760,7 @@ impl Compiler {
 
             let wrapper_func_idx = self.add_function(
                 FuncType::new(params.iter().copied(), [ValType::I32]),
-                wrapper_func,
+                wrapper_func.encode_from(*bb),
             );
 
             Some(wrapper_func_idx)
@@ -1393,18 +1394,19 @@ impl Compiler {
         }
 
         let mut func = Function::from_params(&params);
-        let mut bb = func.cfg.add_block();
-        func.cfg.seal(bb);
+        let bb_orig = func.cfg.add_block();
+        func.cfg.seal(bb_orig);
+        let mut bb = bb_orig;
 
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
         let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
-        // TODO func.instructions(bb).end();
+        func.cfg.fill(bb, ir::Out::Return);
 
         let idx = self.add_function(
             FuncType::new(params.iter().copied(), results.iter().copied()),
-            func,
+            func.encode_from(bb_orig),
         );
         self.callables
             .insert(function.name.as_str().to_owned(), idx);
@@ -2517,6 +2519,18 @@ impl Compiler {
                 self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)
             }
             TypedExprKind::Yield { abis } => {
+                // Store locals to globals (implicit storage)
+                // TODO: only store/load locals that are actually live at this yield point
+                // TODO: optimize number of global slots used
+                let locals = func.get_locals();
+                let globals = self.add_globals(locals.iter().copied());
+                for i in 0..locals.len() {
+                    func.instructions(bb)
+                        .local_get(i as u32)
+                        .global_set(globals + (i as u32));
+                }
+
+                // Calls to indicate ABIs exposed
                 for abi in abis {
                     for method in &abi.methods {
                         let digest = sha2::Sha256::digest(method.identity());
@@ -2529,9 +2543,20 @@ impl Compiler {
                     }
                 }
 
-                // TODO: emit calls to indicate ABIs exposed
-                // TODO: really coroutinize (basic block splitting?)
-                func.instructions(bb).return_();
+                // Split yield & resume blocks
+                let bb_resume = func.cfg.add_block();
+                func.cfg.resumes.push(bb_resume);
+                func.cfg.fill(*bb, ir::Out::Yield(bb_resume));
+                *bb = bb_resume;
+
+                // Load globals to locals
+                // TODO: store 0 back to these globals
+                for i in 0..locals.len() {
+                    func.instructions(bb)
+                        .global_get(i as u32)
+                        .local_set(globals + (i as u32));
+                }
+
                 Ok(())
             }
         }
@@ -3238,7 +3263,6 @@ struct Function {
     num_locals: u32,
     locals: Vec<(u32, ValType)>,
     cfg: ControlFlowGraph,
-    bytes: Vec<u8>,
 }
 
 impl Function {
@@ -3264,19 +3288,32 @@ impl Function {
         id
     }
 
+    fn get_locals(&self) -> Vec<ValType> {
+        let mut v = Vec::with_capacity(usize::try_from(self.num_locals).unwrap());
+        for &(c, t) in &self.locals {
+            for _ in 0..c {
+                v.push(t);
+            }
+        }
+        v
+    }
+
     fn instructions(&mut self, bb: &usize) -> InstructionSink<'_> {
         self.cfg.instructions(*bb)
     }
+
+    fn encode_from(&self, entry: usize) -> EncodeFrom<'_> {
+        EncodeFrom(self, entry)
+    }
 }
 
-impl wasm_encoder::Encode for Function {
+struct EncodeFrom<'a>(&'a Function, usize);
+
+impl<'a> wasm_encoder::Encode for EncodeFrom<'a> {
     fn encode(&self, sink: &mut Vec<u8>) {
-        self.locals.len().encode(sink);
-        for (count, ty) in &self.locals {
-            count.encode(sink);
-            ty.encode(sink);
-        }
-        sink.extend_from_slice(&self.bytes);
+        let EncodeFrom(func, mut bb) = *self;
+        eprintln!("{}", func.cfg.to_graphviz());
+        // TODO: compile basic block graph into wasm control flow
     }
 }
 

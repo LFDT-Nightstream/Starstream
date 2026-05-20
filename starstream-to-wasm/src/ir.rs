@@ -26,6 +26,8 @@ pub enum Out {
     None,
     /// Return from the current function with what's on the stack. 0 successors.
     Return,
+    /// Like Return, but names the BB that will be resumed.
+    Yield(usize),
     /// 1 unconditional successor.
     Next(usize),
     /// 2 successors, false case then true case.
@@ -52,7 +54,7 @@ impl ControlFlowGraph {
         assert!(!matches!(out, Out::None));
         assert!(matches!(self.blocks[bb].out, Out::None));
         match out {
-            Out::None | Out::Return => {}
+            Out::None | Out::Return | Out::Yield(_) => {}
             Out::Next(next) => {
                 assert!(!self.blocks[next].sealed);
                 self.blocks[next].ins.push(bb);
@@ -66,6 +68,49 @@ impl ControlFlowGraph {
         }
         self.blocks[bb].out = out;
     }
+
+    pub fn assert_complete(&self) {
+        for (i, block) in self.blocks.iter().enumerate() {
+            assert!(block.sealed, "block {i} not sealed");
+            assert!(block.is_filled(), "block {i} not filled");
+        }
+    }
+
+    pub fn to_graphviz(&self) -> String {
+        use std::fmt::Write;
+        let mut gv = String::new();
+        _ = writeln!(gv, "digraph {{");
+        _ = writeln!(gv, "start [shape=box] [style=rounded];");
+        _ = writeln!(gv, "start -> 0;");
+        for bb in self.resumes.iter() {
+            _ = writeln!(gv, "resume_{bb} [shape=box] [style=rounded];");
+            _ = writeln!(gv, "resume_{bb} -> {bb};");
+        }
+        for (i, block) in self.blocks.iter().enumerate() {
+            _ = writeln!(gv, "{} [label=\"{}\"] [shape=box];", i, block.disassemble());
+            match block.out {
+                Out::None => {}
+                Out::Return => {
+                    _ = writeln!(gv, "{i} -> return_{i};");
+                    _ = writeln!(gv, "return_{i} [label=return] [shape=box] [style=rounded];");
+                }
+                Out::Yield(bb) => {
+                    _ = writeln!(gv, "{i} -> yield_{i};");
+                    _ = writeln!(gv, "yield_{i} [label=yield] [shape=box] [style=rounded];");
+                    _ = writeln!(gv, "yield_{i} -> resume_{bb} [style=dotted];");
+                }
+                Out::Next(bb) => {
+                    _ = writeln!(gv, "{i} -> {bb};");
+                }
+                Out::If { f, t } => {
+                    _ = writeln!(gv, "{i} -> {f} [color=red];");
+                    _ = writeln!(gv, "{i} -> {t} [color=green];");
+                }
+            }
+        }
+        _ = writeln!(gv, "}}");
+        gv
+    }
 }
 
 impl BasicBlock {
@@ -76,5 +121,17 @@ impl BasicBlock {
     /// True if this block's full contents and successors are known.
     pub fn is_filled(&self) -> bool {
         !matches!(self.out, Out::None)
+    }
+
+    fn disassemble(&self) -> String {
+        use std::fmt::Write;
+        let mut disassembly = String::new();
+        let br = wasmparser::BinaryReader::new(&self.instructions, 0);
+        let or = wasmparser::OperatorsReader::new(br);
+        for result in or.into_iter_with_offsets() {
+            let (op, offset) = result.unwrap();
+            _ = write!(disassembly, "{op:?}\\l");
+        }
+        disassembly
     }
 }
