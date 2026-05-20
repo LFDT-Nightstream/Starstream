@@ -389,4 +389,3 @@ impl TypedProgram {
         Self { definitions }
     }
 }
-
