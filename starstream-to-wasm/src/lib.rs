@@ -9,10 +9,12 @@ use wasm_encoder::*;
 use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
 use crate::encoder::TypeBuilder;
+use crate::ir::ControlFlowGraph;
 
 mod component_abi;
 mod decision_tree;
 mod encoder;
+mod ir;
 
 /*
     The entry point [compile] is responsible for the overall AST-to-WASM-module
@@ -1378,6 +1380,7 @@ impl Compiler {
         }
 
         let mut func = Function::from_params(&params);
+        assert_eq!(func.cfg.add_block(), 0);
 
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
@@ -3153,6 +3156,7 @@ impl Locals for (&dyn Locals, &HashMap<String, Var>) {
 struct Function {
     num_locals: u32,
     locals: Vec<(u32, ValType)>,
+    cfg: ControlFlowGraph,
     bytes: Vec<u8>,
 }
 
