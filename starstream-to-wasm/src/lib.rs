@@ -2546,6 +2546,7 @@ impl Compiler {
                 // Split yield & resume blocks
                 let bb_resume = func.cfg.add_block();
                 func.cfg.resumes.push(bb_resume);
+                func.cfg.seal(bb_resume);
                 func.cfg.fill(*bb, ir::Out::Yield(bb_resume));
                 *bb = bb_resume;
 
@@ -3312,7 +3313,8 @@ struct EncodeFrom<'a>(&'a Function, usize);
 impl<'a> wasm_encoder::Encode for EncodeFrom<'a> {
     fn encode(&self, sink: &mut Vec<u8>) {
         let EncodeFrom(func, mut bb) = *self;
-        eprintln!("{}", func.cfg.to_graphviz());
+        func.cfg.assert_complete();
+        eprintln!("{}", func.cfg.to_mermaid());
         // TODO: compile basic block graph into wasm control flow
     }
 }

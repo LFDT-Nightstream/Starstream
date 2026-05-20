@@ -76,6 +76,7 @@ impl ControlFlowGraph {
         }
     }
 
+    #[allow(dead_code)]
     pub fn to_graphviz(&self) -> String {
         use std::fmt::Write;
         let mut gv = String::new();
@@ -87,7 +88,12 @@ impl ControlFlowGraph {
             _ = writeln!(gv, "resume_{bb} -> {bb};");
         }
         for (i, block) in self.blocks.iter().enumerate() {
-            _ = writeln!(gv, "{} [label=\"{}\"] [shape=box];", i, block.disassemble());
+            _ = writeln!(
+                gv,
+                "{} [label=\"{}\"] [shape=box];",
+                i,
+                block.disassemble().replace("\n", "\\l")
+            );
             match block.out {
                 Out::None => {}
                 Out::Return => {
@@ -111,13 +117,47 @@ impl ControlFlowGraph {
         _ = writeln!(gv, "}}");
         gv
     }
+
+    #[allow(dead_code)]
+    pub fn to_mermaid(&self) -> String {
+        use std::fmt::Write;
+        let mut mm = String::new();
+        _ = writeln!(mm, "flowchart TB");
+        _ = writeln!(mm, "start([start])");
+        _ = writeln!(mm, "start --> 0");
+        for bb in self.resumes.iter() {
+            _ = writeln!(mm, "resume_{bb}([resume_{bb}])");
+            _ = writeln!(mm, "resume_{bb} --> {bb}");
+        }
+        for (i, block) in self.blocks.iter().enumerate() {
+            let d = block.disassemble();
+            _ = writeln!(mm, "{}[{:?}]", i, if d.is_empty() { " " } else { &d });
+            _ = writeln!(mm, "style {i} text-align: left, white-space: nowrap");
+            match block.out {
+                Out::None => {}
+                Out::Return => {
+                    _ = writeln!(mm, "{i} --> return_{i}");
+                    _ = writeln!(mm, "return_{i}([return])");
+                }
+                Out::Yield(bb) => {
+                    _ = writeln!(mm, "{i} --> yield_{i}");
+                    _ = writeln!(mm, "yield_{i}([yield])");
+                    _ = writeln!(mm, "yield_{i} -.-> resume_{bb}");
+                }
+                Out::Next(bb) => {
+                    _ = writeln!(mm, "{i} --> {bb}");
+                }
+                Out::If { f, t } => {
+                    _ = writeln!(mm, "{i} -- false --> {f}");
+                    _ = writeln!(mm, "{i} -- true --> {t}");
+                }
+            }
+        }
+        mm
+    }
 }
 
 impl BasicBlock {
-    pub fn instructions(&mut self) -> InstructionSink<'_> {
-        InstructionSink::new(&mut self.instructions)
-    }
-
     /// True if this block's full contents and successors are known.
     pub fn is_filled(&self) -> bool {
         !matches!(self.out, Out::None)
@@ -128,9 +168,9 @@ impl BasicBlock {
         let mut disassembly = String::new();
         let br = wasmparser::BinaryReader::new(&self.instructions, 0);
         let or = wasmparser::OperatorsReader::new(br);
-        for result in or.into_iter_with_offsets() {
-            let (op, offset) = result.unwrap();
-            _ = write!(disassembly, "{op:?}\\l");
+        for result in or.into_iter() {
+            let op = result.unwrap();
+            _ = write!(disassembly, "{op:?}\n");
         }
         disassembly
     }
