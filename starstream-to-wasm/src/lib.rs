@@ -1726,13 +1726,12 @@ impl Compiler {
                 branches,
                 else_branch,
             } => {
-                // Emit basic double-block and trust the optimizer.
-                func.instructions(bb).block(BlockType::Empty);
+                let bb_end = func.cfg.add_block();
+
                 for (condition, block) in branches {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
-                            // Inner block for each condition.
-                            func.instructions(bb).block(BlockType::Empty);
+                            // Evaluate condition.
                             let _ = self.visit_expr_stack(
                                 func,
                                 bb,
@@ -1741,23 +1740,42 @@ impl Compiler {
                                 &condition.node,
                             );
                             assert_eq!(condition.node.ty, Type::Bool);
-                            func.instructions(bb).i32_eqz(); // If condition is false,
-                            func.instructions(bb).br_if(0); // then try the next condition.
-                            self.visit_block_drop(func, bb, locals, block)?;
-                            func.instructions(bb).br(1); // Go past end.
-                            func.instructions(bb).end();
+
+                            // Inner block for each condition.
+                            let mut bb_true = func.cfg.add_block();
+                            let bb_false = func.cfg.add_block();
+                            func.cfg.fill(
+                                *bb,
+                                ir::Out::If {
+                                    f: bb_false,
+                                    t: bb_true,
+                                },
+                            );
+                            func.cfg.seal(bb_true);
+                            func.cfg.seal(bb_false);
+
+                            // True branch.
+                            self.visit_block_drop(func, &mut bb_true, locals, block)?;
+                            func.cfg.fill(bb_true, ir::Out::Next(bb_end));
+
+                            // False branch is to continue evaluating conditions.
+                            *bb = bb_false;
                         }
                         TypedIfCondition::Is { .. } => {
                             todo!("codegen for if...is not yet implemented")
                         }
                     }
                 }
+
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
                     self.visit_block_drop(func, bb, locals, else_branch)?;
                 }
+
                 // End.
-                func.instructions(bb).end();
+                func.cfg.fill(*bb, ir::Out::Next(bb_end));
+                func.cfg.seal(bb_end);
+                *bb = bb_end;
             }
             TypedExprKind::Disclose { expr: inner } => {
                 self.visit_expr_drop(func, bb, locals, inner.span, &inner.node)?;
