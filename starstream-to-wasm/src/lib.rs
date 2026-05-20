@@ -682,7 +682,7 @@ impl Compiler {
     }
 
     /// Emit truncation/masking after an i32 operation for sub-32-bit types.
-    fn emit_truncate(&self, func: &mut Function, bb: usize, w: IntWidth) {
+    fn emit_truncate(&self, func: &mut Function, bb: &mut usize, w: IntWidth) {
         match w {
             IntWidth::I8 => {
                 func.instructions(bb).i32_const(24);
@@ -744,7 +744,7 @@ impl Compiler {
             let return_slot = self.alloc_static(size, align);
 
             let mut wrapper_func = Function::from_params(params);
-            let bb = wrapper_func.cfg.add_block();
+            let bb = &wrapper_func.cfg.add_block();
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
             for i in 0..params.len() {
@@ -824,7 +824,7 @@ impl Compiler {
         &mut self,
         span: Span,
         func: &mut Function,
-        bb: usize,
+        bb: &usize,
         ty: &ComponentAbiType,
         offset: u64,
     ) {
@@ -1393,14 +1393,13 @@ impl Compiler {
         }
 
         let mut func = Function::from_params(&params);
-        let root_block = func.cfg.add_block();
-        assert_eq!(root_block, 0);
-        func.cfg.seal(root_block);
+        let mut bb = func.cfg.add_block();
+        func.cfg.seal(bb);
 
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
-        let _ = self.visit_block_stack(&mut func, root_block, &(parent, &locals), &function.body);
+        let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
         // TODO func.instructions(bb).end();
 
         let idx = self.add_function(
@@ -1491,7 +1490,7 @@ impl Compiler {
     fn visit_block_common(
         &mut self,
         func: &mut Function,
-        mut bb: usize,
+        bb: &mut usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<HashMap<String, Var>> {
@@ -1557,10 +1556,12 @@ impl Compiler {
                 TypedStatement::While { condition, body } => {
                     // condition block: evaluate
                     let bb_condition = func.cfg.add_block();
-                    func.cfg.fill(bb, ir::Out::Next(bb_condition));
+                    func.cfg.fill(*bb, ir::Out::Next(bb_condition));
+
+                    let mut bb_condition_2 = bb_condition;
                     let _ = self.visit_expr_stack(
                         func,
-                        bb_condition,
+                        &mut bb_condition_2,
                         &(parent, &locals),
                         condition.span,
                         &condition.node,
@@ -1571,7 +1572,7 @@ impl Compiler {
                     let bb_exit = func.cfg.add_block();
                     let bb_body = func.cfg.add_block();
                     func.cfg.fill(
-                        bb_condition,
+                        bb_condition_2,
                         ir::Out::If {
                             f: bb_exit,
                             t: bb_body,
@@ -1581,17 +1582,20 @@ impl Compiler {
                     func.cfg.seal(bb_body);
 
                     // body block
-                    self.visit_block_drop(func, bb_body, &(parent, &locals), body)?;
-                    func.cfg.fill(bb_body, ir::Out::Next(bb_condition));
+                    let mut bb_body_2 = bb_body;
+                    self.visit_block_drop(func, &mut bb_body_2, &(parent, &locals), body)?;
+                    func.cfg.fill(bb_body_2, ir::Out::Next(bb_condition));
                     func.cfg.seal(bb_condition);
 
                     // exit block
-                    bb = bb_exit;
+                    *bb = bb_exit;
                 }
                 TypedStatement::Return(Some(expr)) => {
                     let _ =
                         self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
-                    func.instructions(bb).return_();
+                    func.cfg.fill(*bb, ir::Out::Return);
+                    // Also return early here to avoid double-fill assert if AST contains double-return
+                    return Ok(locals);
                 }
                 TypedStatement::Return(None) => {
                     func.instructions(bb).return_();
@@ -1605,7 +1609,7 @@ impl Compiler {
     fn visit_block_drop(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<()> {
@@ -1621,7 +1625,7 @@ impl Compiler {
     fn visit_block_stack(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<()> {
@@ -1637,7 +1641,7 @@ impl Compiler {
     fn visit_expr_drop(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         expr: &TypedExpr,
@@ -1781,7 +1785,7 @@ impl Compiler {
     fn visit_expr_stack(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         expr: &TypedExpr,
@@ -2536,7 +2540,7 @@ impl Compiler {
     fn enum_promote(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         span: Span,
         ty: &Type,
         iter: &mut dyn Iterator<Item = ValType>,
@@ -2588,7 +2592,7 @@ impl Compiler {
     fn visit_match_stack(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         expr: &TypedExpr,
@@ -2651,7 +2655,7 @@ impl Compiler {
     fn visit_match_drop(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         scrutinee: &Spanned<TypedExpr>,
@@ -2793,7 +2797,7 @@ impl Compiler {
     fn emit_decision_tree(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         tree: &DecisionTree,
@@ -2975,7 +2979,7 @@ impl Compiler {
     fn emit_enum_switch(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         column: usize,
@@ -3064,7 +3068,7 @@ impl Compiler {
     fn demote_enum_fields(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         span: Span,
         column: usize,
         enum_base_local: u32,
@@ -3110,7 +3114,7 @@ impl Compiler {
     fn emit_simple_switch(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         column: usize,
@@ -3185,7 +3189,7 @@ impl Compiler {
     fn visit_call(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
         core_fn_idx: u32,
@@ -3260,8 +3264,8 @@ impl Function {
         id
     }
 
-    fn instructions(&mut self, bb: usize) -> InstructionSink<'_> {
-        self.cfg.instructions(bb)
+    fn instructions(&mut self, bb: &usize) -> InstructionSink<'_> {
+        self.cfg.instructions(*bb)
     }
 }
 
