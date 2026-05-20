@@ -10,9 +10,12 @@ pub struct ControlFlowGraph {
 
 #[derive(Default)]
 pub struct BasicBlock {
-    /// True if no further predecessors (blocks with an [Out] pointing to us) will be added.
+    /// True if no further predecessors will be added.
     pub sealed: bool,
+    /// Known predecessors.
+    pub ins: Vec<usize>,
     pub instructions: Vec<u8>,
+    /// Successors.
     pub out: Out,
 }
 
@@ -30,12 +33,9 @@ pub enum Out {
 }
 
 impl ControlFlowGraph {
-    pub fn add_block(&mut self, sealed: bool) -> usize {
+    pub fn add_block(&mut self) -> usize {
         let len = self.blocks.len();
-        self.blocks.push(BasicBlock {
-            sealed,
-            ..BasicBlock::default()
-        });
+        self.blocks.push(BasicBlock::default());
         len
     }
 
@@ -43,9 +43,27 @@ impl ControlFlowGraph {
         InstructionSink::new(&mut self.blocks[block].instructions)
     }
 
+    pub fn seal(&mut self, block: usize) {
+        assert!(!self.blocks[block].sealed);
+        self.blocks[block].sealed = true;
+    }
+
     pub fn fill(&mut self, block: usize, out: Out) {
         assert!(!matches!(out, Out::None));
         assert!(matches!(self.blocks[block].out, Out::None));
+        match out {
+            Out::None | Out::Return => {}
+            Out::Next(next) => {
+                assert!(!self.blocks[next].sealed);
+                self.blocks[next].ins.push(block);
+            }
+            Out::If { f, t } => {
+                assert!(!self.blocks[f].sealed);
+                assert!(!self.blocks[t].sealed);
+                self.blocks[f].ins.push(block);
+                self.blocks[t].ins.push(block);
+            }
+        }
         self.blocks[block].out = out;
     }
 }

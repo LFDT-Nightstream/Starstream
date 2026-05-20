@@ -1380,8 +1380,9 @@ impl Compiler {
         }
 
         let mut func = Function::from_params(&params);
-        let root_block = func.cfg.add_block(true);
+        let root_block = func.cfg.add_block();
         assert_eq!(root_block, 0);
+        func.cfg.seal(root_block);
 
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
@@ -1477,7 +1478,7 @@ impl Compiler {
     fn visit_block_common(
         &mut self,
         func: &mut Function,
-        bb: usize,
+        mut bb: usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<HashMap<String, Var>> {
@@ -1541,24 +1542,38 @@ impl Compiler {
                 }
                 // Recursive
                 TypedStatement::While { condition, body } => {
-                    func.instructions().block(BlockType::Empty); // br(1) is break
-                    func.instructions().loop_(BlockType::Empty); // br(0) is continue
-
+                    // condition block: evaluate
+                    let bb_condition = func.cfg.add_block();
+                    func.cfg.fill(bb, ir::Out::Next(bb_condition));
                     let _ = self.visit_expr_stack(
                         func,
-                        bb,
+                        bb_condition,
                         &(parent, &locals),
                         condition.span,
                         &condition.node,
                     );
                     assert_eq!(condition.node.ty, Type::Bool);
-                    // if condition == 0, break
-                    func.instructions().i32_eqz();
-                    func.instructions().br_if(1);
-                    // contents
-                    self.visit_block_drop(func, bb, &(parent, &locals), body)?;
-                    // continue
-                    func.instructions().br(0).end().end();
+
+                    // condition block: exit as appropriate
+                    let bb_exit = func.cfg.add_block();
+                    let bb_body = func.cfg.add_block();
+                    func.cfg.fill(
+                        bb_condition,
+                        ir::Out::If {
+                            f: bb_exit,
+                            t: bb_body,
+                        },
+                    );
+                    func.cfg.seal(bb_exit);
+                    func.cfg.seal(bb_body);
+
+                    // body block
+                    self.visit_block_drop(func, bb_body, &(parent, &locals), body)?;
+                    func.cfg.fill(bb_body, ir::Out::Next(bb_condition));
+                    func.cfg.seal(bb_condition);
+
+                    // exit block
+                    bb = bb_exit;
                 }
                 TypedStatement::Return(Some(expr)) => {
                     let _ =
