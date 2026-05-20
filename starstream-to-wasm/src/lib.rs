@@ -1380,12 +1380,13 @@ impl Compiler {
         }
 
         let mut func = Function::from_params(&params);
-        assert_eq!(func.cfg.add_block(), 0);
+        let root_block = func.cfg.add_block(true);
+        assert_eq!(root_block, 0);
 
         let mut results = Vec::with_capacity(1);
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
-        let _ = self.visit_block_stack(&mut func, &(parent, &locals), &function.body);
+        let _ = self.visit_block_stack(&mut func, root_block, &(parent, &locals), &function.body);
         func.instructions().end();
 
         let idx = self.add_function(
@@ -1476,6 +1477,7 @@ impl Compiler {
     fn visit_block_common(
         &mut self,
         func: &mut Function,
+        bb: usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<HashMap<String, Var>> {
@@ -1483,7 +1485,7 @@ impl Compiler {
         for statement in &block.statements {
             match statement {
                 TypedStatement::Expression(expr) => {
-                    self.visit_expr_drop(func, &(parent, &locals), expr.span, &expr.node)?;
+                    self.visit_expr_drop(func, bb, &(parent, &locals), expr.span, &expr.node)?;
                 }
                 TypedStatement::VariableDeclaration {
                     public: _,
@@ -1498,7 +1500,7 @@ impl Compiler {
                     locals.insert(name.name.clone(), Var::Local(local));
 
                     if self
-                        .visit_expr_stack(func, &(parent, &locals), value.span, &value.node)
+                        .visit_expr_stack(func, bb, &(parent, &locals), value.span, &value.node)
                         .is_ok()
                     {
                         // Pop from stack to set locals in reverse order.
@@ -1510,7 +1512,7 @@ impl Compiler {
                 TypedStatement::Assignment { target, value } => {
                     if let Some(var) = (parent, &locals).get(&target.name) {
                         if self
-                            .visit_expr_stack(func, &(parent, &locals), value.span, &value.node)
+                            .visit_expr_stack(func, bb, &(parent, &locals), value.span, &value.node)
                             .is_ok()
                         {
                             let mut types = Vec::new();
@@ -1544,6 +1546,7 @@ impl Compiler {
 
                     let _ = self.visit_expr_stack(
                         func,
+                        bb,
                         &(parent, &locals),
                         condition.span,
                         &condition.node,
@@ -1553,12 +1556,13 @@ impl Compiler {
                     func.instructions().i32_eqz();
                     func.instructions().br_if(1);
                     // contents
-                    self.visit_block_drop(func, &(parent, &locals), body)?;
+                    self.visit_block_drop(func, bb, &(parent, &locals), body)?;
                     // continue
                     func.instructions().br(0).end().end();
                 }
                 TypedStatement::Return(Some(expr)) => {
-                    let _ = self.visit_expr_stack(func, &(parent, &locals), expr.span, &expr.node);
+                    let _ =
+                        self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
                     func.instructions().return_();
                 }
                 TypedStatement::Return(None) => {
@@ -1573,12 +1577,13 @@ impl Compiler {
     fn visit_block_drop(
         &mut self,
         func: &mut Function,
+        bb: usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<()> {
-        let locals = self.visit_block_common(func, parent, block)?;
+        let locals = self.visit_block_common(func, bb, parent, block)?;
         if let Some(expr) = &block.tail_expression {
-            self.visit_expr_drop(func, &(parent, &locals), expr.span, &expr.node)
+            self.visit_expr_drop(func, bb, &(parent, &locals), expr.span, &expr.node)
         } else {
             Ok(())
         }
@@ -1588,12 +1593,13 @@ impl Compiler {
     fn visit_block_stack(
         &mut self,
         func: &mut Function,
+        bb: usize,
         parent: &dyn Locals,
         block: &TypedBlock,
     ) -> Result<()> {
-        let locals = self.visit_block_common(func, parent, block)?;
+        let locals = self.visit_block_common(func, bb, parent, block)?;
         if let Some(expr) = &block.tail_expression {
-            self.visit_expr_stack(func, &(parent, &locals), expr.span, &expr.node)
+            self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node)
         } else {
             Ok(())
         }
@@ -1603,6 +1609,7 @@ impl Compiler {
     fn visit_expr_drop(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         expr: &TypedExpr,
@@ -1612,7 +1619,7 @@ impl Compiler {
             TypedExprKind::Literal(_) => {}
             TypedExprKind::Identifier(_) => {}
             TypedExprKind::Unary { op: _, expr } => {
-                self.visit_expr_drop(func, locals, expr.span, &expr.node)?;
+                self.visit_expr_drop(func, bb, locals, expr.span, &expr.node)?;
             }
             // _ = lhs && rhs --> if (lhs) { _ = rhs; }
             TypedExprKind::Binary {
@@ -1620,10 +1627,10 @@ impl Compiler {
                 left,
                 right,
             } => {
-                self.visit_expr_stack(func, locals, left.span, &left.node)?;
+                self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
                 func.instructions().if_(BlockType::Empty);
-                self.visit_expr_drop(func, locals, right.span, &right.node)?;
+                self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
                 func.instructions().end();
             }
@@ -1633,29 +1640,29 @@ impl Compiler {
                 left,
                 right,
             } => {
-                self.visit_expr_stack(func, locals, left.span, &left.node)?;
+                self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
                 func.instructions().i32_eqz();
                 func.instructions().if_(BlockType::Empty);
-                self.visit_expr_drop(func, locals, right.span, &right.node)?;
+                self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
                 func.instructions().end();
             }
             // Other binary operators have no control flow or side effects.
             TypedExprKind::Binary { op: _, left, right } => {
-                self.visit_expr_drop(func, locals, left.span, &left.node)?;
-                self.visit_expr_drop(func, locals, right.span, &right.node)?;
+                self.visit_expr_drop(func, bb, locals, left.span, &left.node)?;
+                self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
             }
             TypedExprKind::Grouping(spanned) => {
-                self.visit_expr_drop(func, locals, spanned.span, &spanned.node)?;
+                self.visit_expr_drop(func, bb, locals, spanned.span, &spanned.node)?;
             }
             TypedExprKind::StructLiteral { name: _, fields } => {
                 for field in fields {
-                    self.visit_expr_drop(func, locals, field.value.span, &field.value.node)?;
+                    self.visit_expr_drop(func, bb, locals, field.value.span, &field.value.node)?;
                 }
             }
             TypedExprKind::FieldAccess { target, field: _ } => {
-                self.visit_expr_drop(func, locals, target.span, &target.node)?;
+                self.visit_expr_drop(func, bb, locals, target.span, &target.node)?;
             }
             TypedExprKind::EnumConstructor {
                 enum_name: _,
@@ -1665,16 +1672,22 @@ impl Compiler {
                 TypedEnumConstructorPayload::Unit => {}
                 TypedEnumConstructorPayload::Tuple(fields) => {
                     for field in fields {
-                        self.visit_expr_drop(func, locals, field.span, &field.node)?;
+                        self.visit_expr_drop(func, bb, locals, field.span, &field.node)?;
                     }
                 }
                 TypedEnumConstructorPayload::Struct(fields) => {
                     for field in fields {
-                        self.visit_expr_drop(func, locals, field.value.span, &field.value.node)?;
+                        self.visit_expr_drop(
+                            func,
+                            bb,
+                            locals,
+                            field.value.span,
+                            &field.value.node,
+                        )?;
                     }
                 }
             },
-            TypedExprKind::Block(block) => self.visit_block_drop(func, locals, block)?,
+            TypedExprKind::Block(block) => self.visit_block_drop(func, bb, locals, block)?,
             TypedExprKind::If {
                 branches,
                 else_branch,
@@ -1688,6 +1701,7 @@ impl Compiler {
                             func.instructions().block(BlockType::Empty);
                             let _ = self.visit_expr_stack(
                                 func,
+                                bb,
                                 locals,
                                 condition.span,
                                 &condition.node,
@@ -1695,7 +1709,7 @@ impl Compiler {
                             assert_eq!(condition.node.ty, Type::Bool);
                             func.instructions().i32_eqz(); // If condition is false,
                             func.instructions().br_if(0); // then try the next condition.
-                            self.visit_block_drop(func, locals, block)?;
+                            self.visit_block_drop(func, bb, locals, block)?;
                             func.instructions().br(1); // Go past end.
                             func.instructions().end();
                         }
@@ -1706,13 +1720,13 @@ impl Compiler {
                 }
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
-                    self.visit_block_drop(func, locals, else_branch)?;
+                    self.visit_block_drop(func, bb, locals, else_branch)?;
                 }
                 // End.
                 func.instructions().end();
             }
             TypedExprKind::Disclose { expr: inner } => {
-                self.visit_expr_drop(func, locals, inner.span, &inner.node)?;
+                self.visit_expr_drop(func, bb, locals, inner.span, &inner.node)?;
             }
             // Function calls
             TypedExprKind::Call { .. }
@@ -1722,13 +1736,13 @@ impl Compiler {
             | TypedExprKind::Yield { .. } => {
                 // Function calls could have any side effect, so always really
                 // call them then drop whatever they might have returned.
-                self.visit_expr_stack(func, locals, span, expr)?;
+                self.visit_expr_stack(func, bb, locals, span, expr)?;
                 for _ in 0..self.star_count_core_types(&expr.ty) {
                     func.instructions().drop();
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {
-                self.visit_match_drop(func, locals, span, scrutinee, arms)?;
+                self.visit_match_drop(func, bb, locals, span, scrutinee, arms)?;
             }
         }
         Ok(())
@@ -1739,6 +1753,7 @@ impl Compiler {
     fn visit_expr_stack(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         expr: &TypedExpr,
@@ -1795,8 +1810,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -1824,8 +1839,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -1853,8 +1868,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -1882,8 +1897,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -1911,8 +1926,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -1943,13 +1958,13 @@ impl Compiler {
                 match &inner.node.ty {
                     Type::Int(w) if w.is_64bit() => {
                         func.instructions().i64_const(0);
-                        self.visit_expr_stack(func, locals, inner.span, &inner.node)?;
+                        self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
                         func.instructions().i64_sub();
                         Ok(())
                     }
                     Type::Int(w) => {
                         func.instructions().i32_const(0);
-                        self.visit_expr_stack(func, locals, inner.span, &inner.node)?;
+                        self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
                         func.instructions().i32_sub();
                         self.emit_truncate(func, *w);
                         Ok(())
@@ -1961,7 +1976,7 @@ impl Compiler {
                 op: UnaryOp::Not,
                 expr: inner,
             } => {
-                self.visit_expr_stack(func, locals, inner.span, &inner.node)?;
+                self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
                 match &inner.node.ty {
                     Type::Bool => {
                         func.instructions().i32_eqz();
@@ -1977,8 +1992,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -2006,8 +2021,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -2035,8 +2050,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -2070,8 +2085,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -2105,8 +2120,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -2140,8 +2155,8 @@ impl Compiler {
                 left,
                 right,
             } => {
-                let lhs = self.visit_expr_stack(func, locals, left.span, &left.node);
-                let rhs = self.visit_expr_stack(func, locals, right.span, &right.node);
+                let lhs = self.visit_expr_stack(func, bb, locals, left.span, &left.node);
+                let rhs = self.visit_expr_stack(func, bb, locals, right.span, &right.node);
                 lhs?;
                 rhs?;
                 match (&left.node.ty, &right.node.ty) {
@@ -2176,10 +2191,10 @@ impl Compiler {
                 left,
                 right,
             } => {
-                self.visit_expr_stack(func, locals, left.span, &left.node)?;
+                self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
                 func.instructions().if_(BlockType::Result(ValType::I32));
-                self.visit_expr_stack(func, locals, right.span, &right.node)?;
+                self.visit_expr_stack(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
                 func.instructions().else_().i32_const(0).end();
                 Ok(())
@@ -2189,13 +2204,13 @@ impl Compiler {
                 left,
                 right,
             } => {
-                self.visit_expr_stack(func, locals, left.span, &left.node)?;
+                self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
                 func.instructions()
                     .if_(BlockType::Result(ValType::I32))
                     .i32_const(1)
                     .else_();
-                self.visit_expr_stack(func, locals, right.span, &right.node)?;
+                self.visit_expr_stack(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
                 func.instructions().end();
                 Ok(())
@@ -2205,7 +2220,7 @@ impl Compiler {
                 // Right now intermediates point to the stack only, which is
                 // awkward when we want to access only one field of a local.
                 // This implementation is inefficient but at least it's correct.
-                self.visit_expr_stack(func, locals, target.span, &target.node)?;
+                self.visit_expr_stack(func, bb, locals, target.span, &target.node)?;
                 match &target.node.ty {
                     Type::Record(record) => {
                         let mut offset = 0;
@@ -2271,9 +2286,9 @@ impl Compiler {
             }
             // Nesting
             TypedExprKind::Grouping(expr) => {
-                self.visit_expr_stack(func, locals, expr.span, &expr.node)
+                self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)
             }
-            TypedExprKind::Block(block) => self.visit_block_stack(func, locals, block),
+            TypedExprKind::Block(block) => self.visit_block_stack(func, bb, locals, block),
             TypedExprKind::If {
                 branches,
                 else_branch,
@@ -2290,11 +2305,17 @@ impl Compiler {
                         TypedIfCondition::Bool(condition) => {
                             // Inner block for each condition.
                             func.instructions().block(BlockType::Empty);
-                            self.visit_expr_stack(func, locals, condition.span, &condition.node)?;
+                            self.visit_expr_stack(
+                                func,
+                                bb,
+                                locals,
+                                condition.span,
+                                &condition.node,
+                            )?;
                             assert_eq!(condition.node.ty, Type::Bool);
                             func.instructions().i32_eqz(); // If condition is false,
                             func.instructions().br_if(0); // then try the next condition.
-                            self.visit_block_stack(func, locals, block)?;
+                            self.visit_block_stack(func, bb, locals, block)?;
                             for i in (0..new_locals.len()).rev() {
                                 func.instructions().local_set(first_local + (i as u32));
                             }
@@ -2308,7 +2329,7 @@ impl Compiler {
                 }
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
-                    self.visit_block_stack(func, locals, else_branch)?;
+                    self.visit_block_stack(func, bb, locals, else_branch)?;
                     for i in (0..new_locals.len()).rev() {
                         func.instructions().local_set(first_local + (i as u32));
                     }
@@ -2323,7 +2344,7 @@ impl Compiler {
                 Ok(())
             }
             TypedExprKind::Disclose { expr: inner } => {
-                self.visit_expr_stack(func, locals, inner.span, &inner.node)
+                self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)
             }
             // Data constructors
             TypedExprKind::StructLiteral { name: _, fields } => {
@@ -2339,7 +2360,7 @@ impl Compiler {
                     let expr = fields
                         .get(field.name.as_str())
                         .expect("StructLiteral missing field");
-                    self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
+                    self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
                 }
                 Ok(())
             }
@@ -2377,7 +2398,7 @@ impl Compiler {
                     TypedEnumConstructorPayload::Unit => {}
                     TypedEnumConstructorPayload::Tuple(fields) => {
                         for f in fields {
-                            self.visit_expr_stack(func, locals, f.span, &f.node)?;
+                            self.visit_expr_stack(func, bb, locals, f.span, &f.node)?;
                             self.enum_promote(func, f.span, &f.node.ty, &mut iter);
                         }
                     }
@@ -2397,7 +2418,7 @@ impl Compiler {
                             let expr = fields
                                 .get(field.name.as_str())
                                 .expect("StructLiteral missing field");
-                            self.visit_expr_stack(func, locals, expr.span, &expr.node)?;
+                            self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
                             self.enum_promote(func, expr.span, &expr.node.ty, &mut iter);
                         }
                     }
@@ -2425,14 +2446,14 @@ impl Compiler {
                     .callables
                     .get(i.as_str())
                     .expect("no callable found for identifier");
-                self.visit_call(func, locals, span, target, args)
+                self.visit_call(func, bb, locals, span, target, args)
             }
             TypedExprKind::Emit { event, args } => {
                 let target = *self
                     .callables
                     .get(event.as_str())
                     .expect("no callable found for identifier");
-                self.visit_call(func, locals, span, target, args)
+                self.visit_call(func, bb, locals, span, target, args)
             }
             TypedExprKind::Raise { expr: inner } => {
                 let TypedExprKind::Call { callee, args } = &inner.node.kind else {
@@ -2445,7 +2466,7 @@ impl Compiler {
                     .callables
                     .get(i.as_str())
                     .expect("no callable found for identifier");
-                self.visit_call(func, locals, span, target, args)
+                self.visit_call(func, bb, locals, span, target, args)
             }
             TypedExprKind::Runtime { expr: inner } => {
                 let TypedExprKind::Call { callee, args } = &inner.node.kind else {
@@ -2458,10 +2479,10 @@ impl Compiler {
                     .callables
                     .get(i.as_str())
                     .expect("no callable found for identifier");
-                self.visit_call(func, locals, span, target, args)
+                self.visit_call(func, bb, locals, span, target, args)
             }
             TypedExprKind::Match { scrutinee, arms } => {
-                self.visit_match_stack(func, locals, span, expr, scrutinee, arms)
+                self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)
             }
             TypedExprKind::Yield { abis } => {
                 for abi in abis {
@@ -2538,6 +2559,7 @@ impl Compiler {
     fn visit_match_stack(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         expr: &TypedExpr,
@@ -2545,7 +2567,7 @@ impl Compiler {
         arms: &[TypedMatchArm],
     ) -> Result<()> {
         // 1. Compile scrutinee to stack and store in locals.
-        self.visit_expr_stack(func, locals, scrutinee.span, &scrutinee.node)?;
+        self.visit_expr_stack(func, bb, locals, scrutinee.span, &scrutinee.node)?;
         let mut scrut_types = Vec::new();
         _ = self.star_to_core_types(scrutinee.span, &mut scrut_types, &scrutinee.node.ty);
         let scrut_base = func.add_locals(scrut_types.iter().copied());
@@ -2577,6 +2599,7 @@ impl Compiler {
         func.instructions().block(BlockType::Empty);
         self.emit_decision_tree(
             func,
+            bb,
             locals,
             span,
             &tree,
@@ -2599,12 +2622,13 @@ impl Compiler {
     fn visit_match_drop(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         scrutinee: &Spanned<TypedExpr>,
         arms: &[TypedMatchArm],
     ) -> Result<()> {
-        self.visit_expr_stack(func, locals, scrutinee.span, &scrutinee.node)?;
+        self.visit_expr_stack(func, bb, locals, scrutinee.span, &scrutinee.node)?;
         let mut scrut_types = Vec::new();
         _ = self.star_to_core_types(scrutinee.span, &mut scrut_types, &scrutinee.node.ty);
         let scrut_base = func.add_locals(scrut_types.iter().copied());
@@ -2627,6 +2651,7 @@ impl Compiler {
         func.instructions().block(BlockType::Empty);
         self.emit_decision_tree(
             func,
+            bb,
             locals,
             span,
             &tree,
@@ -2739,6 +2764,7 @@ impl Compiler {
     fn emit_decision_tree(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         tree: &DecisionTree,
@@ -2760,14 +2786,22 @@ impl Compiler {
                 }
 
                 if result_count > 0 {
-                    let _ =
-                        self.visit_block_stack(func, &(locals, &arm_locals), &arms[*action].body);
+                    let _ = self.visit_block_stack(
+                        func,
+                        bb,
+                        &(locals, &arm_locals),
+                        &arms[*action].body,
+                    );
                     for i in (0..result_count).rev() {
                         func.instructions().local_set(result_base + i);
                     }
                 } else {
-                    let _ =
-                        self.visit_block_drop(func, &(locals, &arm_locals), &arms[*action].body);
+                    let _ = self.visit_block_drop(
+                        func,
+                        bb,
+                        &(locals, &arm_locals),
+                        &arms[*action].body,
+                    );
                 }
                 func.instructions().br(outer_depth);
             }
@@ -2785,6 +2819,7 @@ impl Compiler {
                     Type::Enum(enum_ty) => {
                         self.emit_enum_switch(
                             func,
+                            bb,
                             locals,
                             span,
                             *column,
@@ -2803,6 +2838,7 @@ impl Compiler {
                     Type::Bool => {
                         self.emit_simple_switch(
                             func,
+                            bb,
                             locals,
                             span,
                             *column,
@@ -2832,6 +2868,7 @@ impl Compiler {
                         let is_64bit = w.is_64bit();
                         self.emit_simple_switch(
                             func,
+                            bb,
                             locals,
                             span,
                             *column,
@@ -2869,6 +2906,7 @@ impl Compiler {
                             );
                             self.emit_decision_tree(
                                 func,
+                                bb,
                                 locals,
                                 span,
                                 subtree,
@@ -2885,6 +2923,7 @@ impl Compiler {
                             let new_col_locals = remove_col(col_locals, *column);
                             self.emit_decision_tree(
                                 func,
+                                bb,
                                 locals,
                                 span,
                                 subtree,
@@ -2907,6 +2946,7 @@ impl Compiler {
     fn emit_enum_switch(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         column: usize,
@@ -2956,6 +2996,7 @@ impl Compiler {
 
             self.emit_decision_tree(
                 func,
+                bb,
                 locals,
                 span,
                 subtree,
@@ -2973,6 +3014,7 @@ impl Compiler {
             let new_col_locals = remove_col(col_locals, column);
             self.emit_decision_tree(
                 func,
+                bb,
                 locals,
                 span,
                 def,
@@ -3037,6 +3079,7 @@ impl Compiler {
     fn emit_simple_switch(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         column: usize,
@@ -3057,6 +3100,7 @@ impl Compiler {
             emit_test(&mut func.instructions(), ctor, base_local);
             self.emit_decision_tree(
                 func,
+                bb,
                 locals,
                 span,
                 subtree,
@@ -3072,6 +3116,7 @@ impl Compiler {
         if let Some(def) = default {
             self.emit_decision_tree(
                 func,
+                bb,
                 locals,
                 span,
                 def,
@@ -3109,6 +3154,7 @@ impl Compiler {
     fn visit_call(
         &mut self,
         func: &mut Function,
+        bb: usize,
         locals: &dyn Locals,
         span: Span,
         core_fn_idx: u32,
@@ -3116,7 +3162,7 @@ impl Compiler {
     ) -> Result<()> {
         let _ = span;
         for arg in args {
-            self.visit_expr_stack(func, locals, arg.span, &arg.node)?;
+            self.visit_expr_stack(func, bb, locals, arg.span, &arg.node)?;
         }
         func.instructions().call(core_fn_idx);
         Ok(())

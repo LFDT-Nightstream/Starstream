@@ -10,6 +10,8 @@ pub struct ControlFlowGraph {
 
 #[derive(Default)]
 pub struct BasicBlock {
+    /// True if no further predecessors (blocks with an [Out] pointing to us) will be added.
+    pub sealed: bool,
     pub instructions: Vec<u8>,
     pub out: Out,
 }
@@ -28,9 +30,12 @@ pub enum Out {
 }
 
 impl ControlFlowGraph {
-    pub fn add_block(&mut self) -> usize {
+    pub fn add_block(&mut self, sealed: bool) -> usize {
         let len = self.blocks.len();
-        self.blocks.push(BasicBlock::default());
+        self.blocks.push(BasicBlock {
+            sealed,
+            ..BasicBlock::default()
+        });
         len
     }
 
@@ -38,7 +43,7 @@ impl ControlFlowGraph {
         InstructionSink::new(&mut self.blocks[block].instructions)
     }
 
-    pub fn set_out(&mut self, block: usize, out: Out) {
+    pub fn fill(&mut self, block: usize, out: Out) {
         assert!(!matches!(out, Out::None));
         assert!(matches!(self.blocks[block].out, Out::None));
         self.blocks[block].out = out;
@@ -48,5 +53,10 @@ impl ControlFlowGraph {
 impl BasicBlock {
     pub fn instructions(&mut self) -> InstructionSink<'_> {
         InstructionSink::new(&mut self.instructions)
+    }
+
+    /// True if this block's full contents and successors are known.
+    pub fn is_filled(&self) -> bool {
+        !matches!(self.out, Out::None)
     }
 }
