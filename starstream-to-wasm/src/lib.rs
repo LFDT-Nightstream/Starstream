@@ -447,7 +447,7 @@ impl Compiler {
 
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
-    fn add_function(&mut self, ty: FuncType, code: Function) -> u32 {
+    fn add_function<F: Encode>(&mut self, ty: FuncType, code: F) -> u32 {
         // TODO: enforce that all *imported* function IDs are known before this
         // is called, as Wasm requires all imports to precede all of the
         // module's own functions.
@@ -491,9 +491,12 @@ impl Compiler {
 
         let params = [ValType::I64, ValType::I64];
         let result = [ValType::I64];
-        let mut code = Function::from_params(&params);
-
-        let sum_local = code.add_locals([ValType::I64]);
+        let mut code = wasm_encoder::Function::new_with_locals_types([
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+        ]);
+        let sum_local = 2;
 
         code.instructions().local_get(0); //  [x]
         code.instructions().local_get(1); //  [x, y]
@@ -544,9 +547,12 @@ impl Compiler {
 
         let params = [ValType::I64, ValType::I64];
         let result = [ValType::I64];
-        let mut code = Function::from_params(&params);
-
-        let diff_local = code.add_locals([ValType::I64]);
+        let mut code = wasm_encoder::Function::new_with_locals_types([
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+        ]);
+        let diff_local = 2;
 
         code.instructions().local_get(0); //  [x]
         code.instructions().local_get(1); //  [x, y]
@@ -600,11 +606,16 @@ impl Compiler {
 
         let params = [ValType::I64, ValType::I64];
         let result = [ValType::I64];
-        let mut code = Function::from_params(&params);
-
-        let product_local = code.add_locals([ValType::I64]);
-        let x_local = code.add_locals([ValType::I64]);
-        let y_local = code.add_locals([ValType::I64]);
+        let mut code = wasm_encoder::Function::new_with_locals_types([
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+            ValType::I64,
+        ]);
+        let product_local = 2;
+        let x_local = 3;
+        let y_local = 4;
 
         // Store parameters in locals for reuse
         code.instructions().local_get(0); //  [x]
@@ -671,27 +682,27 @@ impl Compiler {
     }
 
     /// Emit truncation/masking after an i32 operation for sub-32-bit types.
-    fn emit_truncate(&self, func: &mut Function, w: IntWidth) {
+    fn emit_truncate(&self, func: &mut Function, bb: usize, w: IntWidth) {
         match w {
             IntWidth::I8 => {
-                func.instructions().i32_const(24);
-                func.instructions().i32_shl();
-                func.instructions().i32_const(24);
-                func.instructions().i32_shr_s();
+                func.instructions(bb).i32_const(24);
+                func.instructions(bb).i32_shl();
+                func.instructions(bb).i32_const(24);
+                func.instructions(bb).i32_shr_s();
             }
             IntWidth::I16 => {
-                func.instructions().i32_const(16);
-                func.instructions().i32_shl();
-                func.instructions().i32_const(16);
-                func.instructions().i32_shr_s();
+                func.instructions(bb).i32_const(16);
+                func.instructions(bb).i32_shl();
+                func.instructions(bb).i32_const(16);
+                func.instructions(bb).i32_shr_s();
             }
             IntWidth::U8 => {
-                func.instructions().i32_const(0xFF);
-                func.instructions().i32_and();
+                func.instructions(bb).i32_const(0xFF);
+                func.instructions(bb).i32_and();
             }
             IntWidth::U16 => {
-                func.instructions().i32_const(0xFFFF);
-                func.instructions().i32_and();
+                func.instructions(bb).i32_const(0xFFFF);
+                func.instructions(bb).i32_and();
             }
             _ => {} // i32, u32, i64, u64 don't need truncation
         }
@@ -733,17 +744,18 @@ impl Compiler {
             let return_slot = self.alloc_static(size, align);
 
             let mut wrapper_func = Function::from_params(params);
-            wrapper_func.instructions().i32_const(return_slot as i32);
+            let bb = wrapper_func.cfg.add_block();
+            wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
             for i in 0..params.len() {
-                wrapper_func.instructions().local_get(i as u32);
+                wrapper_func.instructions(bb).local_get(i as u32);
             }
-            wrapper_func.instructions().call(func_idx);
+            wrapper_func.instructions(bb).call(func_idx);
             // Write to our return slot.
-            self.component_store(function.name.span(), &mut wrapper_func, &result, 0);
+            self.component_store(function.name.span(), &mut wrapper_func, bb, &result, 0);
             // Return our return slot.
-            wrapper_func.instructions().i32_const(return_slot as i32);
-            wrapper_func.instructions().end();
+            wrapper_func.instructions(bb).i32_const(return_slot as i32);
+            wrapper_func.instructions(bb).end();
 
             let wrapper_func_idx = self.add_function(
                 FuncType::new(params.iter().copied(), [ValType::I32]),
@@ -812,6 +824,7 @@ impl Compiler {
         &mut self,
         span: Span,
         func: &mut Function,
+        bb: usize,
         ty: &ComponentAbiType,
         offset: u64,
     ) {
@@ -824,21 +837,21 @@ impl Compiler {
         assert_eq!(core_types.len(), store_fns.len());
 
         if let [only] = &store_fns[..] {
-            only(func.instructions());
+            only(func.instructions(bb));
         } else if store_fns.len() > 1 {
             // Pop values then address into locals.
             let addr_local = func.add_locals([ValType::I32]);
             let value_local = func.add_locals(core_types.iter().copied());
             for i in (0..core_types.len()).rev() {
-                func.instructions().local_set(value_local + (i as u32));
+                func.instructions(bb).local_set(value_local + (i as u32));
             }
-            func.instructions().local_set(addr_local);
+            func.instructions(bb).local_set(addr_local);
 
             // Store each thing one by one.
             for (i, store) in store_fns.iter().enumerate() {
-                func.instructions().local_get(addr_local);
-                func.instructions().local_get(value_local + (i as u32));
-                store(func.instructions());
+                func.instructions(bb).local_get(addr_local);
+                func.instructions(bb).local_get(value_local + (i as u32));
+                store(func.instructions(bb));
             }
         }
     }
@@ -1388,7 +1401,7 @@ impl Compiler {
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
         let _ = self.visit_block_stack(&mut func, root_block, &(parent, &locals), &function.body);
-        func.instructions().end();
+        // TODO func.instructions(bb).end();
 
         let idx = self.add_function(
             FuncType::new(params.iter().copied(), results.iter().copied()),
@@ -1506,7 +1519,7 @@ impl Compiler {
                     {
                         // Pop from stack to set locals in reverse order.
                         for i in (0..local_types.len()).rev() {
-                            func.instructions().local_set(local + (i as u32));
+                            func.instructions(bb).local_set(local + (i as u32));
                         }
                     }
                 }
@@ -1523,12 +1536,12 @@ impl Compiler {
                             match var {
                                 Var::Local(local) => {
                                     for i in (0..types.len()).rev() {
-                                        func.instructions().local_set(local + (i as u32));
+                                        func.instructions(bb).local_set(local + (i as u32));
                                     }
                                 }
                                 Var::Global(global) => {
                                     for i in (0..types.len()).rev() {
-                                        func.instructions().global_set(global + (i as u32));
+                                        func.instructions(bb).global_set(global + (i as u32));
                                     }
                                 }
                             }
@@ -1578,10 +1591,10 @@ impl Compiler {
                 TypedStatement::Return(Some(expr)) => {
                     let _ =
                         self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
-                    func.instructions().return_();
+                    func.instructions(bb).return_();
                 }
                 TypedStatement::Return(None) => {
-                    func.instructions().return_();
+                    func.instructions(bb).return_();
                 }
             }
         }
@@ -1644,10 +1657,10 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions().if_(BlockType::Empty);
+                func.instructions(bb).if_(BlockType::Empty);
                 self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions().end();
+                func.instructions(bb).end();
             }
             // _ = lhs || rhs --> if (!lhs) { _ = rhs; }
             TypedExprKind::Binary {
@@ -1657,11 +1670,11 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions().i32_eqz();
-                func.instructions().if_(BlockType::Empty);
+                func.instructions(bb).i32_eqz();
+                func.instructions(bb).if_(BlockType::Empty);
                 self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions().end();
+                func.instructions(bb).end();
             }
             // Other binary operators have no control flow or side effects.
             TypedExprKind::Binary { op: _, left, right } => {
@@ -1708,12 +1721,12 @@ impl Compiler {
                 else_branch,
             } => {
                 // Emit basic double-block and trust the optimizer.
-                func.instructions().block(BlockType::Empty);
+                func.instructions(bb).block(BlockType::Empty);
                 for (condition, block) in branches {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
                             // Inner block for each condition.
-                            func.instructions().block(BlockType::Empty);
+                            func.instructions(bb).block(BlockType::Empty);
                             let _ = self.visit_expr_stack(
                                 func,
                                 bb,
@@ -1722,11 +1735,11 @@ impl Compiler {
                                 &condition.node,
                             );
                             assert_eq!(condition.node.ty, Type::Bool);
-                            func.instructions().i32_eqz(); // If condition is false,
-                            func.instructions().br_if(0); // then try the next condition.
+                            func.instructions(bb).i32_eqz(); // If condition is false,
+                            func.instructions(bb).br_if(0); // then try the next condition.
                             self.visit_block_drop(func, bb, locals, block)?;
-                            func.instructions().br(1); // Go past end.
-                            func.instructions().end();
+                            func.instructions(bb).br(1); // Go past end.
+                            func.instructions(bb).end();
                         }
                         TypedIfCondition::Is { .. } => {
                             todo!("codegen for if...is not yet implemented")
@@ -1738,7 +1751,7 @@ impl Compiler {
                     self.visit_block_drop(func, bb, locals, else_branch)?;
                 }
                 // End.
-                func.instructions().end();
+                func.instructions(bb).end();
             }
             TypedExprKind::Disclose { expr: inner } => {
                 self.visit_expr_drop(func, bb, locals, inner.span, &inner.node)?;
@@ -1753,7 +1766,7 @@ impl Compiler {
                 // call them then drop whatever they might have returned.
                 self.visit_expr_stack(func, bb, locals, span, expr)?;
                 for _ in 0..self.star_count_core_types(&expr.ty) {
-                    func.instructions().drop();
+                    func.instructions(bb).drop();
                 }
             }
             TypedExprKind::Match { scrutinee, arms } => {
@@ -1780,12 +1793,12 @@ impl Compiler {
                     match var {
                         Var::Local(local) => {
                             for i in 0..self.star_count_core_types(&expr.ty) {
-                                func.instructions().local_get(local + i);
+                                func.instructions(bb).local_get(local + i);
                             }
                         }
                         Var::Global(global) => {
                             for i in 0..self.star_count_core_types(&expr.ty) {
-                                func.instructions().global_get(global + i);
+                                func.instructions(bb).global_get(global + i);
                             }
                         }
                     }
@@ -1801,17 +1814,17 @@ impl Compiler {
             TypedExprKind::Literal(Literal::Integer(i)) => {
                 match &expr.ty {
                     Type::Int(w) if w.is_64bit() => {
-                        func.instructions().i64_const(*i as i64);
+                        func.instructions(bb).i64_const(*i as i64);
                     }
                     Type::Int(_) => {
-                        func.instructions().i32_const(*i as i32);
+                        func.instructions(bb).i32_const(*i as i32);
                     }
                     _ => {}
                 }
                 Ok(())
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
-                func.instructions().i32_const(*b as i32);
+                func.instructions(bb).i32_const(*b as i32);
                 assert_eq!(expr.ty, Type::Bool);
                 Ok(())
             }
@@ -1834,13 +1847,13 @@ impl Compiler {
                         if w.is_64bit() {
                             if self.options.check_overflows {
                                 let checked_sum = self.get_or_create_i64_add_checked();
-                                func.instructions().call(checked_sum);
+                                func.instructions(bb).call(checked_sum);
                             } else {
-                                func.instructions().i64_add();
+                                func.instructions(bb).i64_add();
                             }
                         } else {
-                            func.instructions().i32_add();
-                            self.emit_truncate(func, *w);
+                            func.instructions(bb).i32_add();
+                            self.emit_truncate(func, bb, *w);
                         }
                         Ok(())
                     }
@@ -1863,13 +1876,13 @@ impl Compiler {
                         if w.is_64bit() {
                             if self.options.check_overflows {
                                 let checked_sub = self.get_or_create_i64_sub_checked();
-                                func.instructions().call(checked_sub);
+                                func.instructions(bb).call(checked_sub);
                             } else {
-                                func.instructions().i64_sub();
+                                func.instructions(bb).i64_sub();
                             }
                         } else {
-                            func.instructions().i32_sub();
-                            self.emit_truncate(func, *w);
+                            func.instructions(bb).i32_sub();
+                            self.emit_truncate(func, bb, *w);
                         }
                         Ok(())
                     }
@@ -1892,13 +1905,13 @@ impl Compiler {
                         if w.is_64bit() {
                             if self.options.check_overflows {
                                 let checked_mul = self.get_or_create_i64_mul_checked();
-                                func.instructions().call(checked_mul);
+                                func.instructions(bb).call(checked_mul);
                             } else {
-                                func.instructions().i64_mul();
+                                func.instructions(bb).i64_mul();
                             }
                         } else {
-                            func.instructions().i32_mul();
-                            self.emit_truncate(func, *w);
+                            func.instructions(bb).i32_mul();
+                            self.emit_truncate(func, bb, *w);
                         }
                         Ok(())
                     }
@@ -1920,14 +1933,14 @@ impl Compiler {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
                             if w.is_signed() {
-                                func.instructions().i64_div_s();
+                                func.instructions(bb).i64_div_s();
                             } else {
-                                func.instructions().i64_div_u();
+                                func.instructions(bb).i64_div_u();
                             }
                         } else if w.is_signed() {
-                            func.instructions().i32_div_s();
+                            func.instructions(bb).i32_div_s();
                         } else {
-                            func.instructions().i32_div_u();
+                            func.instructions(bb).i32_div_u();
                         }
                         Ok(())
                     }
@@ -1949,14 +1962,14 @@ impl Compiler {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
                             if w.is_signed() {
-                                func.instructions().i64_rem_s();
+                                func.instructions(bb).i64_rem_s();
                             } else {
-                                func.instructions().i64_rem_u();
+                                func.instructions(bb).i64_rem_u();
                             }
                         } else if w.is_signed() {
-                            func.instructions().i32_rem_s();
+                            func.instructions(bb).i32_rem_s();
                         } else {
-                            func.instructions().i32_rem_u();
+                            func.instructions(bb).i32_rem_u();
                         }
                         Ok(())
                     }
@@ -1972,16 +1985,16 @@ impl Compiler {
                 // `-x` compiles to `0 - x`.
                 match &inner.node.ty {
                     Type::Int(w) if w.is_64bit() => {
-                        func.instructions().i64_const(0);
+                        func.instructions(bb).i64_const(0);
                         self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
-                        func.instructions().i64_sub();
+                        func.instructions(bb).i64_sub();
                         Ok(())
                     }
                     Type::Int(w) => {
-                        func.instructions().i32_const(0);
+                        func.instructions(bb).i32_const(0);
                         self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
-                        func.instructions().i32_sub();
-                        self.emit_truncate(func, *w);
+                        func.instructions(bb).i32_sub();
+                        self.emit_truncate(func, bb, *w);
                         Ok(())
                     }
                     lhs => Err(self.push_error(span, format!("TODO: Negate({lhs:?})"))),
@@ -1994,7 +2007,7 @@ impl Compiler {
                 self.visit_expr_stack(func, bb, locals, inner.span, &inner.node)?;
                 match &inner.node.ty {
                     Type::Bool => {
-                        func.instructions().i32_eqz();
+                        func.instructions(bb).i32_eqz();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2014,15 +2027,15 @@ impl Compiler {
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
-                            func.instructions().i64_eq();
+                            func.instructions(bb).i64_eq();
                         } else {
-                            func.instructions().i32_eq();
+                            func.instructions(bb).i32_eq();
                         }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
                     (Type::Bool, Type::Bool) => {
-                        func.instructions().i32_eq();
+                        func.instructions(bb).i32_eq();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2043,15 +2056,15 @@ impl Compiler {
                 match (&left.node.ty, &right.node.ty) {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
-                            func.instructions().i64_ne();
+                            func.instructions(bb).i64_ne();
                         } else {
-                            func.instructions().i32_ne();
+                            func.instructions(bb).i32_ne();
                         }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
                     (Type::Bool, Type::Bool) => {
-                        func.instructions().i32_ne();
+                        func.instructions(bb).i32_ne();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2073,20 +2086,20 @@ impl Compiler {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
                             if w.is_signed() {
-                                func.instructions().i64_lt_s();
+                                func.instructions(bb).i64_lt_s();
                             } else {
-                                func.instructions().i64_lt_u();
+                                func.instructions(bb).i64_lt_u();
                             }
                         } else if w.is_signed() {
-                            func.instructions().i32_lt_s();
+                            func.instructions(bb).i32_lt_s();
                         } else {
-                            func.instructions().i32_lt_u();
+                            func.instructions(bb).i32_lt_u();
                         }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
                     (Type::Bool, Type::Bool) => {
-                        func.instructions().i32_lt_u();
+                        func.instructions(bb).i32_lt_u();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2108,20 +2121,20 @@ impl Compiler {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
                             if w.is_signed() {
-                                func.instructions().i64_gt_s();
+                                func.instructions(bb).i64_gt_s();
                             } else {
-                                func.instructions().i64_gt_u();
+                                func.instructions(bb).i64_gt_u();
                             }
                         } else if w.is_signed() {
-                            func.instructions().i32_gt_s();
+                            func.instructions(bb).i32_gt_s();
                         } else {
-                            func.instructions().i32_gt_u();
+                            func.instructions(bb).i32_gt_u();
                         }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
                     (Type::Bool, Type::Bool) => {
-                        func.instructions().i32_gt_u();
+                        func.instructions(bb).i32_gt_u();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2143,20 +2156,20 @@ impl Compiler {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
                             if w.is_signed() {
-                                func.instructions().i64_le_s();
+                                func.instructions(bb).i64_le_s();
                             } else {
-                                func.instructions().i64_le_u();
+                                func.instructions(bb).i64_le_u();
                             }
                         } else if w.is_signed() {
-                            func.instructions().i32_le_s();
+                            func.instructions(bb).i32_le_s();
                         } else {
-                            func.instructions().i32_le_u();
+                            func.instructions(bb).i32_le_u();
                         }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
                     (Type::Bool, Type::Bool) => {
-                        func.instructions().i32_le_u();
+                        func.instructions(bb).i32_le_u();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2178,20 +2191,20 @@ impl Compiler {
                     (Type::Int(w), Type::Int(_)) => {
                         if w.is_64bit() {
                             if w.is_signed() {
-                                func.instructions().i64_ge_s();
+                                func.instructions(bb).i64_ge_s();
                             } else {
-                                func.instructions().i64_ge_u();
+                                func.instructions(bb).i64_ge_u();
                             }
                         } else if w.is_signed() {
-                            func.instructions().i32_ge_s();
+                            func.instructions(bb).i32_ge_s();
                         } else {
-                            func.instructions().i32_ge_u();
+                            func.instructions(bb).i32_ge_u();
                         }
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
                     (Type::Bool, Type::Bool) => {
-                        func.instructions().i32_ge_u();
+                        func.instructions(bb).i32_ge_u();
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
@@ -2208,10 +2221,10 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions().if_(BlockType::Result(ValType::I32));
+                func.instructions(bb).if_(BlockType::Result(ValType::I32));
                 self.visit_expr_stack(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions().else_().i32_const(0).end();
+                func.instructions(bb).else_().i32_const(0).end();
                 Ok(())
             }
             TypedExprKind::Binary {
@@ -2221,13 +2234,13 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions()
+                func.instructions(bb)
                     .if_(BlockType::Result(ValType::I32))
                     .i32_const(1)
                     .else_();
                 self.visit_expr_stack(func, bb, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions().end();
+                func.instructions(bb).end();
                 Ok(())
             }
             // Field access
@@ -2257,7 +2270,7 @@ impl Compiler {
 
                             // Drop everything after what we are selecting.
                             for _ in offset + (new_locals.len() as u32)..total {
-                                func.instructions().drop();
+                                func.instructions(bb).drop();
                             }
 
                             // If offset != 0, use locals to drop stuff before the offset.
@@ -2267,17 +2280,17 @@ impl Compiler {
 
                                 // Store.
                                 for i in (0..new_locals.len()).rev() {
-                                    func.instructions().local_set(first_local + (i as u32));
+                                    func.instructions(bb).local_set(first_local + (i as u32));
                                 }
 
                                 // Drop.
                                 for _ in 0..offset {
-                                    func.instructions().drop();
+                                    func.instructions(bb).drop();
                                 }
 
                                 // Get.
                                 for i in 0..new_locals.len() {
-                                    func.instructions().local_get(first_local + (i as u32));
+                                    func.instructions(bb).local_get(first_local + (i as u32));
                                 }
                             }
 
@@ -2314,12 +2327,12 @@ impl Compiler {
                 let first_local = func.add_locals(new_locals.iter().copied());
 
                 // Emit basic double-block and trust the optimizer.
-                func.instructions().block(BlockType::Empty);
+                func.instructions(bb).block(BlockType::Empty);
                 for (condition, block) in branches {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
                             // Inner block for each condition.
-                            func.instructions().block(BlockType::Empty);
+                            func.instructions(bb).block(BlockType::Empty);
                             self.visit_expr_stack(
                                 func,
                                 bb,
@@ -2328,14 +2341,14 @@ impl Compiler {
                                 &condition.node,
                             )?;
                             assert_eq!(condition.node.ty, Type::Bool);
-                            func.instructions().i32_eqz(); // If condition is false,
-                            func.instructions().br_if(0); // then try the next condition.
+                            func.instructions(bb).i32_eqz(); // If condition is false,
+                            func.instructions(bb).br_if(0); // then try the next condition.
                             self.visit_block_stack(func, bb, locals, block)?;
                             for i in (0..new_locals.len()).rev() {
-                                func.instructions().local_set(first_local + (i as u32));
+                                func.instructions(bb).local_set(first_local + (i as u32));
                             }
-                            func.instructions().br(1); // Go past end.
-                            func.instructions().end();
+                            func.instructions(bb).br(1); // Go past end.
+                            func.instructions(bb).end();
                         }
                         TypedIfCondition::Is { .. } => {
                             todo!("codegen for if...is not yet implemented")
@@ -2346,15 +2359,15 @@ impl Compiler {
                 if let Some(else_branch) = else_branch {
                     self.visit_block_stack(func, bb, locals, else_branch)?;
                     for i in (0..new_locals.len()).rev() {
-                        func.instructions().local_set(first_local + (i as u32));
+                        func.instructions(bb).local_set(first_local + (i as u32));
                     }
                 }
                 // End.
-                func.instructions().end();
+                func.instructions(bb).end();
 
                 // Read locals back onto stack.
                 for i in 0..new_locals.len() {
-                    func.instructions().local_get(first_local + (i as u32));
+                    func.instructions(bb).local_get(first_local + (i as u32));
                 }
                 Ok(())
             }
@@ -2406,7 +2419,7 @@ impl Compiler {
                     );
                 };
                 let discriminant = u32::try_from(discriminant).unwrap();
-                func.instructions().i32_const(discriminant as i32);
+                func.instructions(bb).i32_const(discriminant as i32);
 
                 // Push the values
                 match payload {
@@ -2414,7 +2427,7 @@ impl Compiler {
                     TypedEnumConstructorPayload::Tuple(fields) => {
                         for f in fields {
                             self.visit_expr_stack(func, bb, locals, f.span, &f.node)?;
-                            self.enum_promote(func, f.span, &f.node.ty, &mut iter);
+                            self.enum_promote(func, bb, f.span, &f.node.ty, &mut iter);
                         }
                     }
                     TypedEnumConstructorPayload::Struct(fields) => {
@@ -2434,7 +2447,7 @@ impl Compiler {
                                 .get(field.name.as_str())
                                 .expect("StructLiteral missing field");
                             self.visit_expr_stack(func, bb, locals, expr.span, &expr.node)?;
-                            self.enum_promote(func, expr.span, &expr.node.ty, &mut iter);
+                            self.enum_promote(func, bb, expr.span, &expr.node.ty, &mut iter);
                         }
                     }
                 }
@@ -2442,10 +2455,10 @@ impl Compiler {
                 // Push 0 for the rest
                 for ty in iter {
                     match ty {
-                        ValType::I32 => func.instructions().i32_const(0),
-                        ValType::I64 => func.instructions().i64_const(0),
-                        ValType::F32 => func.instructions().f32_const(Ieee32::new(0)),
-                        ValType::F64 => func.instructions().f64_const(Ieee64::new(0)),
+                        ValType::I32 => func.instructions(bb).i32_const(0),
+                        ValType::I64 => func.instructions(bb).i64_const(0),
+                        ValType::F32 => func.instructions(bb).f32_const(Ieee32::new(0)),
+                        ValType::F64 => func.instructions(bb).f64_const(Ieee64::new(0)),
                         _ => todo!(),
                     };
                 }
@@ -2505,16 +2518,16 @@ impl Compiler {
                         let digest = sha2::Sha256::digest(method.identity());
                         assert_eq!(digest.len(), 32);
                         for chunk in digest.chunks_exact(8) {
-                            func.instructions()
+                            func.instructions(bb)
                                 .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
                         }
-                        func.instructions().call(self.builtin_implements_method);
+                        func.instructions(bb).call(self.builtin_implements_method);
                     }
                 }
 
                 // TODO: emit calls to indicate ABIs exposed
                 // TODO: really coroutinize (basic block splitting?)
-                func.instructions().return_();
+                func.instructions(bb).return_();
                 Ok(())
             }
         }
@@ -2523,6 +2536,7 @@ impl Compiler {
     fn enum_promote(
         &mut self,
         func: &mut Function,
+        bb: usize,
         span: Span,
         ty: &Type,
         iter: &mut dyn Iterator<Item = ValType>,
@@ -2551,18 +2565,18 @@ impl Compiler {
                 (a, b) if a == b => {}
                 (ValType::I32, ValType::I64) => {
                     // Do we need to distinguish i32 and u32 here?
-                    func.instructions().i64_extend_i32_u();
+                    func.instructions(bb).i64_extend_i32_u();
                 }
                 _ => {
                     self.push_error(span, format!("Unknown promotion from {src:?} to {dst:?}"));
                 }
             }
-            func.instructions().local_set(first_local + (i as u32));
+            func.instructions(bb).local_set(first_local + (i as u32));
         }
 
         // Read the locals back in forward order.
         for i in 0..to.len() {
-            func.instructions().local_get(first_local + (i as u32));
+            func.instructions(bb).local_get(first_local + (i as u32));
         }
     }
 
@@ -2587,7 +2601,7 @@ impl Compiler {
         _ = self.star_to_core_types(scrutinee.span, &mut scrut_types, &scrutinee.node.ty);
         let scrut_base = func.add_locals(scrut_types.iter().copied());
         for i in (0..scrut_types.len()).rev() {
-            func.instructions().local_set(scrut_base + (i as u32));
+            func.instructions(bb).local_set(scrut_base + (i as u32));
         }
 
         // 2. Build the pattern matrix.
@@ -2611,7 +2625,7 @@ impl Compiler {
         let result_base = func.add_locals(result_types.iter().copied());
 
         // 5. Emit wasm from decision tree.
-        func.instructions().block(BlockType::Empty);
+        func.instructions(bb).block(BlockType::Empty);
         self.emit_decision_tree(
             func,
             bb,
@@ -2624,11 +2638,11 @@ impl Compiler {
             result_types.len() as u32,
             0,
         );
-        func.instructions().end();
+        func.instructions(bb).end();
 
         // 6. Read result locals back to stack.
         for i in 0..result_types.len() {
-            func.instructions().local_get(result_base + (i as u32));
+            func.instructions(bb).local_get(result_base + (i as u32));
         }
         Ok(())
     }
@@ -2648,7 +2662,7 @@ impl Compiler {
         _ = self.star_to_core_types(scrutinee.span, &mut scrut_types, &scrutinee.node.ty);
         let scrut_base = func.add_locals(scrut_types.iter().copied());
         for i in (0..scrut_types.len()).rev() {
-            func.instructions().local_set(scrut_base + (i as u32));
+            func.instructions(bb).local_set(scrut_base + (i as u32));
         }
 
         let mut matrix_rows = Vec::new();
@@ -2663,7 +2677,7 @@ impl Compiler {
         let col_types = vec![scrutinee.node.ty.clone()];
         let tree = decision_tree::compile(&matrix, &col_types);
 
-        func.instructions().block(BlockType::Empty);
+        func.instructions(bb).block(BlockType::Empty);
         self.emit_decision_tree(
             func,
             bb,
@@ -2676,7 +2690,7 @@ impl Compiler {
             0,
             0,
         );
-        func.instructions().end();
+        func.instructions(bb).end();
         Ok(())
     }
 
@@ -2808,7 +2822,7 @@ impl Compiler {
                         &arms[*action].body,
                     );
                     for i in (0..result_count).rev() {
-                        func.instructions().local_set(result_base + i);
+                        func.instructions(bb).local_set(result_base + i);
                     }
                 } else {
                     let _ = self.visit_block_drop(
@@ -2818,10 +2832,10 @@ impl Compiler {
                         &arms[*action].body,
                     );
                 }
-                func.instructions().br(outer_depth);
+                func.instructions(bb).br(outer_depth);
             }
             DecisionTree::Fail => {
-                func.instructions().unreachable();
+                func.instructions(bb).unreachable();
             }
             DecisionTree::Switch {
                 column,
@@ -2951,7 +2965,7 @@ impl Compiler {
                         }
                     }
                     _ => {
-                        func.instructions().unreachable();
+                        func.instructions(bb).unreachable();
                     }
                 }
             }
@@ -2983,13 +2997,13 @@ impl Compiler {
             let Ctor::EnumVariant { variant_index } = ctor else {
                 continue;
             };
-            func.instructions().block(BlockType::Empty);
+            func.instructions(bb).block(BlockType::Empty);
 
             // Test discriminant
-            func.instructions().local_get(base_local);
-            func.instructions().i32_const(*variant_index as i32);
-            func.instructions().i32_ne();
-            func.instructions().br_if(0);
+            func.instructions(bb).local_get(base_local);
+            func.instructions(bb).i32_const(*variant_index as i32);
+            func.instructions(bb).i32_ne();
+            func.instructions(bb).br_if(0);
 
             // Demote payload fields
             let variant_ty = &enum_ty.variants[*variant_index];
@@ -3001,6 +3015,7 @@ impl Compiler {
 
             let new_col_locals = self.demote_enum_fields(
                 func,
+                bb,
                 span,
                 column,
                 base_local,
@@ -3022,7 +3037,7 @@ impl Compiler {
                 outer_depth + 1,
             );
 
-            func.instructions().end();
+            func.instructions(bb).end();
         }
 
         if let Some(def) = default {
@@ -3040,7 +3055,7 @@ impl Compiler {
                 outer_depth,
             );
         } else {
-            func.instructions().unreachable();
+            func.instructions(bb).unreachable();
         }
     }
 
@@ -3049,6 +3064,7 @@ impl Compiler {
     fn demote_enum_fields(
         &mut self,
         func: &mut Function,
+        bb: usize,
         span: Span,
         column: usize,
         enum_base_local: u32,
@@ -3068,13 +3084,13 @@ impl Compiler {
                 let slot_idx = slot_offset + j as u32;
                 if slot_idx < enum_core_types.len() as u32 {
                     let joined_vt = enum_core_types[slot_idx as usize];
-                    func.instructions().local_get(enum_base_local + slot_idx);
+                    func.instructions(bb).local_get(enum_base_local + slot_idx);
                     if joined_vt != field_vt
                         && let (ValType::I64, ValType::I32) = (joined_vt, field_vt)
                     {
-                        func.instructions().i32_wrap_i64();
+                        func.instructions(bb).i32_wrap_i64();
                     }
-                    func.instructions().local_set(demoted_base + j as u32);
+                    func.instructions(bb).local_set(demoted_base + j as u32);
                 }
             }
 
@@ -3111,8 +3127,8 @@ impl Compiler {
         let new_col_locals = remove_col(col_locals, column);
 
         for (ctor, subtree) in cases {
-            func.instructions().block(BlockType::Empty);
-            emit_test(&mut func.instructions(), ctor, base_local);
+            func.instructions(bb).block(BlockType::Empty);
+            emit_test(&mut func.instructions(bb), ctor, base_local);
             self.emit_decision_tree(
                 func,
                 bb,
@@ -3125,7 +3141,7 @@ impl Compiler {
                 result_count,
                 outer_depth + 1,
             );
-            func.instructions().end();
+            func.instructions(bb).end();
         }
 
         if let Some(def) = default {
@@ -3142,7 +3158,7 @@ impl Compiler {
                 outer_depth,
             );
         } else {
-            func.instructions().unreachable();
+            func.instructions(bb).unreachable();
         }
     }
 
@@ -3179,7 +3195,7 @@ impl Compiler {
         for arg in args {
             self.visit_expr_stack(func, bb, locals, arg.span, &arg.node)?;
         }
-        func.instructions().call(core_fn_idx);
+        func.instructions(bb).call(core_fn_idx);
         Ok(())
     }
 }
@@ -3244,8 +3260,8 @@ impl Function {
         id
     }
 
-    fn instructions(&mut self) -> InstructionSink<'_> {
-        InstructionSink::new(&mut self.bytes)
+    fn instructions(&mut self, bb: usize) -> InstructionSink<'_> {
+        self.cfg.instructions(bb)
     }
 }
 

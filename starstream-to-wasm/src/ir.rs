@@ -39,32 +39,32 @@ impl ControlFlowGraph {
         len
     }
 
-    pub fn instructions(&mut self, block: usize) -> InstructionSink<'_> {
-        InstructionSink::new(&mut self.blocks[block].instructions)
+    pub fn instructions(&mut self, bb: usize) -> InstructionSink<'_> {
+        InstructionSink::new(&mut self.blocks[bb].instructions)
     }
 
-    pub fn seal(&mut self, block: usize) {
-        assert!(!self.blocks[block].sealed);
-        self.blocks[block].sealed = true;
+    pub fn seal(&mut self, bb: usize) {
+        assert!(!self.blocks[bb].sealed);
+        self.blocks[bb].sealed = true;
     }
 
-    pub fn fill(&mut self, block: usize, out: Out) {
+    pub fn fill(&mut self, bb: usize, out: Out) {
         assert!(!matches!(out, Out::None));
-        assert!(matches!(self.blocks[block].out, Out::None));
+        assert!(matches!(self.blocks[bb].out, Out::None));
         match out {
             Out::None | Out::Return => {}
             Out::Next(next) => {
                 assert!(!self.blocks[next].sealed);
-                self.blocks[next].ins.push(block);
+                self.blocks[next].ins.push(bb);
             }
             Out::If { f, t } => {
                 assert!(!self.blocks[f].sealed);
                 assert!(!self.blocks[t].sealed);
-                self.blocks[f].ins.push(block);
-                self.blocks[t].ins.push(block);
+                self.blocks[f].ins.push(bb);
+                self.blocks[t].ins.push(bb);
             }
         }
-        self.blocks[block].out = out;
+        self.blocks[bb].out = out;
     }
 }
 
