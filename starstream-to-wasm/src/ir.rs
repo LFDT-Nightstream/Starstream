@@ -1,5 +1,12 @@
 //! Intermediate representation in control flow graph form.
 
+// Definitions of "sealed" and "filled" are based on those in:
+//     Simple and Efficient Construction of Static Single Assignment Form.
+//     Matthias Braun, Sebastian Buchwald, Sebastian Hack, Roland Leißa, Christoph Mallon, and Andreas Zwinkau.
+// Sealed: No further predecessors will be added.
+// Filled: In Braun, means local value numbering is finished and successors may be added.
+// We have a single "fill" point that both finishes adding instructions, "fills", and immediately adds all successors.
+
 use wasm_encoder::InstructionSink;
 
 #[derive(Default)]
@@ -42,6 +49,7 @@ impl ControlFlowGraph {
     }
 
     pub fn instructions(&mut self, bb: usize) -> InstructionSink<'_> {
+        assert!(!self.blocks[bb].is_filled());
         InstructionSink::new(&mut self.blocks[bb].instructions)
     }
 

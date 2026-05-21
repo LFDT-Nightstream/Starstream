@@ -2414,35 +2414,51 @@ impl Compiler {
                 self.star_to_core_types(span, &mut new_locals, &expr.ty)?;
                 let first_local = func.add_locals(new_locals.iter().copied());
 
-                // Emit basic double-block and trust the optimizer.
-                func.instructions(bb).block(BlockType::Empty);
+                let bb_end = func.cfg.add_block();
+
                 for (condition, block) in branches {
                     match condition {
                         TypedIfCondition::Bool(condition) => {
-                            // Inner block for each condition.
-                            func.instructions(bb).block(BlockType::Empty);
-                            self.visit_expr_stack(
+                            // Evaluate condition.
+                            let _ = self.visit_expr_stack(
                                 func,
                                 bb,
                                 locals,
                                 condition.span,
                                 &condition.node,
-                            )?;
+                            );
                             assert_eq!(condition.node.ty, Type::Bool);
-                            func.instructions(bb).i32_eqz(); // If condition is false,
-                            func.instructions(bb).br_if(0); // then try the next condition.
-                            self.visit_block_stack(func, bb, locals, block)?;
+
+                            // Inner block for each condition.
+                            let mut bb_true = func.cfg.add_block();
+                            let bb_false = func.cfg.add_block();
+                            func.cfg.fill(
+                                *bb,
+                                ir::Out::If {
+                                    f: bb_false,
+                                    t: bb_true,
+                                },
+                            );
+                            func.cfg.seal(bb_true);
+                            func.cfg.seal(bb_false);
+
+                            // True branch.
+                            self.visit_block_stack(func, &mut bb_true, locals, block)?;
                             for i in (0..new_locals.len()).rev() {
-                                func.instructions(bb).local_set(first_local + (i as u32));
+                                func.instructions(&bb_true)
+                                    .local_set(first_local + (i as u32));
                             }
-                            func.instructions(bb).br(1); // Go past end.
-                            func.instructions(bb).end();
+                            func.cfg.fill(bb_true, ir::Out::Next(bb_end));
+
+                            // False branch is to continue evaluating conditions.
+                            *bb = bb_false;
                         }
                         TypedIfCondition::Is { .. } => {
                             todo!("codegen for if...is not yet implemented")
                         }
                     }
                 }
+
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
                     self.visit_block_stack(func, bb, locals, else_branch)?;
@@ -2450,8 +2466,11 @@ impl Compiler {
                         func.instructions(bb).local_set(first_local + (i as u32));
                     }
                 }
+
                 // End.
-                func.instructions(bb).end();
+                func.cfg.fill(*bb, ir::Out::Next(bb_end));
+                func.cfg.seal(bb_end);
+                *bb = bb_end;
 
                 // Read locals back onto stack.
                 for i in 0..new_locals.len() {
