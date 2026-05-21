@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
@@ -16,6 +15,7 @@ mod component_abi;
 mod decision_tree;
 mod encoder;
 mod ir;
+mod stackifier;
 
 /*
     The entry point [compile] is responsible for the overall AST-to-WASM-module
@@ -760,7 +760,7 @@ impl Compiler {
 
             let wrapper_func_idx = self.add_function(
                 FuncType::new(params.iter().copied(), [ValType::I32]),
-                wrapper_func.encode_from(*bb),
+                wrapper_func.stackify(*bb),
             );
 
             Some(wrapper_func_idx)
@@ -1406,7 +1406,7 @@ impl Compiler {
 
         let idx = self.add_function(
             FuncType::new(params.iter().copied(), results.iter().copied()),
-            func.encode_from(bb_orig),
+            func.stackify(bb_orig),
         );
         self.callables
             .insert(function.name.as_str().to_owned(), idx);
@@ -3404,19 +3404,8 @@ impl Function {
         self.cfg.instructions(*bb)
     }
 
-    fn encode_from(&self, entry: usize) -> EncodeFrom<'_> {
-        EncodeFrom(self, entry)
-    }
-}
-
-struct EncodeFrom<'a>(&'a Function, usize);
-
-impl<'a> wasm_encoder::Encode for EncodeFrom<'a> {
-    fn encode(&self, sink: &mut Vec<u8>) {
-        let EncodeFrom(func, mut bb) = *self;
-        func.cfg.assert_complete();
-        eprintln!("{}", func.cfg.to_mermaid());
-        // TODO: compile basic block graph into wasm control flow
+    fn stackify(&self, entry: usize) -> stackifier::Stackifier<'_> {
+        stackifier::Stackifier::new(self, entry)
     }
 }
 
