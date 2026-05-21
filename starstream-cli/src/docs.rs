@@ -7,7 +7,7 @@ use starstream_compiler::{TypecheckOptions, generate_docs, module_graph, typeche
 use starstream_types::FileSystem;
 
 use crate::diagnostics::print_diagnostic;
-use crate::project::{default_scan_dir, project_root};
+use crate::project::default_scan_dir;
 use crate::wasm::{build_named_sources, report_graph_error};
 
 /// Generate JSON documentation for every contract under the target directory.
@@ -78,8 +78,7 @@ impl Docs {
         };
 
         let target_abs = fs::canonicalize(&scan_dir).into_diagnostic()?;
-        let root = project_root(&target_abs);
-        let artifacts_dir = root.join("artifacts");
+        let artifacts_dir = target_abs.join("artifacts");
         fs::create_dir_all(&artifacts_dir).into_diagnostic()?;
 
         for &entry_id in &typed.contract_entries {

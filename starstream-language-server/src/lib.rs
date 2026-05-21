@@ -7,6 +7,8 @@ use document::DocumentState;
 
 use dashmap::{DashMap, mapref::entry::Entry};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::RwLock;
 use tower_lsp_server::{
     Client, ClientSocket, LanguageServer, LspService,
     jsonrpc::{self, Error, Result},
@@ -19,9 +21,12 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[derive(Debug)]
 pub struct Server {
     client: Client,
-
-    // /// store the list of the workspace folders
-    // pub workspace_folders: OnceCell<Vec<WorkspaceFolder>>,
+    /// Workspace roots announced by the editor during `initialize`. The
+    /// LSP uses these as the scan root for multi-file type-checking: when a
+    /// file is edited, the first workspace folder that contains it becomes
+    /// the `load_workspace` root. If the editor didn't announce any, the
+    /// document falls back to its parent directory.
+    workspace_folders: RwLock<Vec<PathBuf>>,
     document_map: DashMap<Uri, DocumentState>,
 }
 
@@ -42,37 +47,50 @@ impl Server {
     fn with_client(client: Client) -> Self {
         Self {
             client,
-            // workspace_folders: OnceCell::new(),
+            workspace_folders: RwLock::new(Vec::new()),
             document_map: DashMap::new(),
         }
     }
 
     pub(crate) fn initialise_workspace_folders(
         &self,
-        _workspace_folders: Vec<WorkspaceFolder>,
+        workspace_folders: Vec<WorkspaceFolder>,
     ) -> jsonrpc::Result<()> {
-        // self.workspace_folders
-        //     .set(workspace_folders)
-        //     .map_err(|error| jsonrpc::Error {
-        //         code: ErrorCode::ParseError,
-        //         message: error.to_string().into(),
-        //         data: None,
-        //     })?;
-
+        let mut folders = self.workspace_folders.write().map_err(|_| jsonrpc::Error {
+            code: jsonrpc::ErrorCode::InternalError,
+            message: "workspace_folders lock poisoned".into(),
+            data: None,
+        })?;
+        folders.clear();
+        for wf in workspace_folders {
+            if let Some(path) = document::uri_to_file_path(&wf.uri) {
+                folders.push(path);
+            }
+        }
         Ok(())
+    }
+
+    fn workspace_folders_snapshot(&self) -> Vec<PathBuf> {
+        self.workspace_folders
+            .read()
+            .map(|f| f.clone())
+            .unwrap_or_default()
     }
 
     async fn on_change<'a>(&self, params: TextDocumentItem<'a>) {
         let uri = params.uri.clone();
+        let folders = self.workspace_folders_snapshot();
         let (diagnostics, version) = match self.document_map.entry(uri.clone()) {
             Entry::Occupied(mut occupied) => {
-                occupied.get_mut().update(&uri, params.text, params.version);
+                occupied
+                    .get_mut()
+                    .update(&uri, params.text, params.version, &folders);
                 let diagnostics = occupied.get().diagnostics().to_vec();
                 let version = occupied.get().version();
                 (diagnostics, version)
             }
             Entry::Vacant(vacant) => {
-                let state = DocumentState::from_text(&uri, params.text, params.version);
+                let state = DocumentState::from_text(&uri, params.text, params.version, &folders);
                 let diagnostics = state.diagnostics().to_vec();
                 let version = state.version();
                 vacant.insert(state);

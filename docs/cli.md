@@ -42,11 +42,10 @@ starstream build [DIR]
 All three share the same shared-workspace-graph model:
 
 - **Directory selection.**
-  - With no `DIR`: walk up from the current working directory looking for
-    `.git`. The first ancestor that contains `.git` becomes the scan
-    root. If no `.git` is ever found, scan the current working directory
-    itself.
-  - With an explicit `DIR`: scan exactly that directory. No walk-up.
+  - With no `DIR`: scan the current working directory.
+  - With an explicit `DIR`: scan exactly that directory.
+  - The CLI does not walk up the filesystem looking for a marker file —
+    if you want a different scan root, `cd` there or pass it explicitly.
 
 - **File discovery.** Within the scan root the compiler recursively walks
   for `.star` files. Hidden directories (`.git`, `.vscode`, …) and the
@@ -73,18 +72,19 @@ All three share the same shared-workspace-graph model:
     `contract.wit`, and a Make/Ninja-style `deps.d`.
 
 - **Artifacts location** (`docs` and `build`).
-  Walks up from the scanned directory looking for `.git`. The first
-  ancestor that contains `.git` is the **project root**; if none is
-  found, the project root is the scanned directory itself. Per-contract
-  outputs land at `<project-root>/artifacts/<filename-stem>/`.
+  Per-contract outputs land at `<scan-dir>/artifacts/<filename-stem>/` —
+  i.e. directly under whatever directory you scanned (or cwd, if you
+  passed no `DIR`).
 
 ## Language server: `starstream lsp`
 
 The language server uses the same shared-workspace-graph model:
 
-1. **Pick a workspace root** by walking up from the open file's parent
-   directory until a `.git` directory is found. If none is found, the
-   open file's parent directory is used.
+1. **Pick a workspace root** from the `workspaceFolders` the editor
+   announced during `initialize`. The first folder that contains the open
+   file becomes the scan root (the deepest one wins when nested folders
+   overlap). If the editor announced no folders, or none contain this
+   file, fall back to the open file's parent directory.
 2. **Build one workspace graph** via `load_workspace`. This is the same
    graph the CLI scan-based commands build.
 3. **Locate the open file** in the graph by canonical absolute path.

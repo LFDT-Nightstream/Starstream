@@ -92,8 +92,15 @@ pub struct DocumentState {
 }
 
 impl DocumentState {
-    /// Create initial document state from raw text.
-    pub fn from_text(uri: &Uri, text: &str, version: Option<i32>) -> Self {
+    /// Create initial document state from raw text. `workspace_folders` is
+    /// the list of roots the editor announced during `initialize`; the
+    /// document picks the first one that contains it as its scan root.
+    pub fn from_text(
+        uri: &Uri,
+        text: &str,
+        version: Option<i32>,
+        workspace_folders: &[std::path::PathBuf],
+    ) -> Self {
         let mut state = Self {
             rope: Rope::from_str(text),
             version,
@@ -125,18 +132,24 @@ impl DocumentState {
             comment_map: CommentMap::new(),
         };
 
-        state.reanalyse(uri, text);
+        state.reanalyse(uri, text, workspace_folders);
 
         state
     }
 
     /// Update the stored text + version and recompute analysis artifacts.
-    pub fn update(&mut self, uri: &Uri, text: &str, version: Option<i32>) {
+    pub fn update(
+        &mut self,
+        uri: &Uri,
+        text: &str,
+        version: Option<i32>,
+        workspace_folders: &[std::path::PathBuf],
+    ) {
         self.rope = Rope::from_str(text);
 
         self.version = version;
 
-        self.reanalyse(uri, text);
+        self.reanalyse(uri, text, workspace_folders);
     }
 
     /// Most recent diagnostics derived from parsing and typechecking.
@@ -175,7 +188,7 @@ impl DocumentState {
         ))
     }
 
-    fn reanalyse(&mut self, uri: &Uri, text: &str) {
+    fn reanalyse(&mut self, uri: &Uri, text: &str, workspace_folders: &[std::path::PathBuf]) {
         self.diagnostics.clear();
         self.program = None;
         self.typed = None;
@@ -221,7 +234,7 @@ impl DocumentState {
             // mode. That avoids surfacing the W0002 ("path import ignored
             // in single-file mode") warning anywhere except the browser
             // playground, where there's no filesystem to scan.
-            if !self.try_typecheck_via_workspace(uri, text) {
+            if !self.try_typecheck_via_workspace(uri, text, workspace_folders) {
                 let program = self.program.clone().unwrap();
                 match typecheck_program(program.as_ref(), TypecheckOptions::default()) {
                     Ok(typed) => {
@@ -252,20 +265,27 @@ impl DocumentState {
     /// Type-check this document using the multi-file graph driver.
     ///
     /// Strategy:
-    ///   1. Walk up from the open file looking for `.git`; fall back to the
-    ///      file's parent directory if none.
-    ///   2. Scan that root for `.star` files declaring `contract;`. For each,
-    ///      build its module graph. If one of those graphs contains this
-    ///      file, drive typechecking through it (only diagnostics from this
-    ///      file are surfaced — other files publish their own).
-    ///   3. Otherwise the file is an unowned helper (or its own root):
-    ///      build a graph rooted at the file itself and use that. This still
-    ///      goes through `typecheck_modules`, so W0002 doesn't fire.
+    ///   1. Pick a scan root: the first `workspace_folders` entry that
+    ///      contains the open file. If the editor didn't announce any
+    ///      folders (or none of them contain this file), fall back to the
+    ///      file's parent directory.
+    ///   2. Build one workspace module graph rooted at that directory. If
+    ///      the open file is a node in that graph, drive type-checking
+    ///      through the graph and surface diagnostics for the open file.
+    ///   3. Otherwise (file is outside the scan root, or the workspace scan
+    ///      itself errored), fall back to a single-file graph rooted at
+    ///      the open file. Still goes through `typecheck_modules`, so
+    ///      W0002 doesn't fire.
     ///
     /// Returns `false` only when the URI isn't a filesystem path (browser
     /// playground, `untitled:`, etc.) — in that case the caller falls back
     /// to `typecheck_program`, where W0002 *will* fire on path imports.
-    fn try_typecheck_via_workspace(&mut self, uri: &Uri, text: &str) -> bool {
+    fn try_typecheck_via_workspace(
+        &mut self,
+        uri: &Uri,
+        text: &str,
+        workspace_folders: &[std::path::PathBuf],
+    ) -> bool {
         let Some(file_path) = uri_to_file_path(uri) else {
             return false;
         };
@@ -273,7 +293,7 @@ impl DocumentState {
             return false;
         };
 
-        let workspace_root = workspace_root_for(&file_path);
+        let workspace_root = workspace_root_for(&canonical_file, workspace_folders);
 
         // One workspace graph for the whole project; contracts are codegen
         // entries inside it. The open file is just a node — it might be a
@@ -2406,7 +2426,7 @@ struct StructTypeEntry {
 /// Convert an LSP `Uri` (`file:///abs/path/to/foo.star`) to a `PathBuf`.
 /// Returns `None` for non-file URIs (e.g. `untitled:`, `vscode-vfs:`) or if
 /// the URI can't be percent-decoded.
-fn uri_to_file_path(uri: &Uri) -> Option<std::path::PathBuf> {
+pub fn uri_to_file_path(uri: &Uri) -> Option<std::path::PathBuf> {
     let s = uri.as_str();
     let raw = s.strip_prefix("file://")?;
     // On Windows VS Code emits `file:///C:/...`; on Unix it's `file:///abs/...`.
@@ -2444,26 +2464,40 @@ fn hex_digit(b: u8) -> Option<u8> {
     }
 }
 
-/// Walk up from `start` until a directory containing `.git` is found; fall
-/// back to the file's parent directory if no git root exists.
-fn workspace_root_for(start: &std::path::Path) -> std::path::PathBuf {
-    let mut current = if start.is_dir() {
-        start
-    } else {
-        start.parent().unwrap_or(start)
-    };
-    loop {
-        if current.join(".git").exists() {
-            return current.to_path_buf();
-        }
-        match current.parent() {
-            Some(parent) => current = parent,
-            None => {
-                return start
-                    .parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+/// Pick the workspace root for typechecking `file_path`.
+///
+/// First, look for a `workspace_folders` entry that contains `file_path` —
+/// these come from the editor's `initialize` params (LSP
+/// `workspaceFolders`). If multiple folders contain the file, the deepest
+/// one wins, so nested workspaces still get sensible scoping.
+///
+/// If no announced folder contains the file (or the editor announced
+/// none), fall back to the file's parent directory.
+fn workspace_root_for(
+    file_path: &std::path::Path,
+    workspace_folders: &[std::path::PathBuf],
+) -> std::path::PathBuf {
+    let mut best: Option<&std::path::Path> = None;
+    for folder in workspace_folders {
+        let candidate = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
+        if file_path.starts_with(&candidate) {
+            // Prefer the deepest containing folder.
+            if best
+                .map(|cur| candidate.as_path().components().count() > cur.components().count())
+                .unwrap_or(true)
+            {
+                // Storing as PathBuf via unsafe gymnastics is overkill;
+                // re-derive at the end.
+                let _ = best.replace(folder.as_path());
             }
         }
     }
+    if let Some(found) = best {
+        return std::fs::canonicalize(found).unwrap_or_else(|_| found.to_path_buf());
+    }
+
+    file_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
 }

@@ -8,7 +8,7 @@ use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
 
 use crate::diagnostics::print_diagnostic;
-use crate::project::{default_scan_dir, project_root};
+use crate::project::default_scan_dir;
 use crate::wasm::{build_named_sources, report_graph_error};
 
 /// Compile every contract under the target directory to wasm.
@@ -75,8 +75,7 @@ impl Build {
         };
 
         let target_abs = fs::canonicalize(&scan_dir).unwrap_or(scan_dir.clone());
-        let root = project_root(&target_abs);
-        let artifacts_dir = root.join("artifacts");
+        let artifacts_dir = target_abs.join("artifacts");
         if let Err(err) = fs::create_dir_all(&artifacts_dir) {
             eprintln!(
                 "error: failed to create `{}`: {}",
