@@ -1663,10 +1663,25 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions(bb).if_(BlockType::Empty);
-                self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
+
+                let bb_end = func.cfg.add_block();
+                let mut bb_rhs = func.cfg.add_block();
+                func.cfg.fill(
+                    *bb,
+                    ir::Out::If {
+                        f: bb_end,
+                        t: bb_rhs,
+                    },
+                );
+                func.cfg.seal(bb_rhs);
+
+                self.visit_expr_drop(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions(bb).end();
+
+                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+                func.cfg.seal(bb_end);
+
+                *bb = bb_end;
             }
             // _ = lhs || rhs --> if (!lhs) { _ = rhs; }
             TypedExprKind::Binary {
@@ -1676,11 +1691,25 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions(bb).i32_eqz();
-                func.instructions(bb).if_(BlockType::Empty);
-                self.visit_expr_drop(func, bb, locals, right.span, &right.node)?;
+
+                let bb_end = func.cfg.add_block();
+                let mut bb_rhs = func.cfg.add_block();
+                func.cfg.fill(
+                    *bb,
+                    ir::Out::If {
+                        f: bb_rhs,
+                        t: bb_end,
+                    },
+                );
+                func.cfg.seal(bb_rhs);
+
+                self.visit_expr_drop(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions(bb).end();
+
+                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+                func.cfg.seal(bb_end);
+
+                *bb = bb_end;
             }
             // Other binary operators have no control flow or side effects.
             TypedExprKind::Binary { op: _, left, right } => {
@@ -2245,10 +2274,29 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions(bb).if_(BlockType::Result(ValType::I32));
-                self.visit_expr_stack(func, bb, locals, right.span, &right.node)?;
+
+                let bb_short = func.cfg.add_block();
+                let mut bb_rhs = func.cfg.add_block();
+                let bb_end = func.cfg.add_block();
+                func.cfg.fill(
+                    *bb,
+                    ir::Out::If {
+                        f: bb_short,
+                        t: bb_rhs,
+                    },
+                );
+                func.cfg.seal(bb_short);
+                func.cfg.seal(bb_rhs);
+
+                self.visit_expr_stack(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions(bb).else_().i32_const(0).end();
+                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+
+                func.instructions(&bb_short).i32_const(0);
+                func.cfg.fill(bb_short, ir::Out::Next(bb_end));
+
+                func.cfg.seal(bb_end);
+                *bb = bb_end;
                 Ok(())
             }
             TypedExprKind::Binary {
@@ -2258,13 +2306,29 @@ impl Compiler {
             } => {
                 self.visit_expr_stack(func, bb, locals, left.span, &left.node)?;
                 assert_eq!(left.node.ty, Type::Bool);
-                func.instructions(bb)
-                    .if_(BlockType::Result(ValType::I32))
-                    .i32_const(1)
-                    .else_();
-                self.visit_expr_stack(func, bb, locals, right.span, &right.node)?;
+
+                let bb_short = func.cfg.add_block();
+                let mut bb_rhs = func.cfg.add_block();
+                let bb_end = func.cfg.add_block();
+                func.cfg.fill(
+                    *bb,
+                    ir::Out::If {
+                        f: bb_rhs,
+                        t: bb_short,
+                    },
+                );
+                func.cfg.seal(bb_short);
+                func.cfg.seal(bb_rhs);
+
+                self.visit_expr_stack(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.instructions(bb).end();
+                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+
+                func.instructions(&bb_short).i32_const(1);
+                func.cfg.fill(bb_short, ir::Out::Next(bb_end));
+
+                func.cfg.seal(bb_end);
+                *bb = bb_end;
                 Ok(())
             }
             // Field access
