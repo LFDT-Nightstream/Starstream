@@ -26,7 +26,7 @@ pub struct BasicBlock {
     pub out: Out,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum Out {
     /// Not set.
     #[default]
@@ -39,6 +39,22 @@ pub enum Out {
     Next(usize),
     /// 2 successors, false case then true case.
     If { f: usize, t: usize },
+}
+
+impl Out {
+    pub fn for_each_successor<F: FnMut(usize)>(&self, mut func: F) {
+        match *self {
+            Out::None | Out::Return | Out::Yield(_) => {}
+            Out::Next(a) => func(a),
+            Out::If { f, t } => {
+                // Prefer visiting true branch first for readability, since
+                // the true branch of an if() or while() usually follows it
+                // directly in source.
+                func(t);
+                func(f);
+            }
+        }
+    }
 }
 
 impl ControlFlowGraph {
@@ -61,19 +77,10 @@ impl ControlFlowGraph {
     pub fn fill(&mut self, bb: usize, out: Out) {
         assert!(!matches!(out, Out::None));
         assert!(matches!(self.blocks[bb].out, Out::None));
-        match out {
-            Out::None | Out::Return | Out::Yield(_) => {}
-            Out::Next(next) => {
-                assert!(!self.blocks[next].is_sealed());
-                self.blocks[next].ins.push(bb);
-            }
-            Out::If { f, t } => {
-                assert!(!self.blocks[f].is_sealed());
-                assert!(!self.blocks[t].is_sealed());
-                self.blocks[f].ins.push(bb);
-                self.blocks[t].ins.push(bb);
-            }
-        }
+        out.for_each_successor(|next| {
+            assert!(!self.blocks[next].is_sealed());
+            self.blocks[next].ins.push(bb);
+        });
         self.blocks[bb].out = out;
     }
 
@@ -176,7 +183,7 @@ impl BasicBlock {
         !matches!(self.out, Out::None)
     }
 
-    fn disassemble(&self) -> String {
+    pub fn disassemble(&self) -> String {
         use std::fmt::Write;
         let mut disassembly = String::new();
         match self.in_type {

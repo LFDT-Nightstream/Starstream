@@ -448,7 +448,7 @@ impl Compiler {
 
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
-    fn add_function<F: Encode>(&mut self, ty: FuncType, code: F) -> u32 {
+    fn add_function(&mut self, ty: FuncType, code: &[u8]) -> u32 {
         // TODO: enforce that all *imported* function IDs are known before this
         // is called, as Wasm requires all imports to precede all of the
         // module's own functions.
@@ -457,9 +457,7 @@ impl Compiler {
         let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
 
-        let mut vec = Vec::new();
-        code.encode(&mut vec);
-        self.code.raw(&vec);
+        self.code.raw(&code);
 
         func_index
     }
@@ -531,7 +529,7 @@ impl Compiler {
         // Sum is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), code);
+        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_add_checked".to_string(), idx);
@@ -590,7 +588,7 @@ impl Compiler {
         // Diff is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), code);
+        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_sub_checked".to_string(), idx);
@@ -674,7 +672,7 @@ impl Compiler {
         // Product is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), code);
+        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_mul_checked".to_string(), idx);
@@ -760,7 +758,7 @@ impl Compiler {
 
             let wrapper_func_idx = self.add_function(
                 FuncType::new(params.iter().copied(), [ValType::I32]),
-                wrapper_func.stackify(*bb),
+                &wrapper_func.stackify(*bb),
             );
 
             Some(wrapper_func_idx)
@@ -1406,7 +1404,7 @@ impl Compiler {
 
         let idx = self.add_function(
             FuncType::new(params.iter().copied(), results.iter().copied()),
-            func.stackify(bb_orig),
+            &func.stackify(bb_orig),
         );
         self.callables
             .insert(function.name.as_str().to_owned(), idx);
@@ -3416,8 +3414,8 @@ impl StFunction {
         self.cfg.instructions(*bb)
     }
 
-    fn stackify(&self, entry: usize) -> stackifier::Stackifier<'_> {
-        stackifier::Stackifier::new(self, entry)
+    fn stackify(&self, entry: usize) -> Vec<u8> {
+        stackifier::Stackifier::new(self, entry).into_raw_body()
     }
 }
 
