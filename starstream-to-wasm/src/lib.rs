@@ -683,7 +683,7 @@ impl Compiler {
     }
 
     /// Emit truncation/masking after an i32 operation for sub-32-bit types.
-    fn emit_truncate(&self, func: &mut Function, bb: &mut usize, w: IntWidth) {
+    fn emit_truncate(&self, func: &mut StFunction, bb: &mut usize, w: IntWidth) {
         match w {
             IntWidth::I8 => {
                 func.instructions(bb).i32_const(24);
@@ -744,7 +744,7 @@ impl Compiler {
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
-            let mut wrapper_func = Function::from_params(params);
+            let mut wrapper_func = StFunction::from_params(params);
             let bb = &wrapper_func.cfg.add_block();
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
@@ -824,7 +824,7 @@ impl Compiler {
     fn component_store(
         &mut self,
         span: Span,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &usize,
         ty: &ComponentAbiType,
         offset: u64,
@@ -1393,7 +1393,7 @@ impl Compiler {
             _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
         }
 
-        let mut func = Function::from_params(&params);
+        let mut func = StFunction::from_params(&params);
         let bb_orig = func.cfg.add_block();
         func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
@@ -1491,7 +1491,7 @@ impl Compiler {
     /// needed for control flow reasons.
     fn visit_block_common(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         parent: &dyn Locals,
         block: &TypedBlock,
@@ -1610,7 +1610,7 @@ impl Compiler {
     /// Visit a block, dropping its result.
     fn visit_block_drop(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         parent: &dyn Locals,
         block: &TypedBlock,
@@ -1626,7 +1626,7 @@ impl Compiler {
     /// Visit a block, storing its result to the stack.
     fn visit_block_stack(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         parent: &dyn Locals,
         block: &TypedBlock,
@@ -1642,7 +1642,7 @@ impl Compiler {
     /// Visit an expression, dropping its result.
     fn visit_expr_drop(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -1833,7 +1833,7 @@ impl Compiler {
     /// [Intermediate] representing that expression's output on the stack.
     fn visit_expr_stack(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -2678,7 +2678,7 @@ impl Compiler {
 
     fn enum_promote(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         span: Span,
         ty: &Type,
@@ -2730,7 +2730,7 @@ impl Compiler {
     /// Result is left on the stack.
     fn visit_match_stack(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -2793,7 +2793,7 @@ impl Compiler {
     /// Same as visit_match_stack but drops the result.
     fn visit_match_drop(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -2935,7 +2935,7 @@ impl Compiler {
     /// Recursively emit wasm for a decision tree node.
     fn emit_decision_tree(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -3117,7 +3117,7 @@ impl Compiler {
 
     fn emit_enum_switch(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -3206,7 +3206,7 @@ impl Compiler {
     /// allocating fresh locals and emitting conversion instructions.
     fn demote_enum_fields(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         span: Span,
         column: usize,
@@ -3252,7 +3252,7 @@ impl Compiler {
     /// `emit_test` emits a br_if(0) that skips the case if the constructor doesn't match.
     fn emit_simple_switch(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -3327,7 +3327,7 @@ impl Compiler {
 
     fn visit_call(
         &mut self,
-        func: &mut Function,
+        func: &mut StFunction,
         bb: &mut usize,
         locals: &dyn Locals,
         span: Span,
@@ -3373,17 +3373,17 @@ impl Locals for (&dyn Locals, &HashMap<String, Var>) {
 ///
 /// Bytecode can be encoded to the return value of [Function::instructions].
 #[derive(Default)]
-struct Function {
+struct StFunction {
     num_locals: u32,
     locals: Vec<(u32, ValType)>,
     cfg: ControlFlowGraph,
 }
 
-impl Function {
-    fn from_params(params: &[ValType]) -> Function {
-        Function {
+impl StFunction {
+    fn from_params(params: &[ValType]) -> StFunction {
+        StFunction {
             num_locals: u32::try_from(params.len()).unwrap(),
-            ..Function::default()
+            ..StFunction::default()
         }
     }
 

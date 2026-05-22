@@ -6,15 +6,15 @@
 
 // Currently only supports reducible CFGs (those without gotos into loops).
 
-use crate::Function;
+use crate::StFunction;
 
 pub struct Stackifier<'a> {
-    func: &'a Function,
+    func: &'a StFunction,
     entry: usize,
 }
 
 impl<'a> Stackifier<'a> {
-    pub fn new(func: &'a Function, entry: usize) -> Self {
+    pub fn new(func: &'a StFunction, entry: usize) -> Self {
         Stackifier { func, entry }
     }
 }
