@@ -7,7 +7,7 @@
 // Filled: In Braun, means local value numbering is finished and successors may be added.
 // We have a single "fill" point that both finishes adding instructions, "fills", and immediately adds all successors.
 
-use wasm_encoder::InstructionSink;
+use wasm_encoder::{BlockType, InstructionSink};
 
 #[derive(Default)]
 pub struct ControlFlowGraph {
@@ -17,8 +17,8 @@ pub struct ControlFlowGraph {
 
 #[derive(Default)]
 pub struct BasicBlock {
-    /// True if no further predecessors will be added.
-    pub sealed: bool,
+    /// Type explicitly being left on the stack as part of control flow.
+    pub in_type: Option<BlockType>,
     /// Known predecessors.
     pub ins: Vec<usize>,
     pub instructions: Vec<u8>,
@@ -53,9 +53,9 @@ impl ControlFlowGraph {
         InstructionSink::new(&mut self.blocks[bb].instructions)
     }
 
-    pub fn seal(&mut self, bb: usize) {
-        assert!(!self.blocks[bb].sealed);
-        self.blocks[bb].sealed = true;
+    pub fn seal(&mut self, bb: usize, ty: BlockType) {
+        assert!(!self.blocks[bb].is_sealed());
+        self.blocks[bb].in_type = Some(ty);
     }
 
     pub fn fill(&mut self, bb: usize, out: Out) {
@@ -64,12 +64,12 @@ impl ControlFlowGraph {
         match out {
             Out::None | Out::Return | Out::Yield(_) => {}
             Out::Next(next) => {
-                assert!(!self.blocks[next].sealed);
+                assert!(!self.blocks[next].is_sealed());
                 self.blocks[next].ins.push(bb);
             }
             Out::If { f, t } => {
-                assert!(!self.blocks[f].sealed);
-                assert!(!self.blocks[t].sealed);
+                assert!(!self.blocks[f].is_sealed());
+                assert!(!self.blocks[t].is_sealed());
                 self.blocks[f].ins.push(bb);
                 self.blocks[t].ins.push(bb);
             }
@@ -79,7 +79,7 @@ impl ControlFlowGraph {
 
     pub fn assert_complete(&self) {
         for (i, block) in self.blocks.iter().enumerate() {
-            assert!(block.sealed, "block {i} not sealed");
+            assert!(block.is_sealed(), "block {i} not sealed");
             assert!(block.is_filled(), "block {i} not filled");
         }
     }
@@ -166,6 +166,11 @@ impl ControlFlowGraph {
 }
 
 impl BasicBlock {
+    /// True if this block's predecessors are known.
+    pub fn is_sealed(&self) -> bool {
+        self.in_type.is_some()
+    }
+
     /// True if this block's full contents and successors are known.
     pub fn is_filled(&self) -> bool {
         !matches!(self.out, Out::None)
@@ -174,6 +179,12 @@ impl BasicBlock {
     fn disassemble(&self) -> String {
         use std::fmt::Write;
         let mut disassembly = String::new();
+        match self.in_type {
+            None | Some(BlockType::Empty) => {}
+            Some(other) => {
+                _ = writeln!(disassembly, "-> {:?}", other);
+            }
+        }
         let br = wasmparser::BinaryReader::new(&self.instructions, 0);
         let or = wasmparser::OperatorsReader::new(br);
         for result in or.into_iter() {

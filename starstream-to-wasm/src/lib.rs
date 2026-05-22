@@ -1395,7 +1395,7 @@ impl Compiler {
 
         let mut func = Function::from_params(&params);
         let bb_orig = func.cfg.add_block();
-        func.cfg.seal(bb_orig);
+        func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
 
         let mut results = Vec::with_capacity(1);
@@ -1580,14 +1580,14 @@ impl Compiler {
                             t: bb_body,
                         },
                     );
-                    func.cfg.seal(bb_exit);
-                    func.cfg.seal(bb_body);
+                    func.cfg.seal(bb_exit, BlockType::Empty);
+                    func.cfg.seal(bb_body, BlockType::Empty);
 
                     // body block
                     let mut bb_body_2 = bb_body;
                     self.visit_block_drop(func, &mut bb_body_2, &(parent, &locals), body)?;
                     func.cfg.fill(bb_body_2, ir::Out::Next(bb_condition));
-                    func.cfg.seal(bb_condition);
+                    func.cfg.seal(bb_condition, BlockType::Empty);
 
                     // exit block
                     *bb = bb_exit;
@@ -1673,13 +1673,13 @@ impl Compiler {
                         t: bb_rhs,
                     },
                 );
-                func.cfg.seal(bb_rhs);
+                func.cfg.seal(bb_rhs, BlockType::Empty);
 
                 self.visit_expr_drop(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
 
                 func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
-                func.cfg.seal(bb_end);
+                func.cfg.seal(bb_end, BlockType::Empty);
 
                 *bb = bb_end;
             }
@@ -1701,13 +1701,13 @@ impl Compiler {
                         t: bb_end,
                     },
                 );
-                func.cfg.seal(bb_rhs);
+                func.cfg.seal(bb_rhs, BlockType::Empty);
 
                 self.visit_expr_drop(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
 
                 func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
-                func.cfg.seal(bb_end);
+                func.cfg.seal(bb_end, BlockType::Empty);
 
                 *bb = bb_end;
             }
@@ -1780,8 +1780,8 @@ impl Compiler {
                                     t: bb_true,
                                 },
                             );
-                            func.cfg.seal(bb_true);
-                            func.cfg.seal(bb_false);
+                            func.cfg.seal(bb_true, BlockType::Empty);
+                            func.cfg.seal(bb_false, BlockType::Empty);
 
                             // True branch.
                             self.visit_block_drop(func, &mut bb_true, locals, block)?;
@@ -1803,7 +1803,7 @@ impl Compiler {
 
                 // End.
                 func.cfg.fill(*bb, ir::Out::Next(bb_end));
-                func.cfg.seal(bb_end);
+                func.cfg.seal(bb_end, BlockType::Empty);
                 *bb = bb_end;
             }
             TypedExprKind::Disclose { expr: inner } => {
@@ -2285,8 +2285,8 @@ impl Compiler {
                         t: bb_rhs,
                     },
                 );
-                func.cfg.seal(bb_short);
-                func.cfg.seal(bb_rhs);
+                func.cfg.seal(bb_short, BlockType::Empty);
+                func.cfg.seal(bb_rhs, BlockType::Empty);
 
                 self.visit_expr_stack(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
@@ -2295,7 +2295,7 @@ impl Compiler {
                 func.instructions(&bb_short).i32_const(0);
                 func.cfg.fill(bb_short, ir::Out::Next(bb_end));
 
-                func.cfg.seal(bb_end);
+                func.cfg.seal(bb_end, BlockType::Result(ValType::I32));
                 *bb = bb_end;
                 Ok(())
             }
@@ -2317,8 +2317,8 @@ impl Compiler {
                         t: bb_short,
                     },
                 );
-                func.cfg.seal(bb_short);
-                func.cfg.seal(bb_rhs);
+                func.cfg.seal(bb_short, BlockType::Empty);
+                func.cfg.seal(bb_rhs, BlockType::Empty);
 
                 self.visit_expr_stack(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
@@ -2327,7 +2327,7 @@ impl Compiler {
                 func.instructions(&bb_short).i32_const(1);
                 func.cfg.fill(bb_short, ir::Out::Next(bb_end));
 
-                func.cfg.seal(bb_end);
+                func.cfg.seal(bb_end, BlockType::Result(ValType::I32));
                 *bb = bb_end;
                 Ok(())
             }
@@ -2410,9 +2410,15 @@ impl Compiler {
                 else_branch,
             } => {
                 // Create locals to store expression result.
-                let mut new_locals = Vec::new();
-                self.star_to_core_types(span, &mut new_locals, &expr.ty)?;
-                let first_local = func.add_locals(new_locals.iter().copied());
+                // However, if there is exactly one expression result, use a
+                // BlockType instead of locals.
+                let mut result_types = Vec::new();
+                self.star_to_core_types(span, &mut result_types, &expr.ty)?;
+                let (block_type, first_local) = match &result_types[..] {
+                    &[] => (BlockType::Empty, 0),
+                    &[ty] => (BlockType::Result(ty), 0),
+                    many => (BlockType::Empty, func.add_locals(many.iter().copied())),
+                };
 
                 let bb_end = func.cfg.add_block();
 
@@ -2439,14 +2445,16 @@ impl Compiler {
                                     t: bb_true,
                                 },
                             );
-                            func.cfg.seal(bb_true);
-                            func.cfg.seal(bb_false);
+                            func.cfg.seal(bb_true, BlockType::Empty);
+                            func.cfg.seal(bb_false, BlockType::Empty);
 
                             // True branch.
                             self.visit_block_stack(func, &mut bb_true, locals, block)?;
-                            for i in (0..new_locals.len()).rev() {
-                                func.instructions(&bb_true)
-                                    .local_set(first_local + (i as u32));
+                            if matches!(block_type, BlockType::Empty) {
+                                for i in (0..result_types.len()).rev() {
+                                    func.instructions(&bb_true)
+                                        .local_set(first_local + (i as u32));
+                                }
                             }
                             func.cfg.fill(bb_true, ir::Out::Next(bb_end));
 
@@ -2462,19 +2470,23 @@ impl Compiler {
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
                     self.visit_block_stack(func, bb, locals, else_branch)?;
-                    for i in (0..new_locals.len()).rev() {
-                        func.instructions(bb).local_set(first_local + (i as u32));
+                    if matches!(block_type, BlockType::Empty) {
+                        for i in (0..result_types.len()).rev() {
+                            func.instructions(bb).local_set(first_local + (i as u32));
+                        }
                     }
                 }
 
                 // End.
                 func.cfg.fill(*bb, ir::Out::Next(bb_end));
-                func.cfg.seal(bb_end);
+                func.cfg.seal(bb_end, block_type);
                 *bb = bb_end;
 
                 // Read locals back onto stack.
-                for i in 0..new_locals.len() {
-                    func.instructions(bb).local_get(first_local + (i as u32));
+                if matches!(block_type, BlockType::Empty) {
+                    for i in 0..result_types.len() {
+                        func.instructions(bb).local_get(first_local + (i as u32));
+                    }
                 }
                 Ok(())
             }
@@ -2647,7 +2659,7 @@ impl Compiler {
                 // Split yield & resume blocks
                 let bb_resume = func.cfg.add_block();
                 func.cfg.resumes.push(bb_resume);
-                func.cfg.seal(bb_resume);
+                func.cfg.seal(bb_resume, BlockType::Empty);
                 func.cfg.fill(*bb, ir::Out::Yield(bb_resume));
                 *bb = bb_resume;
 
