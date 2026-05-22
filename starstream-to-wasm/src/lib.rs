@@ -1413,6 +1413,14 @@ impl Compiler {
         self.callables
             .insert(function.name.as_str().to_owned(), idx);
 
+        for &resume in &func.cfg.resumes {
+            let idx = self.add_function(
+                FuncType::new(params.iter().copied(), results.iter().copied()),
+                &func.stackify(resume),
+            );
+            self.export_core_fn(&format!("{wit_name}-resume-{resume}"), idx);
+        }
+
         match function.export {
             Some(FunctionExport::Script) | Some(FunctionExport::UtxoMain) => {
                 self.export_component_fn(wit_name, function, idx, &params, &results);
