@@ -471,7 +471,11 @@ impl Compiler {
                     mutable: true,
                     shared: false,
                 },
-                &ConstExpr::i64_const(0),
+                &match ty {
+                    ValType::I32 => ConstExpr::i32_const(0),
+                    ValType::I64 => ConstExpr::i64_const(0),
+                    _ => unimplemented!(),
+                },
             );
         }
         idx
