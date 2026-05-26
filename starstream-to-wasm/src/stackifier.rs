@@ -28,28 +28,24 @@ enum SeqItem {
     EndBlock(usize),
 }
 
-pub struct Stackifier<'a> {
-    func: &'a StFunction,
-    entry: usize,
+#[derive(Default)]
+pub struct Stackified {
+    pub code: Vec<u8>,
 }
 
-impl<'a> Stackifier<'a> {
-    pub fn new(func: &'a StFunction, entry: usize) -> Self {
-        Stackifier { func, entry }
-    }
+pub fn stackify(func: &StFunction, entry: usize) -> Stackified {
+    let mut s = Stackified::default();
+    s.compile(func, entry);
+    s
+}
 
-    pub fn into_raw_body(&self) -> Vec<u8> {
-        let mut sink = Vec::new();
-        self.compile(&mut sink);
-        sink
-    }
-
-    pub fn compile(&self, sink: &mut Vec<u8>) {
-        let Stackifier { func, entry } = *self;
+impl Stackified {
+    fn compile(&mut self, func: &StFunction, entry: usize) {
         func.cfg.assert_complete();
         eprintln!("{}", func.cfg.to_mermaid());
 
         // Basic function header
+        let sink = &mut self.code;
         func.locals.len().encode(sink);
         for (count, ty) in &func.locals {
             count.encode(sink);

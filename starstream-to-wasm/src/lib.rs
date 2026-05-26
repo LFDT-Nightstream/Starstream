@@ -3427,7 +3427,7 @@ impl StFunction {
     }
 
     fn stackify(&self, entry: usize) -> Vec<u8> {
-        stackifier::Stackifier::new(self, entry).into_raw_body()
+        stackifier::stackify(self, entry).code
     }
 }
 
