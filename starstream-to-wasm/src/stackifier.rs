@@ -11,6 +11,7 @@
 // Currently only supports reducible CFGs (those without gotos into loops).
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 use wasm_encoder::{Encode, InstructionSink};
 
@@ -28,21 +29,101 @@ enum SeqItem {
     EndBlock(usize),
 }
 
-#[derive(Default)]
-pub struct Stackified {
+pub struct Stackified<'a> {
+    func: &'a StFunction,
+    entry: usize,
     pub code: Vec<u8>,
+    seq: Vec<SeqItem>,
 }
 
-pub fn stackify(func: &StFunction, entry: usize) -> Stackified {
-    let mut s = Stackified::default();
-    s.compile(func, entry);
+pub fn stackify(func: &StFunction, entry: usize) -> Stackified<'_> {
+    eprintln!("%% FUNCTION");
+    eprintln!("{}", func.cfg.to_mermaid());
+    let mut s = Stackified {
+        func,
+        entry,
+        code: Vec::new(),
+        seq: Vec::new(),
+    };
+    s.compile();
+    eprintln!("{}", s.to_mermaid());
     s
 }
 
-impl Stackified {
-    fn compile(&mut self, func: &StFunction, entry: usize) {
+impl<'a> Stackified<'a> {
+    pub fn to_mermaid(&self) -> impl fmt::Display {
+        struct Mermaid<'a>(&'a Stackified<'a>);
+        impl<'a> fmt::Display for Mermaid<'a> {
+            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let &Mermaid(this) = self;
+                writeln!(fmt, "flowchart TB")?;
+                if this.entry == 0 {
+                    writeln!(fmt, "start([start])")?;
+                    writeln!(fmt, "start --> {}", this.entry)?;
+                } else {
+                    writeln!(fmt, "start([resume {}])", this.entry)?;
+                    writeln!(fmt, "start --> {}", this.entry)?;
+                }
+                let mut depth = DepthTracker::new();
+                for (i, item) in this.seq.iter().enumerate() {
+                    depth.track(item);
+                    match *item {
+                        SeqItem::Basic(bb) => {
+                            writeln!(fmt, "{bb}[\"")?;
+                            write!(fmt, "{}", this.func.cfg.blocks[bb].disassemble())?;
+                            match this.func.cfg.blocks[bb].out {
+                                Out::None => unreachable!(),
+                                Out::Return | Out::Yield(_) => {
+                                    writeln!(fmt, "return")?;
+                                }
+                                Out::Next(next) => {
+                                    if !next_block_is(&this.seq[i + 1..], next) {
+                                        writeln!(fmt, "br {}", depth.diff(next))?;
+                                    }
+                                }
+                                Out::If { f, t } => {
+                                    if next_block_is(&this.seq[i + 1..], f) {
+                                        writeln!(fmt, "br_if {}", depth.diff(t))?;
+                                    } else if next_block_is(&this.seq[i + 1..], t) {
+                                        writeln!(fmt, "i32_eqz")?;
+                                        writeln!(fmt, "br_if {}", depth.diff(f))?;
+                                    } else {
+                                        writeln!(fmt, "br_if {}", depth.diff(t))?;
+                                        writeln!(fmt, "br {}", depth.diff(f))?;
+                                    }
+                                }
+                            }
+                            writeln!(fmt, "\"]")?;
+                            writeln!(fmt, "style {bb} text-align: left, white-space: nowrap")?;
+                        }
+                        SeqItem::StartLoop(bb) => {
+                            let block_type = this.func.cfg.blocks[bb].in_type.unwrap();
+                            writeln!(fmt, "subgraph loop_{i} [\"loop {block_type:?}\"]")?;
+                        }
+                        SeqItem::StartBlock(bb) => {
+                            let block_type = this.func.cfg.blocks[bb].in_type.unwrap();
+                            writeln!(fmt, "subgraph block_{i} [\"block {block_type:?}\"]")?;
+                            writeln!(fmt, "style block_{i} fill:#efe")?;
+                        }
+                        SeqItem::EndBlock(_) | SeqItem::EndLoop(_) => {
+                            writeln!(fmt, "end")?;
+                        }
+                    }
+                }
+                for item in this.seq.iter() {
+                    if let &SeqItem::Basic(bb) = item {
+                        write!(fmt, "{}", this.func.cfg.blocks[bb].out.to_mermaid(bb))?;
+                    }
+                }
+                Ok(())
+            }
+        }
+        Mermaid(self)
+    }
+
+    fn compile(&mut self) {
+        let &mut Stackified { func, entry, .. } = self;
         func.cfg.assert_complete();
-        eprintln!("{}", func.cfg.to_mermaid());
 
         // Basic function header
         let sink = &mut self.code;
@@ -58,9 +139,6 @@ impl Stackified {
         // NOTE: Tarjan emits SCCs in reverse of depth-first order, so reverse here.
         seq.reverse();
 
-        eprint_seq(&seq);
-        eprintln!();
-
         // Now we know `loop` + `end` pairs and must insert `block` + `end` pairs.
         let mut i = 0;
         let mut seen = HashSet::new();
@@ -70,11 +148,7 @@ impl Stackified {
                 func.cfg.blocks[bb].out.for_each_successor(|next| {
                     if !seen.contains(&next) {
                         // Forward edge.
-                        eprintln!("forward edge {bb} -> {next}");
-                        if next_block_is(&seq[i + 1..], next) {
-                            eprintln!("    immediate");
-                            // Nothing to do, it's already the immediate next block.
-                        } else {
+                        if !next_block_is(&seq[i + 1..], next) {
                             // Insert `end` before destination (next),
                             // then `block` before source (bb) at corresponding depth.
                             // Algorithmic complexity suspicion point - risk of N^2 behavior?
@@ -82,7 +156,7 @@ impl Stackified {
                             seq.insert(j, SeqItem::EndBlock(next));
                             let k = find_depth_forwards(&seq[..i], depth);
                             seq.insert(k, SeqItem::StartBlock(next));
-                            eprintln!("    block k={k} j={j}");
+                            // eprintln!("block from {k} to {j}");
                             i += 1;
                         }
                     }
@@ -91,29 +165,16 @@ impl Stackified {
             i += 1;
         }
 
-        eprint_seq(&seq);
-        eprintln!();
-
         // Now emit everything
-        let mut depth_map = HashMap::<usize, Vec<usize>>::new();
-        let mut depth = 0;
+        let mut depth = DepthTracker::new();
         for (i, item) in seq.iter().enumerate() {
-            eprintln!("{:?}", item);
+            depth.track(item);
             match *item {
                 SeqItem::Basic(bb) => {
-                    eprintln!(
-                        "    {}",
-                        func.cfg.blocks[bb]
-                            .disassemble()
-                            .trim()
-                            .replace("\n", "\n    ")
-                    );
                     sink.extend_from_slice(&func.cfg.blocks[bb].instructions);
-                    eprintln!("  {:?}", func.cfg.blocks[bb].out);
                     match func.cfg.blocks[bb].out {
                         Out::None => unreachable!(),
                         Out::Return | Out::Yield(_) => {
-                            eprintln!("    return");
                             InstructionSink::new(sink).return_();
                         }
                         Out::Next(next) => {
@@ -121,62 +182,76 @@ impl Stackified {
                                 // Just continue
                             } else {
                                 // Forward jump
-                                let depth_diff =
-                                    depth - depth_map.get(&next).unwrap().last().unwrap();
-                                eprintln!("    br {depth_diff}");
-                                InstructionSink::new(sink).br(depth_diff as u32);
+                                InstructionSink::new(sink).br(depth.diff(next));
                             }
                         }
                         Out::If { f, t } => {
                             if next_block_is(&seq[i + 1..], f) {
                                 // Forward jump if true, just continue if false
-                                let depth_diff = depth - depth_map.get(&t).unwrap().last().unwrap();
-                                InstructionSink::new(sink).br_if(depth_diff as u32);
-                                eprintln!("    br_if {depth_diff}");
+                                InstructionSink::new(sink).br_if(depth.diff(t));
                             } else if next_block_is(&seq[i + 1..], t) {
                                 // Forward jump if false, just continue if true
-                                let depth_diff = depth - depth_map.get(&f).unwrap().last().unwrap();
-                                InstructionSink::new(sink)
-                                    .i32_eqz()
-                                    .br_if(depth_diff as u32);
-                                eprintln!("    i32_eqz");
-                                eprintln!("    br_if {depth_diff}");
+                                InstructionSink::new(sink).i32_eqz().br_if(depth.diff(f));
                             } else {
                                 // Forward jump if true
-                                let depth_diff = depth - depth_map.get(&t).unwrap().last().unwrap();
-                                InstructionSink::new(sink).br_if(depth_diff as u32);
-                                eprintln!("    br_if {depth_diff}");
+                                InstructionSink::new(sink).br_if(depth.diff(t));
                                 // Forward jump
-                                let depth_diff = depth - depth_map.get(&f).unwrap().last().unwrap();
-                                InstructionSink::new(sink).br(depth_diff as u32);
-                                eprintln!("    br {depth_diff}");
+                                InstructionSink::new(sink).br(depth.diff(f));
                             }
                         }
                     }
                 }
                 SeqItem::StartLoop(bb) => {
-                    eprintln!("    loop {:?}", func.cfg.blocks[bb].in_type.unwrap());
                     InstructionSink::new(sink).loop_(func.cfg.blocks[bb].in_type.unwrap());
-                    depth += 1;
-                    depth_map.entry(bb).or_default().push(depth);
                 }
                 SeqItem::StartBlock(bb) => {
-                    eprintln!("    block {:?}", func.cfg.blocks[bb].in_type.unwrap());
                     InstructionSink::new(sink).block(func.cfg.blocks[bb].in_type.unwrap());
-                    depth += 1;
-                    depth_map.entry(bb).or_default().push(depth);
                 }
-                SeqItem::EndLoop(bb) | SeqItem::EndBlock(bb) => {
-                    eprintln!("    end");
+                SeqItem::EndLoop(_) | SeqItem::EndBlock(_) => {
                     InstructionSink::new(sink).end();
-                    depth -= 1;
-                    depth_map.get_mut(&bb).unwrap().pop();
                 }
             }
         }
 
         // Finishing touch
         InstructionSink::new(sink).end();
+        self.seq = seq;
+    }
+}
+
+struct DepthTracker {
+    depth: usize,
+    map: HashMap<usize, Vec<usize>>,
+}
+
+impl DepthTracker {
+    fn new() -> Self {
+        DepthTracker {
+            depth: 0,
+            map: HashMap::new(),
+        }
+    }
+
+    fn diff(&self, bb: usize) -> u32 {
+        (self.depth - self.map[&bb].last().unwrap()) as u32
+    }
+
+    fn push(&mut self, bb: usize) {
+        self.depth += 1;
+        self.map.entry(bb).or_default().push(self.depth);
+    }
+
+    fn pop(&mut self, bb: usize) {
+        self.map.get_mut(&bb).unwrap().pop().unwrap();
+        self.depth -= 1;
+    }
+
+    fn track(&mut self, item: &SeqItem) {
+        match *item {
+            SeqItem::Basic(_) => {}
+            SeqItem::StartLoop(bb) | SeqItem::StartBlock(bb) => self.push(bb),
+            SeqItem::EndLoop(bb) | SeqItem::EndBlock(bb) => self.pop(bb),
+        }
     }
 }
 
@@ -223,23 +298,6 @@ fn find_depth_forwards(seq: &[SeqItem], target_depth: usize) -> usize {
     }
     assert_ne!(last, usize::MAX);
     last
-}
-
-fn eprint_seq(seq: &[SeqItem]) {
-    let mut depth = String::new();
-    for item in seq.iter() {
-        match item {
-            SeqItem::EndLoop(_) | SeqItem::EndBlock(_) => {
-                depth.pop();
-            }
-            _ => {}
-        }
-        eprintln!("{depth}{item:?}");
-        match item {
-            SeqItem::StartLoop(_) | SeqItem::StartBlock(_) => depth.push(' '),
-            _ => {}
-        }
-    }
 }
 
 // https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm

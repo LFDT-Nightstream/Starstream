@@ -7,6 +7,8 @@
 // Filled: In Braun, means local value numbering is finished and successors may be added.
 // We have a single "fill" point that both finishes adding instructions, "fills", and immediately adds all successors.
 
+use std::fmt;
+
 use wasm_encoder::{BlockType, InstructionSink};
 
 #[derive(Default)]
@@ -54,6 +56,35 @@ impl Out {
                 func(f);
             }
         }
+    }
+
+    pub fn to_mermaid(&self, id: usize) -> impl fmt::Display {
+        struct Mermaid<'a>(&'a Out, usize);
+        impl<'a> fmt::Display for Mermaid<'a> {
+            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let &Mermaid(out, i) = self;
+                match out {
+                    Out::None => {}
+                    Out::Return => {
+                        writeln!(fmt, "{i} --> return_{i}")?;
+                        writeln!(fmt, "return_{i}([return])")?;
+                    }
+                    Out::Yield(bb) => {
+                        writeln!(fmt, "{i} --> yield_{bb}")?;
+                        writeln!(fmt, "yield_{bb}([yield {bb}])")?;
+                    }
+                    Out::Next(bb) => {
+                        writeln!(fmt, "{i} --> {bb}")?;
+                    }
+                    Out::If { f, t } => {
+                        writeln!(fmt, "{i} -- false --> {f}")?;
+                        writeln!(fmt, "{i} -- true --> {t}")?;
+                    }
+                }
+                Ok(())
+            }
+        }
+        Mermaid(self, id)
     }
 }
 
@@ -107,7 +138,7 @@ impl ControlFlowGraph {
                 gv,
                 "{} [label=\"{}\"] [shape=box];",
                 i,
-                block.disassemble().replace("\n", "\\l")
+                block.disassemble().to_string().replace("\n", "\\l")
             );
             match block.out {
                 Out::None => {}
@@ -134,41 +165,29 @@ impl ControlFlowGraph {
     }
 
     #[allow(dead_code)]
-    pub fn to_mermaid(&self) -> String {
-        use std::fmt::Write;
-        let mut mm = String::new();
-        _ = writeln!(mm, "flowchart TB");
-        _ = writeln!(mm, "start([start])");
-        _ = writeln!(mm, "start --> 0");
-        for bb in self.resumes.iter() {
-            _ = writeln!(mm, "resume_{bb}([resume_{bb}])");
-            _ = writeln!(mm, "resume_{bb} --> {bb}");
-        }
-        for (i, block) in self.blocks.iter().enumerate() {
-            let d = block.disassemble();
-            _ = writeln!(mm, "{}[{:?}]", i, if d.is_empty() { " " } else { &d });
-            _ = writeln!(mm, "style {i} text-align: left, white-space: nowrap");
-            match block.out {
-                Out::None => {}
-                Out::Return => {
-                    _ = writeln!(mm, "{i} --> return_{i}");
-                    _ = writeln!(mm, "return_{i}([return])");
+    pub fn to_mermaid(&self) -> impl fmt::Display {
+        struct Mermaid<'a>(&'a ControlFlowGraph);
+        impl<'a> fmt::Display for Mermaid<'a> {
+            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let &Mermaid(this) = self;
+                writeln!(fmt, "flowchart TB")?;
+                writeln!(fmt, "start([start])")?;
+                writeln!(fmt, "start --> 0")?;
+                for bb in this.resumes.iter() {
+                    writeln!(fmt, "yield_{bb} -.-> resume_{bb}")?;
+                    writeln!(fmt, "resume_{bb}([resume {bb}])")?;
+                    writeln!(fmt, "resume_{bb} --> {bb}")?;
                 }
-                Out::Yield(bb) => {
-                    _ = writeln!(mm, "{i} --> yield_{i}");
-                    _ = writeln!(mm, "yield_{i}([yield])");
-                    _ = writeln!(mm, "yield_{i} -.-> resume_{bb}");
+                for (i, block) in this.blocks.iter().enumerate() {
+                    let d = block.disassemble().to_string();
+                    writeln!(fmt, "{}[{:?}]", i, if d.is_empty() { " " } else { &d })?;
+                    writeln!(fmt, "style {i} text-align: left, white-space: nowrap")?;
+                    write!(fmt, "{}", block.out.to_mermaid(i))?;
                 }
-                Out::Next(bb) => {
-                    _ = writeln!(mm, "{i} --> {bb}");
-                }
-                Out::If { f, t } => {
-                    _ = writeln!(mm, "{i} -- false --> {f}");
-                    _ = writeln!(mm, "{i} -- true --> {t}");
-                }
+                Ok(())
             }
         }
-        mm
+        Mermaid(self)
     }
 }
 
@@ -183,21 +202,26 @@ impl BasicBlock {
         !matches!(self.out, Out::None)
     }
 
-    pub fn disassemble(&self) -> String {
-        use std::fmt::Write;
-        let mut disassembly = String::new();
-        match self.in_type {
-            None | Some(BlockType::Empty) => {}
-            Some(other) => {
-                _ = writeln!(disassembly, "-> {:?}", other);
+    pub fn disassemble(&self) -> impl fmt::Display {
+        struct Disassemble<'a>(&'a BasicBlock);
+        impl<'a> fmt::Display for Disassemble<'a> {
+            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+                let &Disassemble(this) = self;
+                match this.in_type {
+                    None | Some(BlockType::Empty) => {}
+                    Some(other) => {
+                        writeln!(fmt, "=> {:?}", other)?;
+                    }
+                }
+                let br = wasmparser::BinaryReader::new(&this.instructions, 0);
+                let or = wasmparser::OperatorsReader::new(br);
+                for result in or.into_iter() {
+                    let op = result.unwrap();
+                    writeln!(fmt, "{op:?}")?;
+                }
+                Ok(())
             }
         }
-        let br = wasmparser::BinaryReader::new(&self.instructions, 0);
-        let or = wasmparser::OperatorsReader::new(br);
-        for result in or.into_iter() {
-            let op = result.unwrap();
-            _ = write!(disassembly, "{op:?}\n");
-        }
-        disassembly
+        Disassemble(self)
     }
 }
