@@ -2677,8 +2677,8 @@ impl Compiler {
                 // TODO: store 0 back to these globals
                 for i in 0..locals.len() {
                     func.instructions(bb)
-                        .global_get(i as u32)
-                        .local_set(globals + (i as u32));
+                        .global_get(globals + (i as u32))
+                        .local_set(i as u32);
                 }
 
                 Ok(())
