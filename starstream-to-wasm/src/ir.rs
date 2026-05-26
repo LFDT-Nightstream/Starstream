@@ -37,6 +37,8 @@ pub enum Out {
     Return,
     /// Like Return, but names the BB that will be resumed.
     Yield(usize),
+    /// Wasm `unreachable`.
+    Unreachable,
     /// 1 unconditional successor.
     Next(usize),
     /// 2 successors, false case then true case.
@@ -46,7 +48,7 @@ pub enum Out {
 impl Out {
     pub fn for_each_successor<F: FnMut(usize)>(&self, mut func: F) {
         match *self {
-            Out::None | Out::Return | Out::Yield(_) => {}
+            Out::None | Out::Return | Out::Yield(_) | Out::Unreachable => {}
             Out::Next(a) => func(a),
             Out::If { f, t } => {
                 // Prefer visiting true branch first for readability, since
@@ -72,6 +74,10 @@ impl Out {
                     Out::Yield(bb) => {
                         writeln!(fmt, "{i} --> yield_{bb}")?;
                         writeln!(fmt, "yield_{bb}([yield {bb}])")?;
+                    }
+                    Out::Unreachable => {
+                        writeln!(fmt, "{i} --> unreachable_{i}")?;
+                        writeln!(fmt, "unreachable_{i}([unreachable])")?;
                     }
                     Out::Next(bb) => {
                         writeln!(fmt, "{i} --> {bb}")?;
@@ -130,6 +136,7 @@ impl ControlFlowGraph {
         _ = writeln!(gv, "start [shape=box] [style=rounded];");
         _ = writeln!(gv, "start -> 0;");
         for bb in self.resumes.iter() {
+            _ = writeln!(gv, "yield_{bb} -> resume_{bb} [style=dotted];");
             _ = writeln!(gv, "resume_{bb} [shape=box] [style=rounded];");
             _ = writeln!(gv, "resume_{bb} -> {bb};");
         }
@@ -147,9 +154,15 @@ impl ControlFlowGraph {
                     _ = writeln!(gv, "return_{i} [label=return] [shape=box] [style=rounded];");
                 }
                 Out::Yield(bb) => {
-                    _ = writeln!(gv, "{i} -> yield_{i};");
-                    _ = writeln!(gv, "yield_{i} [label=yield] [shape=box] [style=rounded];");
-                    _ = writeln!(gv, "yield_{i} -> resume_{bb} [style=dotted];");
+                    _ = writeln!(gv, "{i} -> yield_{bb};");
+                    _ = writeln!(gv, "yield_{bb} [label=yield] [shape=box] [style=rounded];");
+                }
+                Out::Unreachable => {
+                    _ = writeln!(gv, "{i} -> unreachable_{i};");
+                    _ = writeln!(
+                        gv,
+                        "unreachable_{i} [label=yield] [shape=box] [style=rounded];"
+                    );
                 }
                 Out::Next(bb) => {
                     _ = writeln!(gv, "{i} -> {bb};");

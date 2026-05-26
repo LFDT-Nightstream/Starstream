@@ -103,6 +103,9 @@ impl<'a> Stackified<'a> {
                         Out::Return | Out::Yield(_) => {
                             InstructionSink::new(sink).return_();
                         }
+                        Out::Unreachable => {
+                            InstructionSink::new(sink).unreachable();
+                        }
                         Out::Next(next) => {
                             if next_block_is(&seq[i + 1..], next) {
                                 // Just continue
@@ -168,6 +171,9 @@ impl<'a> Stackified<'a> {
                                 Out::None => unreachable!(),
                                 Out::Return | Out::Yield(_) => {
                                     writeln!(fmt, "return")?;
+                                }
+                                Out::Unreachable => {
+                                    writeln!(fmt, "unreachable")?;
                                 }
                                 Out::Next(next) => {
                                     if !next_block_is(&this.seq[i + 1..], next) {
