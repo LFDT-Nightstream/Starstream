@@ -1,0 +1,26 @@
+---
+source: starstream-compiler/src/parser/definition/import.rs
+description: "Code:\n\nimport { foo } from \"../shared/util.star\";"
+---
+ImportDef {
+    items: Named(
+        [
+            ImportNamedItem {
+                imported: Identifier {
+                    name: "foo",
+                    span: 9..12,
+                },
+                local: Identifier {
+                    name: "foo",
+                    span: 9..12,
+                },
+            },
+        ],
+    ),
+    from: Path(
+        ImportPath {
+            value: "../shared/util.star",
+            span: 20..41,
+        },
+    ),
+}

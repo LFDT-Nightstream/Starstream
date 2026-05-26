@@ -3,15 +3,18 @@ use std::path::{Path, PathBuf};
 
 use clap::Parser;
 
+mod build;
 mod check;
 mod diagnostics;
 mod docs;
 mod explain;
 mod format;
 mod lsp;
+mod project;
 mod style;
 mod wasm;
 
+pub use build::Build;
 pub use check::Check;
 pub use docs::Docs;
 pub use explain::Explain;
@@ -24,6 +27,7 @@ pub use wasm::Wasm;
 pub enum Command {
     Docs(Docs),
     Wasm(Wasm),
+    Build(Build),
     #[clap(visible_alias("fmt"))]
     Format(Format),
     Check(Check),
@@ -46,6 +50,7 @@ impl Cli {
         match self.cmd {
             Command::Docs(d) => d.exec(),
             Command::Wasm(w) => w.exec(),
+            Command::Build(b) => b.exec(),
             Command::Format(f) => f.exec(),
             Command::Check(c) => c.exec(),
             Command::Explain(e) => e.exec(),

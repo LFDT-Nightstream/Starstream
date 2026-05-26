@@ -229,6 +229,11 @@
     }
   },
   {
+    "type": "contract_definition",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "disclose_expression",
     "named": true,
     "fields": {
@@ -856,7 +861,41 @@
     }
   },
   {
+    "type": "import_path_source",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "string_literal",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "import_source",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "import_path_source",
+          "named": true
+        },
+        {
+          "type": "import_wit_source",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "import_wit_source",
     "named": true,
     "fields": {
       "interface": {
@@ -1028,6 +1067,10 @@
       "types": [
         {
           "type": "abi_definition",
+          "named": true
+        },
+        {
+          "type": "contract_definition",
           "named": true
         },
         {
@@ -1470,6 +1513,10 @@
     "extra": true
   },
   {
+    "type": "contract",
+    "named": false
+  },
+  {
     "type": "disclose",
     "named": false
   },
@@ -1573,6 +1620,10 @@
   {
     "type": "storage",
     "named": false
+  },
+  {
+    "type": "string_literal",
+    "named": true
   },
   {
     "type": "struct",

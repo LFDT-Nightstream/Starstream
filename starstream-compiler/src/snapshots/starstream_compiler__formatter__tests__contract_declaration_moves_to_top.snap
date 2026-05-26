@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nfn helper() { }\n\ncontract;\n\nscript fn run() { }\n"
+---
+contract;
+
+fn helper() { }
+
+script fn run() { }

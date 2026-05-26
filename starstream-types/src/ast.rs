@@ -166,6 +166,10 @@ pub enum Definition {
     Enum(EnumDef),
     Utxo(UtxoDef),
     Abi(AbiDef),
+    /// `contract;` — marks the file as a contract entry point. May appear
+    /// anywhere at the top level; the formatter moves it to the top. The
+    /// enclosing `Spanned` carries the span of the `contract` keyword.
+    Contract,
 }
 
 /// `import { blockHeight } from starstream:std/cardano;`
@@ -192,15 +196,30 @@ pub struct ImportNamedItem {
     pub local: Identifier,
 }
 
-/// WIT-style source path: `namespace:package/interface`
+/// Where an `import` statement pulls items from.
 #[derive(Clone, Debug, Serialize, PartialEq)]
-pub struct ImportSource {
-    /// e.g. `starstream`
-    pub namespace: Identifier,
-    /// e.g. `std`
-    pub package: Identifier,
-    /// e.g. `Some("cardano")` for `starstream:std/cardano`, `None` for `starstream:std`
-    pub interface: Option<Identifier>,
+pub enum ImportSource {
+    /// WIT-style source path: `namespace:package/interface`.
+    Wit {
+        /// e.g. `starstream`
+        namespace: Identifier,
+        /// e.g. `std`
+        package: Identifier,
+        /// e.g. `Some("cardano")` for `starstream:std/cardano`, `None` for `starstream:std`
+        interface: Option<Identifier>,
+    },
+    /// Relative path to another `.star` file: `"./helpers/math.star"`.
+    Path(ImportPath),
+}
+
+/// A quoted relative path to another `.star` file.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct ImportPath {
+    /// The raw path text as written in the source (without surrounding quotes).
+    pub value: String,
+    /// Span of the literal including surrounding quotes.
+    #[serde(skip)]
+    pub span: Span,
 }
 
 /// `fn` definition.
