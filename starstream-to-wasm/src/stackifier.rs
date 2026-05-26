@@ -37,8 +37,6 @@ pub struct Stackified<'a> {
 }
 
 pub fn stackify(func: &StFunction, entry: usize) -> Stackified<'_> {
-    eprintln!("%% FUNCTION");
-    eprintln!("{}", func.cfg.to_mermaid());
     let mut s = Stackified {
         func,
         entry,
@@ -46,11 +44,106 @@ pub fn stackify(func: &StFunction, entry: usize) -> Stackified<'_> {
         seq: Vec::new(),
     };
     s.compile();
-    eprintln!("{}", s.to_mermaid());
     s
 }
 
 impl<'a> Stackified<'a> {
+    fn compile(&mut self) {
+        let &mut Stackified { func, entry, .. } = self;
+        func.cfg.assert_complete();
+
+        // Basic function header
+        let sink = &mut self.code;
+        func.locals.len().encode(sink);
+        for (count, ty) in &func.locals {
+            count.encode(sink);
+            ty.encode(sink);
+        }
+
+        // Simultaneously SCC split (loop detect) & toposort with Tarjan's algorithm.
+        let mut seq = Vec::new();
+        Tarjan::new(&func.cfg, &mut seq, Default::default()).strongconnect(entry);
+        // NOTE: Tarjan emits SCCs in reverse of depth-first order, so reverse here.
+        seq.reverse();
+
+        // Now we know `loop` + `end` pairs and must insert `block` + `end` pairs.
+        let mut i = 0;
+        let mut seen = HashSet::new();
+        while i < seq.len() {
+            if let SeqItem::Basic(bb) = seq[i] {
+                seen.insert(bb);
+                func.cfg.blocks[bb].out.for_each_successor(|next| {
+                    if !seen.contains(&next) {
+                        // Forward edge.
+                        if !next_block_is(&seq[i + 1..], next) {
+                            // Insert `end` before destination (next),
+                            // then `block` before source (bb) at corresponding depth.
+                            // Algorithmic complexity suspicion point - risk of N^2 behavior?
+                            let (j, depth) = find_node_backwards(&seq, next);
+                            seq.insert(j, SeqItem::EndBlock(next));
+                            let k = find_depth_forwards(&seq[..i], depth);
+                            seq.insert(k, SeqItem::StartBlock(next));
+                            i += 1;
+                        }
+                    }
+                });
+            }
+            i += 1;
+        }
+
+        // Now emit everything
+        let mut depth = DepthTracker::new();
+        for (i, item) in seq.iter().enumerate() {
+            depth.track(item);
+            match *item {
+                SeqItem::Basic(bb) => {
+                    sink.extend_from_slice(&func.cfg.blocks[bb].instructions);
+                    match func.cfg.blocks[bb].out {
+                        Out::None => unreachable!(),
+                        Out::Return | Out::Yield(_) => {
+                            InstructionSink::new(sink).return_();
+                        }
+                        Out::Next(next) => {
+                            if next_block_is(&seq[i + 1..], next) {
+                                // Just continue
+                            } else {
+                                // Forward jump
+                                InstructionSink::new(sink).br(depth.diff(next));
+                            }
+                        }
+                        Out::If { f, t } => {
+                            if next_block_is(&seq[i + 1..], f) {
+                                // Forward jump if true, just continue if false
+                                InstructionSink::new(sink).br_if(depth.diff(t));
+                            } else if next_block_is(&seq[i + 1..], t) {
+                                // Forward jump if false, just continue if true
+                                InstructionSink::new(sink).i32_eqz().br_if(depth.diff(f));
+                            } else {
+                                // Forward jump if true
+                                InstructionSink::new(sink).br_if(depth.diff(t));
+                                // Forward jump
+                                InstructionSink::new(sink).br(depth.diff(f));
+                            }
+                        }
+                    }
+                }
+                SeqItem::StartLoop(bb) => {
+                    InstructionSink::new(sink).loop_(func.cfg.blocks[bb].in_type.unwrap());
+                }
+                SeqItem::StartBlock(bb) => {
+                    InstructionSink::new(sink).block(func.cfg.blocks[bb].in_type.unwrap());
+                }
+                SeqItem::EndLoop(_) | SeqItem::EndBlock(_) => {
+                    InstructionSink::new(sink).end();
+                }
+            }
+        }
+
+        // Finishing touch
+        InstructionSink::new(sink).end();
+        self.seq = seq;
+    }
+
     pub fn to_mermaid(&self) -> impl fmt::Display {
         struct Mermaid<'a>(&'a Stackified<'a>);
         impl<'a> fmt::Display for Mermaid<'a> {
@@ -119,103 +212,6 @@ impl<'a> Stackified<'a> {
             }
         }
         Mermaid(self)
-    }
-
-    fn compile(&mut self) {
-        let &mut Stackified { func, entry, .. } = self;
-        func.cfg.assert_complete();
-
-        // Basic function header
-        let sink = &mut self.code;
-        func.locals.len().encode(sink);
-        for (count, ty) in &func.locals {
-            count.encode(sink);
-            ty.encode(sink);
-        }
-
-        // Simultaneously SCC split (loop detect) & toposort with Tarjan's algorithm.
-        let mut seq = Vec::new();
-        Tarjan::new(&func.cfg, &mut seq, Default::default()).strongconnect(entry);
-        // NOTE: Tarjan emits SCCs in reverse of depth-first order, so reverse here.
-        seq.reverse();
-
-        // Now we know `loop` + `end` pairs and must insert `block` + `end` pairs.
-        let mut i = 0;
-        let mut seen = HashSet::new();
-        while i < seq.len() {
-            if let SeqItem::Basic(bb) = seq[i] {
-                seen.insert(bb);
-                func.cfg.blocks[bb].out.for_each_successor(|next| {
-                    if !seen.contains(&next) {
-                        // Forward edge.
-                        if !next_block_is(&seq[i + 1..], next) {
-                            // Insert `end` before destination (next),
-                            // then `block` before source (bb) at corresponding depth.
-                            // Algorithmic complexity suspicion point - risk of N^2 behavior?
-                            let (j, depth) = find_node_backwards(&seq, next);
-                            seq.insert(j, SeqItem::EndBlock(next));
-                            let k = find_depth_forwards(&seq[..i], depth);
-                            seq.insert(k, SeqItem::StartBlock(next));
-                            // eprintln!("block from {k} to {j}");
-                            i += 1;
-                        }
-                    }
-                });
-            }
-            i += 1;
-        }
-
-        // Now emit everything
-        let mut depth = DepthTracker::new();
-        for (i, item) in seq.iter().enumerate() {
-            depth.track(item);
-            match *item {
-                SeqItem::Basic(bb) => {
-                    sink.extend_from_slice(&func.cfg.blocks[bb].instructions);
-                    match func.cfg.blocks[bb].out {
-                        Out::None => unreachable!(),
-                        Out::Return | Out::Yield(_) => {
-                            InstructionSink::new(sink).return_();
-                        }
-                        Out::Next(next) => {
-                            if next_block_is(&seq[i + 1..], next) {
-                                // Just continue
-                            } else {
-                                // Forward jump
-                                InstructionSink::new(sink).br(depth.diff(next));
-                            }
-                        }
-                        Out::If { f, t } => {
-                            if next_block_is(&seq[i + 1..], f) {
-                                // Forward jump if true, just continue if false
-                                InstructionSink::new(sink).br_if(depth.diff(t));
-                            } else if next_block_is(&seq[i + 1..], t) {
-                                // Forward jump if false, just continue if true
-                                InstructionSink::new(sink).i32_eqz().br_if(depth.diff(f));
-                            } else {
-                                // Forward jump if true
-                                InstructionSink::new(sink).br_if(depth.diff(t));
-                                // Forward jump
-                                InstructionSink::new(sink).br(depth.diff(f));
-                            }
-                        }
-                    }
-                }
-                SeqItem::StartLoop(bb) => {
-                    InstructionSink::new(sink).loop_(func.cfg.blocks[bb].in_type.unwrap());
-                }
-                SeqItem::StartBlock(bb) => {
-                    InstructionSink::new(sink).block(func.cfg.blocks[bb].in_type.unwrap());
-                }
-                SeqItem::EndLoop(_) | SeqItem::EndBlock(_) => {
-                    InstructionSink::new(sink).end();
-                }
-            }
-        }
-
-        // Finishing touch
-        InstructionSink::new(sink).end();
-        self.seq = seq;
     }
 }
 
