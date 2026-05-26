@@ -6,6 +6,7 @@ use miette::NamedSource;
 use starstream_compiler::{
     ModuleGraph, ModuleGraphError, TypecheckOptions, module_graph, typecheck_modules,
 };
+use starstream_to_wasm::CompileOptions;
 use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
 
@@ -42,6 +43,10 @@ pub struct Wasm {
     /// Output component WIT text to this file.
     #[arg(long)]
     output_wit: Option<PathBuf>,
+
+    /// Output Mermaid control flow diagrams to the given directory.
+    #[arg(long)]
+    output_mermaid: Option<PathBuf>,
 
     /// Output dependency information in Make/Ninja compatible format.
     #[arg(long, short = 'M')]
@@ -95,9 +100,22 @@ impl Wasm {
             }
         };
 
-        let compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
+        // Wasm
+        let options = CompileOptions {
+            check_overflows: true,
+            output_mermaid: self.output_mermaid.is_some(),
+        };
+        let compile_result = options.compile_contract(&typed, entry_id);
         for error in compile_result.errors {
             print_diagnostic(entry_named.clone(), error)?;
+        }
+        if let Some(output_mermaid) = self.output_mermaid {
+            std::fs::create_dir_all(&output_mermaid).unwrap();
+            for (name, text) in compile_result.mermaid {
+                let mermaid = output_mermaid.join(format!("{name}.mmd"));
+                fs.write(&mermaid, text.as_bytes())
+                    .expect("Error writing Mermaid output");
+            }
         }
         let Some(wasm) = compile_result.wasm else {
             std::process::exit(1);

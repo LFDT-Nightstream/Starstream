@@ -92,48 +92,7 @@ pub fn compile_contract(
     graph: &starstream_compiler::TypedModuleGraph,
     entry: starstream_compiler::ModuleId,
 ) -> CompileResult {
-    let mut compiler = Compiler::default();
-
-    // Build a reachable-from-entry set by chasing edges through the typed
-    // graph. We don't have the untyped graph's edges here, so we synthesize
-    // them from each module's `TypedDefinition::Import` entries. Cheaper
-    // than threading the source graph through.
-    use std::collections::HashSet;
-    let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
-    reachable.insert(entry);
-    let mut stack = vec![entry];
-    while let Some(id) = stack.pop() {
-        let module = graph.module(id);
-        for def in &module.program.definitions {
-            if let TypedDefinition::Import(import) = def {
-                if let TypedImportSource::Path {
-                    canonical: Some(canonical),
-                    ..
-                } = &import.from
-                {
-                    if let Some(target) = graph
-                        .modules
-                        .iter()
-                        .find(|m| &m.abs_path == canonical)
-                        .map(|m| m.id)
-                    {
-                        if reachable.insert(target) {
-                            stack.push(target);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    for &module_id in &graph.topo_order {
-        if !reachable.contains(&module_id) {
-            continue;
-        }
-        let module = graph.module(module_id);
-        compiler.visit_program(&module.program);
-    }
-    compiler.finish()
+    CompileOptions::default().compile_contract(graph, entry)
 }
 
 impl Default for CompileOptions {
@@ -146,14 +105,62 @@ impl Default for CompileOptions {
 }
 
 impl CompileOptions {
-    pub fn compile(&self, program: &TypedProgram) -> CompileResult {
+    pub fn compile(self, program: &TypedProgram) -> CompileResult {
         let mut compiler = Compiler::default();
-        compiler.options = self.clone();
+        compiler.options = self;
         compiler.visit_program(program);
         compiler.finish()
     }
 
-    // TODO: compile_contract
+    pub fn compile_contract(
+        self,
+        graph: &starstream_compiler::TypedModuleGraph,
+        entry: starstream_compiler::ModuleId,
+    ) -> CompileResult {
+        let mut compiler = Compiler::default();
+        compiler.options = self;
+
+        // Build a reachable-from-entry set by chasing edges through the typed
+        // graph. We don't have the untyped graph's edges here, so we synthesize
+        // them from each module's `TypedDefinition::Import` entries. Cheaper
+        // than threading the source graph through.
+        use std::collections::HashSet;
+        let mut reachable: HashSet<starstream_compiler::ModuleId> = HashSet::new();
+        reachable.insert(entry);
+        let mut stack = vec![entry];
+        while let Some(id) = stack.pop() {
+            let module = graph.module(id);
+            for def in &module.program.definitions {
+                if let TypedDefinition::Import(import) = def {
+                    if let TypedImportSource::Path {
+                        canonical: Some(canonical),
+                        ..
+                    } = &import.from
+                    {
+                        if let Some(target) = graph
+                            .modules
+                            .iter()
+                            .find(|m| &m.abs_path == canonical)
+                            .map(|m| m.id)
+                        {
+                            if reachable.insert(target) {
+                                stack.push(target);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for &module_id in &graph.topo_order {
+            if !reachable.contains(&module_id) {
+                continue;
+            }
+            let module = graph.module(module_id);
+            compiler.visit_program(&module.program);
+        }
+        compiler.finish()
+    }
 }
 
 impl Diagnostic for CompileError {
