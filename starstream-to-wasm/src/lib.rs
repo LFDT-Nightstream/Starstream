@@ -9,7 +9,7 @@ use wasm_encoder::*;
 use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
 use crate::encoder::TypeBuilder;
-use crate::ir::ControlFlowGraph;
+use crate::ir::{ControlFlowGraph, Out};
 use crate::stackifier::stackify;
 
 mod component_abi;
@@ -1425,7 +1425,7 @@ impl Compiler {
         _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
         let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
-        func.cfg.fill(bb, ir::Out::Return);
+        func.cfg.fill(bb, Out::Return);
 
         let stackified = stackify(&func, bb_orig);
         let idx = self.add_function(
@@ -1607,7 +1607,7 @@ impl Compiler {
                 TypedStatement::While { condition, body } => {
                     // condition block: evaluate
                     let bb_condition = func.cfg.add_block();
-                    func.cfg.fill(*bb, ir::Out::Next(bb_condition));
+                    func.cfg.fill(*bb, Out::Next(bb_condition));
 
                     let mut bb_condition_2 = bb_condition;
                     let _ = self.visit_expr_stack(
@@ -1624,7 +1624,7 @@ impl Compiler {
                     let bb_body = func.cfg.add_block();
                     func.cfg.fill(
                         bb_condition_2,
-                        ir::Out::If {
+                        Out::If {
                             f: bb_exit,
                             t: bb_body,
                         },
@@ -1635,7 +1635,7 @@ impl Compiler {
                     // body block
                     let mut bb_body_2 = bb_body;
                     self.visit_block_drop(func, &mut bb_body_2, &(parent, &locals), body)?;
-                    func.cfg.fill(bb_body_2, ir::Out::Next(bb_condition));
+                    func.cfg.fill(bb_body_2, Out::Next(bb_condition));
                     func.cfg.seal(bb_condition, BlockType::Empty);
 
                     // exit block
@@ -1644,7 +1644,7 @@ impl Compiler {
                 TypedStatement::Return(Some(expr)) => {
                     let _ =
                         self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
-                    func.cfg.fill(*bb, ir::Out::Return);
+                    func.cfg.fill(*bb, Out::Return);
                     // Also return early here to avoid double-fill assert if AST contains double-return
                     return Ok(locals);
                 }
@@ -1717,7 +1717,7 @@ impl Compiler {
                 let mut bb_rhs = func.cfg.add_block();
                 func.cfg.fill(
                     *bb,
-                    ir::Out::If {
+                    Out::If {
                         f: bb_end,
                         t: bb_rhs,
                     },
@@ -1727,7 +1727,7 @@ impl Compiler {
                 self.visit_expr_drop(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
 
-                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+                func.cfg.fill(bb_rhs, Out::Next(bb_end));
                 func.cfg.seal(bb_end, BlockType::Empty);
 
                 *bb = bb_end;
@@ -1745,7 +1745,7 @@ impl Compiler {
                 let mut bb_rhs = func.cfg.add_block();
                 func.cfg.fill(
                     *bb,
-                    ir::Out::If {
+                    Out::If {
                         f: bb_rhs,
                         t: bb_end,
                     },
@@ -1755,7 +1755,7 @@ impl Compiler {
                 self.visit_expr_drop(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
 
-                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+                func.cfg.fill(bb_rhs, Out::Next(bb_end));
                 func.cfg.seal(bb_end, BlockType::Empty);
 
                 *bb = bb_end;
@@ -1824,7 +1824,7 @@ impl Compiler {
                             let bb_false = func.cfg.add_block();
                             func.cfg.fill(
                                 *bb,
-                                ir::Out::If {
+                                Out::If {
                                     f: bb_false,
                                     t: bb_true,
                                 },
@@ -1834,7 +1834,7 @@ impl Compiler {
 
                             // True branch.
                             self.visit_block_drop(func, &mut bb_true, locals, block)?;
-                            func.cfg.fill(bb_true, ir::Out::Next(bb_end));
+                            func.cfg.fill(bb_true, Out::Next(bb_end));
 
                             // False branch is to continue evaluating conditions.
                             *bb = bb_false;
@@ -1851,7 +1851,7 @@ impl Compiler {
                 }
 
                 // End.
-                func.cfg.fill(*bb, ir::Out::Next(bb_end));
+                func.cfg.fill(*bb, Out::Next(bb_end));
                 func.cfg.seal(bb_end, BlockType::Empty);
                 *bb = bb_end;
             }
@@ -2329,7 +2329,7 @@ impl Compiler {
                 let bb_end = func.cfg.add_block();
                 func.cfg.fill(
                     *bb,
-                    ir::Out::If {
+                    Out::If {
                         f: bb_short,
                         t: bb_rhs,
                     },
@@ -2339,10 +2339,10 @@ impl Compiler {
 
                 self.visit_expr_stack(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+                func.cfg.fill(bb_rhs, Out::Next(bb_end));
 
                 func.instructions(&bb_short).i32_const(0);
-                func.cfg.fill(bb_short, ir::Out::Next(bb_end));
+                func.cfg.fill(bb_short, Out::Next(bb_end));
 
                 func.cfg.seal(bb_end, BlockType::Result(ValType::I32));
                 *bb = bb_end;
@@ -2361,7 +2361,7 @@ impl Compiler {
                 let bb_end = func.cfg.add_block();
                 func.cfg.fill(
                     *bb,
-                    ir::Out::If {
+                    Out::If {
                         f: bb_rhs,
                         t: bb_short,
                     },
@@ -2371,10 +2371,10 @@ impl Compiler {
 
                 self.visit_expr_stack(func, &mut bb_rhs, locals, right.span, &right.node)?;
                 assert_eq!(right.node.ty, Type::Bool);
-                func.cfg.fill(bb_rhs, ir::Out::Next(bb_end));
+                func.cfg.fill(bb_rhs, Out::Next(bb_end));
 
                 func.instructions(&bb_short).i32_const(1);
-                func.cfg.fill(bb_short, ir::Out::Next(bb_end));
+                func.cfg.fill(bb_short, Out::Next(bb_end));
 
                 func.cfg.seal(bb_end, BlockType::Result(ValType::I32));
                 *bb = bb_end;
@@ -2489,7 +2489,7 @@ impl Compiler {
                             let bb_false = func.cfg.add_block();
                             func.cfg.fill(
                                 *bb,
-                                ir::Out::If {
+                                Out::If {
                                     f: bb_false,
                                     t: bb_true,
                                 },
@@ -2505,7 +2505,7 @@ impl Compiler {
                                         .local_set(first_local + (i as u32));
                                 }
                             }
-                            func.cfg.fill(bb_true, ir::Out::Next(bb_end));
+                            func.cfg.fill(bb_true, Out::Next(bb_end));
 
                             // False branch is to continue evaluating conditions.
                             *bb = bb_false;
@@ -2527,7 +2527,7 @@ impl Compiler {
                 }
 
                 // End.
-                func.cfg.fill(*bb, ir::Out::Next(bb_end));
+                func.cfg.fill(*bb, Out::Next(bb_end));
                 func.cfg.seal(bb_end, block_type);
                 *bb = bb_end;
 
@@ -2709,7 +2709,7 @@ impl Compiler {
                 let bb_resume = func.cfg.add_block();
                 func.cfg.resumes.push(bb_resume);
                 func.cfg.seal(bb_resume, BlockType::Empty);
-                func.cfg.fill(*bb, ir::Out::Yield(bb_resume));
+                func.cfg.fill(*bb, Out::Yield(bb_resume));
                 *bb = bb_resume;
 
                 // Load globals to locals
