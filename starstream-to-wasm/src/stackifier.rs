@@ -69,22 +69,27 @@ impl<'a> Stackified<'a> {
         // Now we know `loop` + `end` pairs and must insert `block` + `end` pairs.
         let mut i = 0;
         let mut seen = HashSet::new();
+        let mut block_exists_for = HashSet::new();
         while i < seq.len() {
             if let SeqItem::Basic(bb) = seq[i] {
                 seen.insert(bb);
                 func.cfg.blocks[bb].out.for_each_successor(|next| {
-                    if !seen.contains(&next) {
-                        // Forward edge.
-                        if !next_block_is(&seq[i + 1..], next) {
-                            // Insert `end` before destination (next),
-                            // then `block` before source (bb) at corresponding depth.
-                            // Algorithmic complexity suspicion point - risk of N^2 behavior?
-                            let (j, depth) = find_node_backwards(&seq, next);
-                            seq.insert(j, SeqItem::EndBlock(next));
-                            let k = find_depth_forwards(&seq[..i], depth);
-                            seq.insert(k, SeqItem::StartBlock(next));
-                            i += 1;
-                        }
+                    // If it's:
+                    // - a forward edge, and
+                    // - not the next basic block in the sequence, and
+                    // - we haven't already placed a `block` ending before it, then
+                    if !seen.contains(&next)
+                        && !next_block_is(&seq[i + 1..], next)
+                        && block_exists_for.insert(next)
+                    {
+                        // Insert `end` before destination (next),
+                        // then `block` before source (bb) at corresponding depth.
+                        // Algorithmic complexity suspicion point - risk of N^2 behavior?
+                        let (j, depth) = find_node_backwards(&seq, next);
+                        seq.insert(j, SeqItem::EndBlock(next));
+                        let k = find_depth_forwards(&seq[..i], depth);
+                        seq.insert(k, SeqItem::StartBlock(next));
+                        i += 1;
                     }
                 });
             }
@@ -194,6 +199,12 @@ impl<'a> Stackified<'a> {
                             }
                             writeln!(fmt, "\"]")?;
                             writeln!(fmt, "style {bb} text-align: left, white-space: nowrap")?;
+                            match this.func.cfg.blocks[bb].out {
+                                Out::Return => writeln!(fmt, "return_{bb}")?,
+                                Out::Yield(_) => writeln!(fmt, "yield_{bb}")?,
+                                Out::Unreachable => writeln!(fmt, "unreachable_{bb}")?,
+                                Out::None | Out::Next(_) | Out::If { .. } => {}
+                            }
                         }
                         SeqItem::StartLoop(bb) => {
                             let block_type = this.func.cfg.blocks[bb].in_type.unwrap();
