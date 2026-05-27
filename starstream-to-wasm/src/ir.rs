@@ -36,7 +36,7 @@ pub enum Out {
     /// Return from the current function with what's on the stack. 0 successors.
     Return,
     /// Like Return, but names the BB that will be resumed.
-    Yield(usize),
+    Yield { bb_resume: usize },
     /// Wasm `unreachable`.
     Unreachable,
     /// 1 unconditional successor.
@@ -48,7 +48,7 @@ pub enum Out {
 impl Out {
     pub fn for_each_successor<F: FnMut(usize)>(&self, mut func: F) {
         match *self {
-            Out::None | Out::Return | Out::Yield(_) | Out::Unreachable => {}
+            Out::None | Out::Return | Out::Yield { .. } | Out::Unreachable => {}
             Out::Next(a) => func(a),
             Out::If { f, t } => {
                 // Prefer visiting true branch first for readability, since
@@ -65,15 +65,15 @@ impl Out {
         impl<'a> fmt::Display for Mermaid<'a> {
             fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let &Mermaid(out, i) = self;
-                match out {
+                match *out {
                     Out::None => {}
                     Out::Return => {
                         writeln!(fmt, "{i} --> return_{i}")?;
                         writeln!(fmt, "return_{i}([return])")?;
                     }
-                    Out::Yield(bb) => {
-                        writeln!(fmt, "{i} --> yield_{bb}")?;
-                        writeln!(fmt, "yield_{bb}([yield {bb}])")?;
+                    Out::Yield { bb_resume, .. } => {
+                        writeln!(fmt, "{i} --> yield_{bb_resume}")?;
+                        writeln!(fmt, "yield_{bb_resume}([yield {bb_resume}])")?;
                     }
                     Out::Unreachable => {
                         writeln!(fmt, "{i} --> unreachable_{i}")?;
@@ -153,9 +153,12 @@ impl ControlFlowGraph {
                     _ = writeln!(gv, "{i} -> return_{i};");
                     _ = writeln!(gv, "return_{i} [label=return] [shape=box] [style=rounded];");
                 }
-                Out::Yield(bb) => {
-                    _ = writeln!(gv, "{i} -> yield_{bb};");
-                    _ = writeln!(gv, "yield_{bb} [label=yield] [shape=box] [style=rounded];");
+                Out::Yield { bb_resume, .. } => {
+                    _ = writeln!(gv, "{i} -> yield_{bb_resume};");
+                    _ = writeln!(
+                        gv,
+                        "yield_{bb_resume} [label=yield] [shape=box] [style=rounded];"
+                    );
                 }
                 Out::Unreachable => {
                     _ = writeln!(gv, "{i} -> unreachable_{i};");
@@ -177,7 +180,6 @@ impl ControlFlowGraph {
         gv
     }
 
-    #[allow(dead_code)]
     pub fn to_mermaid(&self) -> impl fmt::Display {
         struct Mermaid<'a>(&'a ControlFlowGraph);
         impl<'a> fmt::Display for Mermaid<'a> {

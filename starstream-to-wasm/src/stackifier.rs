@@ -105,7 +105,7 @@ impl<'a> Stackified<'a> {
                     sink.extend_from_slice(&func.cfg.blocks[bb].instructions);
                     match func.cfg.blocks[bb].out {
                         Out::None => unreachable!(),
-                        Out::Return | Out::Yield(_) => {
+                        Out::Return | Out::Yield { .. } => {
                             InstructionSink::new(sink).return_();
                         }
                         Out::Unreachable => {
@@ -174,7 +174,7 @@ impl<'a> Stackified<'a> {
                             write!(fmt, "{}", this.func.cfg.blocks[bb].disassemble())?;
                             match this.func.cfg.blocks[bb].out {
                                 Out::None => unreachable!(),
-                                Out::Return | Out::Yield(_) => {
+                                Out::Return | Out::Yield { .. } => {
                                     writeln!(fmt, "return")?;
                                 }
                                 Out::Unreachable => {
@@ -201,7 +201,7 @@ impl<'a> Stackified<'a> {
                             writeln!(fmt, "style {bb} text-align: left, white-space: nowrap")?;
                             match this.func.cfg.blocks[bb].out {
                                 Out::Return => writeln!(fmt, "return_{bb}")?,
-                                Out::Yield(_) => writeln!(fmt, "yield_{bb}")?,
+                                Out::Yield { bb_resume, .. } => writeln!(fmt, "yield_{bb_resume}")?,
                                 Out::Unreachable => writeln!(fmt, "unreachable_{bb}")?,
                                 Out::None | Out::Next(_) | Out::If { .. } => {}
                             }

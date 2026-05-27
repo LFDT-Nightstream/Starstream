@@ -214,6 +214,10 @@ struct Compiler {
 
     // Memory building.
     bump_ptr: u32,
+
+    yield_global: Option<u32>,
+    yield_id: i32,
+    yield_funcs: Vec<u32>,
 }
 
 impl Compiler {
@@ -222,6 +226,9 @@ impl Compiler {
     fn finish(mut self) -> CompileResult {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
+
+        // Generate resume function
+        self.generate_resume_fn();
 
         // Generate memory.
         if self.bump_ptr > 0 {
@@ -449,6 +456,29 @@ impl Compiler {
         }
     }
 
+    fn generate_resume_fn(&mut self) {
+        let Some(yield_global) = self.yield_global else {
+            return;
+        };
+
+        // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
+        let mut func = Function::new([]);
+        for (i, &target) in self.yield_funcs.iter().enumerate() {
+            func.instructions().block(BlockType::Empty);
+            func.instructions().global_get(yield_global);
+            func.instructions().i32_const((i + 1) as i32);
+            func.instructions().i32_ne();
+            func.instructions().br_if(0);
+            func.instructions().return_call(target);
+            func.instructions().end();
+        }
+        func.instructions().unreachable();
+        func.instructions().end();
+
+        let idx = self.add_function(FuncType::new([], []), &func.into_raw_body());
+        self.export_core_fn("resume", idx); // temporary for testing
+    }
+
     // ------------------------------------------------------------------------
     // Core table management
 
@@ -477,16 +507,10 @@ impl Compiler {
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
     fn add_function(&mut self, ty: FuncType, code: &[u8]) -> u32 {
-        // TODO: enforce that all *imported* function IDs are known before this
-        // is called, as Wasm requires all imports to precede all of the
-        // module's own functions.
-
         let type_index = self.add_core_func_type(ty);
         let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
-
         self.code.raw(&code);
-
         func_index
     }
 
@@ -1452,12 +1476,13 @@ impl Compiler {
         }
 
         for &resume in &func.cfg.resumes {
+            // TODO: remove params here and add them to the function's locals instead of making the resume fn pass 0 for all params.
             let stackified = stackify(&func, resume);
             let idx = self.add_function(
                 FuncType::new(params.iter().copied(), results.iter().copied()),
                 &stackified.code,
             );
-            self.export_core_fn(&format!("{wit_name}-resume-{resume}"), idx);
+            self.yield_funcs.push(idx);
 
             if self.options.output_mermaid {
                 self.mermaid.push((
@@ -2689,6 +2714,19 @@ impl Compiler {
                 self.visit_match_stack(func, bb, locals, span, expr, scrutinee, arms)
             }
             TypedExprKind::Yield { abis } => {
+                // Store yield ID to globals
+                self.yield_id += 1;
+                let id = self.yield_id;
+                let yield_global = match self.yield_global {
+                    Some(g) => g,
+                    None => {
+                        let g = self.add_globals([ValType::I32]);
+                        self.yield_global = Some(g);
+                        g
+                    }
+                };
+                func.instructions(bb).i32_const(id).global_set(yield_global);
+
                 // Store locals to globals (implicit storage)
                 // TODO: only store/load locals that are actually live at this yield point
                 // TODO: optimize number of global slots used
@@ -2717,15 +2755,23 @@ impl Compiler {
                 let bb_resume = func.cfg.add_block();
                 func.cfg.resumes.push(bb_resume);
                 func.cfg.seal(bb_resume, BlockType::Empty);
-                func.cfg.fill(*bb, Out::Yield(bb_resume));
+                func.cfg.fill(*bb, Out::Yield { bb_resume });
                 *bb = bb_resume;
 
                 // Load globals to locals
-                // TODO: store 0 back to these globals
-                for i in 0..locals.len() {
-                    func.instructions(bb)
-                        .global_get(globals + (i as u32))
-                        .local_set(i as u32);
+                for (i, ty) in locals.iter().enumerate() {
+                    let g = globals + (i as u32);
+                    func.instructions(bb).global_get(g).local_set(i as u32);
+                    // Store 0 back to the global for better compression
+                    match ty {
+                        ValType::I32 => {
+                            func.instructions(bb).i32_const(0).global_set(g);
+                        }
+                        ValType::I64 => {
+                            func.instructions(bb).i64_const(0).global_set(g);
+                        }
+                        _ => unimplemented!(),
+                    }
                 }
 
                 Ok(())
