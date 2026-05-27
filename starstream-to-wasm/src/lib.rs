@@ -1827,7 +1827,7 @@ impl Compiler {
                             assert_eq!(condition.node.ty, Type::Bool);
 
                             // Inner block for each condition.
-                            let mut bb_true = func.cfg.add_block();
+                            let bb_true = func.cfg.add_block();
                             let bb_false = func.cfg.add_block();
                             func.cfg.fill(
                                 *bb,
@@ -1838,10 +1838,11 @@ impl Compiler {
                             );
                             func.cfg.seal(bb_true, BlockType::Empty);
                             func.cfg.seal(bb_false, BlockType::Empty);
+                            *bb = bb_true;
 
                             // True branch.
-                            self.visit_block_drop(func, &mut bb_true, locals, block)?;
-                            func.cfg.fill(bb_true, Out::Next(bb_end));
+                            self.visit_block_drop(func, bb, locals, block)?;
+                            func.cfg.fill(*bb, Out::Next(bb_end));
 
                             // False branch is to continue evaluating conditions.
                             *bb = bb_false;
@@ -2492,7 +2493,7 @@ impl Compiler {
                             assert_eq!(condition.node.ty, Type::Bool);
 
                             // Inner block for each condition.
-                            let mut bb_true = func.cfg.add_block();
+                            let bb_true = func.cfg.add_block();
                             let bb_false = func.cfg.add_block();
                             func.cfg.fill(
                                 *bb,
@@ -2503,16 +2504,16 @@ impl Compiler {
                             );
                             func.cfg.seal(bb_true, BlockType::Empty);
                             func.cfg.seal(bb_false, BlockType::Empty);
+                            *bb = bb_true;
 
                             // True branch.
-                            self.visit_block_stack(func, &mut bb_true, locals, block)?;
+                            self.visit_block_stack(func, bb, locals, block)?;
                             if matches!(block_type, BlockType::Empty) {
                                 for i in (0..result_types.len()).rev() {
-                                    func.instructions(&bb_true)
-                                        .local_set(first_local + (i as u32));
+                                    func.instructions(bb).local_set(first_local + (i as u32));
                                 }
                             }
-                            func.cfg.fill(bb_true, Out::Next(bb_end));
+                            func.cfg.fill(*bb, Out::Next(bb_end));
 
                             // False branch is to continue evaluating conditions.
                             *bb = bb_false;
