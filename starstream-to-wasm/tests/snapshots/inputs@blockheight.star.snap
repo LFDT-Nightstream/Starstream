@@ -188,6 +188,7 @@ T-Fn: second => i64
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Import(
             TypedImportDef {

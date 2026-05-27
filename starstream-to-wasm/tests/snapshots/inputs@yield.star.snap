@@ -1,0 +1,297 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/yield.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "Foo",
+                        span: 4..7,
+                    },
+                    parts: [
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "foo",
+                                    span: 17..20,
+                                },
+                                params: [],
+                                return_type: None,
+                                span: 14..24,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..27,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "MyUtxo",
+                        span: 32..38,
+                    },
+                    parts: [
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "Foo",
+                                span: 50..53,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: 67..70,
+                                    },
+                                    params: [],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [],
+                                        tail_expression: None,
+                                        span: 73..81,
+                                    },
+                                },
+                            ],
+                        },
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "hello_utxo",
+                                    span: 95..105,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Yield {
+                                                        abis: [
+                                                            Identifier {
+                                                                name: "Foo",
+                                                                span: 124..127,
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: 118..128,
+                                                },
+                                            ),
+                                            span: 118..134,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 108..136,
+                                },
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 27..138,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Utxo: MyUtxo => 
+  T-Fn: foo => ()
+  T-Fn: hello_utxo => ()
+    T-Expr: {foo: fn() -> (), hello_utxo: fn() -> ()} ⊢ yield(Foo); ⇒ ()
+
+==== Typed AST ====
+TypedProgram {
+    has_yields: true,
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "Foo",
+                    span: 4..7,
+                },
+                parts: [
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "foo",
+                                span: 17..20,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            span: 17..20,
+                        },
+                    ),
+                ],
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "MyUtxo",
+                    span: 32..38,
+                },
+                parts: [
+                    AbiImpl {
+                        span: 50..53,
+                        abi: AbiNarrow(
+                            Abi {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 4..7,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "foo",
+                                            span: 17..20,
+                                        },
+                                        params: [],
+                                        return_type: Unit,
+                                        span: 17..20,
+                                    },
+                                ],
+                            },
+                        ),
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "foo",
+                                    span: 67..70,
+                                },
+                                params: [],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [],
+                                    tail_expression: None,
+                                },
+                            },
+                        ],
+                    },
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                UtxoMain,
+                            ),
+                            name: Identifier {
+                                name: "hello_utxo",
+                                span: 95..105,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Yield {
+                                                    abis: [
+                                                        Abi {
+                                                            name: Identifier {
+                                                                name: "Foo",
+                                                                span: 4..7,
+                                                            },
+                                                            methods: [
+                                                                TypedAbiMethodDecl {
+                                                                    name: Identifier {
+                                                                        name: "foo",
+                                                                        span: 17..20,
+                                                                    },
+                                                                    params: [],
+                                                                    return_type: Unit,
+                                                                    span: 17..20,
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            },
+                                            span: 118..128,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                ],
+                ty: UtxoNamed(
+                    "MyUtxo",
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i64 i64 i64 i64)))
+  (type (;1;) (func))
+  (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (export "hello-utxo" (func 2))
+  (func (;1;) (type 1))
+  (func (;2;) (type 1)
+    (call 0
+      (i64.const -8086495256948496852)
+      (i64.const 3765343665581825017)
+      (i64.const -6863622839687364077)
+      (i64.const -5843589418109203719))
+    (return)
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "my-utxo" (type (;0;) (sub resource)))
+              (type (;1;) (func))
+              (export (;0;) "hello-utxo" (func (type 1)))
+              (type (;2;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "hash" 0)))
+                  (export (;0;) "implements-method" (func (type 1)))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;0;) (type 2)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import starstream:std/builtin;
+
+  resource my-utxo;
+
+  export hello-utxo: func();
+}
+package starstream:std {
+  interface builtin {
+    implements-method: func(hash: tuple<u64, u64, u64, u64>);
+  }
+}

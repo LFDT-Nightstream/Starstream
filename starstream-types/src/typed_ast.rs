@@ -5,8 +5,10 @@
 //! (formatting, codegen, LSP features) can rely on explicit type information
 //! without re-running inference.
 
+use std::sync::Arc;
+
 use crate::{
-    FunctionExport, Span, Spanned,
+    Abi, FunctionExport, Span, Spanned,
     ast::{BinaryOp, Identifier, Literal, UnaryOp},
     types::{EffectKind, Type},
 };
@@ -14,6 +16,9 @@ use crate::{
 /// Entire program with types attached.
 #[derive(Clone, Debug, Default)]
 pub struct TypedProgram {
+    /// True if the program uses the `yield` expression anywhere.
+    pub has_yields: bool,
+    /// List of elements in the program.
     pub definitions: Vec<TypedDefinition>,
 }
 
@@ -98,7 +103,7 @@ pub struct TypedFunctionDef {
     pub body: TypedBlock,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypedFunctionParam {
     pub public: bool,
     pub name: Identifier,
@@ -167,12 +172,20 @@ pub enum TypedAbiPart {
     FnDecl(TypedAbiMethodDecl),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TypedAbiMethodDecl {
     pub name: Identifier,
     pub params: Vec<TypedFunctionParam>,
     pub return_type: Type,
     pub span: Span,
+}
+
+impl TypedAbiMethodDecl {
+    /// Get the stable hashable identity of this method type.
+    pub fn identity(&self) -> &str {
+        // TODO: specify hashing for types and include real type signature here
+        self.name.as_str()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -285,6 +298,11 @@ pub enum TypedExprKind {
         scrutinee: Box<Spanned<TypedExpr>>,
         arms: Vec<TypedMatchArm>,
     },
+    /// `yield` and `yield(AbiName, ...)`
+    Yield {
+        /// Empty for bare `yield`, or list of abi infos
+        abis: Vec<Arc<Abi>>,
+    },
     Call {
         callee: Box<Spanned<TypedExpr>>,
         args: Vec<Spanned<TypedExpr>>,
@@ -381,11 +399,5 @@ impl TypedBlock {
             statements,
             tail_expression,
         }
-    }
-}
-
-impl TypedProgram {
-    pub fn new(definitions: Vec<TypedDefinition>) -> Self {
-        Self { definitions }
     }
 }

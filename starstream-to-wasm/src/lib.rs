@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
+use sha2::Digest;
 use starstream_types::*;
 use thiserror::Error;
 use wasm_encoder::*;
@@ -164,6 +165,7 @@ struct Compiler {
     data: DataSection,
 
     imported_functions: u32,
+    builtin_implements_method: u32,
 
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
@@ -325,11 +327,6 @@ impl Compiler {
         });
         self.fatal = true;
         ErrorToken
-    }
-
-    fn todo(&mut self, why: String) -> ErrorToken {
-        // TODO: better span
-        self.push_error(DUMMY_SPAN, format!("TODO: {why}"))
     }
 
     fn generate_storage_exports(
@@ -1176,6 +1173,32 @@ impl Compiler {
     /// Root visitor called by [compile] to start walking the AST for a program,
     /// building the Wasm sections on the way.
     fn visit_program(&mut self, program: &TypedProgram) {
+        // First, import builtins.
+        if program.has_yields {
+            let core_fn_ty = self.add_core_func_type(FuncType::new([ValType::I64; 4], []));
+            self.builtin_implements_method =
+                self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);
+
+            let builtin = self
+                .imported_interfaces
+                .entry("starstream:std/builtin".to_owned())
+                .or_default();
+            let implements_method_ty = builtin.encode_func(
+                [(
+                    "hash",
+                    Rc::new(ComponentAbiType::Tuple {
+                        fields: vec![Rc::new(ComponentAbiType::U64); 4],
+                    }),
+                )]
+                .into_iter(),
+                None,
+            );
+            builtin.inner.export(
+                "implements-method",
+                ComponentTypeRef::Func(implements_method_ty),
+            );
+        }
+
         // In the Wasm output, imported functions must precede defined
         // functions, so take care of them now.
         for definition in &program.definitions {
@@ -1692,7 +1715,8 @@ impl Compiler {
             TypedExprKind::Call { .. }
             | TypedExprKind::Emit { .. }
             | TypedExprKind::Raise { .. }
-            | TypedExprKind::Runtime { .. } => {
+            | TypedExprKind::Runtime { .. }
+            | TypedExprKind::Yield { .. } => {
                 // Function calls could have any side effect, so always really
                 // call them then drop whatever they might have returned.
                 self.visit_expr_stack(func, locals, span, expr)?;
@@ -1787,7 +1811,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Add({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Add({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1814,7 +1840,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Subtract({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Subtract({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1841,7 +1869,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Multiply({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Multiply({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1868,7 +1898,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Divide({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Divide({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1895,7 +1927,9 @@ impl Compiler {
                         }
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Remainder({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Remainder({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Unary {
@@ -1917,7 +1951,7 @@ impl Compiler {
                         self.emit_truncate(func, *w);
                         Ok(())
                     }
-                    lhs => Err(self.todo(format!("Negate({lhs:?})"))),
+                    lhs => Err(self.push_error(span, format!("TODO: Negate({lhs:?})"))),
                 }
             }
             TypedExprKind::Unary {
@@ -1931,7 +1965,7 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    lhs => Err(self.todo(format!("Not({lhs:?})"))),
+                    lhs => Err(self.push_error(span, format!("TODO: Not({lhs:?})"))),
                 }
             }
             // Comparison operators
@@ -1959,7 +1993,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Equal({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Equal({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -1986,7 +2022,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("NotEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: NotEqual({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -2019,7 +2057,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Less({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Less({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -2052,7 +2092,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("Greater({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: Greater({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -2085,7 +2127,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("LessEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("TODO: LessEqual({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             TypedExprKind::Binary {
@@ -2118,7 +2162,9 @@ impl Compiler {
                         assert_eq!(expr.ty, Type::Bool);
                         Ok(())
                     }
-                    (lhs, rhs) => Err(self.todo(format!("GreaterEqual({lhs:?}, {rhs:?})"))),
+                    (lhs, rhs) => {
+                        Err(self.push_error(span, format!("GreaterEqual({lhs:?}, {rhs:?})")))
+                    }
                 }
             }
             // Short-circuiting operators
@@ -2370,7 +2416,7 @@ impl Compiler {
             // Function calls
             TypedExprKind::Call { callee, args } => {
                 let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.todo("cannot call non-identifier".into()));
+                    return Err(self.push_error(span, "cannot call non-identifier"));
                 };
                 let target = *self
                     .callables
@@ -2390,7 +2436,7 @@ impl Compiler {
                     panic!("raise expr must be a call");
                 };
                 let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.todo("raise expr cannot call non-identifier".into()));
+                    return Err(self.push_error(span, "`raise` expr cannot call non-identifier"));
                 };
                 let target = *self
                     .callables
@@ -2403,7 +2449,7 @@ impl Compiler {
                     panic!("runtime expr must be a call");
                 };
                 let TypedExprKind::Identifier(i) = &callee.node.kind else {
-                    return Err(self.todo("runtime expr cannot call non-identifier".into()));
+                    return Err(self.push_error(span, "`runtime` expr cannot call non-identifier"));
                 };
                 let target = *self
                     .callables
@@ -2413,6 +2459,24 @@ impl Compiler {
             }
             TypedExprKind::Match { scrutinee, arms } => {
                 self.visit_match_stack(func, locals, span, expr, scrutinee, arms)
+            }
+            TypedExprKind::Yield { abis } => {
+                for abi in abis {
+                    for method in &abi.methods {
+                        let digest = sha2::Sha256::digest(method.identity());
+                        assert_eq!(digest.len(), 32);
+                        for chunk in digest.chunks_exact(8) {
+                            func.instructions()
+                                .i64_const(i64::from_le_bytes(<[u8; 8]>::try_from(chunk).unwrap()));
+                        }
+                        func.instructions().call(self.builtin_implements_method);
+                    }
+                }
+
+                // TODO: emit calls to indicate ABIs exposed
+                // TODO: really coroutinize (basic block splitting?)
+                func.instructions().return_();
+                Ok(())
             }
         }
     }

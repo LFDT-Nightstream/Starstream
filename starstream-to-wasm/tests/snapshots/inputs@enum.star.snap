@@ -256,6 +256,7 @@ T-Fn: get_baz => ()
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Enum(
             TypedEnumDef {

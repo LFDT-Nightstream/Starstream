@@ -52,6 +52,7 @@ Program {
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Enum(
             TypedEnumDef {

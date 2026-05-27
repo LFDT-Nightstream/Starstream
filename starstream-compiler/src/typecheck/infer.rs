@@ -3,10 +3,11 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
+    sync::Arc,
 };
 
 use starstream_types::{
-    AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IfCondition, IntWidth,
+    Abi, AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IfCondition, IntWidth,
     Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal,
     TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
@@ -220,7 +221,10 @@ pub fn typecheck_program(
         });
     }
 
-    let mut typed_program = TypedProgram::new(typed_definitions);
+    let mut typed_program = TypedProgram {
+        has_yields: inferencer.has_yields,
+        definitions: typed_definitions,
+    };
     inferencer.apply_substitutions_program(&mut typed_program);
 
     let traces = if options.capture_traces {
@@ -415,7 +419,10 @@ pub fn typecheck_modules(
         let exports = collect_exports(&typed_definitions);
         module_exports.insert(module_id.0, exports);
 
-        let typed_program = TypedProgram::new(typed_definitions);
+        let typed_program = TypedProgram {
+            has_yields: inferencer.has_yields,
+            definitions: typed_definitions,
+        };
         typed_modules.insert(module_id.0, typed_program);
 
         // Drain warnings emitted during this module's pass.
@@ -694,6 +701,7 @@ struct Inferencer {
     warnings: Vec<TypeWarning>,
     /// Stack of linearity trackers for `if x is Abi` blocks (supports nesting).
     abi_call_trackers: Vec<AbiCallTracker>,
+    has_yields: bool,
 }
 
 #[derive(Clone)]
@@ -734,7 +742,7 @@ struct EventInfo {
 }
 
 struct AbiRegistry {
-    entries: HashMap<String, AbiInfo>,
+    entries: HashMap<String, Arc<Abi>>,
 }
 
 impl AbiRegistry {
@@ -744,29 +752,13 @@ impl AbiRegistry {
         }
     }
 
-    fn insert(&mut self, name: String, info: AbiInfo) {
-        self.entries.insert(name, info);
+    fn insert(&mut self, name: String, info: Abi) {
+        self.entries.insert(name, Arc::new(info));
     }
 
-    fn get(&self, name: &str) -> Option<&AbiInfo> {
+    fn get(&self, name: &str) -> Option<&Arc<Abi>> {
         self.entries.get(name)
     }
-}
-
-struct AbiInfo {
-    methods: Vec<AbiMethodInfo>,
-    #[allow(dead_code)]
-    name_span: Span,
-}
-
-struct AbiMethodInfo {
-    name: String,
-    param_types: Vec<Type>,
-    #[allow(dead_code)]
-    param_spans: Vec<Span>,
-    return_type: Type,
-    #[allow(dead_code)]
-    name_span: Span,
 }
 
 /// Tracks linearity of method calls on a narrowed ABI variable.
@@ -814,6 +806,7 @@ struct FunctionCtx {
     inside_runtime: bool,
     /// Declaration spans for function parameters that are private (non-`pub`).
     private_param_decl_spans: Vec<Span>,
+    is_coroutine: bool,
 }
 
 impl Inferencer {
@@ -832,6 +825,7 @@ impl Inferencer {
             builtins: BuiltinRegistry::new(),
             warnings: Vec::new(),
             abi_call_trackers: Vec::new(),
+            has_yields: false,
         };
         inferencer.register_prelude_types();
         inferencer
@@ -1142,32 +1136,33 @@ impl Inferencer {
             match part {
                 AbiPart::Event(event) => self.register_event(event)?,
                 AbiPart::FnDecl(method) => {
-                    let mut param_types = Vec::with_capacity(method.params.len());
-                    let mut param_spans = Vec::with_capacity(method.params.len());
+                    let mut params = Vec::with_capacity(method.params.len());
                     for param in &method.params {
                         let ty = self.type_from_annotation(&param.ty)?;
-                        param_types.push(ty);
-                        param_spans.push(param.ty.name.span());
+                        params.push(TypedFunctionParam {
+                            public: param.public,
+                            name: param.name.clone(),
+                            ty,
+                        });
                     }
                     let return_type = match &method.return_type {
                         Some(ann) => self.type_from_annotation(ann)?,
                         None => Type::Unit,
                     };
-                    methods.push(AbiMethodInfo {
-                        name: method.name.name.clone(),
-                        param_types,
-                        param_spans,
+                    methods.push(TypedAbiMethodDecl {
+                        name: method.name.clone(),
+                        params,
                         return_type,
-                        name_span: method.name.span(),
+                        span: method.name.span(),
                     });
                 }
             }
         }
         self.abis.insert(
             def.name.name.clone(),
-            AbiInfo {
+            Abi {
+                name: def.name.clone(),
                 methods,
-                name_span: def.name.span(),
             },
         );
         Ok(())
@@ -1569,26 +1564,10 @@ impl Inferencer {
                     let method_info = abi_info
                         .methods
                         .iter()
-                        .find(|m| m.name == method.name.name)
+                        .find(|m| m.name.as_str() == method.name.as_str())
                         .expect("method registered");
 
-                    let params = method_info
-                        .param_types
-                        .iter()
-                        .zip(&method.params)
-                        .map(|(ty, param)| TypedFunctionParam {
-                            public: param.public,
-                            name: param.name.clone(),
-                            ty: ty.clone(),
-                        })
-                        .collect();
-
-                    typed_parts.push(TypedAbiPart::FnDecl(TypedAbiMethodDecl {
-                        name: method.name.clone(),
-                        params,
-                        return_type: method_info.return_type.clone(),
-                        span: method.span,
-                    }));
+                    typed_parts.push(TypedAbiPart::FnDecl(method_info.clone()));
                 }
             }
         }
@@ -1652,7 +1631,7 @@ impl Inferencer {
                     };
                     self.check_abi_impl(abi, abi_info, &parts)?;
 
-                    let abi = Type::AbiNarrow(abi.to_string());
+                    let abi = Type::AbiNarrow(abi_info.clone());
                     TypedUtxoPart::AbiImpl { abi, span, parts }
                 }
             });
@@ -1673,7 +1652,7 @@ impl Inferencer {
     fn check_abi_impl(
         &self,
         abi_name: &Identifier,
-        abi: &AbiInfo,
+        abi: &Abi,
         methods: &[TypedFunctionDef],
     ) -> Result<(), TypeError> {
         // TODO: Reusing existing error codes, may want them to be more specific.
@@ -1686,19 +1665,19 @@ impl Inferencer {
         for impl_method in methods {
             if let Some(abi_method) = abi_methods.remove(impl_method.name.as_str()) {
                 // Method found, make sure parameters match
-                for (i, (abi_param_ty, impl_param)) in abi_method
-                    .param_types
+                for (i, (abi_param, impl_param)) in abi_method
+                    .params
                     .iter()
                     .zip(impl_method.params.iter())
                     .enumerate()
                 {
-                    if *abi_param_ty != impl_param.ty {
+                    if abi_param.ty != impl_param.ty {
                         return Err(TypeError::new(
                             TypeErrorKind::ArgumentTypeMismatch {
-                                expected: abi_param_ty.clone(),
+                                expected: abi_param.ty.clone(),
                                 found: impl_param.ty.clone(),
                                 position: i,
-                                param_span: Some(abi_method.param_spans[i]),
+                                param_span: Some(abi_method.params[i].name.span),
                             },
                             impl_param.name.span(),
                         ));
@@ -1711,7 +1690,7 @@ impl Inferencer {
                             expected: abi_method.return_type.clone(),
                             found: impl_method.return_type.clone(),
                         },
-                        abi_method.name_span,
+                        abi_method.name.span,
                     ));
                 }
             } else {
@@ -2284,6 +2263,7 @@ impl Inferencer {
             inside_raise: false,
             inside_runtime: false,
             private_param_decl_spans,
+            is_coroutine: function.export == Some(starstream_types::FunctionExport::UtxoMain),
         };
 
         let (typed_body, body_traces) = self.infer_block(env, &function.body, &mut ctx, true)?;
@@ -3099,34 +3079,26 @@ impl Inferencer {
                                 field.span(),
                             )
                         })?,
-                    Type::AbiNarrow(ref abi_name) => {
-                        let abi_info = self.abis.get(abi_name).ok_or_else(|| {
-                            TypeError::new(
-                                TypeErrorKind::UnknownAbi {
-                                    name: abi_name.clone(),
-                                },
-                                field.span(),
-                            )
-                        })?;
-                        let method = abi_info
+                    Type::AbiNarrow(abi) => {
+                        let method = abi
                             .methods
                             .iter()
-                            .find(|m| m.name == field.name)
+                            .find(|m| m.name.as_str() == field.name)
                             .ok_or_else(|| {
                                 TypeError::new(
                                     TypeErrorKind::AbiMethodNotFound {
-                                        abi_name: abi_name.clone(),
+                                        abi_name: abi.name.to_string(),
                                         method_name: field.name.clone(),
                                     },
                                     field.span(),
                                 )
                             })?;
                         Type::Function {
-                            params: method.param_types.clone(),
-                            param_spans: method.param_spans.clone(),
+                            params: method.params.iter().map(|p| p.ty.clone()).collect(),
+                            param_spans: method.params.iter().map(|p| p.name.span).collect(),
                             result: Box::new(method.return_type.clone()),
                             effect: EffectKind::Pure,
-                            name_span: method.name_span,
+                            name_span: method.name.span,
                         }
                     }
                     _ => {
@@ -3575,14 +3547,14 @@ impl Inferencer {
                                 }
                             }
 
-                            if self.abis.get(&abi_name.name).is_none() {
+                            let Some(abi) = self.abis.get(&abi_name.name) else {
                                 return Err(TypeError::new(
                                     TypeErrorKind::UnknownAbi {
                                         name: abi_name.name.clone(),
                                     },
                                     abi_name.span(),
                                 ));
-                            }
+                            };
 
                             let var_name_str = name.name.clone();
                             let abi_name_str = abi_name.name.clone();
@@ -3595,9 +3567,7 @@ impl Inferencer {
                                 Binding {
                                     decl_span: name.span(),
                                     mutable: false,
-                                    scheme: Scheme::monomorphic(Type::AbiNarrow(
-                                        abi_name_str.clone(),
-                                    )),
+                                    scheme: Scheme::monomorphic(Type::AbiNarrow(abi.clone())),
                                     class: BindingClass::Local,
                                     visibility: BindingVisibility::Private,
                                 },
@@ -3822,8 +3792,34 @@ impl Inferencer {
                     });
                 Ok((typed, tree))
             }
-            Expr::Yield { abis: _ } => {
-                todo!()
+            Expr::Yield { abis } => {
+                self.has_yields = true;
+                // Assert that we are inside a `main fn`.
+                if !ctx.is_coroutine {
+                    return Err(TypeError::new(TypeErrorKind::YieldOutsideMainFn, expr.span));
+                }
+                // TODO: assert that this utxo impls each abi named
+                let abis = abis
+                    .iter()
+                    .map(|abi| {
+                        let abi = self.abis.get(abi.as_str()).ok_or_else(|| {
+                            TypeError::new(
+                                TypeErrorKind::UnknownAbi {
+                                    name: abi.to_string(),
+                                },
+                                expr.span,
+                            )
+                        })?;
+                        Ok(abi.clone())
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok((
+                    Spanned::new(
+                        TypedExpr::new(Type::Unit, TypedExprKind::Yield { abis }),
+                        expr.span,
+                    ),
+                    Default::default(),
+                ))
             }
             Expr::Disclose { expr: inner_expr } => {
                 let (typed_inner, inner_trace) = self.infer_expr(env, inner_expr, ctx)?;
@@ -4782,6 +4778,7 @@ impl Inferencer {
                     self.apply_block(&mut arm.body);
                 }
             }
+            TypedExprKind::Yield { abis: _ } => {}
             TypedExprKind::Call { callee, args } => {
                 self.apply_expr(callee);
 

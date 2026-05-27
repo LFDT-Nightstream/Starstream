@@ -146,6 +146,7 @@ T-Fn: main => i64
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Function(
             TypedFunctionDef {

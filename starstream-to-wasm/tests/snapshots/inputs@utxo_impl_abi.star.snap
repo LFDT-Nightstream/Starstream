@@ -103,6 +103,7 @@ T-Utxo: MyUtxo =>
 
 ==== Typed AST ====
 TypedProgram {
+    has_yields: false,
     definitions: [
         Abi(
             TypedAbiDef {
@@ -121,7 +122,7 @@ TypedProgram {
                             return_type: Int(
                                 I32,
                             ),
-                            span: 16..35,
+                            span: 19..24,
                         },
                     ),
                 ],
@@ -137,7 +138,25 @@ TypedProgram {
                     AbiImpl {
                         span: 61..66,
                         abi: AbiNarrow(
-                            "MyAbi",
+                            Abi {
+                                name: Identifier {
+                                    name: "MyAbi",
+                                    span: 4..9,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "hello",
+                                            span: 19..24,
+                                        },
+                                        params: [],
+                                        return_type: Int(
+                                            I32,
+                                        ),
+                                        span: 19..24,
+                                    },
+                                ],
+                            },
                         ),
                         parts: [
                             TypedFunctionDef {
