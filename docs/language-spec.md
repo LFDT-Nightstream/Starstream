@@ -39,6 +39,7 @@ program ::= definition*
 (* Definitions *)
 
 definition ::=
+  | contract_definition
   | import_definition
   | function_definition
   | struct_definition
@@ -46,13 +47,17 @@ definition ::=
   | utxo_definition
   | abi_definition
 
+contract_definition ::= "contract" ";"
+
 import_definition ::=
   | "import" "{" import_named_item ( "," import_named_item )* "}" "from" import_source ";"
   | "import" identifier "from" import_source ";"
 
 import_named_item ::= identifier ( "as" identifier )?
 
-import_source ::= identifier ":" identifier "/" identifier
+import_source ::=
+  | identifier ":" identifier ( "/" identifier )?
+  | string_literal
 
 function_definition ::= ( function_export )? function
 
@@ -257,6 +262,10 @@ integer_literal ::= [0-9]+
 boolean_literal ::= "true" | "false"
 
 unit_literal ::= "(" ")"
+
+(* Quoted string used only as an `import_source`. Backslash-escapes are
+   limited to `\\`, `\"`, `\n`, `\r`, `\t`. *)
+string_literal ::= '"' ( [^"\\] | "\\" ["\\nrt] )* '"'
 ```
 
 Definitions live exclusively at the program (module) scope. Statements appear
@@ -296,6 +305,7 @@ The following reserved words may not be used as identifiers:
 - `disclose`
 - `is`
 - `yield`
+- `contract`
 
 <!--
   NOTE: When updating this grammar, also update:
@@ -389,14 +399,60 @@ No user-defined generics at this time.
 - Unification succeeds for records when both sides have the same field names (order-insensitive) and each corresponding field type unifies. A similar rule holds for enums, matching variant names and payload arity/type.
 - Pattern matching and field access operate on these shapes; renaming a type but keeping its layout requires no code changes.
 
+## Contracts
+
+Any `.star` file that contains a bare `contract;` declaration is a **codegen
+entry point**. The marker may appear anywhere at the top level of the file;
+the formatter sorts it to the top.
+
+```starstream
+contract;
+
+script fn run() -> i64 {
+    42
+}
+```
+
+Files without `contract;` are *helpers* — reusable functions and types that
+contracts pull in via path imports.
+
+**One workspace, one module graph.** The scan-based CLI commands
+(`check`, `docs`, `build`) and the language server build a **single
+workspace-wide module graph** over every `.star` file they find (including
+files transitively pulled in by path imports). Type-checking runs **once**
+across that whole graph, so a helper shared by two contracts is parsed and
+checked exactly once. Code generation then runs once per `contract;` node,
+walking only the subgraph reachable from that contract.
+
+The `starstream wasm` command is the exception: it always builds a
+single-file mini-graph rooted at the file you point it at, treating that
+file as the contract regardless of whether it declares `contract;`.
+
+**Cross-contract imports are not supported yet.** Any edge in the graph
+whose *target* declares `contract;` is rejected, with an error pointing at
+the import statement that created the edge — whether the importer is itself
+a contract or a helper doesn't matter.
+
+**Orphan helpers** (files with no `contract;` that aren't reached by any
+contract's import chain) still participate in the workspace graph as loose
+nodes. They're type-checked along with everything else, so editors get
+real-time diagnostics on them even before they're imported anywhere. They
+just produce no wasm output.
+
+> For the user-facing commands that drive this model
+> (`starstream wasm`/`check`/`docs`/`build`/`lsp`), see [CLI](./cli.md).
+
 ## Imports
 
-Imports bring external functions into scope from WIT-style interface paths.
+Imports bring external functions into scope from WIT-style interface paths or
+from another `.star` file in the project via path imports.
 
 The available import sources are:
 
 - `starstream:std` - Starstream builtins known to the compiler.
   - `/cardano` - functions expected to be available when hosted on Cardano.
+- `"./relative/path.star"` - another `.star` file in the project (see
+  [Path imports](#path-imports)).
 
 ### Named imports
 
@@ -418,6 +474,60 @@ import cardano from starstream:std/cardano;
 ```
 
 Functions are accessed using namespace-qualified syntax: `cardano::blockHeight()`.
+
+### Path imports
+
+A path import references another `.star` file by a quoted relative path,
+resolved against the *importing* file's directory. The `.star` extension is
+required.
+
+```starstream
+import { add, Point } from "./helpers/math.star";
+import math from "./helpers/math.star";
+import { foo } from "../shared/util.star";
+```
+
+**Resolution rules:**
+
+- Paths must be relative — they must begin with `./` or `../`. Absolute paths
+  and bare module names are rejected.
+- Paths must end with the `.star` extension.
+- Paths are resolved relative to the directory of the importing file.
+- The path is canonicalized (`./` and `../` are normalized; symlinks are
+  resolved) so a file that is reached via two different relative paths is
+  loaded only once within a single contract graph.
+
+**Visibility:**
+
+- Named imports are strict: only the names listed in `{ ... }` are visible to
+  the importing module. Other top-level definitions in the target file are
+  not implicitly accessible.
+- Namespace imports expose all top-level functions of the target file under
+  the alias (e.g., `math::add(...)`). They do not expose types.
+- Top-level types (`struct`, `enum`, `abi`, `utxo`) are referenced by name —
+  importing one with `import { Point } from "./shapes.star";` makes `Point`
+  usable in the importing file's type annotations.
+
+**Cross-contract guard:**
+
+- A contract may not import from another file that also declares `contract;`.
+  The compiler raises a hard error. Cross-contract calls will land in a
+  future release.
+
+**Module graph and cycles:**
+
+- For each contract entry, the compiler builds a directed graph of the
+  `.star` files reachable through its path imports. The graph is
+  topologically sorted before type-checking, so dependencies are processed
+  before their dependents.
+- Cycles in the path-import graph are a hard compile error.
+
+**`script fn` semantics:**
+
+- Every `script fn` reachable from a contract's entry is exported as a
+  transaction root in that contract's wasm — whether it's declared in the
+  entry file itself or in one of its helpers. If you wrote `script fn`,
+  you meant to expose it; the compiler honors that.
 
 ### Effect annotations
 

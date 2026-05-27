@@ -1,0 +1,26 @@
+---
+source: starstream-compiler/src/parser/definition/import.rs
+description: "Code:\n\nimport { add } from \"./helpers/math.star\";"
+---
+ImportDef {
+    items: Named(
+        [
+            ImportNamedItem {
+                imported: Identifier {
+                    name: "add",
+                    span: 9..12,
+                },
+                local: Identifier {
+                    name: "add",
+                    span: 9..12,
+                },
+            },
+        ],
+    ),
+    from: Path(
+        ImportPath {
+            value: "./helpers/math.star",
+            span: 20..41,
+        },
+    ),
+}

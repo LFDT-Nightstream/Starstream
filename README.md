@@ -52,6 +52,10 @@ wasm-dis $your_module.wasm  # from binaryen/emscripten
 wasm2wat $your_module.wasm  # from wabt
 ```
 
+For multi-contract projects, use `./starstream build` instead — see the
+[CLI docs](./docs/cli.md) for the full command set (`check`, `docs`,
+`build`, `lsp`).
+
 [language spec]: ./docs/language-spec.md
 
 ## Codebase structure
@@ -114,7 +118,8 @@ Interfaces:
 - [`website/`] - Documentation website and web sandbox.
 - `starstream-cli/` - Unified Starstream compiler and tooling CLI.
   - Frontend to Wasm compiler, formatter, language server, and so on.
-  - Run `./starstream --help` for usage instructions.
+  - Run `./starstream --help` for usage instructions, or see the
+    [CLI docs](./docs/cli.md) for the full command reference.
 - [`vscode-starstream/`] - Extension for [Visual Studio Code].
   - TODO: Publish to marketplace & OpenVSIX.
 - `zed-starstream/` - Extension for [Zed].

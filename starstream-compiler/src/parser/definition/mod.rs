@@ -6,6 +6,7 @@ use crate::parser::recursives;
 use super::context::Extra;
 
 mod abi;
+mod contract;
 mod enum_def;
 mod function;
 mod import;
@@ -13,6 +14,7 @@ mod struct_def;
 mod utxo;
 
 pub use abi::parser as abi;
+pub use contract::parser as contract;
 pub use enum_def::parser as enum_def;
 pub use function::function_with_export;
 pub use import::parser as import;
@@ -23,6 +25,7 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
     let (_, block, _) = recursives();
 
     choice((
+        contract().map(|_| Definition::Contract),
         import().map(Definition::Import),
         function_with_export(block.clone()).map(Definition::Function),
         struct_def().map(Definition::Struct),

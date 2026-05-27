@@ -42,9 +42,13 @@ pub fn expression(expr: &Expr) -> Result<String, fmt::Error> {
 }
 
 fn program_to_doc<'a>(program: &Program, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
-    // Sort definitions: imports first, then everything else
+    // Sort definitions: `contract;` first, then imports, then everything else.
     let mut definitions: Vec<_> = program.definitions.iter().collect();
-    definitions.sort_by_key(|def| !matches!(def.node, Definition::Import(_)));
+    definitions.sort_by_key(|def| match def.node {
+        Definition::Contract => 0u8,
+        Definition::Import(_) => 1,
+        _ => 2,
+    });
 
     let mut result = if let Some(shebang) = &program.shebang {
         comment_to_doc(shebang, source)
@@ -129,6 +133,7 @@ fn definition_to_doc<'a>(
     comments: &CommentMap,
 ) -> RcDoc<'a, ()> {
     match definition {
+        Definition::Contract => RcDoc::text("contract;"),
         Definition::Import(import) => import_to_doc(import, source),
         Definition::Function(function) => function_to_doc(function, source, comments),
         Definition::Struct(definition) => struct_definition_to_doc(definition, source, comments),
@@ -182,17 +187,41 @@ fn import_named_item_to_doc<'a>(item: &ImportNamedItem, source: &'a str) -> RcDo
 }
 
 fn import_source_to_doc<'a>(source_path: &ImportSource, source: &'a str) -> RcDoc<'a, ()> {
-    let mut doc = identifier_to_doc(&source_path.namespace, source)
-        .append(RcDoc::text(":"))
-        .append(identifier_to_doc(&source_path.package, source));
+    match source_path {
+        ImportSource::Wit {
+            namespace,
+            package,
+            interface,
+        } => {
+            let mut doc = identifier_to_doc(namespace, source)
+                .append(RcDoc::text(":"))
+                .append(identifier_to_doc(package, source));
 
-    if let Some(interface) = &source_path.interface {
-        doc = doc
-            .append(RcDoc::text("/"))
-            .append(identifier_to_doc(interface, source));
+            if let Some(interface) = interface {
+                doc = doc
+                    .append(RcDoc::text("/"))
+                    .append(identifier_to_doc(interface, source));
+            }
+
+            doc
+        }
+        ImportSource::Path(path) => {
+            let mut quoted = String::with_capacity(path.value.len() + 2);
+            quoted.push('"');
+            for c in path.value.chars() {
+                match c {
+                    '"' => quoted.push_str("\\\""),
+                    '\\' => quoted.push_str("\\\\"),
+                    '\n' => quoted.push_str("\\n"),
+                    '\r' => quoted.push_str("\\r"),
+                    '\t' => quoted.push_str("\\t"),
+                    c => quoted.push(c),
+                }
+            }
+            quoted.push('"');
+            RcDoc::text(quoted)
+        }
     }
-
-    doc
 }
 
 fn function_to_doc<'a>(
@@ -1537,6 +1566,52 @@ mod tests {
             import context from starstream:std;
 
             fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn import_path_named() {
+        assert_format_snapshot!(
+            r#"
+            import {   add  ,  Point   } from "./helpers/math.star";
+
+            fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn import_path_namespace() {
+        assert_format_snapshot!(
+            r#"
+            import math from "./helpers/math.star";
+
+            fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn contract_declaration_moves_to_top() {
+        assert_format_snapshot!(
+            r#"
+            fn helper() { }
+
+            contract;
+
+            script fn run() { }
+            "#,
+        );
+    }
+
+    #[test]
+    fn contract_before_imports() {
+        assert_format_snapshot!(
+            r#"
+            import { x } from "./util.star";
+            contract;
+            fn run() { }
             "#,
         );
     }

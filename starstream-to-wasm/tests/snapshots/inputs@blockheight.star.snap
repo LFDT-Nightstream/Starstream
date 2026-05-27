@@ -23,7 +23,7 @@ Program {
                             },
                         ],
                     ),
-                    from: ImportSource {
+                    from: Wit {
                         namespace: Identifier {
                             name: "starstream",
                             span: 28..38,
@@ -215,7 +215,7 @@ TypedProgram {
                         },
                     ],
                 ),
-                from: TypedImportSource {
+                from: Wit {
                     namespace: Identifier {
                         name: "starstream",
                         span: 28..38,

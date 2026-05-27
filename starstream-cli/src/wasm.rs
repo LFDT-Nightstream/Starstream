@@ -1,12 +1,26 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::diagnostics::print_diagnostic;
 use clap::Args;
-use miette::{IntoDiagnostic, NamedSource};
+use miette::NamedSource;
+use starstream_compiler::{
+    ModuleGraph, ModuleGraphError, TypecheckOptions, module_graph, typecheck_modules,
+};
 use starstream_types::FileSystem;
 use wit_component::ComponentEncoder;
 
-/// Compile Starstream source to Wasm.
+use crate::diagnostics::print_diagnostic;
+
+/// Compile a single `.star` file to wasm.
+///
+/// The file is treated as a contract regardless of whether it declares
+/// `contract;`. Path imports inside it are resolved relative to the file's
+/// directory; helpers reached through that chain must NOT themselves declare
+/// `contract;` (cross-contract calls aren't supported yet).
+///
+/// Output flags follow the legacy shape (`--output-core` etc.) so this command
+/// stays scriptable for one-off compilation. Use `starstream build` to compile
+/// every contract in a workspace at once.
 #[derive(Args, Debug)]
 pub struct Wasm {
     /// The Starstream source file to compile.
@@ -35,48 +49,60 @@ pub struct Wasm {
 }
 
 impl Wasm {
-    /// Parse, type-check, and compile the requested source file into a Wasm module.
     pub fn exec(self) -> miette::Result<()> {
         let mut fs = FileSystem::new();
 
-        let source_text = fs.read_to_string(&self.compile_file).into_diagnostic()?;
-        let named = NamedSource::new(self.compile_file.display().to_string(), source_text.clone());
-
-        let parse_output = starstream_compiler::parse_program(&source_text);
-        for error in parse_output.errors {
-            print_diagnostic(named.clone(), error)?;
-        }
-
-        let Some(program) = parse_output.program else {
-            std::process::exit(1);
+        let graph = match module_graph::load_from_entry(&self.compile_file, &mut fs) {
+            Ok(graph) => graph,
+            Err(err) => {
+                report_graph_error(&err);
+                std::process::exit(1);
+            }
         };
 
-        let typed = match starstream_compiler::typecheck_program(&program, Default::default()) {
-            Ok(mut success) => {
-                for warning in success.warnings.drain(..) {
-                    print_diagnostic(named.clone(), warning)?;
+        let sources = build_named_sources(&graph);
+        let entry_id = graph
+            .contract_entries()
+            .first()
+            .copied()
+            .expect("load_from_entry always sets a single contract entry");
+        let entry_named = sources
+            .get(&entry_id.0)
+            .cloned()
+            .expect("entry module always has a NamedSource");
+
+        let typed = match typecheck_modules(&graph, TypecheckOptions::default()) {
+            Ok(success) => {
+                for (module_id, warning) in &success.warnings {
+                    if let Some(named) = sources.get(&module_id.0) {
+                        print_diagnostic(named.clone(), warning.clone())?;
+                    }
                 }
                 success
             }
             Err(failure) => {
-                for warning in failure.warnings {
-                    print_diagnostic(named.clone(), warning)?;
+                for (module_id, warning) in failure.warnings {
+                    if let Some(named) = sources.get(&module_id.0) {
+                        print_diagnostic(named.clone(), warning)?;
+                    }
                 }
-                for error in failure.errors {
-                    print_diagnostic(named.clone(), error)?;
+                for (module_id, error) in failure.errors {
+                    if let Some(named) = sources.get(&module_id.0) {
+                        print_diagnostic(named.clone(), error)?;
+                    }
                 }
                 std::process::exit(1);
             }
         };
 
-        // Wasm
-        let compile_result = starstream_to_wasm::compile(&typed.program);
+        let compile_result = starstream_to_wasm::compile_contract(&typed, entry_id);
         for error in compile_result.errors {
-            print_diagnostic(named.clone(), error)?;
+            print_diagnostic(entry_named.clone(), error)?;
         }
         let Some(wasm) = compile_result.wasm else {
             std::process::exit(1);
         };
+
         if let Some(output_core) = &self.output_core {
             fs.write(output_core, &wasm)
                 .expect("Error writing Wasm output");
@@ -90,9 +116,8 @@ impl Wasm {
                 .expect("Error writing binary WIT output");
         }
 
-        // Componentize
         if self.output_component.is_some() || self.output_wit.is_some() {
-            let wasm = ComponentEncoder::default()
+            let component_wasm = ComponentEncoder::default()
                 .validate(true)
                 .module(&wasm)
                 .expect("ComponentEncoder::module failed")
@@ -100,21 +125,21 @@ impl Wasm {
                 .expect("ComponentEncoder::encode failed");
 
             if let Some(output_component) = &self.output_component {
-                fs.write(output_component, &wasm)
+                fs.write(output_component, &component_wasm)
                     .expect("Error writing Wasm output");
             }
 
             if let Some(output_wit) = &self.output_wit {
-                let decoded = wit_component::decode(&wasm).unwrap();
+                let decoded = wit_component::decode(&component_wasm).unwrap();
                 let mut printer = wit_component::WitPrinter::default();
                 printer.emit_docs(true);
-                let ids = decoded
+                let ids: Vec<_> = decoded
                     .resolve()
                     .packages
                     .iter()
                     .map(|(id, _)| id)
                     .filter(|id| *id != decoded.package())
-                    .collect::<Vec<_>>();
+                    .collect();
                 printer
                     .print(decoded.resolve(), decoded.package(), &ids)
                     .unwrap();
@@ -137,6 +162,64 @@ impl Wasm {
         }
 
         Ok(())
+    }
+}
+
+pub(crate) fn build_named_sources(graph: &ModuleGraph) -> HashMap<u32, NamedSource<String>> {
+    graph
+        .modules()
+        .iter()
+        .map(|module| {
+            let path = module.abs_path.display().to_string();
+            let source = module.source.as_ref().to_string();
+            (module.id.0, NamedSource::new(path, source))
+        })
+        .collect()
+}
+
+pub(crate) fn report_graph_error(err: &ModuleGraphError) {
+    match err {
+        ModuleGraphError::EntryIo { path, error } => {
+            eprintln!("error: failed to read `{}`: {}", path.display(), error);
+        }
+        ModuleGraphError::ImportIo { path, error, .. } => {
+            eprintln!(
+                "error: failed to resolve path import `{}`: {}",
+                path.display(),
+                error
+            );
+        }
+        ModuleGraphError::NonRelativePath { path, .. } => {
+            eprintln!("error: path import `{path}` must start with `./` or `../`");
+        }
+        ModuleGraphError::NotStarExtension { path, .. } => {
+            eprintln!("error: path import `{path}` must end with `.star`");
+        }
+        ModuleGraphError::CrossContractImport {
+            importer_path,
+            target_path,
+            ..
+        } => {
+            eprintln!(
+                "error: cross-contract calls not supported yet — `{}` imports `{}`, which also declares `contract;`",
+                importer_path.display(),
+                target_path.display()
+            );
+        }
+        ModuleGraphError::Cycle { chain } => {
+            eprintln!("error: cyclic path import detected:");
+            for (_id, p, _span) in chain {
+                eprintln!("  - {}", p.display());
+            }
+        }
+        ModuleGraphError::ParseFailed { failures } => {
+            for (module_id, errors) in failures {
+                eprintln!("parse errors in module #{}:", module_id.0);
+                for e in errors {
+                    eprintln!("  {e}");
+                }
+            }
+        }
     }
 }
 

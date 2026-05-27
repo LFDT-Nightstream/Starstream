@@ -10,13 +10,13 @@ license.workspace = true
 [dependencies]
 miette.workspace = true
 sha2 = "0.10.9"
+starstream-compiler.workspace = true
 starstream-types.workspace = true
 thiserror.workspace = true
 wasm-encoder = { workspace = true, features = ["component-model"] }
 
 [dev-dependencies]
 insta = { workspace = true, features = ["glob"] }
-starstream-compiler.workspace = true
 wasmprinter = { workspace = true, features = ["component-model"] }
 wasmtime = "39.0"
 wit-component.workspace = true

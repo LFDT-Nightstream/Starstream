@@ -9,7 +9,10 @@ mod warnings;
 
 pub use errors::{TypeError, TypeErrorKind};
 pub use exhaustiveness::check_match;
-pub use infer::{TypecheckFailure, TypecheckOptions, TypecheckSuccess, typecheck_program};
+pub use infer::{
+    TypecheckFailure, TypecheckModulesFailure, TypecheckOptions, TypecheckSuccess, TypedModule,
+    TypedModuleGraph, typecheck_modules, typecheck_program,
+};
 pub use tree::InferenceTree;
 pub use warnings::{TypeWarning, TypeWarningKind};
 

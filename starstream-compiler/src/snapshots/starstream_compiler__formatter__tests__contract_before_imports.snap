@@ -1,0 +1,9 @@
+---
+source: starstream-compiler/src/formatter.rs
+description: "Code:\n\nimport { x } from \"./util.star\";\ncontract;\nfn run() { }\n"
+---
+contract;
+
+import { x } from "./util.star";
+
+fn run() { }

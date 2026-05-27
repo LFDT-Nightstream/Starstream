@@ -107,20 +107,24 @@
   event: (identifier) @function.call)
 
 ; Import definitions
-(import_source
+(import_wit_source
   namespace: (identifier) @namespace)
-(import_source
+(import_wit_source
   package: (identifier) @namespace)
-(import_source
+(import_wit_source
   interface: (identifier) @namespace)
-(import_source ":" @operator)
-(import_source "/" @operator)
+(import_wit_source ":" @operator)
+(import_wit_source "/" @operator)
+(import_path_source (string_literal) @string)
 (import_named_item
   imported: (identifier) @function)
 (import_named_item
   local: (identifier) @function)
 (import_named_items "{" @punctuation.bracket)
 (import_named_items "}" @punctuation.bracket)
+
+; Contract marker
+(contract_definition "contract" @keyword)
 
 ; Raise expression
 (raise_expression "raise" @keyword)

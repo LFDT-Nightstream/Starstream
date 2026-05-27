@@ -12,8 +12,8 @@ use starstream_types::{
     TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
-        EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, Literal,
-        Pattern, Program, Statement, StructDef, TypeAnnotation, UnaryOp,
+        EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, ImportSource,
+        Literal, Pattern, Program, Statement, StructDef, TypeAnnotation, UnaryOp,
     },
     typed_ast::{
         TypedAbiDef, TypedAbiMethodDecl, TypedAbiPart, TypedBlock, TypedDefinition,
@@ -122,6 +122,7 @@ impl TypeRegistry {
     }
 }
 
+#[derive(Clone)]
 struct TypeEntry {
     ty: Type,
     kind: TypeEntryKind,
@@ -131,6 +132,7 @@ struct TypeEntry {
     variant_docs: HashMap<String, String>,
 }
 
+#[derive(Clone)]
 enum TypeEntryKind {
     Struct { fields: Vec<StructFieldInfo> },
     Enum { variants: Vec<EnumVariantInfo> },
@@ -240,6 +242,445 @@ pub fn typecheck_program(
         generic_types,
         warnings,
     })
+}
+
+/// One typechecked module within a `TypedModuleGraph`.
+#[derive(Clone, Debug)]
+pub struct TypedModule {
+    pub id: crate::ModuleId,
+    pub abs_path: std::path::PathBuf,
+    pub source: std::sync::Arc<str>,
+    pub program: TypedProgram,
+}
+
+/// Typechecked counterpart to `ModuleGraph`. Modules are listed in `id`
+/// order (matching the source graph), with `topo_order` giving the iteration
+/// order callers should use for downstream passes.
+#[derive(Clone, Debug)]
+pub struct TypedModuleGraph {
+    pub modules: Vec<TypedModule>,
+    pub topo_order: Vec<crate::ModuleId>,
+    /// Module ids that declare `contract;` — i.e. codegen entries.
+    pub contract_entries: Vec<crate::ModuleId>,
+    pub generic_types: HashMap<String, GenericTypeDef>,
+    /// Warnings collected from every module (e.g. unnecessary disclose,
+    /// path-import-in-single-file). Carried even on success so callers can
+    /// decide whether to render them.
+    pub warnings: Vec<(crate::ModuleId, TypeWarning)>,
+}
+
+impl TypedModuleGraph {
+    pub fn module(&self, id: crate::ModuleId) -> &TypedModule {
+        &self.modules[id.index()]
+    }
+}
+
+/// Failure returned by `typecheck_modules`. Each error/warning carries the
+/// module id it originated in so callers can render diagnostics against the
+/// right source.
+#[derive(Debug)]
+pub struct TypecheckModulesFailure {
+    pub errors: Vec<(crate::ModuleId, TypeError)>,
+    pub warnings: Vec<(crate::ModuleId, TypeWarning)>,
+}
+
+/// Per-module captured exports. Used when later modules import names from this
+/// one.
+#[derive(Default)]
+struct ModuleExports {
+    /// `local name -> (signature, decl span, effect)`.
+    functions: HashMap<String, ExportedFunction>,
+    /// Names of struct/enum/abi/utxo definitions owned by this module.
+    /// They live in the shared `TypeRegistry`/`AbiRegistry`, so importing
+    /// modules find them by name without further work — we just track them
+    /// here so we can validate that an `import { Foo } from "..."` actually
+    /// references something this module declares.
+    types: HashSet<String>,
+}
+
+#[derive(Clone)]
+struct ExportedFunction {
+    param_types: Vec<Type>,
+    param_spans: Vec<Span>,
+    return_type: Type,
+    effect: EffectKind,
+    name_span: Span,
+}
+
+impl ExportedFunction {
+    fn to_function_type(&self) -> Type {
+        Type::Function {
+            params: self.param_types.clone(),
+            param_spans: self.param_spans.clone(),
+            result: Box::new(self.return_type.clone()),
+            effect: self.effect,
+            name_span: self.name_span,
+        }
+    }
+
+    fn to_function_info(&self) -> FunctionInfo {
+        FunctionInfo {
+            param_types: self.param_types.clone(),
+            param_spans: self.param_spans.clone(),
+            return_type: self.return_type.clone(),
+            effect: self.effect,
+            name_span: self.name_span,
+        }
+    }
+}
+
+/// Run inference across an entire module graph in topological order.
+///
+/// Path imports are resolved here: their names get inserted into the importing
+/// module's `TypeEnv` (for functions) or the shared `NamespaceRegistry` (for
+/// `import x from "./x.star"`). Types/structs/enums declared in any module
+/// share a single registry — strict per-module visibility is enforced for
+/// **functions**, while types are globally visible (acceptable for v1; see
+/// `docs/language-spec.md`).
+pub fn typecheck_modules(
+    graph: &crate::ModuleGraph,
+    options: TypecheckOptions,
+) -> Result<TypedModuleGraph, TypecheckModulesFailure> {
+    let mut inferencer = Inferencer::new(options.capture_traces);
+
+    // `module_exports[id]` is populated as we finish typechecking each module.
+    let mut module_exports: HashMap<u32, ModuleExports> = HashMap::new();
+    let mut typed_modules: HashMap<u32, TypedProgram> = HashMap::new();
+
+    let mut all_errors: Vec<(crate::ModuleId, TypeError)> = Vec::new();
+    let mut all_warnings: Vec<(crate::ModuleId, TypeWarning)> = Vec::new();
+
+    let mut bailed = false;
+
+    for &module_id in graph.topo_order() {
+        if bailed {
+            break;
+        }
+
+        let module = graph.module(module_id);
+        let mut env = TypeEnv::new();
+
+        // Resolve path imports for this module first. Any error here is fatal
+        // for this module — we still continue to subsequent modules so the
+        // user gets as many diagnostics as possible.
+        let import_resolution = match resolve_path_imports(
+            &mut inferencer,
+            &mut env,
+            &module.program,
+            graph,
+            module_id,
+            &module_exports,
+        ) {
+            Ok(resolution) => resolution,
+            Err(errors) => {
+                all_errors.extend(errors.into_iter().map(|e| (module_id, e)));
+                continue;
+            }
+        };
+
+        // Run the existing inference pipeline on this module's definitions.
+        if let Err(error) = inferencer.register_type_definitions(&module.program.definitions) {
+            all_errors.push((module_id, error));
+            continue;
+        }
+
+        let mut typed_definitions = Vec::with_capacity(module.program.definitions.len());
+        let mut module_failed = false;
+        for (idx, definition) in module.program.definitions.iter().enumerate() {
+            // Path imports are short-circuited: build the typed AST from the
+            // pre-resolved info instead of going through `register_import`.
+            if let Definition::Import(import) = &definition.node {
+                if let ImportSource::Path(_) = &import.from {
+                    if let Some(typed) = import_resolution.typed_imports.get(&idx) {
+                        typed_definitions.push(TypedDefinition::Import(typed.clone()));
+                    }
+                    continue;
+                }
+            }
+
+            match inferencer.infer_definition(&mut env, &definition.node) {
+                Ok((typed_def, _trace)) => typed_definitions.push(typed_def),
+                Err(error) => {
+                    all_errors.push((module_id, error));
+                    module_failed = true;
+                }
+            }
+        }
+
+        if module_failed {
+            // Capture a (possibly partial) export table so other modules can
+            // continue — they may still produce useful diagnostics. But we
+            // flag the run as failed.
+            module_exports.insert(module_id.0, ModuleExports::default());
+            continue;
+        }
+
+        // Capture this module's exports for downstream modules.
+        let exports = collect_exports(&typed_definitions);
+        module_exports.insert(module_id.0, exports);
+
+        let typed_program = TypedProgram {
+            has_yields: inferencer.has_yields,
+            definitions: typed_definitions,
+        };
+        typed_modules.insert(module_id.0, typed_program);
+
+        // Drain warnings emitted during this module's pass.
+        while let Some(warning) = inferencer.warnings.pop() {
+            all_warnings.push((module_id, warning));
+        }
+        // Re-reverse: pop reverses order; emit in original order.
+        let module_warnings_count = all_warnings
+            .iter()
+            .rev()
+            .take_while(|(id, _)| *id == module_id)
+            .count();
+        let split = all_warnings.len() - module_warnings_count;
+        all_warnings[split..].reverse();
+
+        // Stop once any module has failed catastrophically.
+        if !all_errors.is_empty() {
+            bailed = true;
+        }
+    }
+
+    if !all_errors.is_empty() {
+        return Err(TypecheckModulesFailure {
+            errors: all_errors,
+            warnings: all_warnings,
+        });
+    }
+
+    inferencer.default_int_vars();
+    if let Err(errors) = inferencer.check_int_literal_ranges() {
+        // `check_int_literal_ranges` doesn't know which module each literal
+        // came from. Best effort: attribute to the first contract entry, or
+        // (if no contract entries exist) the first module.
+        let fallback = graph
+            .contract_entries()
+            .first()
+            .copied()
+            .unwrap_or_else(|| {
+                graph
+                    .modules()
+                    .first()
+                    .map(|m| m.id)
+                    .expect("graph must have at least one module")
+            });
+        return Err(TypecheckModulesFailure {
+            errors: errors.into_iter().map(|e| (fallback, e)).collect(),
+            warnings: all_warnings,
+        });
+    }
+
+    // Apply substitutions per module.
+    for typed_program in typed_modules.values_mut() {
+        inferencer.apply_substitutions_program(typed_program);
+    }
+
+    let generic_types = inferencer.build_generic_type_defs();
+
+    let mut modules: Vec<TypedModule> = Vec::with_capacity(graph.modules().len());
+    for source_module in graph.modules() {
+        let typed_program = typed_modules
+            .remove(&source_module.id.0)
+            .unwrap_or_else(TypedProgram::default);
+        modules.push(TypedModule {
+            id: source_module.id,
+            abs_path: source_module.abs_path.clone(),
+            source: source_module.source.clone(),
+            program: typed_program,
+        });
+    }
+
+    Ok(TypedModuleGraph {
+        modules,
+        topo_order: graph.topo_order().to_vec(),
+        contract_entries: graph.contract_entries().to_vec(),
+        generic_types,
+        warnings: all_warnings,
+    })
+}
+
+/// Resolution work for the `Definition::Import { from: Path(...) }` items in a
+/// single module: produces the typed import nodes (indexed by their position
+/// in the module's `definitions`) and inserts the imported names into the
+/// importer's `env` / `namespaces` so subsequent inference can resolve them.
+struct PathImportResolution {
+    typed_imports: HashMap<usize, TypedImportDef>,
+}
+
+fn resolve_path_imports(
+    inferencer: &mut Inferencer,
+    env: &mut TypeEnv,
+    program: &Program,
+    graph: &crate::ModuleGraph,
+    importer: crate::ModuleId,
+    module_exports: &HashMap<u32, ModuleExports>,
+) -> Result<PathImportResolution, Vec<TypeError>> {
+    let mut typed_imports: HashMap<usize, TypedImportDef> = HashMap::new();
+    let mut errors: Vec<TypeError> = Vec::new();
+
+    let edges = graph.edges_of(importer);
+    let edge_by_def: HashMap<usize, &crate::PathImport> =
+        edges.iter().map(|e| (e.def_index, e)).collect();
+
+    for (def_index, definition) in program.definitions.iter().enumerate() {
+        let import = match &definition.node {
+            Definition::Import(import) => import,
+            _ => continue,
+        };
+        let path_value = match &import.from {
+            ImportSource::Path(path) => path.value.clone(),
+            _ => continue,
+        };
+
+        let edge = match edge_by_def.get(&def_index) {
+            Some(edge) => *edge,
+            None => continue, // Should not happen; module graph builds edges from these defs.
+        };
+
+        let target_id = edge.target;
+        let target_module = graph.module(target_id);
+        let target_exports = match module_exports.get(&target_id.0) {
+            Some(exports) => exports,
+            None => {
+                // Topological order should ensure deps are processed first.
+                // If we get here, there's likely a bug; skip gracefully.
+                continue;
+            }
+        };
+
+        let canonical = target_module.abs_path.clone();
+
+        match &import.items {
+            ImportItems::Named(items) => {
+                let mut typed_items = Vec::with_capacity(items.len());
+                for item in items {
+                    let imported = item.imported.name.as_str();
+                    if let Some(func) = target_exports.functions.get(imported) {
+                        let ty = func.to_function_type();
+                        env.insert(
+                            item.local.name.clone(),
+                            Binding {
+                                decl_span: item.local.span(),
+                                mutable: false,
+                                scheme: Scheme::monomorphic(ty.clone()),
+                                class: BindingClass::Local,
+                                visibility: BindingVisibility::Private,
+                            },
+                        );
+                        typed_items.push(TypedImportNamedItem {
+                            imported: item.imported.clone(),
+                            local: item.local.clone(),
+                            ty,
+                        });
+                    } else if target_exports.types.contains(imported) {
+                        // Types live in the shared `TypeRegistry` keyed by their
+                        // original name. If the local name differs, register an
+                        // alias so look-ups under the local name succeed.
+                        if item.local.name != item.imported.name {
+                            if let Some(entry) = inferencer.types.entries.get(imported).cloned() {
+                                inferencer.types.insert(item.local.name.clone(), entry);
+                            }
+                        }
+                        typed_items.push(TypedImportNamedItem {
+                            imported: item.imported.clone(),
+                            local: item.local.clone(),
+                            ty: Type::Unit,
+                        });
+                    } else {
+                        errors.push(TypeError::new(
+                            TypeErrorKind::UnknownPathExport {
+                                path: path_value.clone(),
+                                name: imported.to_string(),
+                            },
+                            item.imported.span(),
+                        ));
+                    }
+                }
+                typed_imports.insert(
+                    def_index,
+                    TypedImportDef {
+                        items: TypedImportItems::Named(typed_items),
+                        from: TypedImportSource::Path {
+                            value: path_value,
+                            canonical: Some(canonical),
+                        },
+                    },
+                );
+            }
+            ImportItems::Namespace(alias) => {
+                let mut functions = HashMap::new();
+                let mut typed_items = Vec::with_capacity(target_exports.functions.len());
+                for (name, func) in &target_exports.functions {
+                    functions.insert(name.clone(), func.to_function_info());
+                    typed_items.push(TypedImportNamedItem {
+                        imported: Identifier::anon(name),
+                        local: Identifier::anon(name),
+                        ty: func.to_function_type(),
+                    });
+                }
+                inferencer.namespaces.insert(alias.name.clone(), functions);
+                typed_imports.insert(
+                    def_index,
+                    TypedImportDef {
+                        items: TypedImportItems::Namespace {
+                            alias: alias.clone(),
+                            functions: typed_items,
+                        },
+                        from: TypedImportSource::Path {
+                            value: path_value,
+                            canonical: Some(canonical),
+                        },
+                    },
+                );
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(PathImportResolution { typed_imports })
+    } else {
+        Err(errors)
+    }
+}
+
+fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
+    let mut exports = ModuleExports::default();
+    for def in typed_definitions {
+        match def {
+            TypedDefinition::Function(func) => {
+                let param_types = func.params.iter().map(|p| p.ty.clone()).collect();
+                let param_spans = func.params.iter().map(|p| p.name.span()).collect();
+                exports.functions.insert(
+                    func.name.name.clone(),
+                    ExportedFunction {
+                        param_types,
+                        param_spans,
+                        return_type: func.return_type.clone(),
+                        effect: func.effect,
+                        name_span: func.name.span(),
+                    },
+                );
+            }
+            TypedDefinition::Struct(s) => {
+                exports.types.insert(s.name.name.clone());
+            }
+            TypedDefinition::Enum(e) => {
+                exports.types.insert(e.name.name.clone());
+            }
+            TypedDefinition::Abi(a) => {
+                exports.types.insert(a.name.name.clone());
+            }
+            TypedDefinition::Utxo(u) => {
+                exports.types.insert(u.name.name.clone());
+            }
+            TypedDefinition::Import(_) => {}
+            TypedDefinition::Contract => {}
+        }
+    }
+    exports
 }
 
 /// Internal stateful helper that owns the substitution map and generates fresh
@@ -516,6 +957,7 @@ impl Inferencer {
     ) -> Result<(), TypeError> {
         for definition in definitions {
             match &definition.node {
+                Definition::Contract => {}
                 Definition::Import(_) => {}
                 Definition::Struct(def) => self.register_struct(def)?,
                 Definition::Enum(def) => self.register_enum(def)?,
@@ -539,8 +981,40 @@ impl Inferencer {
     }
 
     fn register_import(&mut self, env: &mut TypeEnv, import: &ImportDef) -> Result<(), TypeError> {
-        let namespace = &import.from.namespace.name;
-        let package = &import.from.package.name;
+        match &import.from {
+            ImportSource::Wit {
+                namespace,
+                package,
+                interface,
+            } => {
+                self.register_wit_import(env, &import.items, namespace, package, interface.as_ref())
+            }
+            ImportSource::Path(path) => {
+                // Path imports are resolved by `typecheck_modules`. In the
+                // single-file flow (playground, LSP per-file checks,
+                // `starstream check`) we emit a warning so users understand
+                // why references to the imported names won't resolve.
+                self.warnings.push(TypeWarning::new(
+                    TypeWarningKind::PathImportIgnoredInSingleFile {
+                        path: path.value.clone(),
+                    },
+                    path.span,
+                ));
+                Ok(())
+            }
+        }
+    }
+
+    fn register_wit_import(
+        &mut self,
+        env: &mut TypeEnv,
+        items: &ImportItems,
+        namespace_id: &Identifier,
+        package_id: &Identifier,
+        interface_id: Option<&Identifier>,
+    ) -> Result<(), TypeError> {
+        let namespace = &namespace_id.name;
+        let package = &package_id.name;
 
         // Check if the package exists in our builtin registry
         if !self.builtins.has_package(namespace, package) {
@@ -549,21 +1023,21 @@ impl Inferencer {
                     namespace: namespace.clone(),
                     package: package.clone(),
                 },
-                import.from.namespace.span(),
+                namespace_id.span(),
             ));
         }
 
-        match &import.items {
+        match items {
             ImportItems::Named(items) => {
                 // Named import: `import { blockHeight } from starstream:std/cardano;`
-                let interface = import.from.interface.as_ref().ok_or_else(|| {
+                let interface = interface_id.ok_or_else(|| {
                     TypeError::new(
                         TypeErrorKind::UnknownImportInterface {
                             namespace: namespace.clone(),
                             package: package.clone(),
                             interface: "".to_string(),
                         },
-                        import.from.package.span(),
+                        package_id.span(),
                     )
                     .with_help("named imports require an interface, e.g., `starstream:std/cardano`")
                 })?;
@@ -608,14 +1082,14 @@ impl Inferencer {
             }
             ImportItems::Namespace(alias) => {
                 // Namespace import: `import cardano from starstream:std/cardano;`
-                let interface = import.from.interface.as_ref().ok_or_else(|| {
+                let interface = interface_id.ok_or_else(|| {
                     TypeError::new(
                         TypeErrorKind::UnknownImportInterface {
                             namespace: namespace.clone(),
                             package: package.clone(),
                             interface: "".to_string(),
                         },
-                        import.from.package.span(),
+                        package_id.span(),
                     )
                     .with_help("namespace imports require an interface, e.g., `import cardano from starstream:std/cardano;`")
                 })?;
@@ -956,63 +1430,102 @@ impl Inferencer {
     fn build_typed_import(&self, def: &ImportDef) -> TypedImportDef {
         use starstream_types::ast::ImportItems;
 
-        let namespace = &def.from.namespace.name;
-        let package = &def.from.package.name;
-        let interface_name = def.from.interface.as_ref().map(|i| i.name.as_str());
+        match &def.from {
+            ImportSource::Wit {
+                namespace,
+                package,
+                interface,
+            } => {
+                let namespace_name = &namespace.name;
+                let package_name = &package.name;
+                let interface_name = interface.as_ref().map(|i| i.name.as_str());
 
-        let items = match &def.items {
-            ImportItems::Named(named) => TypedImportItems::Named(
-                named
-                    .iter()
-                    .map(|item| {
-                        // Look up the function type from the builtins registry
-                        let ty = interface_name
+                let items = match &def.items {
+                    ImportItems::Named(named) => TypedImportItems::Named(
+                        named
+                            .iter()
+                            .map(|item| {
+                                // Look up the function type from the builtins registry
+                                let ty = interface_name
+                                    .and_then(|iface| {
+                                        self.builtins
+                                            .get_interface(namespace_name, package_name, iface)
+                                            .and_then(|funcs| funcs.get(&item.imported.name))
+                                            .map(|f| f.to_function_type())
+                                    })
+                                    .unwrap_or(Type::Unit);
+
+                                TypedImportNamedItem {
+                                    imported: item.imported.clone(),
+                                    local: item.local.clone(),
+                                    ty,
+                                }
+                            })
+                            .collect(),
+                    ),
+                    ImportItems::Namespace(alias) => {
+                        // Build the list of functions available in this namespace
+                        let functions = interface_name
                             .and_then(|iface| {
                                 self.builtins
-                                    .get_interface(namespace, package, iface)
-                                    .and_then(|funcs| funcs.get(&item.imported.name))
-                                    .map(|f| f.to_function_type())
+                                    .get_interface(namespace_name, package_name, iface)
                             })
-                            .unwrap_or(Type::Unit);
+                            .map(|funcs| {
+                                funcs
+                                    .iter()
+                                    .map(|(name, builtin)| TypedImportNamedItem {
+                                        imported: Identifier::anon(name),
+                                        local: Identifier::anon(name),
+                                        ty: builtin.to_function_type(),
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
 
-                        TypedImportNamedItem {
-                            imported: item.imported.clone(),
-                            local: item.local.clone(),
-                            ty,
+                        TypedImportItems::Namespace {
+                            alias: alias.clone(),
+                            functions,
                         }
-                    })
-                    .collect(),
-            ),
-            ImportItems::Namespace(alias) => {
-                // Build the list of functions available in this namespace
-                let functions = interface_name
-                    .and_then(|iface| self.builtins.get_interface(namespace, package, iface))
-                    .map(|funcs| {
-                        funcs
-                            .iter()
-                            .map(|(name, builtin)| TypedImportNamedItem {
-                                imported: Identifier::anon(name),
-                                local: Identifier::anon(name),
-                                ty: builtin.to_function_type(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                    }
+                };
 
-                TypedImportItems::Namespace {
-                    alias: alias.clone(),
-                    functions,
-                }
+                let from = TypedImportSource::Wit {
+                    namespace: namespace.clone(),
+                    package: package.clone(),
+                    interface: interface.clone(),
+                };
+
+                TypedImportDef { items, from }
             }
-        };
+            ImportSource::Path(path) => {
+                // Path-import typed shape is filled in by `typecheck_modules`; here we
+                // produce a placeholder so the typed AST is well-formed when callers
+                // invoke `typecheck_program` directly on a single file.
+                let items = match &def.items {
+                    ImportItems::Named(named) => TypedImportItems::Named(
+                        named
+                            .iter()
+                            .map(|item| TypedImportNamedItem {
+                                imported: item.imported.clone(),
+                                local: item.local.clone(),
+                                ty: Type::Unit,
+                            })
+                            .collect(),
+                    ),
+                    ImportItems::Namespace(alias) => TypedImportItems::Namespace {
+                        alias: alias.clone(),
+                        functions: Vec::new(),
+                    },
+                };
 
-        let from = TypedImportSource {
-            namespace: def.from.namespace.clone(),
-            package: def.from.package.clone(),
-            interface: def.from.interface.clone(),
-        };
+                let from = TypedImportSource::Path {
+                    value: path.value.clone(),
+                    canonical: None,
+                };
 
-        TypedImportDef { items, from }
+                TypedImportDef { items, from }
+            }
+        }
     }
 
     fn build_typed_abi(&self, def: &AbiDef) -> Result<TypedAbiDef, TypeError> {
@@ -1629,6 +2142,7 @@ impl Inferencer {
         definition: &Definition,
     ) -> Result<(TypedDefinition, InferenceTree), TypeError> {
         match definition {
+            Definition::Contract => Ok((TypedDefinition::Contract, InferenceTree::default())),
             Definition::Import(import) => {
                 self.register_import(env, import)?;
                 let typed = self.build_typed_import(import);
@@ -4143,7 +4657,8 @@ impl Inferencer {
             TypedDefinition::Import(_)
             | TypedDefinition::Struct(_)
             | TypedDefinition::Enum(_)
-            | TypedDefinition::Abi(_) => {}
+            | TypedDefinition::Abi(_)
+            | TypedDefinition::Contract => {}
         }
     }
 
