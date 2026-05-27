@@ -2825,7 +2825,7 @@ impl Compiler {
         let result_base = func.add_locals(result_types.iter().copied());
 
         // 5. Emit wasm from decision tree.
-        func.instructions(bb).block(BlockType::Empty);
+        let bb_end = func.cfg.add_block();
         self.emit_decision_tree(
             func,
             bb,
@@ -2836,9 +2836,10 @@ impl Compiler {
             arms,
             result_base,
             result_types.len() as u32,
-            0,
+            bb_end,
         );
-        func.instructions(bb).end();
+        func.cfg.seal(bb_end, BlockType::Empty);
+        *bb = bb_end;
 
         // 6. Read result locals back to stack.
         for i in 0..result_types.len() {
@@ -2877,7 +2878,7 @@ impl Compiler {
         let col_types = vec![scrutinee.node.ty.clone()];
         let tree = decision_tree::compile(&matrix, &col_types);
 
-        func.instructions(bb).block(BlockType::Empty);
+        let bb_end = func.cfg.add_block();
         self.emit_decision_tree(
             func,
             bb,
@@ -2888,9 +2889,10 @@ impl Compiler {
             arms,
             0,
             0,
-            0,
+            bb_end,
         );
-        func.instructions(bb).end();
+        func.cfg.seal(bb_end, BlockType::Empty);
+        *bb = bb_end;
         Ok(())
     }
 
@@ -3001,7 +3003,7 @@ impl Compiler {
         arms: &[TypedMatchArm],
         result_base: u32,
         result_count: u32,
-        outer_depth: u32,
+        bb_end: usize,
     ) {
         match tree {
             DecisionTree::Leaf { action, bindings } => {
@@ -3032,10 +3034,10 @@ impl Compiler {
                         &arms[*action].body,
                     );
                 }
-                func.instructions(bb).br(outer_depth);
+                func.cfg.fill(*bb, Out::Next(bb_end));
             }
             DecisionTree::Fail => {
-                func.instructions(bb).unreachable();
+                func.cfg.fill(*bb, Out::Unreachable);
             }
             DecisionTree::Switch {
                 column,
@@ -3061,7 +3063,7 @@ impl Compiler {
                             arms,
                             result_base,
                             result_count,
-                            outer_depth,
+                            bb_end,
                         );
                     }
                     Type::Bool => {
@@ -3078,16 +3080,14 @@ impl Compiler {
                             arms,
                             result_base,
                             result_count,
-                            outer_depth,
+                            bb_end,
                             |func_inst, ctor, base| match ctor {
                                 Ctor::BoolTrue => {
                                     func_inst.local_get(base);
-                                    func_inst.i32_eqz();
-                                    func_inst.br_if(0);
                                 }
                                 Ctor::BoolFalse => {
                                     func_inst.local_get(base);
-                                    func_inst.br_if(0);
+                                    func_inst.i32_eqz();
                                 }
                                 _ => {}
                             },
@@ -3108,18 +3108,17 @@ impl Compiler {
                             arms,
                             result_base,
                             result_count,
-                            outer_depth,
+                            bb_end,
                             move |func_inst, ctor, base| {
                                 if let Ctor::IntLiteral(n) = ctor {
                                     func_inst.local_get(base);
                                     if is_64bit {
                                         func_inst.i64_const(*n as i64);
-                                        func_inst.i64_ne();
+                                        func_inst.i64_eq();
                                     } else {
                                         func_inst.i32_const(*n as i32);
-                                        func_inst.i32_ne();
+                                        func_inst.i32_eq();
                                     }
-                                    func_inst.br_if(0);
                                 }
                             },
                         );
@@ -3143,7 +3142,7 @@ impl Compiler {
                                 arms,
                                 result_base,
                                 result_count,
-                                outer_depth,
+                                bb_end,
                             );
                         }
                     }
@@ -3160,12 +3159,14 @@ impl Compiler {
                                 arms,
                                 result_base,
                                 result_count,
-                                outer_depth,
+                                bb_end,
                             );
+                        } else {
+                            unreachable!();
                         }
                     }
                     _ => {
-                        func.instructions(bb).unreachable();
+                        func.cfg.fill(*bb, Out::Unreachable);
                     }
                 }
             }
@@ -3188,7 +3189,7 @@ impl Compiler {
         arms: &[TypedMatchArm],
         result_base: u32,
         result_count: u32,
-        outer_depth: u32,
+        bb_end: usize,
     ) {
         let mut enum_core_types = Vec::new();
         _ = self.star_to_core_types(span, &mut enum_core_types, col_type);
@@ -3197,13 +3198,24 @@ impl Compiler {
             let Ctor::EnumVariant { variant_index } = ctor else {
                 continue;
             };
-            func.instructions(bb).block(BlockType::Empty);
 
             // Test discriminant
             func.instructions(bb).local_get(base_local);
             func.instructions(bb).i32_const(*variant_index as i32);
-            func.instructions(bb).i32_ne();
-            func.instructions(bb).br_if(0);
+            func.instructions(bb).i32_eq();
+
+            let bb_true = func.cfg.add_block();
+            let bb_false = func.cfg.add_block();
+            func.cfg.fill(
+                *bb,
+                Out::If {
+                    f: bb_false,
+                    t: bb_true,
+                },
+            );
+            func.cfg.seal(bb_true, BlockType::Empty);
+            func.cfg.seal(bb_false, BlockType::Empty);
+            *bb = bb_true;
 
             // Demote payload fields
             let variant_ty = &enum_ty.variants[*variant_index];
@@ -3234,10 +3246,9 @@ impl Compiler {
                 arms,
                 result_base,
                 result_count,
-                outer_depth + 1,
+                bb_end,
             );
-
-            func.instructions(bb).end();
+            *bb = bb_false;
         }
 
         if let Some(def) = default {
@@ -3252,10 +3263,10 @@ impl Compiler {
                 arms,
                 result_base,
                 result_count,
-                outer_depth,
+                bb_end,
             );
         } else {
-            func.instructions(bb).unreachable();
+            func.cfg.fill(*bb, Out::Unreachable);
         }
     }
 
@@ -3306,7 +3317,7 @@ impl Compiler {
     }
 
     /// Emit a switch for simple (non-enum) types: bool, int.
-    /// `emit_test` emits a br_if(0) that skips the case if the constructor doesn't match.
+    /// `emit_test` emits a test that results in a true if the case matches.
     fn emit_simple_switch(
         &mut self,
         func: &mut StFunction,
@@ -3321,14 +3332,29 @@ impl Compiler {
         arms: &[TypedMatchArm],
         result_base: u32,
         result_count: u32,
-        outer_depth: u32,
+        bb_end: usize,
         emit_test: impl Fn(&mut InstructionSink<'_>, &Ctor, u32),
     ) {
         let new_col_locals = remove_col(col_locals, column);
 
         for (ctor, subtree) in cases {
-            func.instructions(bb).block(BlockType::Empty);
+            // Evaluate condition.
             emit_test(&mut func.instructions(bb), ctor, base_local);
+
+            // Inner block for each branch.
+            let bb_true = func.cfg.add_block();
+            let bb_false = func.cfg.add_block();
+            func.cfg.fill(
+                *bb,
+                Out::If {
+                    f: bb_false,
+                    t: bb_true,
+                },
+            );
+            func.cfg.seal(bb_true, BlockType::Empty);
+            func.cfg.seal(bb_false, BlockType::Empty);
+            *bb = bb_true;
+
             self.emit_decision_tree(
                 func,
                 bb,
@@ -3339,9 +3365,9 @@ impl Compiler {
                 arms,
                 result_base,
                 result_count,
-                outer_depth + 1,
+                bb_end,
             );
-            func.instructions(bb).end();
+            *bb = bb_false;
         }
 
         if let Some(def) = default {
@@ -3355,10 +3381,10 @@ impl Compiler {
                 arms,
                 result_base,
                 result_count,
-                outer_depth,
+                bb_end,
             );
         } else {
-            func.instructions(bb).unreachable();
+            func.cfg.fill(*bb, Out::Unreachable);
         }
     }
 

@@ -285,7 +285,7 @@ fn find_node_backwards(seq: &[SeqItem], next: usize) -> (usize, usize) {
 
 fn find_depth_forwards(seq: &[SeqItem], target_depth: usize) -> usize {
     let mut depth = 0;
-    let mut last = if target_depth == 0 { 0 } else { usize::MAX };
+    let mut last = if target_depth == 0 { 0 } else { seq.len() };
     for (i, item) in seq.iter().enumerate() {
         match item {
             SeqItem::Basic(_) => {}
@@ -298,7 +298,6 @@ fn find_depth_forwards(seq: &[SeqItem], target_depth: usize) -> usize {
             SeqItem::EndLoop(_) | SeqItem::EndBlock(_) => depth -= 1,
         }
     }
-    assert_ne!(last, usize::MAX);
     last
 }
 
