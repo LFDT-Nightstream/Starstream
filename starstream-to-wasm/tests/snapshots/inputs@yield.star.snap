@@ -242,15 +242,28 @@ TypedProgram {
   (type (;0;) (func (param i64 i64 i64 i64)))
   (type (;1;) (func))
   (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (global (;0;) (mut i32) (i32.const 0))
   (export "hello-utxo" (func 2))
+  (export "resume" (func 4))
   (func (;1;) (type 1))
   (func (;2;) (type 1)
+    (global.set 0
+      (i32.const 1))
     (call 0
       (i64.const -8086495256948496852)
       (i64.const 3765343665581825017)
       (i64.const -6863622839687364077)
       (i64.const -5843589418109203719))
-    (return)
+  )
+  (func (;3;) (type 1))
+  (func (;4;) (type 1)
+    (block ;; label = @1
+      (br_if 0 (;@1;)
+        (i32.ne
+          (global.get 0)
+          (i32.const 1)))
+      (return_call 3))
+    (unreachable)
   )
   (@custom "component-type"
     (component

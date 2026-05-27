@@ -106,7 +106,9 @@ impl<'a> Stackified<'a> {
                     match func.cfg.blocks[bb].out {
                         Out::None => unreachable!(),
                         Out::Return | Out::Yield { .. } => {
-                            InstructionSink::new(sink).return_();
+                            if i + 1 != seq.len() {
+                                InstructionSink::new(sink).return_();
+                            }
                         }
                         Out::Unreachable => {
                             InstructionSink::new(sink).unreachable();
@@ -175,7 +177,9 @@ impl<'a> Stackified<'a> {
                             match this.func.cfg.blocks[bb].out {
                                 Out::None => unreachable!(),
                                 Out::Return | Out::Yield { .. } => {
-                                    writeln!(fmt, "return")?;
+                                    if i + 1 != this.seq.len() {
+                                        writeln!(fmt, "return")?;
+                                    }
                                 }
                                 Out::Unreachable => {
                                     writeln!(fmt, "unreachable")?;

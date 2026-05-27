@@ -547,8 +547,7 @@ impl Compiler {
         let params = [ValType::I64, ValType::I64];
         let result = [ValType::I64];
         let mut code = wasm_encoder::Function::new_with_locals_types([
-            ValType::I64,
-            ValType::I64,
+            // 0-1 are params, 2+ are here
             ValType::I64,
         ]);
         let sum_local = 2;
@@ -603,8 +602,7 @@ impl Compiler {
         let params = [ValType::I64, ValType::I64];
         let result = [ValType::I64];
         let mut code = wasm_encoder::Function::new_with_locals_types([
-            ValType::I64,
-            ValType::I64,
+            // 0-1 are params, 2+ are here
             ValType::I64,
         ]);
         let diff_local = 2;
@@ -662,8 +660,7 @@ impl Compiler {
         let params = [ValType::I64, ValType::I64];
         let result = [ValType::I64];
         let mut code = wasm_encoder::Function::new_with_locals_types([
-            ValType::I64,
-            ValType::I64,
+            // 0-1 are params, 2+ are here
             ValType::I64,
             ValType::I64,
             ValType::I64,
@@ -800,6 +797,7 @@ impl Compiler {
 
             let mut wrapper_func = StFunction::from_params(params);
             let bb = &wrapper_func.cfg.add_block();
+            wrapper_func.cfg.seal(*bb, BlockType::Empty);
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
             for i in 0..params.len() {
@@ -810,7 +808,7 @@ impl Compiler {
             self.component_store(function.name.span(), &mut wrapper_func, bb, &result, 0);
             // Return our return slot.
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
-            wrapper_func.instructions(bb).end();
+            wrapper_func.cfg.fill(*bb, Out::Return);
 
             let wrapper_func_idx = self.add_function(
                 FuncType::new(params.iter().copied(), [ValType::I32]),

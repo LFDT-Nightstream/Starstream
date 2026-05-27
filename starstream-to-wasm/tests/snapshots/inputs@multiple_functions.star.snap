@@ -375,13 +375,12 @@ TypedProgram {
   (type (;2;) (func (result i64)))
   (func (;0;) (type 0)
     (local i32)
-    (local.set 0
-      (i32.const 1))
     (block ;; label = @1
       (block ;; label = @2
+        (local.set 0
+          (i32.const 1))
         (br_if 0 (;@2;)
-          (i32.eqz
-            (local.get 0)))
+          (local.get 0))
         (return)
         (br 1 (;@1;)))
       (return))

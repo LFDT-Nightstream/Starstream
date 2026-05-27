@@ -275,25 +275,18 @@ TypedProgram {
   (type (;0;) (func (result i64)))
   (export "main" (func 0))
   (func (;0;) (type 0) (result i64)
-    (local i64)
-    (block ;; label = @1
+    (block (result i64) ;; label = @1
       (block ;; label = @2
         (br_if 0 (;@2;)
-          (i32.eqz
-            (i32.const 0)))
-        (local.set 0
-          (i64.const 1))
-        (br 1 (;@1;)))
-      (block ;; label = @2
-        (br_if 0 (;@2;)
-          (i32.eqz
-            (i32.const 1)))
-        (local.set 0
-          (i64.const 2))
-        (br 1 (;@1;)))
-      (local.set 0
-        (i64.const 3)))
-    (local.get 0)
+          (i32.const 0))
+        (block ;; label = @3
+          (br_if 0 (;@3;)
+            (i32.const 1))
+          (br 2 (;@1;)
+            (i64.const 3)))
+        (br 1 (;@1;)
+          (i64.const 2)))
+      (i64.const 1))
   )
   (@custom "component-type"
     (component
