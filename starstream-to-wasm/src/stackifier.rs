@@ -15,6 +15,7 @@ use std::fmt;
 
 use wasm_encoder::{Encode, InstructionSink};
 
+use crate::DisplayClosure;
 use crate::{
     StFunction,
     ir::{ControlFlowGraph, Out},
@@ -158,89 +159,82 @@ impl<'a> Stackified<'a> {
     }
 
     pub fn to_mermaid(&self) -> impl fmt::Display {
-        struct Mermaid<'a>(&'a Stackified<'a>);
-        impl<'a> fmt::Display for Mermaid<'a> {
-            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let &Mermaid(this) = self;
-                writeln!(fmt, "flowchart TB")?;
-                if this.entry == 0 {
-                    writeln!(fmt, "start([start])")?;
-                    writeln!(fmt, "start --> {}", this.entry)?;
-                } else {
-                    writeln!(fmt, "start([resume {}])", this.entry)?;
-                    writeln!(fmt, "start --> {}", this.entry)?;
-                }
-                let mut depth = DepthTracker::new();
-                for (i, item) in this.seq.iter().enumerate() {
-                    depth.track(item);
-                    match *item {
-                        SeqItem::Basic(bb) => {
-                            writeln!(fmt, "{bb}[\"")?;
-                            write!(fmt, "{}", this.func.cfg.blocks[bb].disassemble())?;
-                            match this.func.cfg.blocks[bb].out {
-                                Out::None => unreachable!(),
-                                Out::Return | Out::Yield { .. } => {
-                                    if i + 1 != this.seq.len() {
-                                        writeln!(fmt, "return")?;
-                                    }
-                                }
-                                Out::ReturnCall { func } => {
-                                    writeln!(fmt, "return_call {func}")?;
-                                }
-                                Out::Unreachable => {
-                                    writeln!(fmt, "unreachable")?;
-                                }
-                                Out::Next(next) => {
-                                    if !next_block_is(&this.seq[i + 1..], next) {
-                                        writeln!(fmt, "br {}", depth.diff(next))?;
-                                    }
-                                }
-                                Out::If { f, t } => {
-                                    if next_block_is(&this.seq[i + 1..], f) {
-                                        writeln!(fmt, "br_if {}", depth.diff(t))?;
-                                    } else if next_block_is(&this.seq[i + 1..], t) {
-                                        writeln!(fmt, "i32_eqz")?;
-                                        writeln!(fmt, "br_if {}", depth.diff(f))?;
-                                    } else {
-                                        writeln!(fmt, "br_if {}", depth.diff(t))?;
-                                        writeln!(fmt, "br {}", depth.diff(f))?;
-                                    }
-                                }
-                            }
-                            writeln!(fmt, "\"]")?;
-                            writeln!(fmt, "style {bb} text-align: left, white-space: nowrap")?;
-                            match this.func.cfg.blocks[bb].out {
-                                Out::Return | Out::ReturnCall { .. } => {
-                                    writeln!(fmt, "return_{bb}")?
-                                }
-                                Out::Yield { bb_resume, .. } => writeln!(fmt, "yield_{bb_resume}")?,
-                                Out::Unreachable => writeln!(fmt, "unreachable_{bb}")?,
-                                Out::None | Out::Next(_) | Out::If { .. } => {}
-                            }
-                        }
-                        SeqItem::StartLoop(bb) => {
-                            let block_type = this.func.cfg.blocks[bb].in_type.unwrap();
-                            writeln!(fmt, "subgraph loop_{i} [\"loop {block_type:?}\"]")?;
-                        }
-                        SeqItem::StartBlock(bb) => {
-                            let block_type = this.func.cfg.blocks[bb].in_type.unwrap();
-                            writeln!(fmt, "subgraph block_{i} [\"block {block_type:?}\"]")?;
-                            writeln!(fmt, "style block_{i} fill:#efe")?;
-                        }
-                        SeqItem::EndBlock(_) | SeqItem::EndLoop(_) => {
-                            writeln!(fmt, "end")?;
-                        }
-                    }
-                }
-                for item in this.seq.iter() {
-                    if let &SeqItem::Basic(bb) = item {
-                        write!(fmt, "{}", this.func.cfg.blocks[bb].out.to_mermaid(bb))?;
-                    }
-                }
-                Ok(())
+        DisplayClosure(|fmt| {
+            writeln!(fmt, "flowchart TB")?;
+            if self.entry == 0 {
+                writeln!(fmt, "start([start])")?;
+                writeln!(fmt, "start --> {}", self.entry)?;
+            } else {
+                writeln!(fmt, "start([resume {}])", self.entry)?;
+                writeln!(fmt, "start --> {}", self.entry)?;
             }
-        }
-        Mermaid(self)
+            let mut depth = DepthTracker::new();
+            for (i, item) in self.seq.iter().enumerate() {
+                depth.track(item);
+                match *item {
+                    SeqItem::Basic(bb) => {
+                        writeln!(fmt, "{bb}[\"")?;
+                        write!(fmt, "{}", self.func.cfg.blocks[bb].disassemble())?;
+                        match self.func.cfg.blocks[bb].out {
+                            Out::None => unreachable!(),
+                            Out::Return | Out::Yield { .. } => {
+                                if i + 1 != self.seq.len() {
+                                    writeln!(fmt, "return")?;
+                                }
+                            }
+                            Out::ReturnCall { func } => {
+                                writeln!(fmt, "return_call {func}")?;
+                            }
+                            Out::Unreachable => {
+                                writeln!(fmt, "unreachable")?;
+                            }
+                            Out::Next(next) => {
+                                if !next_block_is(&self.seq[i + 1..], next) {
+                                    writeln!(fmt, "br {}", depth.diff(next))?;
+                                }
+                            }
+                            Out::If { f, t } => {
+                                if next_block_is(&self.seq[i + 1..], f) {
+                                    writeln!(fmt, "br_if {}", depth.diff(t))?;
+                                } else if next_block_is(&self.seq[i + 1..], t) {
+                                    writeln!(fmt, "i32_eqz")?;
+                                    writeln!(fmt, "br_if {}", depth.diff(f))?;
+                                } else {
+                                    writeln!(fmt, "br_if {}", depth.diff(t))?;
+                                    writeln!(fmt, "br {}", depth.diff(f))?;
+                                }
+                            }
+                        }
+                        writeln!(fmt, "\"]")?;
+                        writeln!(fmt, "style {bb} text-align: left, white-space: nowrap")?;
+                        match self.func.cfg.blocks[bb].out {
+                            Out::Return | Out::ReturnCall { .. } => writeln!(fmt, "return_{bb}")?,
+                            Out::Yield { bb_resume, .. } => writeln!(fmt, "yield_{bb_resume}")?,
+                            Out::Unreachable => writeln!(fmt, "unreachable_{bb}")?,
+                            Out::None | Out::Next(_) | Out::If { .. } => {}
+                        }
+                    }
+                    SeqItem::StartLoop(bb) => {
+                        let block_type = self.func.cfg.blocks[bb].in_type.unwrap();
+                        writeln!(fmt, "subgraph loop_{i} [\"loop {block_type:?}\"]")?;
+                    }
+                    SeqItem::StartBlock(bb) => {
+                        let block_type = self.func.cfg.blocks[bb].in_type.unwrap();
+                        writeln!(fmt, "subgraph block_{i} [\"block {block_type:?}\"]")?;
+                        writeln!(fmt, "style block_{i} fill:#efe")?;
+                    }
+                    SeqItem::EndBlock(_) | SeqItem::EndLoop(_) => {
+                        writeln!(fmt, "end")?;
+                    }
+                }
+            }
+            for item in self.seq.iter() {
+                if let &SeqItem::Basic(bb) = item {
+                    write!(fmt, "{}", self.func.cfg.blocks[bb].out.to_mermaid(bb))?;
+                }
+            }
+            Ok(())
+        })
     }
 }
 
