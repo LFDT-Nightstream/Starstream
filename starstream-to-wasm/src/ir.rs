@@ -35,6 +35,8 @@ pub enum Out {
     None,
     /// Return from the current function with what's on the stack. 0 successors.
     Return,
+    /// Tail-call another function.
+    ReturnCall { func: u32 },
     /// Like Return, but names the BB that will be resumed.
     Yield { bb_resume: usize },
     /// Wasm `unreachable`.
@@ -48,7 +50,11 @@ pub enum Out {
 impl Out {
     pub fn for_each_successor<F: FnMut(usize)>(&self, mut func: F) {
         match *self {
-            Out::None | Out::Return | Out::Yield { .. } | Out::Unreachable => {}
+            Out::None
+            | Out::Return
+            | Out::ReturnCall { .. }
+            | Out::Yield { .. }
+            | Out::Unreachable => {}
             Out::Next(a) => func(a),
             Out::If { f, t } => {
                 // Prefer visiting true branch first for readability, since
@@ -70,6 +76,10 @@ impl Out {
                     Out::Return => {
                         writeln!(fmt, "{i} --> return_{i}")?;
                         writeln!(fmt, "return_{i}([return])")?;
+                    }
+                    Out::ReturnCall { func } => {
+                        writeln!(fmt, "{i} --> return_{i}")?;
+                        writeln!(fmt, "return_{i}([return_call {func}])")?;
                     }
                     Out::Yield { bb_resume, .. } => {
                         writeln!(fmt, "{i} --> yield_{bb_resume}")?;
@@ -152,6 +162,13 @@ impl ControlFlowGraph {
                 Out::Return => {
                     _ = writeln!(gv, "{i} -> return_{i};");
                     _ = writeln!(gv, "return_{i} [label=return] [shape=box] [style=rounded];");
+                }
+                Out::ReturnCall { func } => {
+                    _ = writeln!(gv, "{i} -> return_{i};");
+                    _ = writeln!(
+                        gv,
+                        "return_{i} [label=\"return_call {func}\"] [shape=box] [style=rounded];"
+                    );
                 }
                 Out::Yield { bb_resume, .. } => {
                     _ = writeln!(gv, "{i} -> yield_{bb_resume};");
