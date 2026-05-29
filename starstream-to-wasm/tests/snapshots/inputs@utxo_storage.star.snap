@@ -351,7 +351,6 @@ TypedProgram {
   (global (;1;) (mut i64) (i64.const 0))
   (export "increment" (func 2))
   (export "increment-mult" (func 3))
-  (export "test_resume_MyUtxo" (func 0))
   (export "my-utxo-get-storage" (func 5))
   (export "my-utxo-set-storage" (func 6))
   (export "memory" (memory 0))

@@ -2579,6 +2579,26 @@ impl Inferencer {
                 });
                 Ok((TypedStatement::Expression(typed_expr), tree))
             }
+            Statement::Resume => {
+                // Do like `return ();`
+                let result_repr = self.maybe_string(|| self.format_type(&ctx.expected_return));
+                let unit = Type::unit();
+                let (_, unify_trace) = self.unify(
+                    unit.clone(),
+                    ctx.expected_return.clone(),
+                    ctx.return_span,
+                    ctx.return_span,
+                    TypeErrorKind::ReturnMismatch {
+                        expected: self.apply_for_display(&ctx.expected_return),
+                        found: self.apply_for_display(&unit),
+                    },
+                )?;
+                ctx.saw_return = true;
+                let tree = self.make_trace("T-Resume", env_context, stmt_repr, result_repr, || {
+                    vec![unify_trace]
+                });
+                Ok((TypedStatement::Resume, tree))
+            }
         }
     }
 
@@ -4711,6 +4731,7 @@ impl Inferencer {
             TypedStatement::Expression(expr) => self.apply_expr(expr),
             TypedStatement::Return(Some(expr)) => self.apply_expr(expr),
             TypedStatement::Return(None) => {}
+            TypedStatement::Resume => {}
         }
     }
 

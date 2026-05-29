@@ -38,28 +38,6 @@ Program {
                         span: 32..38,
                     },
                     parts: [
-                        AbiImpl {
-                            abi: Identifier {
-                                name: "Foo",
-                                span: 50..53,
-                            },
-                            parts: [
-                                FunctionDef {
-                                    export: None,
-                                    name: Identifier {
-                                        name: "foo",
-                                        span: 67..70,
-                                    },
-                                    params: [],
-                                    return_type: None,
-                                    body: Block {
-                                        statements: [],
-                                        tail_expression: None,
-                                        span: 73..81,
-                                    },
-                                },
-                            ],
-                        },
                         Function(
                             FunctionDef {
                                 export: Some(
@@ -67,7 +45,7 @@ Program {
                                 ),
                                 name: Identifier {
                                     name: "hello_utxo",
-                                    span: 95..105,
+                                    span: 53..63,
                                 },
                                 params: [],
                                 return_type: None,
@@ -80,25 +58,52 @@ Program {
                                                         abis: [
                                                             Identifier {
                                                                 name: "Foo",
-                                                                span: 124..127,
+                                                                span: 82..85,
                                                             },
                                                         ],
                                                     },
-                                                    span: 118..128,
+                                                    span: 76..86,
                                                 },
                                             ),
-                                            span: 118..134,
+                                            span: 76..92,
                                         },
                                     ],
                                     tail_expression: None,
-                                    span: 108..136,
+                                    span: 66..98,
                                 },
                             },
                         ),
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "Foo",
+                                span: 103..106,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "foo",
+                                        span: 120..123,
+                                    },
+                                    params: [],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Resume,
+                                                span: 140..156,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 126..162,
+                                    },
+                                },
+                            ],
+                        },
                     ],
                 },
             ),
-            span: 27..138,
+            span: 27..166,
         },
     ],
 }
@@ -106,9 +111,11 @@ Program {
 ==== Inference trace ====
 
 T-Utxo: MyUtxo => 
-  T-Fn: foo => ()
   T-Fn: hello_utxo => ()
-    T-Expr: {foo: fn() -> (), hello_utxo: fn() -> ()} ⊢ yield(Foo); ⇒ ()
+    T-Expr: {hello_utxo: fn() -> ()} ⊢ yield(Foo); ⇒ ()
+  T-Fn: foo => ()
+    T-Resume: {foo: fn() -> (), hello_utxo: fn() -> ()} ⊢ resume; ⇒ ()
+      Unify-Const: () ~ () => {}
 
 ==== Typed AST ====
 TypedProgram {
@@ -142,44 +149,6 @@ TypedProgram {
                     span: 32..38,
                 },
                 parts: [
-                    AbiImpl {
-                        span: 50..53,
-                        abi: AbiNarrow(
-                            Abi {
-                                name: Identifier {
-                                    name: "Foo",
-                                    span: 4..7,
-                                },
-                                methods: [
-                                    TypedAbiMethodDecl {
-                                        name: Identifier {
-                                            name: "foo",
-                                            span: 17..20,
-                                        },
-                                        params: [],
-                                        return_type: Unit,
-                                        span: 17..20,
-                                    },
-                                ],
-                            },
-                        ),
-                        parts: [
-                            TypedFunctionDef {
-                                export: None,
-                                name: Identifier {
-                                    name: "foo",
-                                    span: 67..70,
-                                },
-                                params: [],
-                                return_type: Unit,
-                                effect: Pure,
-                                body: TypedBlock {
-                                    statements: [],
-                                    tail_expression: None,
-                                },
-                            },
-                        ],
-                    },
                     Function(
                         TypedFunctionDef {
                             export: Some(
@@ -187,7 +156,7 @@ TypedProgram {
                             ),
                             name: Identifier {
                                 name: "hello_utxo",
-                                span: 95..105,
+                                span: 53..63,
                             },
                             params: [],
                             return_type: Unit,
@@ -220,7 +189,7 @@ TypedProgram {
                                                     ],
                                                 },
                                             },
-                                            span: 118..128,
+                                            span: 76..86,
                                         },
                                     ),
                                 ],
@@ -228,6 +197,46 @@ TypedProgram {
                             },
                         },
                     ),
+                    AbiImpl {
+                        span: 103..106,
+                        abi: AbiNarrow(
+                            Abi {
+                                name: Identifier {
+                                    name: "Foo",
+                                    span: 4..7,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "foo",
+                                            span: 17..20,
+                                        },
+                                        params: [],
+                                        return_type: Unit,
+                                        span: 17..20,
+                                    },
+                                ],
+                            },
+                        ),
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "foo",
+                                    span: 120..123,
+                                },
+                                params: [],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [
+                                        Resume,
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                        ],
+                    },
                 ],
                 ty: UtxoNamed(
                     "MyUtxo",
@@ -243,19 +252,17 @@ TypedProgram {
   (type (;1;) (func))
   (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
   (global (;0;) (mut i32) (i32.const 0))
-  (export "hello-utxo" (func 3))
-  (export "test_resume_MyUtxo" (func 1))
+  (export "hello-utxo" (func 2))
   (func (;1;) (type 1)
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (global.get 0)
           (i32.const 1)))
-      (return_call 4))
+      (return_call 3))
     (unreachable)
   )
-  (func (;2;) (type 1))
-  (func (;3;) (type 1)
+  (func (;2;) (type 1)
     (global.set 0
       (i32.const 1))
     (call 0
@@ -264,7 +271,10 @@ TypedProgram {
       (i64.const -6863622839687364077)
       (i64.const -5843589418109203719))
   )
-  (func (;4;) (type 1))
+  (func (;3;) (type 1))
+  (func (;4;) (type 1)
+    (return_call 1)
+  )
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")

@@ -212,6 +212,7 @@ module.exports = grammar({
         $.assignment,
         $.while_statement,
         $.return_statement,
+        $.resume_statement,
         $._expression_statement,
       ),
 
@@ -232,6 +233,8 @@ module.exports = grammar({
     while_statement: ($) => seq("while", "(", $.expression, ")", $.block),
 
     return_statement: ($) => seq("return", optional($.expression), ";"),
+
+    resume_statement: ($) => seq("resume", ";"),
 
     _expression_statement: ($) => seq($.expression, ";"),
 

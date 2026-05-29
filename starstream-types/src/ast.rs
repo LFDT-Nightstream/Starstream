@@ -396,6 +396,7 @@ pub enum Statement {
     },
     Expression(Spanned<Expr>),
     Return(Option<Spanned<Expr>>),
+    Resume,
 }
 
 // ----------------------------------------------------------------------------

@@ -30,6 +30,7 @@
   "disclose"
   "is"
   "yield"
+  "resume"
 ] @keyword
 
 ; Literals

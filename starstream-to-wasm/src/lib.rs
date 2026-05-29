@@ -1549,7 +1549,6 @@ impl Compiler {
 
         // Fill in the code of the `resume;` function.
         self.code_bytes[resume_code_idx] = self.generate_resume_fn(yield_start..self.yield_id);
-        self.export_core_fn(&format!("test_resume_{}", utxo.name), resume_func_idx);
         self.resume_func_idx = None;
 
         // Generate storage exports.
@@ -1698,6 +1697,16 @@ impl Compiler {
                 }
                 TypedStatement::Return(None) => {
                     func.cfg.fill(*bb, Out::Return);
+                    *bb = usize::MAX;
+                    break;
+                }
+                TypedStatement::Resume => {
+                    func.cfg.fill(
+                        *bb,
+                        Out::ReturnCall {
+                            func: self.resume_func_idx.unwrap(),
+                        },
+                    );
                     *bb = usize::MAX;
                     break;
                 }

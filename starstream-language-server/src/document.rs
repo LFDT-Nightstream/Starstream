@@ -1071,6 +1071,7 @@ impl DocumentState {
             TypedStatement::Expression(expr) => self.collect_expr(expr, scopes),
             TypedStatement::Return(Some(expr)) => self.collect_expr(expr, scopes),
             TypedStatement::Return(None) => {}
+            TypedStatement::Resume => {}
         }
     }
 
@@ -1755,6 +1756,7 @@ impl DocumentState {
                 self.collect_expr_annotations_from_ast(&expr.node);
             }
             untyped_ast::Statement::Return(None) => {}
+            untyped_ast::Statement::Resume => {}
             untyped_ast::Statement::Assignment { target: _, value } => {
                 self.collect_expr_annotations_from_ast(&value.node);
             }

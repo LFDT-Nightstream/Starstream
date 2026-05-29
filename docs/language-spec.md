@@ -135,6 +135,7 @@ statement ::=
   | assignment
   | while_statement
   | return_statement
+  | resume_statement
   | expression_statement
 
 variable_declaration ::= "let" ("pub")? ("mut")? identifier (":" type_annotation)? "=" expression ";"
@@ -144,6 +145,8 @@ assignment ::= identifier "=" expression ";"
 while_statement ::= "while" "(" expression ")" block
 
 return_statement ::= "return" ( expression )? ";"
+
+resume_statement ::= "resume" ";"
 
 expression_statement ::= expression ";"
 
@@ -291,6 +294,7 @@ The following reserved words may not be used as identifiers:
 - `false`
 - `fn`
 - `return`
+- `resume`
 - `struct`
 - `enum`
 - `match`
