@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
@@ -211,6 +212,8 @@ struct Compiler {
     callables: HashMap<String, u32>,
     /// Map from name to resource index.
     resources: HashMap<String, u32>,
+    /// Function bodies.
+    code_bytes: Vec<Vec<u8>>,
 
     // Memory building.
     bump_ptr: u32,
@@ -218,6 +221,7 @@ struct Compiler {
     yield_global: Option<u32>,
     yield_id: i32,
     yield_funcs: Vec<u32>,
+    resume_func_idx: Option<u32>,
 }
 
 impl Compiler {
@@ -227,8 +231,11 @@ impl Compiler {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
 
-        // Generate resume function
-        self.generate_resume_fn();
+        // Flush function codes into the code section.
+        for each in self.code_bytes {
+            assert!(!each.is_empty());
+            self.code.raw(&each);
+        }
 
         // Generate memory.
         if self.bump_ptr > 0 {
@@ -456,29 +463,6 @@ impl Compiler {
         }
     }
 
-    fn generate_resume_fn(&mut self) {
-        let Some(yield_global) = self.yield_global else {
-            return;
-        };
-
-        // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
-        let mut func = Function::new([]);
-        for (i, &target) in self.yield_funcs.iter().enumerate() {
-            func.instructions().block(BlockType::Empty);
-            func.instructions().global_get(yield_global);
-            func.instructions().i32_const((i + 1) as i32);
-            func.instructions().i32_ne();
-            func.instructions().br_if(0);
-            func.instructions().return_call(target);
-            func.instructions().end();
-        }
-        func.instructions().unreachable();
-        func.instructions().end();
-
-        let idx = self.add_function(FuncType::new([], []), &func.into_raw_body());
-        self.export_core_fn("resume", idx); // temporary for testing
-    }
-
     // ------------------------------------------------------------------------
     // Core table management
 
@@ -506,11 +490,11 @@ impl Compiler {
 
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
-    fn add_function(&mut self, ty: FuncType, code: &[u8]) -> u32 {
+    fn add_function(&mut self, ty: FuncType, code: Vec<u8>) -> u32 {
         let type_index = self.add_core_func_type(ty);
         let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
-        self.code.raw(&code);
+        self.code_bytes.push(code);
         func_index
     }
 
@@ -584,7 +568,7 @@ impl Compiler {
         // Sum is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
+        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_add_checked".to_string(), idx);
@@ -642,7 +626,7 @@ impl Compiler {
         // Diff is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
+        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_sub_checked".to_string(), idx);
@@ -725,7 +709,7 @@ impl Compiler {
         // Product is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
+        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_mul_checked".to_string(), idx);
@@ -812,7 +796,7 @@ impl Compiler {
 
             let wrapper_func_idx = self.add_function(
                 FuncType::new(params.iter().copied(), [ValType::I32]),
-                &stackify(&wrapper_func, *bb).code,
+                stackify(&wrapper_func, *bb).code,
             );
 
             Some(wrapper_func_idx)
@@ -1265,6 +1249,8 @@ impl Compiler {
                 "implements-method",
                 ComponentTypeRef::Func(implements_method_ty),
             );
+
+            self.yield_global = Some(self.add_globals([ValType::I32]));
         }
 
         // In the Wasm output, imported functions must precede defined
@@ -1457,13 +1443,6 @@ impl Compiler {
         func.cfg.fill(bb, Out::Return);
 
         let stackified = stackify(&func, bb_orig);
-        let idx = self.add_function(
-            FuncType::new(params.iter().copied(), results.iter().copied()),
-            &stackified.code,
-        );
-        self.callables
-            .insert(function.name.as_str().to_owned(), idx);
-
         if self.options.output_mermaid {
             self.mermaid
                 .push((wit_name.to_string(), func.cfg.to_mermaid().to_string()));
@@ -1472,22 +1451,27 @@ impl Compiler {
                 stackified.to_mermaid().to_string(),
             ));
         }
+        let idx = self.add_function(
+            FuncType::new(params.iter().copied(), results.iter().copied()),
+            stackified.code,
+        );
+        self.callables
+            .insert(function.name.as_str().to_owned(), idx);
 
         for &resume in &func.cfg.resumes {
             // TODO: remove params here and add them to the function's locals instead of making the resume fn pass 0 for all params.
             let stackified = stackify(&func, resume);
-            let idx = self.add_function(
-                FuncType::new(params.iter().copied(), results.iter().copied()),
-                &stackified.code,
-            );
-            self.yield_funcs.push(idx);
-
             if self.options.output_mermaid {
                 self.mermaid.push((
                     format!("{}_{}", wit_name, resume),
                     stackified.to_mermaid().to_string(),
                 ));
             }
+            let idx = self.add_function(
+                FuncType::new(params.iter().copied(), results.iter().copied()),
+                stackified.code,
+            );
+            self.yield_funcs.push(idx);
         }
 
         match function.export {
@@ -1515,6 +1499,12 @@ impl Compiler {
             ComponentTypeRef::Type(TypeBounds::SubResource),
         );
         self.resources.insert(utxo.name.to_string(), resource);
+
+        // Reserve the ID for the `resume;` function for this Utxo.
+        let yield_start = self.yield_id;
+        let resume_func_idx = self.add_function(FuncType::new([], []), Vec::new());
+        let resume_code_idx = self.code_bytes.len() - 1;
+        self.resume_func_idx = Some(resume_func_idx);
 
         // Visit each Utxo part.
         let mut utxo_storage = HashMap::new();
@@ -1557,12 +1547,40 @@ impl Compiler {
             }
         }
 
+        // Fill in the code of the `resume;` function.
+        self.code_bytes[resume_code_idx] = self.generate_resume_fn(yield_start..self.yield_id);
+        self.export_core_fn(&format!("test_resume_{}", utxo.name), resume_func_idx);
+        self.resume_func_idx = None;
+
         // Generate storage exports.
         self.generate_storage_exports(
             &utxo.name,
             &(&() as &dyn Locals, &utxo_storage),
             utxo_record_type,
         );
+    }
+
+    fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
+        let mut func = Function::new([]);
+        if let Some(yield_global) = self.yield_global {
+            // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
+            for yield_id in range {
+                func.instructions().block(BlockType::Empty);
+                func.instructions().global_get(yield_global);
+                func.instructions().i32_const((yield_id + 1) as i32);
+                func.instructions().i32_ne();
+                func.instructions().br_if(0);
+                func.instructions()
+                    .return_call(self.yield_funcs[yield_id as usize]);
+                func.instructions().end();
+            }
+        } else {
+            assert!(range.is_empty());
+        }
+        func.instructions().unreachable();
+        func.instructions().end();
+
+        func.into_raw_body()
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -2717,15 +2735,9 @@ impl Compiler {
                 // Store yield ID to globals
                 self.yield_id += 1;
                 let id = self.yield_id;
-                let yield_global = match self.yield_global {
-                    Some(g) => g,
-                    None => {
-                        let g = self.add_globals([ValType::I32]);
-                        self.yield_global = Some(g);
-                        g
-                    }
-                };
-                func.instructions(bb).i32_const(id).global_set(yield_global);
+                func.instructions(bb)
+                    .i32_const(id)
+                    .global_set(self.yield_global.unwrap());
 
                 // Store locals to globals (implicit storage)
                 // TODO: only store/load locals that are actually live at this yield point

@@ -250,12 +250,16 @@ TypedProgram {
 (module
   (type (;0;) (func))
   (import "foo-abi" "hello-event" (func (;0;) (type 0)))
-  (export "hello-utxo" (func 2))
+  (export "hello-utxo" (func 3))
+  (export "test_resume_MyUtxo" (func 1))
   (func (;1;) (type 0)
-    (call 0)
+    (unreachable)
   )
   (func (;2;) (type 0)
-    (call 1)
+    (call 0)
+  )
+  (func (;3;) (type 0)
+    (call 2)
   )
   (@custom "component-type"
     (component
