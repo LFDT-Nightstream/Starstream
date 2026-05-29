@@ -287,13 +287,11 @@ TypedProgram {
     (block ;; label = @1
       (block ;; label = @2
         (br_if 0 (;@2;)
-          (i32.eqz
-            (i32.const 0)))
-        (br 1 (;@1;)))
-      (block ;; label = @2
-        (br_if 0 (;@2;)
-          (i32.eqz
-            (i32.const 1)))
+          (i32.const 0))
+        (block ;; label = @3
+          (br_if 0 (;@3;)
+            (i32.const 1))
+          (br 2 (;@1;)))
         (br 1 (;@1;))))
   )
   (@custom "component-type"

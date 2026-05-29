@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::{fs, path::Path};
 
 use miette::{GraphicalReportHandler, GraphicalTheme, Report};
@@ -44,114 +45,123 @@ fn inputs() {
     let test_file = |path: &Path| {
         let mut output = String::new();
 
-        let source = fs::read_to_string(path).unwrap();
-        let parse_output = starstream_compiler::parse_program(&source);
-        let comments = parse_output.comment_map();
-        let (program, errors) = parse_output.into_output_errors();
-        writeln!(output, "==== AST ====").unwrap();
-        for error in errors {
-            let report = Report::new(error).with_source_code(source.clone());
-            GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                .render_report(&mut output, report.as_ref())
-                .expect("failed to render diagnostic");
-        }
-        if let Some(program) = program {
-            writeln!(output, "{:#?}\n", program).unwrap();
+        match catch_unwind(AssertUnwindSafe(|| {
+            let source = fs::read_to_string(path).unwrap();
+            let parse_output = starstream_compiler::parse_program(&source);
+            let comments = parse_output.comment_map();
+            let (program, errors) = parse_output.into_output_errors();
+            writeln!(output, "==== AST ====").unwrap();
+            for error in errors {
+                let report = Report::new(error).with_source_code(source.clone());
+                GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                    .render_report(&mut output, report.as_ref())
+                    .expect("failed to render diagnostic");
+            }
+            if let Some(program) = program {
+                writeln!(output, "{:#?}\n", program).unwrap();
 
-            let formatted_source =
-                starstream_compiler::formatter::program(&program, &source, &comments)
-                    .expect("formatter error");
-            assert!(
-                source == formatted_source,
-                "==== Formatted source differs from original ====\n{program:#?}\n==== Replace with ====\n{formatted_source}"
-            );
+                let formatted_source =
+                    starstream_compiler::formatter::program(&program, &source, &comments)
+                        .expect("formatter error");
+                assert!(
+                    source == formatted_source,
+                    "==== Formatted source differs from original, replace with: ====\n{formatted_source}"
+                );
 
-            match starstream_compiler::typecheck_program(
-                &program,
-                TypecheckOptions {
-                    capture_traces: true,
-                },
-            ) {
-                Err(failure) => {
-                    if !failure.warnings.is_empty() {
-                        writeln!(output, "==== Type warnings ====").unwrap();
-                        for warning in failure.warnings {
-                            let report = Report::new(warning).with_source_code(source.clone());
+                match starstream_compiler::typecheck_program(
+                    &program,
+                    TypecheckOptions {
+                        capture_traces: true,
+                    },
+                ) {
+                    Err(failure) => {
+                        if !failure.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for warning in failure.warnings {
+                                let report = Report::new(warning).with_source_code(source.clone());
+                                GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                                    .render_report(&mut output, report.as_ref())
+                                    .expect("failed to render diagnostic");
+                            }
+                        }
+                        writeln!(output, "==== Type error ====").unwrap();
+                        for error in failure.errors {
+                            let report = Report::new(error).with_source_code(source.clone());
                             GraphicalReportHandler::new_themed(GraphicalTheme::none())
                                 .render_report(&mut output, report.as_ref())
                                 .expect("failed to render diagnostic");
                         }
                     }
-                    writeln!(output, "==== Type error ====").unwrap();
-                    for error in failure.errors {
-                        let report = Report::new(error).with_source_code(source.clone());
-                        GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                            .render_report(&mut output, report.as_ref())
-                            .expect("failed to render diagnostic");
-                    }
-                }
-                Ok(mut success) => {
-                    if !success.warnings.is_empty() {
-                        writeln!(output, "==== Type warnings ====").unwrap();
-                        for warning in success.warnings.drain(..) {
-                            let report = Report::new(warning).with_source_code(source.clone());
+                    Ok(mut success) => {
+                        if !success.warnings.is_empty() {
+                            writeln!(output, "==== Type warnings ====").unwrap();
+                            for warning in success.warnings.drain(..) {
+                                let report = Report::new(warning).with_source_code(source.clone());
+                                GraphicalReportHandler::new_themed(GraphicalTheme::none())
+                                    .render_report(&mut output, report.as_ref())
+                                    .expect("failed to render diagnostic");
+                            }
+                        }
+                        writeln!(
+                            output,
+                            "==== Inference trace ====\n{}",
+                            success.display_traces()
+                        )
+                        .unwrap();
+                        writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
+                        let compile_result = starstream_to_wasm::compile(&success.program);
+                        writeln!(output, "==== Core WebAssembly ====").unwrap();
+                        for error in compile_result.errors {
+                            let report = Report::new(error).with_source_code(source.clone());
                             GraphicalReportHandler::new_themed(GraphicalTheme::none())
                                 .render_report(&mut output, report.as_ref())
                                 .expect("failed to render diagnostic");
                         }
-                    }
-                    writeln!(
-                        output,
-                        "==== Inference trace ====\n{}",
-                        success.display_traces()
-                    )
-                    .unwrap();
-                    writeln!(output, "==== Typed AST ====\n{:#?}\n", success.program).unwrap();
-                    let compile_result = starstream_to_wasm::compile(&success.program);
-                    writeln!(output, "==== Core WebAssembly ====").unwrap();
-                    for error in compile_result.errors {
-                        let report = Report::new(error).with_source_code(source.clone());
-                        GraphicalReportHandler::new_themed(GraphicalTheme::none())
-                            .render_report(&mut output, report.as_ref())
-                            .expect("failed to render diagnostic");
-                    }
-                    if let Some(wasm) = compile_result.wasm {
-                        wasmprinter::Config::new()
-                            .fold_instructions(true)
-                            .print(
-                                &wasm,
-                                &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut output)),
-                            )
-                            .unwrap();
-                        writeln!(output).unwrap();
+                        if let Some(wasm) = compile_result.wasm {
+                            wasmprinter::Config::new()
+                                .fold_instructions(true)
+                                .print(
+                                    &wasm,
+                                    &mut CustomPrinter(wasmprinter::PrintFmtWrite(&mut output)),
+                                )
+                                .unwrap();
+                            writeln!(output).unwrap();
 
-                        // Componentize and then extract WIT from the final component.
-                        // Not printing component Wasm because it's mostly core Wasm but inside-out.
-                        writeln!(output, "==== WIT ====").unwrap();
-                        let component_wasm = wit_component::ComponentEncoder::default()
-                            .validate(true)
-                            .module(&wasm)
-                            .unwrap_or_else(|err| {
-                                panic!("{output}ComponentEncoder::module failed: {err:?}")
-                            })
-                            .encode()
-                            .expect("ComponentEncoder::encode failed");
-                        let decoded = wit_component::decode(&component_wasm).unwrap();
-                        let mut printer = wit_component::WitPrinter::default();
-                        printer.emit_docs(true);
-                        let ids = decoded
-                            .resolve()
-                            .packages
-                            .iter()
-                            .map(|(id, _)| id)
-                            .filter(|id| *id != decoded.package())
-                            .collect::<Vec<_>>();
-                        printer
-                            .print(decoded.resolve(), decoded.package(), &ids)
-                            .unwrap();
-                        writeln!(output, "{}\n", printer.output).unwrap();
+                            // Componentize and then extract WIT from the final component.
+                            // Not printing component Wasm because it's mostly core Wasm but inside-out.
+                            writeln!(output, "==== WIT ====").unwrap();
+                            let component_wasm = wit_component::ComponentEncoder::default()
+                                .validate(true)
+                                .module(&wasm)
+                                .unwrap_or_else(|err| {
+                                    panic!("{output}ComponentEncoder::module failed: {err:?}")
+                                })
+                                .encode()
+                                .expect("ComponentEncoder::encode failed");
+                            let decoded = wit_component::decode(&component_wasm).unwrap();
+                            let mut printer = wit_component::WitPrinter::default();
+                            printer.emit_docs(true);
+                            let ids = decoded
+                                .resolve()
+                                .packages
+                                .iter()
+                                .map(|(id, _)| id)
+                                .filter(|id| *id != decoded.package())
+                                .collect::<Vec<_>>();
+                            printer
+                                .print(decoded.resolve(), decoded.package(), &ids)
+                                .unwrap();
+                            writeln!(output, "{}\n", printer.output).unwrap();
+                        }
                     }
                 }
+            }
+        })) {
+            Ok(()) => {}
+            Err(_) => {
+                panic!(
+                    "==== Panic processing a file ====\nPath: {path:?}\nCause: see above\n{output}"
+                );
             }
         }
 
