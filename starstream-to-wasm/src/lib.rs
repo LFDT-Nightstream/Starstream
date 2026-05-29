@@ -1675,11 +1675,13 @@ impl Compiler {
                     let _ =
                         self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
                     func.cfg.fill(*bb, Out::Return);
-                    // Also return early here to avoid double-fill assert if AST contains double-return
-                    return Ok(locals);
+                    *bb = usize::MAX;
+                    break;
                 }
                 TypedStatement::Return(None) => {
-                    func.instructions(bb).return_();
+                    func.cfg.fill(*bb, Out::Return);
+                    *bb = usize::MAX;
+                    break;
                 }
             }
         }

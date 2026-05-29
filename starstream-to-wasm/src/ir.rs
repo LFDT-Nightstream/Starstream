@@ -119,6 +119,9 @@ impl ControlFlowGraph {
     }
 
     pub fn fill(&mut self, bb: usize, out: Out) {
+        if bb == usize::MAX {
+            return;
+        }
         assert!(!matches!(out, Out::None));
         assert!(matches!(self.blocks[bb].out, Out::None));
         out.for_each_successor(|next| {
