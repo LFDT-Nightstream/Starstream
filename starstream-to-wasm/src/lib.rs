@@ -779,7 +779,7 @@ impl Compiler {
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
-            let mut wrapper_func = StFunction::from_params(params);
+            let mut wrapper_func = StFunction::new(params, &[ValType::I32]);
             let bb = &wrapper_func.cfg.add_block();
             wrapper_func.cfg.seal(*bb, BlockType::Empty);
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
@@ -794,10 +794,8 @@ impl Compiler {
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             wrapper_func.cfg.fill(*bb, Out::Return);
 
-            let wrapper_func_idx = self.add_function(
-                FuncType::new(params.iter().copied(), [ValType::I32]),
-                stackify(&wrapper_func, *bb).code,
-            );
+            let stackified = stackify(&wrapper_func, *bb, stackifier::AsyncMode::Sync);
+            let wrapper_func_idx = self.add_function(stackified.ty, stackified.code);
 
             Some(wrapper_func_idx)
         } else {
@@ -1430,19 +1428,24 @@ impl Compiler {
             );
             _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
         }
+        let mut results = Vec::with_capacity(1);
+        _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
-        let mut func = StFunction::from_params(&params);
+        let mut func = StFunction::new(&params, &results);
         let bb_orig = func.cfg.add_block();
         func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
 
-        let mut results = Vec::with_capacity(1);
-        _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
-
         let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
         func.cfg.fill(bb, Out::Return);
 
-        let stackified = stackify(&func, bb_orig);
+        // Stackify from entry point.
+        let async_mode = if matches!(function.export, Some(FunctionExport::UtxoMain)) {
+            stackifier::AsyncMode::AsyncStart
+        } else {
+            stackifier::AsyncMode::Sync
+        };
+        let stackified = stackify(&func, bb_orig, async_mode);
         if self.options.output_mermaid {
             self.mermaid
                 .push((wit_name.to_string(), func.cfg.to_mermaid().to_string()));
@@ -1451,26 +1454,20 @@ impl Compiler {
                 stackified.to_mermaid().to_string(),
             ));
         }
-        let idx = self.add_function(
-            FuncType::new(params.iter().copied(), results.iter().copied()),
-            stackified.code,
-        );
+        let idx: u32 = self.add_function(stackified.ty, stackified.code);
         self.callables
             .insert(function.name.as_str().to_owned(), idx);
 
+        // Stackify from each resume point.
         for &resume in &func.cfg.resumes {
-            // TODO: remove params here and add them to the function's locals instead of making the resume fn pass 0 for all params.
-            let stackified = stackify(&func, resume);
+            let stackified = stackify(&func, resume, stackifier::AsyncMode::AsyncContinuation);
             if self.options.output_mermaid {
                 self.mermaid.push((
                     format!("{}_{}", wit_name, resume),
                     stackified.to_mermaid().to_string(),
                 ));
             }
-            let idx = self.add_function(
-                FuncType::new(params.iter().copied(), results.iter().copied()),
-                stackified.code,
-            );
+            let idx = self.add_function(stackified.ty, stackified.code);
             self.yield_funcs.push(idx);
         }
 
@@ -2735,7 +2732,7 @@ impl Compiler {
                 // Store locals to globals (implicit storage)
                 // TODO: only store/load locals that are actually live at this yield point
                 // TODO: optimize number of global slots used
-                let locals = func.get_locals();
+                let locals = func.params_and_locals();
                 let globals = self.add_globals(locals.iter().copied());
                 for i in 0..locals.len() {
                     func.instructions(bb)
@@ -3478,14 +3475,18 @@ impl Locals for (&dyn Locals, &HashMap<String, Var>) {
 /// Bytecode can be encoded to the return value of [Function::instructions].
 #[derive(Default)]
 struct StFunction {
+    params: Vec<ValType>,
+    results: Vec<ValType>,
+    locals: Vec<ValType>,
     num_locals: u32,
-    locals: Vec<(u32, ValType)>,
     cfg: ControlFlowGraph,
 }
 
 impl StFunction {
-    fn from_params(params: &[ValType]) -> StFunction {
+    fn new(params: &[ValType], results: &[ValType]) -> StFunction {
         StFunction {
+            params: params.to_owned(),
+            results: results.to_owned(),
             num_locals: u32::try_from(params.len()).unwrap(),
             ..StFunction::default()
         }
@@ -3495,29 +3496,50 @@ impl StFunction {
         let id = self.num_locals;
         for ty in types {
             self.num_locals += 1;
-            if let Some((last_count, last_type)) = self.locals.last_mut()
-                && ty == *last_type
-            {
-                *last_count += 1;
-            } else {
-                self.locals.push((1, ty));
-            }
+            self.locals.push(ty);
         }
         id
     }
 
-    fn get_locals(&self) -> Vec<ValType> {
-        let mut v = Vec::with_capacity(usize::try_from(self.num_locals).unwrap());
-        for &(c, t) in &self.locals {
-            for _ in 0..c {
-                v.push(t);
-            }
-        }
-        v
+    fn params_and_locals(&self) -> Vec<ValType> {
+        self.params
+            .iter()
+            .chain(self.locals.iter())
+            .copied()
+            .collect()
     }
 
     fn instructions(&mut self, bb: &usize) -> InstructionSink<'_> {
         self.cfg.instructions(*bb)
+    }
+}
+
+/// Run-length encoding for locals in a function header.
+struct RleLocals(Vec<(u32, ValType)>);
+
+impl FromIterator<ValType> for RleLocals {
+    fn from_iter<T: IntoIterator<Item = ValType>>(iter: T) -> Self {
+        let mut result = Vec::new();
+        for ty in iter {
+            if let Some((last_count, last_type)) = result.last_mut()
+                && ty == *last_type
+            {
+                *last_count += 1;
+            } else {
+                result.push((1, ty));
+            }
+        }
+        RleLocals(result)
+    }
+}
+
+impl wasm_encoder::Encode for RleLocals {
+    fn encode(&self, sink: &mut Vec<u8>) {
+        self.0.len().encode(sink);
+        for &(count, ty) in self.0.iter() {
+            count.encode(sink);
+            ty.encode(sink);
+        }
     }
 }
 

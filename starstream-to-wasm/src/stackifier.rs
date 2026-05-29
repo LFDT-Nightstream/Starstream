@@ -13,11 +13,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use wasm_encoder::{Encode, InstructionSink};
+use wasm_encoder::{Encode, FuncType, InstructionSink};
 
-use crate::DisplayClosure;
 use crate::{
-    StFunction,
+    DisplayClosure, StFunction,
     ir::{ControlFlowGraph, Out},
 };
 
@@ -30,17 +29,27 @@ enum SeqItem {
     EndBlock(usize),
 }
 
+pub enum AsyncMode {
+    Sync,
+    AsyncStart,
+    AsyncContinuation,
+}
+
 pub struct Stackified<'a> {
     func: &'a StFunction,
     entry: usize,
+    mode: AsyncMode,
+    pub ty: FuncType,
     pub code: Vec<u8>,
     seq: Vec<SeqItem>,
 }
 
-pub fn stackify(func: &StFunction, entry: usize) -> Stackified<'_> {
+pub fn stackify(func: &StFunction, entry: usize, mode: AsyncMode) -> Stackified<'_> {
     let mut s = Stackified {
         func,
         entry,
+        mode,
+        ty: FuncType::new([], []),
         code: Vec::new(),
         seq: Vec::new(),
     };
@@ -50,16 +59,29 @@ pub fn stackify(func: &StFunction, entry: usize) -> Stackified<'_> {
 
 impl<'a> Stackified<'a> {
     fn compile(&mut self) {
-        let &mut Stackified { func, entry, .. } = self;
+        let Stackified { func, entry, .. } = *self;
         func.cfg.assert_complete();
+        let sink = &mut self.code;
 
         // Basic function header
-        let sink = &mut self.code;
-        func.locals.len().encode(sink);
-        for (count, ty) in &func.locals {
-            count.encode(sink);
-            ty.encode(sink);
+        let locals;
+        match self.mode {
+            AsyncMode::Sync => {
+                self.ty = FuncType::new(func.params.iter().copied(), func.results.iter().copied());
+                locals = crate::RleLocals::from_iter(func.locals.iter().copied());
+            }
+            AsyncMode::AsyncStart => {
+                // TODO: conform to wasm-component async ABI...?
+                // For now, our async functions always have no returns anyways, so we don't have to deal with that yet.
+                self.ty = FuncType::new(func.params.iter().copied(), func.results.iter().copied());
+                locals = crate::RleLocals::from_iter(func.locals.iter().copied());
+            }
+            AsyncMode::AsyncContinuation => {
+                // Erase all parameters and turn them into normal locals (written by the resume code).
+                locals = crate::RleLocals::from_iter(func.params_and_locals());
+            }
         }
+        locals.encode(sink);
 
         // Simultaneously SCC split (loop detect) & toposort with Tarjan's algorithm.
         let mut seq = Vec::new();
@@ -161,12 +183,15 @@ impl<'a> Stackified<'a> {
     pub fn to_mermaid(&self) -> impl fmt::Display {
         DisplayClosure(|fmt| {
             writeln!(fmt, "flowchart TB")?;
-            if self.entry == 0 {
-                writeln!(fmt, "start([start])")?;
-                writeln!(fmt, "start --> {}", self.entry)?;
-            } else {
-                writeln!(fmt, "start([resume {}])", self.entry)?;
-                writeln!(fmt, "start --> {}", self.entry)?;
+            match self.mode {
+                AsyncMode::Sync | AsyncMode::AsyncStart => {
+                    writeln!(fmt, "start([start])")?;
+                    writeln!(fmt, "start --> {}", self.entry)?;
+                }
+                AsyncMode::AsyncContinuation => {
+                    writeln!(fmt, "start([resume {}])", self.entry)?;
+                    writeln!(fmt, "start --> {}", self.entry)?;
+                }
             }
             let mut depth = DepthTracker::new();
             for (i, item) in self.seq.iter().enumerate() {
