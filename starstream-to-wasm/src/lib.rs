@@ -2523,11 +2523,7 @@ impl Compiler {
                 // BlockType instead of locals.
                 let mut result_types = Vec::new();
                 self.star_to_core_types(span, &mut result_types, &expr.ty)?;
-                let (block_type, first_local) = match &result_types[..] {
-                    &[] => (BlockType::Empty, 0),
-                    &[ty] => (BlockType::Result(ty), 0),
-                    many => (BlockType::Empty, func.add_locals(many.iter().copied())),
-                };
+                let bulk = BulkBlockOutput::new(func, &result_types);
 
                 let bb_end = func.cfg.add_block();
 
@@ -2560,11 +2556,7 @@ impl Compiler {
 
                             // True branch.
                             self.visit_block_stack(func, bb, locals, block)?;
-                            if matches!(block_type, BlockType::Empty) {
-                                for i in (0..result_types.len()).rev() {
-                                    func.instructions(bb).local_set(first_local + (i as u32));
-                                }
-                            }
+                            bulk.store(func, bb);
                             func.cfg.fill(*bb, Out::Next(bb_end));
 
                             // False branch is to continue evaluating conditions.
@@ -2579,24 +2571,16 @@ impl Compiler {
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
                     self.visit_block_stack(func, bb, locals, else_branch)?;
-                    if matches!(block_type, BlockType::Empty) {
-                        for i in (0..result_types.len()).rev() {
-                            func.instructions(bb).local_set(first_local + (i as u32));
-                        }
-                    }
+                    bulk.store(func, bb);
                 }
 
                 // End.
                 func.cfg.fill(*bb, Out::Next(bb_end));
-                func.cfg.seal(bb_end, block_type);
+                func.cfg.seal(bb_end, bulk.block_type());
                 *bb = bb_end;
 
                 // Read locals back onto stack.
-                if matches!(block_type, BlockType::Empty) {
-                    for i in 0..result_types.len() {
-                        func.instructions(bb).local_get(first_local + (i as u32));
-                    }
-                }
+                bulk.load(func, bb);
                 Ok(())
             }
             TypedExprKind::Disclose { expr: inner } => {
@@ -2889,7 +2873,7 @@ impl Compiler {
         // 4. Allocate result locals.
         let mut result_types = Vec::new();
         _ = self.star_to_core_types(span, &mut result_types, &expr.ty);
-        let result_base = func.add_locals(result_types.iter().copied());
+        let bulk = BulkBlockOutput::new(func, &result_types);
 
         // 5. Emit wasm from decision tree.
         let bb_end = func.cfg.add_block();
@@ -2901,17 +2885,14 @@ impl Compiler {
             &tree,
             &[(scrut_base, scrutinee.node.ty.clone())],
             arms,
-            result_base,
-            result_types.len() as u32,
+            &bulk,
             bb_end,
         );
-        func.cfg.seal(bb_end, BlockType::Empty);
+        func.cfg.seal(bb_end, bulk.block_type());
         *bb = bb_end;
 
         // 6. Read result locals back to stack.
-        for i in 0..result_types.len() {
-            func.instructions(bb).local_get(result_base + (i as u32));
-        }
+        bulk.load(func, bb);
         Ok(())
     }
 
@@ -2954,8 +2935,7 @@ impl Compiler {
             &tree,
             &[(scrut_base, scrutinee.node.ty.clone())],
             arms,
-            0,
-            0,
+            &BulkBlockOutput::empty(),
             bb_end,
         );
         func.cfg.seal(bb_end, BlockType::Empty);
@@ -3068,8 +3048,7 @@ impl Compiler {
         tree: &DecisionTree,
         col_locals: &[(u32, Type)],
         arms: &[TypedMatchArm],
-        result_base: u32,
-        result_count: u32,
+        bulk: &BulkBlockOutput,
         bb_end: usize,
     ) {
         match tree {
@@ -3083,16 +3062,14 @@ impl Compiler {
                     }
                 }
 
-                if result_count > 0 {
+                if !bulk.is_empty() {
                     let _ = self.visit_block_stack(
                         func,
                         bb,
                         &(locals, &arm_locals),
                         &arms[*action].body,
                     );
-                    for i in (0..result_count).rev() {
-                        func.instructions(bb).local_set(result_base + i);
-                    }
+                    bulk.store(func, bb);
                 } else {
                     let _ = self.visit_block_drop(
                         func,
@@ -3116,21 +3093,8 @@ impl Compiler {
                 match col_type {
                     Type::Enum(enum_ty) => {
                         self.emit_enum_switch(
-                            func,
-                            bb,
-                            locals,
-                            span,
-                            *column,
-                            base_local,
-                            enum_ty,
-                            col_type,
-                            cases,
-                            default,
-                            col_locals,
-                            arms,
-                            result_base,
-                            result_count,
-                            bb_end,
+                            func, bb, locals, span, *column, base_local, enum_ty, col_type, cases,
+                            default, col_locals, arms, bulk, bb_end,
                         );
                     }
                     Type::Bool => {
@@ -3145,8 +3109,7 @@ impl Compiler {
                             default,
                             col_locals,
                             arms,
-                            result_base,
-                            result_count,
+                            bulk,
                             bb_end,
                             |func_inst, ctor, base| match ctor {
                                 Ctor::BoolTrue => {
@@ -3173,8 +3136,7 @@ impl Compiler {
                             default,
                             col_locals,
                             arms,
-                            result_base,
-                            result_count,
+                            bulk,
                             bb_end,
                             move |func_inst, ctor, base| {
                                 if let Ctor::IntLiteral(n) = ctor {
@@ -3207,8 +3169,7 @@ impl Compiler {
                                 subtree,
                                 &new_col_locals,
                                 arms,
-                                result_base,
-                                result_count,
+                                bulk,
                                 bb_end,
                             );
                         }
@@ -3224,8 +3185,7 @@ impl Compiler {
                                 subtree,
                                 &new_col_locals,
                                 arms,
-                                result_base,
-                                result_count,
+                                bulk,
                                 bb_end,
                             );
                         } else {
@@ -3254,8 +3214,7 @@ impl Compiler {
         default: &Option<Box<DecisionTree>>,
         col_locals: &[(u32, Type)],
         arms: &[TypedMatchArm],
-        result_base: u32,
-        result_count: u32,
+        bulk: &BulkBlockOutput,
         bb_end: usize,
     ) {
         let mut enum_core_types = Vec::new();
@@ -3311,8 +3270,7 @@ impl Compiler {
                 subtree,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
             *bb = bb_false;
@@ -3328,8 +3286,7 @@ impl Compiler {
                 def,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
         } else {
@@ -3397,8 +3354,7 @@ impl Compiler {
         default: &Option<Box<DecisionTree>>,
         col_locals: &[(u32, Type)],
         arms: &[TypedMatchArm],
-        result_base: u32,
-        result_count: u32,
+        bulk: &BulkBlockOutput,
         bb_end: usize,
         emit_test: impl Fn(&mut InstructionSink<'_>, &Ctor, u32),
     ) {
@@ -3430,8 +3386,7 @@ impl Compiler {
                 subtree,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
             *bb = bb_false;
@@ -3446,8 +3401,7 @@ impl Compiler {
                 def,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
         } else {
@@ -3564,6 +3518,56 @@ impl StFunction {
 
     fn instructions(&mut self, bb: &usize) -> InstructionSink<'_> {
         self.cfg.instructions(*bb)
+    }
+}
+
+/// Switch between 0 results, 1 result that can be a BlockType, or 2+ results that must be in locals.
+enum BulkBlockOutput {
+    BlockType(BlockType),
+    Locals { start: u32, len: u32 },
+}
+
+impl BulkBlockOutput {
+    fn empty() -> Self {
+        BulkBlockOutput::BlockType(BlockType::Empty)
+    }
+
+    fn new(func: &mut StFunction, result_types: &[ValType]) -> Self {
+        match result_types {
+            &[] => BulkBlockOutput::BlockType(BlockType::Empty),
+            &[ty] => BulkBlockOutput::BlockType(BlockType::Result(ty)),
+            many => BulkBlockOutput::Locals {
+                start: func.add_locals(many.iter().copied()),
+                len: result_types.len() as u32,
+            },
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(self, BulkBlockOutput::BlockType(BlockType::Empty))
+    }
+
+    fn block_type(&self) -> BlockType {
+        match self {
+            BulkBlockOutput::BlockType(block_type) => *block_type,
+            BulkBlockOutput::Locals { .. } => BlockType::Empty,
+        }
+    }
+
+    fn store(&self, func: &mut StFunction, bb: &usize) {
+        if let BulkBlockOutput::Locals { start, len } = *self {
+            for i in (0..len).rev() {
+                func.instructions(bb).local_set(start + i);
+            }
+        }
+    }
+
+    fn load(&self, func: &mut StFunction, bb: &usize) {
+        if let BulkBlockOutput::Locals { start, len } = *self {
+            for i in 0..len {
+                func.instructions(bb).local_get(start + i);
+            }
+        }
     }
 }
 
