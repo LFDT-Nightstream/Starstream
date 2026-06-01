@@ -1,0 +1,8 @@
+{
+  "name": "starstream",
+  "version": "0.0.0",
+  "repository": "https://github.com/LFDT-Nightstream/Starstream",
+  "license": "(MIT OR Apache-2.0)",
+  "author": "Midnight Foundation",
+  "type": "module"
+}
