@@ -4,5 +4,17 @@
   "repository": "https://github.com/LFDT-Nightstream/Starstream",
   "license": "(MIT OR Apache-2.0)",
   "author": "Midnight Foundation",
-  "type": "module"
+  "type": "module",
+  "exports": "./build/index.js",
+  "files": [
+    "build"
+  ],
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
+  },
+  "scripts": {
+    "prepack": "tsc",
+    "test": "vitest"
+  }
 }
