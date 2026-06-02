@@ -2,9 +2,10 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "build",
-    "declaration": true,
-    "sourceMap": true,
     "noEmit": true,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
 
     "module": "esnext",
     "target": "es2025",

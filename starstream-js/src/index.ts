@@ -33,31 +33,7 @@ export interface Ledger {
 
 // TODO: class RpcLedger { constructor(url: string); }
 
-export class InMemoryLedger implements Ledger {
-  constructor(options?: { genesisUtxos?: Utxo[] }) {
-    throw new Error("todo");
-  }
-  postTransaction(
-    proof: Proof,
-    options?: PostTransactionOptions,
-  ): Promise<Transaction> {
-    throw new Error("todo");
-  }
-  getUtxo(id: string): Promise<Utxo> {
-    throw new Error("todo");
-  }
-  getContract(id: string): Promise<Contract> {
-    throw new Error("todo");
-  }
-  uploadContract(
-    contract: Contract,
-    options?: UploadContractOptions,
-  ): Promise<void> {
-    throw new Error("todo");
-  }
-
-  readonly genesisUtxos: readonly Utxo[];
-}
+export { InMemoryLedger } from "./ledger_memory.ts";
 
 // ----------------------------------------------------------------------------
 // Transactions
@@ -158,7 +134,10 @@ export function prove<TReturn>(trace: Trace<TReturn>): Promise<Proof> {
 
 // TODO: a "non-core" default L2 contract that implements combining of two Starstream proofs into one
 
-// TODO: standard library
+// ----------------------------------------------------------------------------
+// Standard library
+
+export * as std from "./std.ts";
 
 // ----------------------------------------------------------------------------
 // Private utilities
