@@ -4,6 +4,7 @@
     "outDir": "build",
     "declaration": true,
     "sourceMap": true,
+    "noEmit": true,
 
     "module": "esnext",
     "target": "es2025",
