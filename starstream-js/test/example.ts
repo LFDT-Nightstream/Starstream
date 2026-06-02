@@ -1,23 +1,42 @@
-import { instantiate } from "./adder/jco-out/adder";
-import * as Starstream from "./starstream";
+import * as Starstream from "../src/index.ts";
 
 // --------------------------------------------------------------------------
 // Starstream example code
 /*
-abi MyAbi {
-    effect my_effect() -> i32;
-    event my_event(number: i32);
-    fn abi_method();
+abi Foo {
+    fn foo();
 }
+
 utxo MyUtxo {
-    main fn new() { ... }
-    impl MyAbi { ... }
+    main fn hello_utxo(x: i32) {
+        yield(Foo);
+    }
+    impl Foo {
+        fn foo() {
+            resume;
+        }
+    }
 }
-script fn my_coordination() { ... }
 */
 
 // --------------------------------------------------------------------------
 // Pseudocode generated bindings
+class Yield extends Starstream.Contract {
+  static MyUtxo = class MyUtxo extends Starstream.Utxo {
+    static hello_utxo(x: number): Yield.Foo {
+      throw new Error("stub");
+    }
+    foo() {
+      throw new Error("stub");
+    }
+  };
+}
+declare namespace Yield {
+  interface Foo {
+    foo(): void;
+  }
+  type MyUtxo = typeof Yield.MyUtxo.prototype;
+}
 class Adder extends Starstream.Contract {
   // TODO: only what is needed for the below to typecheck is written here.
   // Generated bindings would also include Abi, events, etc.
@@ -33,7 +52,11 @@ class Adder extends Starstream.Contract {
     }
   };
 
-  get my_coordination(): Starstream.CoordinationScript<[Adder.MyUtxo], number> {
+  get my_coordination(): Starstream.CoordinationScript<
+    [Adder.MyUtxo],
+    {},
+    number
+  > {
     return this.getCoordinationScript("my_coordination");
   }
 }
@@ -43,10 +66,9 @@ declare namespace Adder {
 
 // --------------------------------------------------------------------------
 // 1. Acquire ledger
-const ledger: Starstream.Ledger = new Starstream.RpcLedger(
-  "http://localhost:8080",
-);
-const ledger2 = new Starstream.InMemoryLedger({ genesisUtxos: [] });
+const ledger: Starstream.Ledger = new Starstream.InMemoryLedger({
+  genesisUtxos: [],
+});
 
 // 2. Acquire Utxo
 const untypedUtxo: Starstream.Utxo = await ledger.getUtxo("0x42");
@@ -65,7 +87,7 @@ await ledger.uploadContract(localContract, { fee: 1 });
 const existingContract = await untypedUtxo.getContract();
 
 // 4. Call coordination script to produce proof
-const proof = await Starstream.prove(
+const trace = await Starstream.call(
   // coordination script
   adder.my_coordination,
   // array of arguments to coordination script
@@ -83,7 +105,9 @@ const proof = await Starstream.prove(
     },
   },
 );
-console.log("return value:", proof.returnValue);
+console.log("return value:", trace.returnValue);
+const proof = await Starstream.prove(trace);
+console.log("proof:", proof);
 
 // 5. Post proof to ledger as transaction
 const tx = await ledger.postTransaction(proof, { fee: 1 });

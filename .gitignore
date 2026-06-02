@@ -2,11 +2,11 @@
 build
 node_modules
 target
+artifacts
 *.vsix
 .DS_Store
 papers/
 *.snap.new
 .claude/settings.local.json
 .nvim.lua
-tree-sitter-starstream/queries/starstream
-wow.star
+/tree-sitter-starstream/queries/starstream
