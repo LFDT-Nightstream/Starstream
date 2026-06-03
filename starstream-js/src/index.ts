@@ -58,7 +58,12 @@ export class Contract {
     this.id = crypto.subtle.digest("sha256", wasm);
   }
 
-  // TODO: fromFile?
+  /** Load a contract from a file path (Node only). */
+  static async fromFile(path: string): Promise<Contract> {
+    const { readFile } = await import("node:fs/promises");
+    const buffer = await readFile(path);
+    return new this(buffer);
+  }
 
   // sha-256 of wasm
   async getId(): Promise<string> {
