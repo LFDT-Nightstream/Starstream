@@ -1,6 +1,6 @@
 import tree_sitter_starstream_wasm from "file-loader!../../tree-sitter-starstream/tree-sitter-starstream.wasm";
 import starstream_language_server_web_wasm from "file-loader!../build/starstream_language_server_web_bg.wasm";
-import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/tree-sitter.wasm";
+import tree_sitter_wasm from "file-loader!../node_modules/web-tree-sitter/web-tree-sitter.wasm";
 import highlights_scm from "raw-loader!../../tree-sitter-starstream/queries/highlights.scm";
 import * as vscode from "vscode";
 import { LanguageClient } from "vscode-languageclient/browser";
@@ -26,9 +26,9 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
       vscode.Uri.joinPath(
         context.extensionUri,
         "dist",
-        "language-server.worker.js"
-      )
-    )
+        "language-server.worker.js",
+      ),
+    ),
   );
   const worker = new Worker(URL.createObjectURL(new Blob([workerJsBytes])), {
     name: "Starstream Language Server",
@@ -44,7 +44,7 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
     {
       documentSelector: [{ language: "starstream" }],
     },
-    worker
+    worker,
   );
   context.subscriptions.push(lc);
 
@@ -77,9 +77,9 @@ async function activateLanguageClient(context: vscode.ExtensionContext) {
       vscode.Uri.joinPath(
         context.extensionUri,
         "dist",
-        starstream_language_server_web_wasm
-      )
-    )
+        starstream_language_server_web_wasm,
+      ),
+    ),
   );
   worker.postMessage(languageServerWasmBytes, [languageServerWasmBytes.buffer]);
   await wasmInitPromise;
@@ -93,29 +93,29 @@ async function activateTreeSitter(context: vscode.ExtensionContext) {
   // NOTE: readFile returns some kind of evil Uint8Array that's missing methods, so we wrap it.
   const treeSitterWasmBytes = new Uint8Array(
     await vscode.workspace.fs.readFile(
-      vscode.Uri.joinPath(context.extensionUri, "dist", tree_sitter_wasm)
-    )
+      vscode.Uri.joinPath(context.extensionUri, "dist", tree_sitter_wasm),
+    ),
   );
   const treeSitterStarstreamWasmBytes = new Uint8Array(
     await vscode.workspace.fs.readFile(
       vscode.Uri.joinPath(
         context.extensionUri,
         "dist",
-        tree_sitter_starstream_wasm
-      )
-    )
+        tree_sitter_starstream_wasm,
+      ),
+    ),
   );
 
   await Parser.init({
     async instantiateWasm(
       imports: WebAssembly.Imports,
       // NOTE: One spot in Emscripten's output has this in `(mod, inst)` order, which is a lie.
-      cb: (inst: WebAssembly.Instance, mod: WebAssembly.Module) => void
+      cb: (inst: WebAssembly.Instance, mod: WebAssembly.Module) => void,
     ) {
       try {
         const { module, instance } = await WebAssembly.instantiate(
           treeSitterWasmBytes,
-          imports
+          imports,
         );
         cb(instance, module);
       } catch (e) {
