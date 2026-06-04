@@ -173,6 +173,21 @@ function DiagnosticsList({
   );
 }
 
+function RunPanel() {
+  return (
+    <div className="padding--md">
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button type="button" className="button button--secondary">
+          Deploy
+        </button>
+        <button type="button" className="button button--primary">
+          Call
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Sandbox() {
   const [inputTab, setInputTab] = useState("Editor");
   const [outputTab, setOutputTab] = useState("About");
@@ -304,6 +319,7 @@ export function Sandbox() {
                     <li>
                       Downloads: Buttons for downloading the compiler outputs.
                     </li>
+                    <li>Run: Deploy and call the compiled component.</li>
                   </ul>
                   <p>Keyboard shortcuts:</p>
                   <ul>
@@ -396,6 +412,10 @@ export function Sandbox() {
                   )}
                 </div>
               ),
+            },
+            {
+              key: "Run",
+              body: <RunPanel />,
             },
           ]}
         />
