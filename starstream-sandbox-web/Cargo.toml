@@ -21,3 +21,9 @@ starstream-to-wasm.workspace = true
 termcolor = "1.4.1"
 wasmprinter = { workspace = true, features = ["component-model"] }
 wit-component.workspace = true
+wasmtime = { version = "45", default-features = false, features = [
+    "component-model",
+    "cranelift",
+    "custom-virtual-memory",
+    "runtime",
+] }
