@@ -99,13 +99,51 @@ type UtxoConstructor<T> = new (
 
 /** Handle to a ledger Utxo */
 export class Utxo {
-  private contract: Contract;
-  private instance: WebAssembly.Instance;
+  private readonly contract: Contract;
+  private readonly instance: WebAssembly.Instance;
+  private valid_methods: bigint[] = [];
 
   constructor(contract: Contract, instance: WebAssembly.Instance) {
     // Unfortunately, we seem to be unable to assert that the contract and instance correspond.
     this.contract = contract;
     this.instance = instance;
+  }
+
+  /** Spawn a free-floating Utxo of this type. Cannot be committed to a ledger later. */
+  static async spawnFake(
+    contract: Contract,
+    main_fn: string,
+    args: unknown[],
+    imports: WebAssembly.Imports,
+  ): Promise<Utxo> {
+    const builtin = new std.Builtin();
+    const instance = new WebAssembly.Instance(await contract.getModule(), {
+      ...builtin,
+      ...imports,
+    });
+    const utxo = new this(contract, instance);
+    builtin.initUtxo(utxo);
+    // TODO: type checking
+    (instance.exports[main_fn] as Function)(...args);
+    return utxo;
+  }
+
+  _implements_method(hash: [bigint, bigint, bigint, bigint]) {
+    // TODO: real tracking
+    this.valid_methods.push(hash[0]);
+  }
+
+  isValid() {
+    return this.valid_methods.length !== 0;
+  }
+
+  call(exported_fn: string, args: unknown[]) {
+    if (!this.isValid()) {
+      throw new Error("Cannot call methods on spent Utxo");
+    }
+    // TODO: type checking
+    this.valid_methods.splice(0);
+    (this.instance.exports[exported_fn] as Function)(...args);
   }
 
   // Get the contract (wasm component) that contains the code for this Utxo. It may or may not contain coordination scripts, other Utxo codes, etc.
@@ -154,10 +192,10 @@ export async function call<
   inputs: TArgs,
   imports: TImports,
 ): Promise<Trace<TReturn>> {
-  const instance = new WebAssembly.Instance(
-    await script.contract.getModule(),
-    imports,
-  );
+  const instance = new WebAssembly.Instance(await script.contract.getModule(), {
+    ...new std.Builtin(),
+    ...imports,
+  });
   const func = instance.exports[script.name];
   if (typeof func !== "function") {
     throw new Error("Coordination script was not a function");
@@ -178,7 +216,8 @@ export function prove<TReturn>(trace: Trace<TReturn>): Promise<Proof> {
 // ----------------------------------------------------------------------------
 // Standard library
 
-export * as std from "./std.ts";
+import * as std from "./std.ts";
+export { std };
 
 // ----------------------------------------------------------------------------
 // Private utilities
