@@ -1,8 +1,15 @@
 //! WebAssembly bindings for the Starstream compiler.
+mod platform;
+
 use std::panic;
+use std::sync::{LazyLock, Mutex};
 
 use log::error;
+use wasmtime::component::{Component, InstancePre, Linker};
 use wit_component::{ComponentEncoder, DecodedWasm};
+
+static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(wasmtime::Engine::default);
+static INSTANCE: Mutex<Option<InstancePre<()>>> = Mutex::new(None);
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
@@ -19,6 +26,10 @@ unsafe extern "C" {
     unsafe fn set_core_wasm(ptr: *const u8, len: usize);
     unsafe fn set_wit(ptr: *const u8, len: usize);
     unsafe fn set_component_wasm(ptr: *const u8, len: usize);
+
+    // Describe the WIT contract of a deployed component as wit-parser's JSON
+    // serialization of the resolved WIT (`wasm-tools component wit --json`).
+    unsafe fn set_deployed_wit_json(ptr: *const u8, len: usize);
 }
 
 #[derive(serde::Deserialize)]
@@ -26,12 +37,19 @@ struct Input<'a> {
     code: &'a str,
 }
 
-/// # Safety
-///
-/// Exports to do work, called by the JS page.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn run(input_len: usize) {
-    // Set up output and panic context.
+/// Cranelift profiler that does nothing: the default one calls
+/// `Instant::now()`, which panics on wasm32-unknown-unknown.
+struct NoopProfiler;
+
+impl cranelift_codegen::timing::Profiler for NoopProfiler {
+    fn start_pass(&self, _pass: cranelift_codegen::timing::Pass) -> Box<dyn std::any::Any> {
+        Box::new(())
+    }
+}
+
+/// Set up output and panic context.
+fn init() {
+    _ = cranelift_codegen::timing::set_thread_profiler(Box::new(NoopProfiler));
     _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Trace);
     panic::set_hook(Box::new(|info| {
@@ -46,6 +64,14 @@ pub unsafe extern "C" fn run(input_len: usize) {
             error!("at {}:{}:{}", loc.file(), loc.line(), loc.column());
         }
     }));
+}
+
+/// # Safety
+///
+/// Exports to do work, called by the JS page.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn run(input_len: usize) {
+    init();
 
     // Fetch the input.
     let mut input = vec![0; input_len];
@@ -132,6 +158,47 @@ pub unsafe extern "C" fn run(input_len: usize) {
         }
     }
 }
+
+fn handle_deploy(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let mut wasm = vec![0; input_len];
+    unsafe { read_input(wasm.as_mut_ptr(), wasm.len()) };
+
+    let component = Component::new(&ENGINE, &wasm)?;
+    let linker = Linker::new(&ENGINE);
+    let instance = linker.instantiate_pre(&component)?;
+
+    let wasm = wit_component::decode(&wasm)?;
+    let wit_json = serde_json::to_string(wasm.resolve())?;
+
+    *INSTANCE.lock().unwrap() = Some(instance);
+    unsafe { set_deployed_wit_json(wit_json.as_ptr(), wit_json.len()) };
+
+    Ok(())
+}
+
+/// Deploys a contract, called by the JS page.
+///
+/// Describes the component's WIT contract back to the UI via
+/// `set_deployed_wit_json` and returns 0, or -1 if the deploy failed.
+///
+/// # Safety
+///
+/// `input_len` must be the length of the component Wasm provided by `read_input`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn deploy(input_len: usize) -> i32 {
+    init();
+    match handle_deploy(input_len) {
+        Ok(()) => 0,
+        Err(error) => {
+            error!("deploy: {error}");
+            -1
+        }
+    }
+}
+
+/// Calls a deployed contract, called by the JS page.
+#[unsafe(no_mangle)]
+pub extern "C" fn call() {}
 
 fn print_wit(wasm: &[u8], is_core: bool) -> Result<String, Box<dyn std::error::Error>> {
     let decoded = if is_core {

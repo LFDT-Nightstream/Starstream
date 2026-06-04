@@ -16,6 +16,13 @@ import type {
   SandboxWorkerRequest,
   SandboxWorkerResponse,
 } from "../sandbox.worker";
+import type {
+  RunWorkerRequest,
+  RunWorkerResponse,
+  WitFunction,
+  WitResolve,
+  WitType,
+} from "../run.worker";
 import { useBlobUrl } from "../hooks";
 import type * as monaco from "monaco-editor";
 
@@ -49,13 +56,32 @@ function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   };
 }
 
-// Starts the run worker on page load. It does nothing yet; the Deploy/Call
-// message protocol will be added later.
-function useRunWorker(): void {
+function useRunWorker(onResponse: (r: RunWorkerResponse) => void): {
+  request(r: RunWorkerRequest): void;
+} {
+  const worker = useRef<Worker | null>(null);
+
   useEffect(() => {
-    const worker = new Worker(new URL("../run.worker", import.meta.url));
-    return () => worker.terminate();
+    worker.current = new Worker(new URL("../run.worker", import.meta.url));
+    return () => worker.current?.terminate();
   }, []);
+
+  useEffect(() => {
+    const current = worker.current;
+    if (!current) return;
+
+    function onMessage({ data }: { data: RunWorkerResponse }) {
+      onResponse(data);
+    }
+    current.addEventListener("message", onMessage);
+    return () => current.removeEventListener("message", onMessage);
+  }, [onResponse]);
+
+  return {
+    request(r) {
+      worker.current?.postMessage(r);
+    },
+  };
 }
 
 // Wrapper to load `../editor.tsx` only in the browser.
@@ -182,17 +208,300 @@ function DiagnosticsList({
   );
 }
 
-function RunPanel() {
+const NUMERIC_TYPES = new Set([
+  "s8",
+  "u8",
+  "s16",
+  "u16",
+  "s32",
+  "u32",
+  "s64",
+  "u64",
+  "f32",
+  "f64",
+]);
+
+// The deployed component's callable functions: its worlds' top-level function
+// exports. (Starstream components export functions at the world level.)
+function exportedFunctions(wit: WitResolve): WitFunction[] {
+  return wit.worlds.flatMap((world) =>
+    Object.values(world.exports).flatMap((item) =>
+      "function" in item ? [item.function] : [],
+    ),
+  );
+}
+
+// The WIT spelling of a type: named types by name, anonymous compounds spelled
+// out, anything else by its kind.
+function typeStr(wit: WitResolve, type: WitType): string {
+  if (typeof type === "string") return type;
+  const def = wit.types[type];
+  if (def.name) return def.name;
+  const kind = def.kind;
+  if (typeof kind === "string") return kind;
+  if (kind.type !== undefined) return typeStr(wit, kind.type);
+  if (kind.list !== undefined) return `list<${typeStr(wit, kind.list)}>`;
+  if (kind.option !== undefined) return `option<${typeStr(wit, kind.option)}>`;
+  if (kind.tuple) {
+    return `tuple<${kind.tuple.types.map((t) => typeStr(wit, t)).join(", ")}>`;
+  }
+  if (kind.result) {
+    const { ok, err } = kind.result;
+    if (ok === null && err === null) return "result";
+    return `result<${ok === null ? "_" : typeStr(wit, ok)}, ${
+      err === null ? "_" : typeStr(wit, err)
+    }>`;
+  }
+  return Object.keys(kind)[0] ?? "unknown";
+}
+
+// A two-column grid that lines up the labels and inputs of the Fields inside.
+const FIELD_GRID: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "max-content 1fr",
+  gap: 8,
+  alignItems: "center",
+  justifyItems: "start",
+};
+
+// A labeled input for one function parameter or record field, as one row (two
+// cells) of a FIELD_GRID container. Argument values are kept in a flat map
+// keyed by dotted path (e.g. "token.amount").
+function Field({
+  wit,
+  name,
+  type,
+  path,
+  args,
+  setArg,
+}: {
+  wit: WitResolve;
+  name: string;
+  type: WitType;
+  path: string;
+  args: Record<string, string>;
+  setArg: (path: string, value: string) => void;
+}) {
+  return (
+    <>
+      <span>
+        {name}: <code>{typeStr(wit, type)}</code>
+      </span>
+      <ParamInput
+        wit={wit}
+        type={type}
+        path={path}
+        args={args}
+        setArg={setArg}
+      />
+    </>
+  );
+}
+
+function ParamInput({
+  wit,
+  type,
+  path,
+  args,
+  setArg,
+}: {
+  wit: WitResolve;
+  type: WitType;
+  path: string;
+  args: Record<string, string>;
+  setArg: (path: string, value: string) => void;
+}) {
+  const value = args[path] ?? "";
+  if (typeof type === "number") {
+    const kind = wit.types[type].kind;
+    if (typeof kind !== "string") {
+      if (kind.type !== undefined) {
+        // Alias: render as the underlying type.
+        return (
+          <ParamInput
+            wit={wit}
+            type={kind.type}
+            path={path}
+            args={args}
+            setArg={setArg}
+          />
+        );
+      }
+      if (kind.record) {
+        return (
+          <fieldset style={{ ...FIELD_GRID, margin: 0 }}>
+            {kind.record.fields.map((field) => (
+              <Field
+                key={field.name}
+                wit={wit}
+                name={field.name}
+                type={field.type}
+                path={`${path}.${field.name}`}
+                args={args}
+                setArg={setArg}
+              />
+            ))}
+          </fieldset>
+        );
+      }
+      if (kind.enum) {
+        return (
+          <select value={value} onChange={(e) => setArg(path, e.target.value)}>
+            {kind.enum.cases.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        );
+      }
+      if (kind.variant) {
+        const cases = kind.variant.cases;
+        const selected = cases.find((c) => c.name === value) ?? cases[0];
+        // A single grid cell even when the selected case has a payload input.
+        return (
+          <span
+            style={{ display: "inline-flex", gap: 8, alignItems: "center" }}
+          >
+            <select
+              value={selected?.name ?? ""}
+              onChange={(e) => setArg(path, e.target.value)}
+            >
+              {cases.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            {selected?.type != null && (
+              <ParamInput
+                wit={wit}
+                type={selected.type}
+                path={`${path}.${selected.name}`}
+                args={args}
+                setArg={setArg}
+              />
+            )}
+          </span>
+        );
+      }
+    }
+    // Other compound types fall back to a free-form text input.
+    return (
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => setArg(path, e.target.value)}
+      />
+    );
+  }
+  if (type === "bool") {
+    return (
+      <input
+        type="checkbox"
+        checked={value === "true"}
+        onChange={(e) => setArg(path, String(e.target.checked))}
+      />
+    );
+  }
+  return (
+    <input
+      type={NUMERIC_TYPES.has(type) ? "number" : "text"}
+      value={value}
+      onChange={(e) => setArg(path, e.target.value)}
+    />
+  );
+}
+
+function RunPanel({
+  canDeploy,
+  wit,
+  onDeploy,
+}: {
+  canDeploy: boolean;
+  wit: WitResolve | undefined;
+  onDeploy: () => void;
+}) {
+  const [selected, setSelected] = useState("");
+  const [args, setArgs] = useState<Record<string, string>>({});
+
+  const exports = useMemo(() => wit && exportedFunctions(wit), [wit]);
+
+  // Reset the form when a new contract arrives.
+  useEffect(() => {
+    setSelected(exports?.[0]?.name ?? "");
+    setArgs({});
+  }, [exports]);
+
+  const setArg = useCallback((path: string, value: string) => {
+    setArgs((prev) => ({ ...prev, [path]: value }));
+  }, []);
+
+  const func = exports?.find((e) => e.name === selected);
+
   return (
     <div className="padding--md">
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button type="button" className="button button--secondary">
+        <button
+          type="button"
+          className="button button--secondary"
+          disabled={!canDeploy}
+          onClick={onDeploy}
+        >
           Deploy
         </button>
-        <button type="button" className="button button--primary">
-          Call
-        </button>
+        {!canDeploy && <span>Compile the code to deploy it.</span>}
       </div>
+      {exports &&
+        (exports.length === 0 ? (
+          <p style={{ marginTop: 16 }}>
+            The deployed component exports no functions.
+          </p>
+        ) : (
+          <div style={{ marginTop: 16 }}>
+            <label>
+              Function{" "}
+              <select
+                value={selected}
+                onChange={(e) => {
+                  setSelected(e.target.value);
+                  setArgs({});
+                }}
+              >
+                {exports.map((e) => (
+                  <option key={e.name} value={e.name}>
+                    {e.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {func && wit && (
+              <form
+                onSubmit={(e) => e.preventDefault()}
+                style={{ ...FIELD_GRID, marginTop: 8 }}
+              >
+                {func.params.map((param) => (
+                  <Field
+                    key={param.name}
+                    wit={wit}
+                    name={param.name}
+                    type={param.type}
+                    path={param.name}
+                    args={args}
+                    setArg={setArg}
+                  />
+                ))}
+                <button
+                  type="submit"
+                  className="button button--primary"
+                  style={{ gridColumn: "1 / -1" }}
+                >
+                  Call
+                </button>
+              </form>
+            )}
+          </div>
+        ))}
     </div>
   );
 }
@@ -254,7 +563,39 @@ export function Sandbox() {
     }
   });
 
-  useRunWorker();
+  const [deployedWit, setDeployedWit] = useState<WitResolve>();
+
+  const run_request_id = useRef(0);
+  const runWorker = useRunWorker((response) => {
+    if (response.request_id !== run_request_id.current) {
+      console.log("discarding response for old request", response);
+
+      return;
+    }
+
+    if (response.type == "idle") {
+      // Idle response received
+    } else if (response.type == "log") {
+      console.log(
+        ["", "Error", "Warn", "Info", "Debug", "Trace"][response.level],
+        `[${response.target}]`,
+        response.body,
+      );
+    } else if (response.type == "deployed") {
+      setDeployedWit(response.wit);
+    } else {
+      response satisfies never;
+    }
+  });
+
+  const onDeploy = useCallback(() => {
+    if (!componentWasm) return;
+    runWorker.request({
+      request_id: ++run_request_id.current,
+      type: "deploy",
+      component: componentWasm,
+    });
+  }, [componentWasm]);
 
   const onTextChanged = useCallback((code: string) => {
     worker.request({ request_id: ++request_id.current, code });
@@ -426,7 +767,13 @@ export function Sandbox() {
             },
             {
               key: "Run",
-              body: <RunPanel />,
+              body: (
+                <RunPanel
+                  canDeploy={componentWasm !== undefined}
+                  wit={deployedWit}
+                  onDeploy={onDeploy}
+                />
+              ),
             },
           ]}
         />
