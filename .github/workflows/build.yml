@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: rustup target add wasm32-unknown-unknown
       - run: rustup component add clippy rustfmt
       # Enforce lockfile correctness.
       - run: cargo check --locked
@@ -33,7 +32,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: rustup target add wasm32-unknown-unknown
       - name: Install binaryen
         run: |
           curl -o binaryen.tar.gz --no-progress-meter -L https://github.com/WebAssembly/binaryen/releases/download/version_124/binaryen-version_124-x86_64-linux.tar.gz
