@@ -566,7 +566,11 @@ fn token_definition_to_doc<'a>(
         .append("}")
 }
 
-fn token_part_to_doc<'a>(part: &TokenPart, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
+fn token_part_to_doc<'a>(
+    part: &TokenPart,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
     match part {
         TokenPart::Storage(vars) => RcDoc::text("storage")
             .append(RcDoc::space())

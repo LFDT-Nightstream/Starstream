@@ -1,7 +1,5 @@
 use chumsky::prelude::*;
-use starstream_types::{
-    Block, FunctionDef, FunctionExport, TokenDef, TokenGlobal, TokenPart,
-};
+use starstream_types::{Block, FunctionDef, FunctionExport, TokenDef, TokenGlobal, TokenPart};
 
 use crate::parser::{
     context::Extra,
