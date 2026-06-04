@@ -19,5 +19,5 @@ wasmparser.workspace = true
 [dev-dependencies]
 insta = { workspace = true, features = ["glob"] }
 wasmprinter = { workspace = true, features = ["component-model"] }
-wasmtime = "39.0"
+wasmtime = "45.0"
 wit-component.workspace = true
