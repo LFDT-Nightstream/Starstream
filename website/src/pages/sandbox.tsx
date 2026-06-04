@@ -49,6 +49,15 @@ function useSandboxWorker(onResponse: (r: SandboxWorkerResponse) => void): {
   };
 }
 
+// Starts the run worker on page load. It does nothing yet; the Deploy/Call
+// message protocol will be added later.
+function useRunWorker(): void {
+  useEffect(() => {
+    const worker = new Worker(new URL("../run.worker", import.meta.url));
+    return () => worker.terminate();
+  }, []);
+}
+
 // Wrapper to load `../editor.tsx` only in the browser.
 function Editor(props: ComponentProps<typeof import("../editor").Editor>) {
   const [editorModule, setEditorModule] =
@@ -244,6 +253,8 @@ export function Sandbox() {
       response satisfies never;
     }
   });
+
+  useRunWorker();
 
   const onTextChanged = useCallback((code: string) => {
     worker.request({ request_id: ++request_id.current, code });
