@@ -115,6 +115,10 @@
           "named": true
         },
         {
+          "type": "resume_statement",
+          "named": true
+        },
+        {
           "type": "return_statement",
           "named": true
         },
@@ -1117,6 +1121,11 @@
     }
   },
   {
+    "type": "resume_statement",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "return_statement",
     "named": true,
     "fields": {},
@@ -1599,6 +1608,10 @@
   },
   {
     "type": "raise",
+    "named": false
+  },
+  {
+    "type": "resume",
     "named": false
   },
   {

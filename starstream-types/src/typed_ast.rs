@@ -213,6 +213,7 @@ pub enum TypedStatement {
     },
     Expression(Spanned<TypedExpr>),
     Return(Option<Spanned<TypedExpr>>),
+    Resume,
 }
 
 /// `{ statement* }`

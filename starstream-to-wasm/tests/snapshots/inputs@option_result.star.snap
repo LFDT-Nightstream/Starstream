@@ -2087,8 +2087,8 @@ TypedProgram {
     (i64.const 0)
   )
   (func (;2;) (type 1) (param i32 i64) (result i64)
-    (local i32 i64 i64 i64)
-    (block ;; label = @1
+    (local i32 i64 i64)
+    (block (result i64) ;; label = @1
       (block ;; label = @2
         (local.set 2
           (local.get 0)
@@ -2104,14 +2104,11 @@ TypedProgram {
               (local.get 2)
               (i32.const 1)))
           (unreachable))
-        (local.set 4
-          (i64.const 0))
-        (br 1 (;@1;)))
-      (local.set 5
-        (local.get 3))
+        (br 1 (;@1;)
+          (i64.const 0)))
       (local.set 4
-        (local.get 5)))
-    (local.get 4)
+        (local.get 3))
+      (local.get 4))
   )
   (func (;3;) (type 0) (result i32 i64)
     (i32.const 0)
@@ -2126,8 +2123,8 @@ TypedProgram {
     (local.get 0)
   )
   (func (;5;) (type 1) (param i32 i64) (result i64)
-    (local i32 i64 i64 i64 i32)
-    (block ;; label = @1
+    (local i32 i64 i64 i32)
+    (block (result i64) ;; label = @1
       (block ;; label = @2
         (local.set 2
           (local.get 0)
@@ -2143,17 +2140,14 @@ TypedProgram {
               (local.get 2)
               (i32.const 1)))
           (unreachable))
-        (local.set 6
+        (local.set 5
           (i32.wrap_i64
             (local.get 3)))
-        (local.set 4
-          (i64.const 0))
-        (br 1 (;@1;)))
-      (local.set 5
-        (local.get 3))
+        (br 1 (;@1;)
+          (i64.const 0)))
       (local.set 4
-        (local.get 5)))
-    (local.get 4)
+        (local.get 3))
+      (local.get 4))
   )
   (func (;6;) (type 2) (param i32 i64 i32 i64)
     (drop

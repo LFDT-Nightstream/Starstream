@@ -1201,6 +1201,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "resume_statement"
+        },
+        {
+          "type": "SYMBOL",
           "name": "_expression_statement"
         }
       ]
@@ -1339,6 +1343,19 @@
               "type": "BLANK"
             }
           ]
+        },
+        {
+          "type": "STRING",
+          "value": ";"
+        }
+      ]
+    },
+    "resume_statement": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "resume"
         },
         {
           "type": "STRING",

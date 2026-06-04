@@ -134,9 +134,13 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func (param i32 i32)))
-  (export "script-accepts-utxos" (func 0))
-  (func (;0;) (type 0) (param i32 i32))
+  (type (;0;) (func))
+  (type (;1;) (func (param i32 i32)))
+  (export "script-accepts-utxos" (func 1))
+  (func (;0;) (type 0)
+    (unreachable)
+  )
+  (func (;1;) (type 1) (param i32 i32))
   (@custom "component-type"
     (component
       (@custom "wit-component-encoding" "\04\00")

@@ -11,6 +11,8 @@ use std::fmt;
 
 use wasm_encoder::{BlockType, InstructionSink};
 
+use crate::DisplayClosure;
+
 #[derive(Default)]
 pub struct ControlFlowGraph {
     pub blocks: Vec<BasicBlock>,
@@ -35,6 +37,8 @@ pub enum Out {
     None,
     /// Return from the current function with what's on the stack. 0 successors.
     Return,
+    /// Tail-call another function.
+    ReturnCall { func: u32 },
     /// Like Return, but names the BB that will be resumed.
     Yield { bb_resume: usize },
     /// Wasm `unreachable`.
@@ -48,7 +52,11 @@ pub enum Out {
 impl Out {
     pub fn for_each_successor<F: FnMut(usize)>(&self, mut func: F) {
         match *self {
-            Out::None | Out::Return | Out::Yield { .. } | Out::Unreachable => {}
+            Out::None
+            | Out::Return
+            | Out::ReturnCall { .. }
+            | Out::Yield { .. }
+            | Out::Unreachable => {}
             Out::Next(a) => func(a),
             Out::If { f, t } => {
                 // Prefer visiting true branch first for readability, since
@@ -60,37 +68,36 @@ impl Out {
         }
     }
 
-    pub fn to_mermaid(&self, id: usize) -> impl fmt::Display {
-        struct Mermaid<'a>(&'a Out, usize);
-        impl<'a> fmt::Display for Mermaid<'a> {
-            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let &Mermaid(out, i) = self;
-                match *out {
-                    Out::None => {}
-                    Out::Return => {
-                        writeln!(fmt, "{i} --> return_{i}")?;
-                        writeln!(fmt, "return_{i}([return])")?;
-                    }
-                    Out::Yield { bb_resume, .. } => {
-                        writeln!(fmt, "{i} --> yield_{bb_resume}")?;
-                        writeln!(fmt, "yield_{bb_resume}([yield {bb_resume}])")?;
-                    }
-                    Out::Unreachable => {
-                        writeln!(fmt, "{i} --> unreachable_{i}")?;
-                        writeln!(fmt, "unreachable_{i}([unreachable])")?;
-                    }
-                    Out::Next(bb) => {
-                        writeln!(fmt, "{i} --> {bb}")?;
-                    }
-                    Out::If { f, t } => {
-                        writeln!(fmt, "{i} -- false --> {f}")?;
-                        writeln!(fmt, "{i} -- true --> {t}")?;
-                    }
+    pub fn to_mermaid(&self, i: usize) -> impl fmt::Display {
+        DisplayClosure(move |fmt| {
+            match *self {
+                Out::None => {}
+                Out::Return => {
+                    writeln!(fmt, "{i} --> return_{i}")?;
+                    writeln!(fmt, "return_{i}([return])")?;
                 }
-                Ok(())
+                Out::ReturnCall { func } => {
+                    writeln!(fmt, "{i} --> return_{i}")?;
+                    writeln!(fmt, "return_{i}([return_call {func}])")?;
+                }
+                Out::Yield { bb_resume, .. } => {
+                    writeln!(fmt, "{i} --> yield_{bb_resume}")?;
+                    writeln!(fmt, "yield_{bb_resume}([yield {bb_resume}])")?;
+                }
+                Out::Unreachable => {
+                    writeln!(fmt, "{i} --> unreachable_{i}")?;
+                    writeln!(fmt, "unreachable_{i}([unreachable])")?;
+                }
+                Out::Next(bb) => {
+                    writeln!(fmt, "{i} --> {bb}")?;
+                }
+                Out::If { f, t } => {
+                    writeln!(fmt, "{i} -- false --> {f}")?;
+                    writeln!(fmt, "{i} -- true --> {t}")?;
+                }
             }
-        }
-        Mermaid(self, id)
+            Ok(())
+        })
     }
 }
 
@@ -112,6 +119,9 @@ impl ControlFlowGraph {
     }
 
     pub fn fill(&mut self, bb: usize, out: Out) {
+        if bb == usize::MAX {
+            return;
+        }
         assert!(!matches!(out, Out::None));
         assert!(matches!(self.blocks[bb].out, Out::None));
         out.for_each_successor(|next| {
@@ -153,6 +163,13 @@ impl ControlFlowGraph {
                     _ = writeln!(gv, "{i} -> return_{i};");
                     _ = writeln!(gv, "return_{i} [label=return] [shape=box] [style=rounded];");
                 }
+                Out::ReturnCall { func } => {
+                    _ = writeln!(gv, "{i} -> return_{i};");
+                    _ = writeln!(
+                        gv,
+                        "return_{i} [label=\"return_call {func}\"] [shape=box] [style=rounded];"
+                    );
+                }
                 Out::Yield { bb_resume, .. } => {
                     _ = writeln!(gv, "{i} -> yield_{bb_resume};");
                     _ = writeln!(
@@ -181,28 +198,23 @@ impl ControlFlowGraph {
     }
 
     pub fn to_mermaid(&self) -> impl fmt::Display {
-        struct Mermaid<'a>(&'a ControlFlowGraph);
-        impl<'a> fmt::Display for Mermaid<'a> {
-            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let &Mermaid(this) = self;
-                writeln!(fmt, "flowchart TB")?;
-                writeln!(fmt, "start([start])")?;
-                writeln!(fmt, "start --> 0")?;
-                for bb in this.resumes.iter() {
-                    writeln!(fmt, "yield_{bb} -.-> resume_{bb}")?;
-                    writeln!(fmt, "resume_{bb}([resume {bb}])")?;
-                    writeln!(fmt, "resume_{bb} --> {bb}")?;
-                }
-                for (i, block) in this.blocks.iter().enumerate() {
-                    let d = block.disassemble().to_string();
-                    writeln!(fmt, "{}[{:?}]", i, if d.is_empty() { " " } else { &d })?;
-                    writeln!(fmt, "style {i} text-align: left, white-space: nowrap")?;
-                    write!(fmt, "{}", block.out.to_mermaid(i))?;
-                }
-                Ok(())
+        DisplayClosure(|fmt| {
+            writeln!(fmt, "flowchart TB")?;
+            writeln!(fmt, "start([start])")?;
+            writeln!(fmt, "start --> 0")?;
+            for bb in self.resumes.iter() {
+                writeln!(fmt, "yield_{bb} -.-> resume_{bb}")?;
+                writeln!(fmt, "resume_{bb}([resume {bb}])")?;
+                writeln!(fmt, "resume_{bb} --> {bb}")?;
             }
-        }
-        Mermaid(self)
+            for (i, block) in self.blocks.iter().enumerate() {
+                let d = block.disassemble().to_string();
+                writeln!(fmt, "{}[{:?}]", i, if d.is_empty() { " " } else { &d })?;
+                writeln!(fmt, "style {i} text-align: left, white-space: nowrap")?;
+                write!(fmt, "{}", block.out.to_mermaid(i))?;
+            }
+            Ok(())
+        })
     }
 }
 
@@ -218,25 +230,20 @@ impl BasicBlock {
     }
 
     pub fn disassemble(&self) -> impl fmt::Display {
-        struct Disassemble<'a>(&'a BasicBlock);
-        impl<'a> fmt::Display for Disassemble<'a> {
-            fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-                let &Disassemble(this) = self;
-                match this.in_type {
-                    None | Some(BlockType::Empty) => {}
-                    Some(other) => {
-                        writeln!(fmt, "=> {:?}", other)?;
-                    }
+        DisplayClosure(|fmt| {
+            match self.in_type {
+                None | Some(BlockType::Empty) => {}
+                Some(other) => {
+                    writeln!(fmt, "=> {:?}", other)?;
                 }
-                let br = wasmparser::BinaryReader::new(&this.instructions, 0);
-                let or = wasmparser::OperatorsReader::new(br);
-                for result in or.into_iter() {
-                    let op = result.unwrap();
-                    writeln!(fmt, "{op:?}")?;
-                }
-                Ok(())
             }
-        }
-        Disassemble(self)
+            let br = wasmparser::BinaryReader::new(&self.instructions, 0);
+            let or = wasmparser::OperatorsReader::new(br);
+            for result in or.into_iter() {
+                let op = result.unwrap();
+                writeln!(fmt, "{op:?}")?;
+            }
+            Ok(())
+        })
     }
 }

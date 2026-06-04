@@ -3,10 +3,12 @@ abi Foo {
 }
 
 utxo MyUtxo {
-    impl Foo {
-        fn foo() { }
-    }
-    main fn hello_utxo() {
+    main fn hello_utxo(x: i32) {
         yield(Foo);
+    }
+    impl Foo {
+        fn foo() {
+            resume;
+        }
     }
 }

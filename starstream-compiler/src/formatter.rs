@@ -683,6 +683,7 @@ fn statement_to_doc<'a>(
             }))
             .append(RcDoc::text(";")),
         Statement::Return(None) => RcDoc::text("return;"),
+        Statement::Resume => RcDoc::text("resume;"),
     }
 }
 

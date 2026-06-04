@@ -69,6 +69,10 @@ pub fn statement<'a>(
         )
         .map(Statement::Return);
 
+    let resume_statement = just("resume")
+        .ignore_then(just(';').padded().ignored())
+        .map(|_| Statement::Resume);
+
     let expression_statement = expr
         .clone()
         .then_ignore(just(';').padded())
@@ -90,6 +94,7 @@ pub fn statement<'a>(
         assignment,
         while_statement,
         return_statement,
+        resume_statement,
         expression_statement,
         block_expression_statement,
     ))

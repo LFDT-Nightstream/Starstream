@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
@@ -211,6 +212,8 @@ struct Compiler {
     callables: HashMap<String, u32>,
     /// Map from name to resource index.
     resources: HashMap<String, u32>,
+    /// Function bodies.
+    code_bytes: Vec<Vec<u8>>,
 
     // Memory building.
     bump_ptr: u32,
@@ -218,6 +221,7 @@ struct Compiler {
     yield_global: Option<u32>,
     yield_id: i32,
     yield_funcs: Vec<u32>,
+    resume_func_idx: Option<u32>,
 }
 
 impl Compiler {
@@ -227,8 +231,11 @@ impl Compiler {
         // TODO: any other final activity on the sections here, such as
         // committing constants to the memory/data section.
 
-        // Generate resume function
-        self.generate_resume_fn();
+        // Flush function codes into the code section.
+        for each in self.code_bytes {
+            assert!(!each.is_empty());
+            self.code.raw(&each);
+        }
 
         // Generate memory.
         if self.bump_ptr > 0 {
@@ -456,29 +463,6 @@ impl Compiler {
         }
     }
 
-    fn generate_resume_fn(&mut self) {
-        let Some(yield_global) = self.yield_global else {
-            return;
-        };
-
-        // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
-        let mut func = Function::new([]);
-        for (i, &target) in self.yield_funcs.iter().enumerate() {
-            func.instructions().block(BlockType::Empty);
-            func.instructions().global_get(yield_global);
-            func.instructions().i32_const((i + 1) as i32);
-            func.instructions().i32_ne();
-            func.instructions().br_if(0);
-            func.instructions().return_call(target);
-            func.instructions().end();
-        }
-        func.instructions().unreachable();
-        func.instructions().end();
-
-        let idx = self.add_function(FuncType::new([], []), &func.into_raw_body());
-        self.export_core_fn("resume", idx); // temporary for testing
-    }
-
     // ------------------------------------------------------------------------
     // Core table management
 
@@ -506,11 +490,11 @@ impl Compiler {
 
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
-    fn add_function(&mut self, ty: FuncType, code: &[u8]) -> u32 {
+    fn add_function(&mut self, ty: FuncType, code: Vec<u8>) -> u32 {
         let type_index = self.add_core_func_type(ty);
         let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
-        self.code.raw(&code);
+        self.code_bytes.push(code);
         func_index
     }
 
@@ -584,7 +568,7 @@ impl Compiler {
         // Sum is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
+        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_add_checked".to_string(), idx);
@@ -642,7 +626,7 @@ impl Compiler {
         // Diff is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
+        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_sub_checked".to_string(), idx);
@@ -725,7 +709,7 @@ impl Compiler {
         // Product is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), &code.into_raw_body());
+        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_mul_checked".to_string(), idx);
@@ -795,7 +779,7 @@ impl Compiler {
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
-            let mut wrapper_func = StFunction::from_params(params);
+            let mut wrapper_func = StFunction::new(params, &[ValType::I32]);
             let bb = &wrapper_func.cfg.add_block();
             wrapper_func.cfg.seal(*bb, BlockType::Empty);
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
@@ -810,10 +794,8 @@ impl Compiler {
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             wrapper_func.cfg.fill(*bb, Out::Return);
 
-            let wrapper_func_idx = self.add_function(
-                FuncType::new(params.iter().copied(), [ValType::I32]),
-                &stackify(&wrapper_func, *bb).code,
-            );
+            let stackified = stackify(&wrapper_func, *bb, stackifier::AsyncMode::Sync);
+            let wrapper_func_idx = self.add_function(stackified.ty, stackified.code);
 
             Some(wrapper_func_idx)
         } else {
@@ -1265,6 +1247,8 @@ impl Compiler {
                 "implements-method",
                 ComponentTypeRef::Func(implements_method_ty),
             );
+
+            self.yield_global = Some(self.add_globals([ValType::I32]));
         }
 
         // In the Wasm output, imported functions must precede defined
@@ -1444,26 +1428,24 @@ impl Compiler {
             );
             _ = self.star_to_core_types(p.name.span_or(function.name.span()), &mut params, &p.ty);
         }
+        let mut results = Vec::with_capacity(1);
+        _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
 
-        let mut func = StFunction::from_params(&params);
+        let mut func = StFunction::new(&params, &results);
         let bb_orig = func.cfg.add_block();
         func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
 
-        let mut results = Vec::with_capacity(1);
-        _ = self.star_to_core_types(function.name.span(), &mut results, &function.return_type);
-
         let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
         func.cfg.fill(bb, Out::Return);
 
-        let stackified = stackify(&func, bb_orig);
-        let idx = self.add_function(
-            FuncType::new(params.iter().copied(), results.iter().copied()),
-            &stackified.code,
-        );
-        self.callables
-            .insert(function.name.as_str().to_owned(), idx);
-
+        // Stackify from entry point.
+        let async_mode = if matches!(function.export, Some(FunctionExport::UtxoMain)) {
+            stackifier::AsyncMode::AsyncStart
+        } else {
+            stackifier::AsyncMode::Sync
+        };
+        let stackified = stackify(&func, bb_orig, async_mode);
         if self.options.output_mermaid {
             self.mermaid
                 .push((wit_name.to_string(), func.cfg.to_mermaid().to_string()));
@@ -1472,22 +1454,21 @@ impl Compiler {
                 stackified.to_mermaid().to_string(),
             ));
         }
+        let idx: u32 = self.add_function(stackified.ty, stackified.code);
+        self.callables
+            .insert(function.name.as_str().to_owned(), idx);
 
+        // Stackify from each resume point.
         for &resume in &func.cfg.resumes {
-            // TODO: remove params here and add them to the function's locals instead of making the resume fn pass 0 for all params.
-            let stackified = stackify(&func, resume);
-            let idx = self.add_function(
-                FuncType::new(params.iter().copied(), results.iter().copied()),
-                &stackified.code,
-            );
-            self.yield_funcs.push(idx);
-
+            let stackified = stackify(&func, resume, stackifier::AsyncMode::AsyncContinuation);
             if self.options.output_mermaid {
                 self.mermaid.push((
                     format!("{}_{}", wit_name, resume),
                     stackified.to_mermaid().to_string(),
                 ));
             }
+            let idx = self.add_function(stackified.ty, stackified.code);
+            self.yield_funcs.push(idx);
         }
 
         match function.export {
@@ -1515,6 +1496,12 @@ impl Compiler {
             ComponentTypeRef::Type(TypeBounds::SubResource),
         );
         self.resources.insert(utxo.name.to_string(), resource);
+
+        // Reserve the ID for the `resume;` function for this Utxo.
+        let yield_start = self.yield_id;
+        let resume_func_idx = self.add_function(FuncType::new([], []), Vec::new());
+        let resume_code_idx = self.code_bytes.len() - 1;
+        self.resume_func_idx = Some(resume_func_idx);
 
         // Visit each Utxo part.
         let mut utxo_storage = HashMap::new();
@@ -1557,12 +1544,39 @@ impl Compiler {
             }
         }
 
+        // Fill in the code of the `resume;` function.
+        self.code_bytes[resume_code_idx] = self.generate_resume_fn(yield_start..self.yield_id);
+        self.resume_func_idx = None;
+
         // Generate storage exports.
         self.generate_storage_exports(
             &utxo.name,
             &(&() as &dyn Locals, &utxo_storage),
             utxo_record_type,
         );
+    }
+
+    fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
+        let mut func = Function::new([]);
+        if let Some(yield_global) = self.yield_global {
+            // if (yield_id == 0) { return resume_0(); } else if ... else unreachable
+            for yield_id in range {
+                func.instructions().block(BlockType::Empty);
+                func.instructions().global_get(yield_global);
+                func.instructions().i32_const((yield_id + 1) as i32);
+                func.instructions().i32_ne();
+                func.instructions().br_if(0);
+                func.instructions()
+                    .return_call(self.yield_funcs[yield_id as usize]);
+                func.instructions().end();
+            }
+        } else {
+            assert!(range.is_empty());
+        }
+        func.instructions().unreachable();
+        func.instructions().end();
+
+        func.into_raw_body()
     }
 
     /// Start a new identifier scope and generate bytecode for the statements
@@ -1675,11 +1689,23 @@ impl Compiler {
                     let _ =
                         self.visit_expr_stack(func, bb, &(parent, &locals), expr.span, &expr.node);
                     func.cfg.fill(*bb, Out::Return);
-                    // Also return early here to avoid double-fill assert if AST contains double-return
-                    return Ok(locals);
+                    *bb = usize::MAX;
+                    break;
                 }
                 TypedStatement::Return(None) => {
-                    func.instructions(bb).return_();
+                    func.cfg.fill(*bb, Out::Return);
+                    *bb = usize::MAX;
+                    break;
+                }
+                TypedStatement::Resume => {
+                    func.cfg.fill(
+                        *bb,
+                        Out::ReturnCall {
+                            func: self.resume_func_idx.unwrap(),
+                        },
+                    );
+                    *bb = usize::MAX;
+                    break;
                 }
             }
         }
@@ -2494,11 +2520,7 @@ impl Compiler {
                 // BlockType instead of locals.
                 let mut result_types = Vec::new();
                 self.star_to_core_types(span, &mut result_types, &expr.ty)?;
-                let (block_type, first_local) = match &result_types[..] {
-                    &[] => (BlockType::Empty, 0),
-                    &[ty] => (BlockType::Result(ty), 0),
-                    many => (BlockType::Empty, func.add_locals(many.iter().copied())),
-                };
+                let bulk = BulkBlockOutput::new(func, &result_types);
 
                 let bb_end = func.cfg.add_block();
 
@@ -2531,11 +2553,7 @@ impl Compiler {
 
                             // True branch.
                             self.visit_block_stack(func, bb, locals, block)?;
-                            if matches!(block_type, BlockType::Empty) {
-                                for i in (0..result_types.len()).rev() {
-                                    func.instructions(bb).local_set(first_local + (i as u32));
-                                }
-                            }
+                            bulk.store(func, bb);
                             func.cfg.fill(*bb, Out::Next(bb_end));
 
                             // False branch is to continue evaluating conditions.
@@ -2550,24 +2568,16 @@ impl Compiler {
                 // Final `else` branch is just inline.
                 if let Some(else_branch) = else_branch {
                     self.visit_block_stack(func, bb, locals, else_branch)?;
-                    if matches!(block_type, BlockType::Empty) {
-                        for i in (0..result_types.len()).rev() {
-                            func.instructions(bb).local_set(first_local + (i as u32));
-                        }
-                    }
+                    bulk.store(func, bb);
                 }
 
                 // End.
                 func.cfg.fill(*bb, Out::Next(bb_end));
-                func.cfg.seal(bb_end, block_type);
+                func.cfg.seal(bb_end, bulk.block_type());
                 *bb = bb_end;
 
                 // Read locals back onto stack.
-                if matches!(block_type, BlockType::Empty) {
-                    for i in 0..result_types.len() {
-                        func.instructions(bb).local_get(first_local + (i as u32));
-                    }
-                }
+                bulk.load(func, bb);
                 Ok(())
             }
             TypedExprKind::Disclose { expr: inner } => {
@@ -2715,20 +2725,14 @@ impl Compiler {
                 // Store yield ID to globals
                 self.yield_id += 1;
                 let id = self.yield_id;
-                let yield_global = match self.yield_global {
-                    Some(g) => g,
-                    None => {
-                        let g = self.add_globals([ValType::I32]);
-                        self.yield_global = Some(g);
-                        g
-                    }
-                };
-                func.instructions(bb).i32_const(id).global_set(yield_global);
+                func.instructions(bb)
+                    .i32_const(id)
+                    .global_set(self.yield_global.unwrap());
 
                 // Store locals to globals (implicit storage)
                 // TODO: only store/load locals that are actually live at this yield point
                 // TODO: optimize number of global slots used
-                let locals = func.get_locals();
+                let locals = func.params_and_locals();
                 let globals = self.add_globals(locals.iter().copied());
                 for i in 0..locals.len() {
                     func.instructions(bb)
@@ -2866,7 +2870,7 @@ impl Compiler {
         // 4. Allocate result locals.
         let mut result_types = Vec::new();
         _ = self.star_to_core_types(span, &mut result_types, &expr.ty);
-        let result_base = func.add_locals(result_types.iter().copied());
+        let bulk = BulkBlockOutput::new(func, &result_types);
 
         // 5. Emit wasm from decision tree.
         let bb_end = func.cfg.add_block();
@@ -2878,17 +2882,14 @@ impl Compiler {
             &tree,
             &[(scrut_base, scrutinee.node.ty.clone())],
             arms,
-            result_base,
-            result_types.len() as u32,
+            &bulk,
             bb_end,
         );
-        func.cfg.seal(bb_end, BlockType::Empty);
+        func.cfg.seal(bb_end, bulk.block_type());
         *bb = bb_end;
 
         // 6. Read result locals back to stack.
-        for i in 0..result_types.len() {
-            func.instructions(bb).local_get(result_base + (i as u32));
-        }
+        bulk.load(func, bb);
         Ok(())
     }
 
@@ -2931,8 +2932,7 @@ impl Compiler {
             &tree,
             &[(scrut_base, scrutinee.node.ty.clone())],
             arms,
-            0,
-            0,
+            &BulkBlockOutput::empty(),
             bb_end,
         );
         func.cfg.seal(bb_end, BlockType::Empty);
@@ -3045,8 +3045,7 @@ impl Compiler {
         tree: &DecisionTree,
         col_locals: &[(u32, Type)],
         arms: &[TypedMatchArm],
-        result_base: u32,
-        result_count: u32,
+        bulk: &BulkBlockOutput,
         bb_end: usize,
     ) {
         match tree {
@@ -3060,16 +3059,14 @@ impl Compiler {
                     }
                 }
 
-                if result_count > 0 {
+                if !bulk.is_empty() {
                     let _ = self.visit_block_stack(
                         func,
                         bb,
                         &(locals, &arm_locals),
                         &arms[*action].body,
                     );
-                    for i in (0..result_count).rev() {
-                        func.instructions(bb).local_set(result_base + i);
-                    }
+                    bulk.store(func, bb);
                 } else {
                     let _ = self.visit_block_drop(
                         func,
@@ -3093,21 +3090,8 @@ impl Compiler {
                 match col_type {
                     Type::Enum(enum_ty) => {
                         self.emit_enum_switch(
-                            func,
-                            bb,
-                            locals,
-                            span,
-                            *column,
-                            base_local,
-                            enum_ty,
-                            col_type,
-                            cases,
-                            default,
-                            col_locals,
-                            arms,
-                            result_base,
-                            result_count,
-                            bb_end,
+                            func, bb, locals, span, *column, base_local, enum_ty, col_type, cases,
+                            default, col_locals, arms, bulk, bb_end,
                         );
                     }
                     Type::Bool => {
@@ -3122,8 +3106,7 @@ impl Compiler {
                             default,
                             col_locals,
                             arms,
-                            result_base,
-                            result_count,
+                            bulk,
                             bb_end,
                             |func_inst, ctor, base| match ctor {
                                 Ctor::BoolTrue => {
@@ -3150,8 +3133,7 @@ impl Compiler {
                             default,
                             col_locals,
                             arms,
-                            result_base,
-                            result_count,
+                            bulk,
                             bb_end,
                             move |func_inst, ctor, base| {
                                 if let Ctor::IntLiteral(n) = ctor {
@@ -3184,8 +3166,7 @@ impl Compiler {
                                 subtree,
                                 &new_col_locals,
                                 arms,
-                                result_base,
-                                result_count,
+                                bulk,
                                 bb_end,
                             );
                         }
@@ -3201,8 +3182,7 @@ impl Compiler {
                                 subtree,
                                 &new_col_locals,
                                 arms,
-                                result_base,
-                                result_count,
+                                bulk,
                                 bb_end,
                             );
                         } else {
@@ -3231,8 +3211,7 @@ impl Compiler {
         default: &Option<Box<DecisionTree>>,
         col_locals: &[(u32, Type)],
         arms: &[TypedMatchArm],
-        result_base: u32,
-        result_count: u32,
+        bulk: &BulkBlockOutput,
         bb_end: usize,
     ) {
         let mut enum_core_types = Vec::new();
@@ -3288,8 +3267,7 @@ impl Compiler {
                 subtree,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
             *bb = bb_false;
@@ -3305,8 +3283,7 @@ impl Compiler {
                 def,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
         } else {
@@ -3374,8 +3351,7 @@ impl Compiler {
         default: &Option<Box<DecisionTree>>,
         col_locals: &[(u32, Type)],
         arms: &[TypedMatchArm],
-        result_base: u32,
-        result_count: u32,
+        bulk: &BulkBlockOutput,
         bb_end: usize,
         emit_test: impl Fn(&mut InstructionSink<'_>, &Ctor, u32),
     ) {
@@ -3407,8 +3383,7 @@ impl Compiler {
                 subtree,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
             *bb = bb_false;
@@ -3423,8 +3398,7 @@ impl Compiler {
                 def,
                 &new_col_locals,
                 arms,
-                result_base,
-                result_count,
+                bulk,
                 bb_end,
             );
         } else {
@@ -3501,14 +3475,18 @@ impl Locals for (&dyn Locals, &HashMap<String, Var>) {
 /// Bytecode can be encoded to the return value of [Function::instructions].
 #[derive(Default)]
 struct StFunction {
+    params: Vec<ValType>,
+    results: Vec<ValType>,
+    locals: Vec<ValType>,
     num_locals: u32,
-    locals: Vec<(u32, ValType)>,
     cfg: ControlFlowGraph,
 }
 
 impl StFunction {
-    fn from_params(params: &[ValType]) -> StFunction {
+    fn new(params: &[ValType], results: &[ValType]) -> StFunction {
         StFunction {
+            params: params.to_owned(),
+            results: results.to_owned(),
             num_locals: u32::try_from(params.len()).unwrap(),
             ..StFunction::default()
         }
@@ -3518,29 +3496,100 @@ impl StFunction {
         let id = self.num_locals;
         for ty in types {
             self.num_locals += 1;
-            if let Some((last_count, last_type)) = self.locals.last_mut()
-                && ty == *last_type
-            {
-                *last_count += 1;
-            } else {
-                self.locals.push((1, ty));
-            }
+            self.locals.push(ty);
         }
         id
     }
 
-    fn get_locals(&self) -> Vec<ValType> {
-        let mut v = Vec::with_capacity(usize::try_from(self.num_locals).unwrap());
-        for &(c, t) in &self.locals {
-            for _ in 0..c {
-                v.push(t);
-            }
-        }
-        v
+    fn params_and_locals(&self) -> Vec<ValType> {
+        self.params
+            .iter()
+            .chain(self.locals.iter())
+            .copied()
+            .collect()
     }
 
     fn instructions(&mut self, bb: &usize) -> InstructionSink<'_> {
         self.cfg.instructions(*bb)
+    }
+}
+
+/// Run-length encoding for locals in a function header.
+struct RleLocals(Vec<(u32, ValType)>);
+
+impl FromIterator<ValType> for RleLocals {
+    fn from_iter<T: IntoIterator<Item = ValType>>(iter: T) -> Self {
+        let mut result = Vec::new();
+        for ty in iter {
+            if let Some((last_count, last_type)) = result.last_mut()
+                && ty == *last_type
+            {
+                *last_count += 1;
+            } else {
+                result.push((1, ty));
+            }
+        }
+        RleLocals(result)
+    }
+}
+
+impl wasm_encoder::Encode for RleLocals {
+    fn encode(&self, sink: &mut Vec<u8>) {
+        self.0.len().encode(sink);
+        for &(count, ty) in self.0.iter() {
+            count.encode(sink);
+            ty.encode(sink);
+        }
+    }
+}
+
+/// Switch between 0 results, 1 result that can be a BlockType, or 2+ results that must be in locals.
+enum BulkBlockOutput {
+    BlockType(BlockType),
+    Locals { start: u32, len: u32 },
+}
+
+impl BulkBlockOutput {
+    fn empty() -> Self {
+        BulkBlockOutput::BlockType(BlockType::Empty)
+    }
+
+    fn new(func: &mut StFunction, result_types: &[ValType]) -> Self {
+        match result_types {
+            &[] => BulkBlockOutput::BlockType(BlockType::Empty),
+            &[ty] => BulkBlockOutput::BlockType(BlockType::Result(ty)),
+            many => BulkBlockOutput::Locals {
+                start: func.add_locals(many.iter().copied()),
+                len: result_types.len() as u32,
+            },
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(self, BulkBlockOutput::BlockType(BlockType::Empty))
+    }
+
+    fn block_type(&self) -> BlockType {
+        match self {
+            BulkBlockOutput::BlockType(block_type) => *block_type,
+            BulkBlockOutput::Locals { .. } => BlockType::Empty,
+        }
+    }
+
+    fn store(&self, func: &mut StFunction, bb: &usize) {
+        if let BulkBlockOutput::Locals { start, len } = *self {
+            for i in (0..len).rev() {
+                func.instructions(bb).local_set(start + i);
+            }
+        }
+    }
+
+    fn load(&self, func: &mut StFunction, bb: &usize) {
+        if let BulkBlockOutput::Locals { start, len } = *self {
+            for i in 0..len {
+                func.instructions(bb).local_get(start + i);
+            }
+        }
     }
 }
 
@@ -3586,4 +3635,12 @@ fn to_kebab_case(name: &str) -> String {
     }
     out.truncate(out.trim_end_matches('-').len());
     out
+}
+
+struct DisplayClosure<F: Fn(&mut std::fmt::Formatter) -> std::fmt::Result>(F);
+
+impl<F: Fn(&mut std::fmt::Formatter) -> std::fmt::Result> std::fmt::Display for DisplayClosure<F> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0(f)
+    }
 }
