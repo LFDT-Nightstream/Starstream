@@ -54,8 +54,7 @@ export class Contract {
   constructor(wasm: Uint8Array<ArrayBuffer>) {
     // TODO: use our Wasmtime variant as a library rather than browser's Wasm implementation
     this.module = WebAssembly.compile(wasm);
-
-    this.id = crypto.subtle.digest("sha256", wasm);
+    this.id = crypto.subtle.digest("sha-256", wasm);
   }
 
   /** Load a contract from a file path (Node only). */
@@ -74,6 +73,14 @@ export class Contract {
     throw new Error("todo");
   }
 
+  async getModule(): Promise<WebAssembly.Module> {
+    return this.module;
+  }
+
+  async getImports(): Promise<WebAssembly.ModuleImportDescriptor[]> {
+    return WebAssembly.Module.imports(await this.module);
+  }
+
   // TODO: pass in real type somehow for runtime type checking.
   getCoordinationScript<TArgs extends unknown[], TImports, TReturn>(
     name: string,
@@ -85,17 +92,29 @@ export class Contract {
 // ----------------------------------------------------------------------------
 // UTXOs
 
-type UtxoConstructor<T> = new () => T;
+type UtxoConstructor<T> = new (
+  contract: Contract,
+  instance: WebAssembly.Instance,
+) => T;
 
 /** Handle to a ledger Utxo */
 export class Utxo {
+  private contract: Contract;
+  private instance: WebAssembly.Instance;
+
+  constructor(contract: Contract, instance: WebAssembly.Instance) {
+    // Unfortunately, we seem to be unable to assert that the contract and instance correspond.
+    this.contract = contract;
+    this.instance = instance;
+  }
+
   // Get the contract (wasm component) that contains the code for this Utxo. It may or may not contain coordination scripts, other Utxo codes, etc.
-  getContract(): Promise<Contract> {
-    throw new Error("todo");
+  async getContract(): Promise<Contract> {
+    return this.contract;
   }
 
   downcast<T extends Utxo>(type: UtxoConstructor<T>): T {
-    throw new Error("todo");
+    return new type(this.contract, this.instance);
   }
 }
 
@@ -111,6 +130,7 @@ export interface CoordinationScript<
   TReturn,
 > {
   readonly contract: Contract;
+  readonly name: string;
 }
 
 // ----------------------------------------------------------------------------
@@ -125,12 +145,28 @@ export interface Proof {
   // TODO: serialized proof object
 }
 
-export function call<TArgs extends unknown[], TImports, TReturn>(
+export async function call<
+  TArgs extends unknown[],
+  TImports extends WebAssembly.Imports,
+  TReturn,
+>(
   script: CoordinationScript<TArgs, TImports, TReturn>,
   inputs: TArgs,
   imports: TImports,
 ): Promise<Trace<TReturn>> {
-  throw new Error("todo");
+  const instance = new WebAssembly.Instance(
+    await script.contract.getModule(),
+    imports,
+  );
+  const func = instance.exports[script.name];
+  if (typeof func !== "function") {
+    throw new Error("Coordination script was not a function");
+  }
+  // TODO: verify that it's a `script fn` specifically, verify other stuff
+  const returnValue = func(...inputs);
+  return {
+    returnValue,
+  };
 }
 
 export function prove<TReturn>(trace: Trace<TReturn>): Promise<Proof> {

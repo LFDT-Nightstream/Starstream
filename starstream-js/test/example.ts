@@ -3,40 +3,20 @@ import * as Starstream from "../src/index.ts";
 // --------------------------------------------------------------------------
 // Starstream example code
 /*
-abi Foo {
-    fn foo();
+abi MyAbi {
+    effect my_effect() -> i32;
+    event my_event(number: i32);
+    fn abi_method();
 }
-
 utxo MyUtxo {
-    main fn hello_utxo(x: i32) {
-        yield(Foo);
-    }
-    impl Foo {
-        fn foo() {
-            resume;
-        }
-    }
+    main fn new() { ... }
+    impl MyAbi { ... }
 }
+script fn my_coordination() { ... }
 */
 
 // --------------------------------------------------------------------------
 // Pseudocode generated bindings
-class Yield extends Starstream.Contract {
-  static MyUtxo = class MyUtxo extends Starstream.Utxo {
-    static hello_utxo(x: number): Yield.Foo {
-      throw new Error("stub");
-    }
-    foo() {
-      throw new Error("stub");
-    }
-  };
-}
-declare namespace Yield {
-  interface Foo {
-    foo(): void;
-  }
-  type MyUtxo = typeof Yield.MyUtxo.prototype;
-}
 class Adder extends Starstream.Contract {
   // TODO: only what is needed for the below to typecheck is written here.
   // Generated bindings would also include Abi, events, etc.
