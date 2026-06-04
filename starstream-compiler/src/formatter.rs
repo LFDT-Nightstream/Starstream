@@ -2,7 +2,7 @@ use pretty::RcDoc;
 use starstream_types::{
     AbiDef, AbiMethodDecl, AbiPart, BinaryOp, Block, Comment, CommentMap, Definition, EventDef,
     Expr, FunctionDef, FunctionExport, FunctionParam, IfCondition, Literal, Spanned, Statement,
-    TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
+    TokenDef, TokenGlobal, TokenPart, TypeAnnotation, UnaryOp, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         EnumConstructorPayload, EnumDef, EnumPatternPayload, EnumVariant, EnumVariantPayload,
         Identifier, ImportDef, ImportItems, ImportNamedItem, ImportSource, MatchArm, Pattern,
@@ -139,6 +139,7 @@ fn definition_to_doc<'a>(
         Definition::Struct(definition) => struct_definition_to_doc(definition, source, comments),
         Definition::Enum(definition) => enum_definition_to_doc(definition, source, comments),
         Definition::Utxo(definition) => utxo_definition_to_doc(definition, source, comments),
+        Definition::Token(definition) => token_definition_to_doc(definition, source, comments),
         Definition::Abi(definition) => abi_definition_to_doc(definition, source, comments),
     }
 }
@@ -258,6 +259,8 @@ fn function_export_to_doc<'a>(export: &FunctionExport, _source: &'a str) -> RcDo
     match export {
         FunctionExport::Script => RcDoc::text("script"),
         FunctionExport::UtxoMain => RcDoc::text("main"),
+        FunctionExport::TokenMint => RcDoc::text("mint"),
+        FunctionExport::TokenBurn => RcDoc::text("burn"),
     }
 }
 
@@ -536,6 +539,65 @@ fn utxo_global_to_doc<'a>(decl: &UtxoGlobal, source: &'a str) -> RcDoc<'a, ()> {
         .append(RcDoc::space())
         .append(type_annotation_to_doc(&decl.ty, source))
         .append(RcDoc::text(";"))
+}
+
+fn token_definition_to_doc<'a>(
+    definition: &TokenDef,
+    source: &'a str,
+    comments: &CommentMap,
+) -> RcDoc<'a, ()> {
+    RcDoc::text("token")
+        .append(RcDoc::space())
+        .append(identifier_to_doc(&definition.name, source))
+        .append(RcDoc::space())
+        .append("{")
+        .append(
+            RcDoc::line()
+                .append(RcDoc::intersperse(
+                    definition
+                        .parts
+                        .iter()
+                        .map(|x| token_part_to_doc(x, source, comments)),
+                    RcDoc::line(),
+                ))
+                .nest(INDENT),
+        )
+        .append(RcDoc::line())
+        .append("}")
+}
+
+fn token_part_to_doc<'a>(part: &TokenPart, source: &'a str, comments: &CommentMap) -> RcDoc<'a, ()> {
+    match part {
+        TokenPart::Storage(vars) => RcDoc::text("storage")
+            .append(RcDoc::space())
+            .append("{")
+            .append(
+                RcDoc::line()
+                    .append(RcDoc::intersperse(
+                        vars.iter().map(|x| token_global_to_doc(x, source)),
+                        RcDoc::line(),
+                    ))
+                    .nest(INDENT),
+            )
+            .append(RcDoc::line())
+            .append("}"),
+        TokenPart::Function(function) => function_to_doc(function, source, comments),
+        TokenPart::AbiImpl { abi, parts } => abi_impl_to_doc(abi, parts, source, comments),
+    }
+}
+
+fn token_global_to_doc<'a>(decl: &TokenGlobal, source: &'a str) -> RcDoc<'a, ()> {
+    let prefix = if decl.indexed {
+        RcDoc::text("indexed").append(RcDoc::space())
+    } else {
+        RcDoc::nil()
+    };
+    prefix
+        .append(identifier_to_doc(&decl.name, source))
+        .append(":")
+        .append(RcDoc::space())
+        .append(type_annotation_to_doc(&decl.ty, source))
+        .append(RcDoc::text(","))
 }
 
 fn abi_definition_to_doc<'a>(
@@ -1434,6 +1496,27 @@ mod tests {
             r#"
             #!/usr/bin/env starstream
             fn main() {}
+            "#,
+        );
+    }
+
+    #[test]
+    fn token_definition() {
+        assert_format_snapshot!(
+            r#"
+            token MyToken {
+                storage {
+                    indexed my_arbitrary_variable: u32,
+                    plain_variable: u8,
+                }
+                mint fn my_mint_fn() {}
+                burn fn my_burn_fn() {}
+                impl Token {
+                    fn attach(to: Utxo) {}
+                    fn detach(source: Utxo) {}
+                }
+                fn helper() {}
+            }
             "#,
         );
     }

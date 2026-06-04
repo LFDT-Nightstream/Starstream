@@ -1,0 +1,78 @@
+---
+source: starstream-compiler/src/parser/definition/token.rs
+description: "Code:\n\ntoken MyToken {\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n"
+---
+TokenDef {
+    name: Identifier {
+        name: "MyToken",
+        span: 6..13,
+    },
+    parts: [
+        AbiImpl {
+            abi: Identifier {
+                name: "Token",
+                span: 25..30,
+            },
+            parts: [
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "attach",
+                        span: 44..50,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "to",
+                                span: 51..53,
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Utxo",
+                                    span: 55..59,
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                        span: 61..72,
+                    },
+                },
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "detach",
+                        span: 75..81,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "source",
+                                span: 82..88,
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Utxo",
+                                    span: 90..94,
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                        span: 96..103,
+                    },
+                },
+            ],
+        },
+    ],
+}

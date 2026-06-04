@@ -30,6 +30,7 @@ pub enum TypedDefinition {
     Struct(TypedStructDef),
     Enum(TypedEnumDef),
     Utxo(TypedUtxoDef),
+    Token(TypedTokenDef),
     Abi(TypedAbiDef),
     /// `contract;` marker carried through from the AST.
     Contract,
@@ -158,6 +159,15 @@ pub enum TypedUtxoPart {
 pub struct TypedUtxoGlobal {
     pub name: Identifier,
     pub ty: Type,
+}
+
+/// Shallow typed marker for a `token` definition. Token bodies are not yet
+/// type-checked; this carries just the name/span so the definition survives
+/// lowering. Fleshed out alongside the global `Token` type in a follow-up.
+#[derive(Clone, Debug)]
+pub struct TypedTokenDef {
+    pub name: Identifier,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]

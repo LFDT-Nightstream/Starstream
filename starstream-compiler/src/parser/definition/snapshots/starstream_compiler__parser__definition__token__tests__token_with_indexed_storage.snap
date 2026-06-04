@@ -1,0 +1,44 @@
+---
+source: starstream-compiler/src/parser/definition/token.rs
+description: "Code:\n\ntoken MyToken {\n    storage {\n        indexed my_arbitrary_variable: u32,\n        plain_variable: u8,\n    }\n}\n"
+---
+TokenDef {
+    name: Identifier {
+        name: "MyToken",
+        span: 6..13,
+    },
+    parts: [
+        Storage(
+            [
+                TokenGlobal {
+                    indexed: true,
+                    name: Identifier {
+                        name: "my_arbitrary_variable",
+                        span: 46..67,
+                    },
+                    ty: TypeAnnotation {
+                        name: Identifier {
+                            name: "u32",
+                            span: 69..72,
+                        },
+                        generics: [],
+                    },
+                },
+                TokenGlobal {
+                    indexed: false,
+                    name: Identifier {
+                        name: "plain_variable",
+                        span: 82..96,
+                    },
+                    ty: TypeAnnotation {
+                        name: Identifier {
+                            name: "u8",
+                            span: 98..100,
+                        },
+                        generics: [],
+                    },
+                },
+            ],
+        ),
+    ],
+}

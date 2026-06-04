@@ -1,0 +1,11 @@
+---
+source: starstream-compiler/src/parser/definition/token.rs
+description: "Code:\n\ntoken MyToken {}"
+---
+TokenDef {
+    name: Identifier {
+        name: "MyToken",
+        span: 6..13,
+    },
+    parts: [],
+}

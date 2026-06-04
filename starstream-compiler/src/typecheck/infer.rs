@@ -8,8 +8,8 @@ use std::{
 
 use starstream_types::{
     Abi, AbiDef, AbiPart, DUMMY_SPAN, EffectKind, EventDef, GenericTypeDef, IfCondition, IntWidth,
-    Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedUtxoDef, TypedUtxoGlobal,
-    TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
+    Scheme, Span, Spanned, Type, TypeParam, TypeVarId, TypedTokenDef, TypedUtxoDef,
+    TypedUtxoGlobal, TypedUtxoPart, UtxoDef, UtxoGlobal, UtxoPart,
     ast::{
         BinaryOp, Block, Definition, EnumConstructorPayload, EnumDef, EnumPatternPayload,
         EnumVariantPayload, Expr, FunctionDef, Identifier, ImportDef, ImportItems, ImportSource,
@@ -676,6 +676,8 @@ fn collect_exports(typed_definitions: &[TypedDefinition]) -> ModuleExports {
             TypedDefinition::Utxo(u) => {
                 exports.types.insert(u.name.name.clone());
             }
+            // `token` is parse-only for now: no exported type yet.
+            TypedDefinition::Token(_) => {}
             TypedDefinition::Import(_) => {}
             TypedDefinition::Contract => {}
         }
@@ -963,6 +965,9 @@ impl Inferencer {
                 Definition::Enum(def) => self.register_enum(def)?,
                 Definition::Function(_) => {}
                 Definition::Utxo(def) => self.register_utxo(def)?,
+                // `token` definitions are parse-only for now: no type is
+                // registered yet (the global `Token` type is a follow-up).
+                Definition::Token(_) => {}
                 Definition::Abi(def) => self.register_abi(def)?,
             }
         }
@@ -2167,6 +2172,16 @@ impl Inferencer {
                 let (utxo, trace) = self.infer_utxo(env, def)?;
 
                 Ok((TypedDefinition::Utxo(utxo), trace))
+            }
+            Definition::Token(def) => {
+                // Parse-only for now: lower to a shallow marker without
+                // type-checking the body. Semantics land in a follow-up.
+                let typed = TypedTokenDef {
+                    name: def.name.clone(),
+                    span: def.name.span(),
+                };
+
+                Ok((TypedDefinition::Token(typed), InferenceTree::default()))
             }
             Definition::Abi(def) => {
                 let typed = self.build_typed_abi(def)?;
@@ -4658,6 +4673,7 @@ impl Inferencer {
             | TypedDefinition::Struct(_)
             | TypedDefinition::Enum(_)
             | TypedDefinition::Abi(_)
+            | TypedDefinition::Token(_)
             | TypedDefinition::Contract => {}
         }
     }
