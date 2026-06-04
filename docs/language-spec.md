@@ -556,8 +556,10 @@ Calling an effectful or runtime function without the appropriate keyword is a ty
 - All parameters must carry an explicit type annotation.
 - Function parameters may optionally be marked `pub` (`pub name: Type`) to indicate non-secrecy (witness protection program).
 - The declared return type is optional; when omitted the function returns the `Unit` type (`()`).
+  - Utxo `main fn`s may not manually specify a return type. Their body must `yield` to yield or return to consume the Utxo. Callers see their return type as being a handle to the created Utxo.
 - The body block may terminate with a tail expression (no trailing semicolon). That expression becomes the implicit return value when no explicit `return` is executed.
-- `return` statements exit the current function early. `return;` returns the unit value, while `return <expr>;` yields the expression's value.
+- `return` statements exit the current function early. `return;` returns the unit value, while `return <expr>;` returns the expression's value.
+- `resume` statements (valid only inside a `utxo`) transfer control flow back to the `yield` point the Utxo was previously suspended at.
 - Parameter and return annotations participate in the Hindley–Milner inference engine; they constrain the inferred types of the body expressions.
 - Blocks that end without an explicit `return` or tail expression evaluate to unit.
 
@@ -599,7 +601,7 @@ visibility modifier:
   - `let pub name = expr;` and `let pub mut name = expr;` require `expr` to already be public, or explicitly disclosed via `disclose(expr)`.
 - Assignment statements look up a variable in the stack of scopes and change its current value to the result of evaluating the right-hand side.
   - Assigning to any public target (including `storage`) requires a public RHS; use `disclose(...)` when assigning private values into a public binding.
-- Reads from `storage` bindings are already on the public side.
+  - Reads from `storage` bindings are already on the public side.
 
 ## Expressions
 
@@ -696,3 +698,21 @@ The remainder always has the sign of the right-hand side.
 | **false** | **TRUE**  | false  | TRUE     | false  | TRUE   | TRUE  | TRUE      | false | false  |
 | **TRUE**  | **false** | false  | TRUE     | false  | TRUE   | false | false     | TRUE  | TRUE   |
 | **TRUE**  | **TRUE**  | TRUE   | TRUE     | TRUE   | false  | false | TRUE      | false | TRUE   |
+
+## Utxo methods and coroutine lifetimes
+
+The basic flow for a coordination script interacting with a Utxo resembles:
+
+1. Coordination script starts.
+2. It calls a Utxo's `main fn`, which spawns the Utxo and starts its execution.
+3. The `main fn` runs until it ends or hits a `yield`.
+4. The Utxo makes itself suspendable by storing locals and program counter to globals / linear memory ("stackless").
+5. Control flow then returns back to the coordination script caller.
+6. The main-fn call expression evaluates to a handle to the new Utxo.
+7. The contents of the `yield` determine what methods/ABIs are available:
+    - Methods which contain no `resume` statements are "normal"; they can read (and write) storage, but do not affect the Utxo's lifetime.
+      - Writing storage mutates the Utxo, which is logically similar to consuming it and producing another Utxo, but it cannot affect the Utxo's liveness or exposed ABIs, so we do not say that its lifetime has changed.
+      - In Rust terms, `fn(&self)` and `fn(&mut self)`
+    - Methods containing `resume` statements must return unit. The `resume` statement transfers control flow to the current `yield` point and runs until another `yield` point is hit, at which point the caller sees the method as having returned. Such methods therefore affect the Utxo's lifetime.
+      - Flow typing by the caller is responsible for tracking the handle used to call the method.
+      - In Rust terms, `fn(self) -> Self`, `-> Utxo`, `-> Option<Utxo>`, etc.

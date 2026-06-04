@@ -81,23 +81,19 @@ More import sources:
 
 ## Utxo methods and coroutine lifetimes
 
-The basic flow for a coordination script interacting with a Utxo resembles:
+### Typed resume
 
-1. Coordination script starts
-2. It calls a Utxo's `main fn`, which spawns the Utxo and starts its execution
-3. The `main fn` runs until it ends or hits a `yield`
-4. The Utxo makes itself suspendable by storing locals and program counter to globals / linear memory ("stackless")
-5. Control flow then returns back to the coordination script caller
-6. The main-fn call expression evaluates to a handle to the new Utxo
-7. The contents of the `yield` determine what methods/ABIs are available
-    - Some methods are resume-ish: consume the Utxo and produce a new one (possibly the handle stays partially valid, depending on syntax sugar)
-      - These methods can end in one of three ways:
-        - `return;` to the caller normally while remaining at the same `yield` point
-        - `consume;` the utxo
-        - `resume <expr>;` to jump to after the `yield` expression, with its value being that of `<expr>`
-      - Calls to these methods conceptually invalidate the Utxo handle and returns a new one, but Utxo flow typing takes this into account
-      - In Rust terms, `fn(self) -> Self`, `-> Utxo`, `-> Option<Utxo>`, etc.
-    - Some methods are "normal": they execute in the Utxo's context and can read it (maybe write too?), but not affect its lifetime or ABI set
-      - Can only `return` normally
-      - Calls do not invalidate the Utxo handle
-      - In Rust terms, `fn(&self)` and `fn(&mut self)`
+Allow passing values from `resume` to `yield`:
+
+- `utxo { resume type = $type; ... }` is used to set the expected type upfront. If absent, unit `()` is presumed.
+- `resume $expr;` statements within the Utxo expects `$expr` to be of the chosen type.
+- `yield` expressions within the Utxo have the chosen type.
+- Values are passed from the resuming method, through the internal resume function, to the continuation.
+
+### Consuming from methods
+
+Allow Utxo methods to `consume;` the Utxo.
+
+### Allow resuming or consuming methods to also return values
+
+How should this look?
