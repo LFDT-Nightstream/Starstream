@@ -38,6 +38,7 @@ impl Chain {
                 let linker = Linker::new(&engine);
                 let instance_pre = linker.instantiate_pre(&component)?;
 
+                // TODO: use sha256 here instead?
                 let digest = poseidon2_hash_bytes(component_bytes);
                 // TODO: change to sha256
                 let contract_hash = format!(

@@ -218,6 +218,7 @@ impl Handler {
                 };
                 // Lock is now released, allowing server to process the invocation
                 outgoing.flush().await?;
+                drop(outgoing);
                 let mut buf = vec![];
                 incoming.read_to_end(&mut buf).await.with_context(|| {
                     format!("failed to read result for {pretty_name_clone} function `{func_name_clone}`")

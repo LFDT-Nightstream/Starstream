@@ -89,14 +89,15 @@ Registry:
     - [ ] The wasm component
     - [ ] The WIT (as a .wit file)
     - [ ] The WIT (as a .wasm package format file)
+- [ ] maybe use OCI image layout specification for onchain storage: https://github.com/opencontainers/image-spec/blob/v1.1.0-rc4/image-layout.md
   
 External connections
 - [ ] connect to the real Starstream
 - [ ] connect to the playground
-- [ ] parse CLI arguments with [WAVE](https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasm-wave)
-- [ ] look into wassette
+
 - [ ] consider moving to something runtime agnostic like https://github.com/DouglasDwyer/wasm_component_layer
 - [ ] have the ledger have a Ghostty frontend that can compile to WASM
+  - see https://github.com/rajatjindal/wasm-console for inspiration
 - [ ] implement MessageBroadcast as a communication style for wRPC
     - "The Preview 3 release of the component model comes with asynchronous streams. These can avoid copies between the host and guest components by providing the host with a buffer within the component’s memory space that it can write into directly, or pass to asynchronous I/O operations provided by the operating system, like io_uring. For avoiding copies between components themselves, there’s work on shared heaps which could be leveraged for views of a single buffer with exclusive ownership of this view being passed between components."
     - MessageBroadcast may be hard if each component also has its own UI that it's rendering to a canvas. Two items to look into:
@@ -123,3 +124,57 @@ New RPC calls
 - [ ] `eth_getBalance`
 - [ ] `eth_getLogs`
 - [ ] get the WIT for a contract hash (and filter it based on utxo state)
+
+## Repos to investigate
+
+### Cross-app calls / VMs
+- (CNCF project) WasmCloud
+- (Microsoft project) Hyperlight-wasm (https://github.com/hyperlight-dev/hyperlight-wasm)
+  uses hyperlight.wit to represent host. Accessible in Rust via `hyperlight_component_macro::host_bindgen!()`
+- Spin (https://github.com/spinframework/spin)
+- Tairitsu: https://github.com/celestia-island/tairitsu
+- runwasi: https://github.com/containerd/runwasi
+
+#### Just composability
+- composable-runtime: https://github.com/modulewise/composable-runtime
+- wasm-component-trampoline: https://github.com/andyl-technologies/wasm-component-trampoline
+- modularity: https://github.com/DouglasDwyer/modularity
+- dyna: https://github.com/rylev/dyna
+- wadm (more of a docker file replacement): https://github.com/wasmCloud/wadm
+- wasi-virt: https://github.com/bytecodealliance/WASI-Virt
+- https://github.com/MendyBerger/dynamicly-linking-wasm-components-in-browser
+
+### CLI
+
+- https://github.com/wasmCloud/wash
+
+### AI / MCP
+
+- (Microsoft project) wassette: https://github.com/microsoft/wassette/tree/main
+  WebAssembly Components via MCP
+- https://github.com/modulewise/toolbelt (combined with composable-runtime)
+- https://github.com/wasmcp/wasmcp
+  comes with wasmcp.wit: https://github.com/wasmcp/wasmcp/tree/main/wit
+
+### Documentation
+- json schema export for contracts: https://github.com/microsoft/wassette/tree/main/crates/component2json
+- graphql: https://github.com/wspringer/slapql
+- Markdown codedgen https://github.com/bytecodealliance/wit-bindgen/tree/main/crates/markdown
+- wasm2openapi: https://github.com/JMLX42/wasm2openapi
+
+### Frontend
+- https://leptos.dev/
+- wurbo: https://github.com/DougAnderson444/wurbo
+- browser.wit (https://github.com/MendyBerger/browser.wit)
+- Zed extension WIT: https://github.com/zed-industries/zed/tree/6ae83b474079263273d512b68e4bf2b9b390a17d/crates/extension_api/wit/since_v0.6.0
+- Swift: https://forums.swift.org/t/accepted-vision-a-vision-for-webassembly-support-in-swift/80332
+
+### Workflow
+- https://github.com/obeli-sk/obelisk
+  Structured concurrency for subtrasks. Deterministic, replayable.
+- Golem: https://www.golem.cloud/
+
+### Registries
+
+https://tag-runtime.cncf.io/wgs/wasm/deliverables/wasm-oci-artifact/
+https://opencontainers.org/posts/blog/2024-03-13-image-and-distribution-1-1/
