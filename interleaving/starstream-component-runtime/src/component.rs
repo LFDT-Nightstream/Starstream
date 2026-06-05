@@ -37,7 +37,7 @@ pub struct UtxoResource;
 #[derive(Debug, thiserror::Error)]
 pub enum ScalarComponentError {
     #[error("wasmtime error: {0}")]
-    Wasmtime(#[from] anyhow::Error),
+    Wasmtime(#[from] wasmtime::Error),
     #[error("executor error: {0}")]
     Executor(#[from] ExecutorError),
     #[error("missing export `{0}`")]
@@ -179,7 +179,6 @@ impl WasmtimeComponentStarstreamExecutor {
             let constructor = instance
                 .get_typed_func::<(), (ResourceAny,)>(&mut self.store, &constructor_index)?;
             let (handle,) = constructor.call(&mut self.store, ())?;
-            constructor.post_return(&mut self.store)?;
             self.store.data_mut().callee_handles.insert(pid, handle);
             self.store
                 .data_mut()
@@ -246,7 +245,6 @@ impl WasmtimeComponentStarstreamExecutor {
             .ok_or(ScalarComponentError::MissingExport(export_name))?;
         let mut results = [];
         main.call(&mut self.store, params, &mut results)?;
-        main.post_return(&mut self.store)?;
         let needs_implicit_return = self
             .store
             .data()
@@ -284,12 +282,11 @@ impl WasmtimeComponentStarstreamExecutor {
         };
         let mut results = [WasmtimeVal::U64(0)];
         snapshot.call(&mut self.store, &[], &mut results)?;
-        snapshot.post_return(&mut self.store)?;
         match &results[0] {
             WasmtimeVal::U64(value) => Ok(Some(CoroutineState::Utxo {
                 storage: vec![Value(*value)],
             })),
-            _ => Err(anyhow::anyhow!("snapshot-state returned unexpected value").into()),
+            _ => Err(wasmtime::format_err!("snapshot-state returned unexpected value").into()),
         }
     }
 
@@ -308,13 +305,12 @@ impl WasmtimeComponentStarstreamExecutor {
         let params = [WasmtimeVal::U64(value.0)];
         let mut results = [];
         restore.call(&mut self.store, &params, &mut results)?;
-        restore.post_return(&mut self.store)?;
         Ok(true)
     }
 }
 
 impl ComponentValueIr {
-    fn to_ref_words(&self) -> anyhow::Result<Vec<[Value; 4]>> {
+    fn to_ref_words(&self) -> wasmtime::Result<Vec<[Value; 4]>> {
         let scalars = self.flatten_scalars()?;
         let mut words = Vec::new();
         for chunk in scalars.chunks(4) {
@@ -327,13 +323,13 @@ impl ComponentValueIr {
         Ok(words)
     }
 
-    fn flatten_scalars(&self) -> anyhow::Result<Vec<Value>> {
+    fn flatten_scalars(&self) -> wasmtime::Result<Vec<Value>> {
         let mut out = Vec::new();
         self.flatten_scalars_into(&mut out)?;
         Ok(out)
     }
 
-    fn flatten_scalars_into(&self, out: &mut Vec<Value>) -> anyhow::Result<()> {
+    fn flatten_scalars_into(&self, out: &mut Vec<Value>) -> wasmtime::Result<()> {
         match self {
             ComponentValueIr::U64(value) => out.push(Value(*value)),
             ComponentValueIr::Bool(value) => out.push(Value(u64::from(*value))),
@@ -353,19 +349,19 @@ impl ComponentValueIr {
 }
 
 impl ComponentTypeIr {
-    fn decode(&self, value: &WasmtimeVal, func: &str) -> anyhow::Result<ComponentValueIr> {
+    fn decode(&self, value: &WasmtimeVal, func: &str) -> wasmtime::Result<ComponentValueIr> {
         match (self, value) {
             (ComponentTypeIr::U64, WasmtimeVal::U64(value)) => Ok(ComponentValueIr::U64(*value)),
             (ComponentTypeIr::Bool, WasmtimeVal::Bool(value)) => Ok(ComponentValueIr::Bool(*value)),
             (ComponentTypeIr::Tuple(schemas), WasmtimeVal::Tuple(values)) => {
                 if schemas.len() != values.len() {
-                    anyhow::bail!("tuple arity mismatch for {func}");
+                    wasmtime::bail!("tuple arity mismatch for {func}");
                 }
                 schemas
                     .iter()
                     .zip(values)
                     .map(|(schema, value)| schema.decode(value, func))
-                    .collect::<anyhow::Result<Vec<_>>>()
+                    .collect::<wasmtime::Result<Vec<_>>>()
                     .map(ComponentValueIr::Tuple)
             }
             (ComponentTypeIr::Record(field_schemas), WasmtimeVal::Record(fields)) => {
@@ -376,29 +372,29 @@ impl ComponentTypeIr {
                         .find(|(field_name, _)| field_name == name)
                         .map(|(_, value)| value)
                         .ok_or_else(|| {
-                            anyhow::anyhow!("missing record field `{name}` for {func}")
+                            wasmtime::format_err!("missing record field `{name}` for {func}")
                         })?;
                     decoded.push((name.clone(), schema.decode(value, func)?));
                 }
                 Ok(ComponentValueIr::Record(decoded))
             }
-            _ => anyhow::bail!("unexpected component value for {func}: {value:?}"),
+            _ => wasmtime::bail!("unexpected component value for {func}: {value:?}"),
         }
     }
 
-    fn encode(&self, value: &ComponentValueIr) -> anyhow::Result<WasmtimeVal> {
+    fn encode(&self, value: &ComponentValueIr) -> wasmtime::Result<WasmtimeVal> {
         match (self, value) {
             (ComponentTypeIr::U64, ComponentValueIr::U64(value)) => Ok(WasmtimeVal::U64(*value)),
             (ComponentTypeIr::Bool, ComponentValueIr::Bool(value)) => Ok(WasmtimeVal::Bool(*value)),
             (ComponentTypeIr::Tuple(schemas), ComponentValueIr::Tuple(values)) => {
                 if schemas.len() != values.len() {
-                    anyhow::bail!("tuple arity mismatch during encode");
+                    wasmtime::bail!("tuple arity mismatch during encode");
                 }
                 schemas
                     .iter()
                     .zip(values)
                     .map(|(schema, value)| schema.encode(value))
-                    .collect::<anyhow::Result<Vec<_>>>()
+                    .collect::<wasmtime::Result<Vec<_>>>()
                     .map(WasmtimeVal::Tuple)
             }
             (ComponentTypeIr::Record(field_schemas), ComponentValueIr::Record(fields)) => {
@@ -409,13 +405,13 @@ impl ComponentTypeIr {
                         .find(|(field_name, _)| field_name == name)
                         .map(|(_, value)| value)
                         .ok_or_else(|| {
-                            anyhow::anyhow!("missing record field `{name}` during encode")
+                            wasmtime::format_err!("missing record field `{name}` during encode")
                         })?;
                     encoded.push((name.clone(), schema.encode(value)?));
                 }
                 Ok(WasmtimeVal::Record(encoded))
             }
-            _ => anyhow::bail!("schema/value mismatch during encode"),
+            _ => wasmtime::bail!("schema/value mismatch during encode"),
         }
     }
 }
@@ -483,7 +479,9 @@ fn build_linker(
                         .copied()
                         .or_else(|| ctx.data().input_resources.first().copied())
                         .ok_or_else(|| {
-                            anyhow::anyhow!("no resource bound for constructor `{resource_name}`")
+                            wasmtime::format_err!(
+                                "no resource bound for constructor `{resource_name}`"
+                            )
                         })?;
                     Ok((Resource::<UtxoResource>::new_own(resource),))
                 })?;
@@ -522,12 +520,12 @@ fn call_resource_method(
     func_schema: &FunctionSchema,
     params: &[WasmtimeVal],
     results: &mut [WasmtimeVal],
-) -> anyhow::Result<()> {
+) -> wasmtime::Result<()> {
     let target = match params.first() {
         Some(WasmtimeVal::Resource(resource)) => {
             Resource::<UtxoResource>::try_from_resource_any(*resource, &mut *ctx)?.rep()
         }
-        _ => anyhow::bail!("invalid resource arg 0 for {func_name}"),
+        _ => wasmtime::bail!("invalid resource arg 0 for {func_name}"),
     };
 
     let caller = ctx.data().current_process;
@@ -536,7 +534,9 @@ fn call_resource_method(
         .executor
         .state()
         .resolve_resource(target)
-        .ok_or_else(|| anyhow::anyhow!("unknown utxo resource {target} for `{import_name}`"))?;
+        .ok_or_else(|| {
+            wasmtime::format_err!("unknown utxo resource {target} for `{import_name}`")
+        })?;
 
     let value_args = decode_function_value_args(params, func_schema, func_name)?;
     let payload_value = match value_args.len() {
@@ -557,11 +557,10 @@ fn call_resource_method(
     // TODO(interleaving-proof): method dispatch currently executes the target export
     // synchronously in the host and only records the caller-side `Resume`. Once the
     // witness/circuit preserves `function_id`, this should become a traced callee turn.
-    let instance = *ctx
-        .data()
-        .instances
-        .get(&target_pid)
-        .ok_or_else(|| anyhow::anyhow!("missing instantiated target for {target_pid:?}"))?;
+    let instance =
+        *ctx.data().instances.get(&target_pid).ok_or_else(|| {
+            wasmtime::format_err!("missing instantiated target for {target_pid:?}")
+        })?;
     let previous_process = ctx.data().current_process;
     ctx.data_mut().current_process = target_pid;
     ctx.data_mut().executed_steps.push(target_pid);
@@ -584,18 +583,17 @@ fn call_resource_method(
         .get(&target_pid)
         .map_or(0, |trace| trace.len());
     let mut callee_params = Vec::with_capacity(1 + value_args.len());
-    let callee_handle = *ctx
-        .data()
-        .callee_handles
-        .get(&target_pid)
-        .ok_or_else(|| anyhow::anyhow!("missing cached callee handle for {target_pid:?}"))?;
+    let callee_handle =
+        *ctx.data().callee_handles.get(&target_pid).ok_or_else(|| {
+            wasmtime::format_err!("missing cached callee handle for {target_pid:?}")
+        })?;
     callee_params.push(WasmtimeVal::Resource(callee_handle));
     callee_params.extend(
         value_args
             .iter()
             .zip(func_schema.params.iter().skip(1))
             .filter_map(|(value, schema)| schema.as_ref().map(|schema| schema.encode(value)))
-            .collect::<anyhow::Result<Vec<_>>>()?,
+            .collect::<wasmtime::Result<Vec<_>>>()?,
     );
 
     let target_interface_name = ctx
@@ -607,23 +605,22 @@ fn call_resource_method(
     let interface_index = instance
         .get_export_index(&mut *ctx, None, &target_interface_name)
         .ok_or_else(|| {
-            anyhow::anyhow!("missing target exported instance `{target_interface_name}`")
+            wasmtime::format_err!("missing target exported instance `{target_interface_name}`")
         })?;
     let func_index = instance
         .get_export_index(&mut *ctx, Some(&interface_index), func_name)
         .ok_or_else(|| {
-            anyhow::anyhow!("missing target interface method `{import_name}.{func_name}`")
+            wasmtime::format_err!("missing target interface method `{import_name}.{func_name}`")
         })?;
-    let func = instance
-        .get_func(&mut *ctx, &func_index)
-        .ok_or_else(|| anyhow::anyhow!("missing target export `{import_name}.{func_name}`"))?;
+    let func = instance.get_func(&mut *ctx, &func_index).ok_or_else(|| {
+        wasmtime::format_err!("missing target export `{import_name}.{func_name}`")
+    })?;
     let mut callee_results = func_schema
         .results
         .iter()
         .map(default_val_for_schema)
         .collect::<Vec<_>>();
     func.call(&mut *ctx, &callee_params, &mut callee_results)?;
-    func.post_return(&mut *ctx)?;
 
     let yielded_ref = ctx
         .data()
@@ -644,7 +641,7 @@ fn call_resource_method(
                 .iter()
                 .zip(callee_results.iter())
                 .map(|(schema, value)| schema.decode(value, func_name))
-                .collect::<anyhow::Result<Vec<_>>>()?;
+                .collect::<wasmtime::Result<Vec<_>>>()?;
             let payload_value = match returned_values.len() {
                 0 => ComponentValueIr::Tuple(vec![]),
                 1 => returned_values[0].clone(),
@@ -674,10 +671,10 @@ fn decode_value_arg(
     idx: usize,
     schema: &ComponentTypeIr,
     func: &str,
-) -> anyhow::Result<ComponentValueIr> {
+) -> wasmtime::Result<ComponentValueIr> {
     let value = params
         .get(idx)
-        .ok_or_else(|| anyhow::anyhow!("missing arg {idx} for {func}"))?;
+        .ok_or_else(|| wasmtime::format_err!("missing arg {idx} for {func}"))?;
     schema.decode(value, func)
 }
 
@@ -696,7 +693,7 @@ fn allocate_payload_ref(
     state: &mut ComponentHostState,
     caller: ProcessId,
     value: ComponentValueIr,
-) -> anyhow::Result<Ref> {
+) -> wasmtime::Result<Ref> {
     let words = value.to_ref_words()?;
     let payload = match state.executor.record_import(
         caller,
@@ -705,7 +702,7 @@ fn allocate_payload_ref(
         },
     )? {
         HostImportOutcome::Ref(reff) => reff,
-        _ => anyhow::bail!("payload allocation expected a ref result"),
+        _ => wasmtime::bail!("payload allocation expected a ref result"),
     };
     for lanes in words {
         state
@@ -721,7 +718,7 @@ fn read_ref_value(
     reff: Ref,
     schema: &ComponentTypeIr,
     func: &str,
-) -> anyhow::Result<ComponentValueIr> {
+) -> wasmtime::Result<ComponentValueIr> {
     let scalar_count = flat_arg_count(schema);
     if scalar_count == 0 {
         return decode_lanes_to_value(Vec::new(), schema, func);
@@ -737,7 +734,7 @@ fn read_ref_value(
             },
         )? {
             HostImportOutcome::Lanes(lanes) => lanes,
-            _ => anyhow::bail!("ref-get expected lane result for {func}"),
+            _ => wasmtime::bail!("ref-get expected lane result for {func}"),
         };
         scalars.extend(
             lanes
@@ -794,7 +791,7 @@ fn parse_resource_method_name(name: &str) -> Option<(&str, &str)> {
 fn merge_import_instance_schemas(
     dst: &mut HashMap<String, ImportInstanceSchema>,
     src: HashMap<String, ImportInstanceSchema>,
-) -> anyhow::Result<bool> {
+) -> wasmtime::Result<bool> {
     let mut changed = false;
     for (import_name, incoming) in src {
         match dst.get_mut(&import_name) {
@@ -814,7 +811,7 @@ fn merge_single_import_schema(
     import_name: &str,
     existing: &mut ImportInstanceSchema,
     incoming: ImportInstanceSchema,
-) -> anyhow::Result<bool> {
+) -> wasmtime::Result<bool> {
     let mut changed = false;
 
     for resource in incoming.resources {
@@ -824,7 +821,7 @@ fn merge_single_import_schema(
     for (func_name, incoming_schema) in incoming.functions {
         match existing.functions.get(&func_name) {
             Some(current) if current != &incoming_schema => {
-                anyhow::bail!(
+                wasmtime::bail!(
                     "conflicting schemas for import `{import_name}` function `{func_name}`"
                 );
             }
@@ -881,7 +878,7 @@ fn decode_function_value_args(
     params: &[WasmtimeVal],
     func_schema: &FunctionSchema,
     func_name: &str,
-) -> anyhow::Result<Vec<ComponentValueIr>> {
+) -> wasmtime::Result<Vec<ComponentValueIr>> {
     let mut decoded = Vec::new();
     for (idx, schema) in func_schema.params.iter().enumerate().skip(1) {
         if let Some(schema) = schema {
@@ -919,10 +916,10 @@ fn component_type_ir_from_type(ty: &wasmtime::component::types::Type) -> Option<
     }
 }
 
-fn tuple_items_to_scalar(value: &WasmtimeVal) -> anyhow::Result<&WasmtimeVal> {
+fn tuple_items_to_scalar(value: &WasmtimeVal) -> wasmtime::Result<&WasmtimeVal> {
     match value {
         WasmtimeVal::Tuple(items) if items.len() == 1 => Ok(&items[0]),
-        _ => anyhow::bail!("expected single-item tuple"),
+        _ => wasmtime::bail!("expected single-item tuple"),
     }
 }
 
@@ -930,16 +927,16 @@ fn decode_lanes_to_value(
     scalars: Vec<WasmtimeVal>,
     schema: &ComponentTypeIr,
     func: &str,
-) -> anyhow::Result<ComponentValueIr> {
+) -> wasmtime::Result<ComponentValueIr> {
     let flat = WasmtimeVal::Tuple(scalars);
     match schema {
         ComponentTypeIr::Tuple(_) => schema.decode(&flat, func),
         ComponentTypeIr::Record(fields) => {
             let tuple_items = match &flat {
                 WasmtimeVal::Tuple(items) => items,
-                _ => anyhow::bail!("expected tuple lowering for record decode in {func}"),
+                _ => wasmtime::bail!("expected tuple lowering for record decode in {func}"),
             };
-            anyhow::ensure!(
+            wasmtime::ensure!(
                 tuple_items.len() >= fields.len(),
                 "not enough flattened scalars to decode record in {func}: expected {}, got {}",
                 fields.len(),

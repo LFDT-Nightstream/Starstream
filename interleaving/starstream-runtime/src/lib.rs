@@ -1136,7 +1136,6 @@ impl UnprovenTransaction {
                 .ok_or_else(|| Error::RuntimeError("missing component export `step`".into()))?;
             let mut results: [ComponentVal; 0] = [];
             func.call(&mut runtime.store, &[], &mut results)?;
-            func.post_return(&mut runtime.store)?;
 
             let Some(last_effect) = runtime.store.data_mut().pending_host_effect.take() else {
                 if current_pid == ProcessId(self.entrypoint) {
