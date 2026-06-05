@@ -3,6 +3,7 @@
 // the wasmtime engine and the deployed component persist across messages.
 
 import starstreamSandboxWasm from "file-loader!../starstream_sandbox_web.wasm";
+import { encode } from "cbor2";
 
 // ----------------------------------------------------------------------------
 // Subset of wit-parser's JSON serialization of a resolved WIT document
@@ -71,10 +72,21 @@ export type RunWorkerRequest = {
 } & (
   | {
       type: "deploy";
+      /** Sha256 hex digest of `component`, identifying the deployment. */
+      digest: string;
       component: Uint8Array;
     }
   | {
+      type: "instantiate";
+      /** Digest of the deployment to create an instance (UTXO) of. */
+      digest: string;
+    }
+  | {
       type: "call";
+      /** Digest of the deployment to call. */
+      digest: string;
+      /** Number of the instance to call, as reported by "instantiated". */
+      instance: number;
       /** Name of the exported function to call. */
       name: string;
       /** One WAVE-encoded value per function parameter. */
@@ -96,7 +108,16 @@ export type RunWorkerResponse = {
     }
   | {
       type: "deployed";
+      /** Digest identifying the deployment, as passed to "deploy". */
+      digest: string;
       wit: WitResolve;
+    }
+  | {
+      type: "instantiated";
+      /** Digest of the deployment the instance belongs to. */
+      digest: string;
+      /** Number of the new instance, counted per deployment. */
+      instance: number;
     }
   | {
       type: "called";
@@ -129,6 +150,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
 interface SandboxWasmExports {
   memory: WebAssembly.Memory;
   deploy(input_len: number): number;
+  instantiate(digest: number): number;
   call(input_len: number): number;
 }
 // ----------------------------------------------------------------------------
@@ -138,6 +160,10 @@ let input = new Uint8Array();
 let request_id = 0;
 let deployedWit: WitResolve | undefined;
 let callResult: string | undefined;
+
+// The numeric digest each contract is known by to the Wasm, keyed by the
+// sha256 hex digest computed by the page.
+const digestNumbers = new Map<string, number>();
 
 let wasm: SandboxWasmExports;
 let wasmPromise: Promise<SandboxWasmExports> | null = null;
@@ -189,13 +215,24 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
   request_id = data.request_id;
   const wasm = await getWasmInstance();
   if (data.type === "deploy") {
-    input = data.component;
+    // Assign the digest a number; re-deploying the same digest reuses it.
+    let digest = digestNumbers.get(data.digest);
+    if (digest === undefined) {
+      digest = digestNumbers.size;
+      digestNumbers.set(data.digest, digest);
+    }
+    // CBOR-encoded `DeployInput`.
+    input = encode({
+      digest,
+      wasm: data.component,
+    });
     deployedWit = undefined;
     try {
       if (wasm.deploy(input.length) >= 0 && deployedWit) {
         send({
           request_id,
           type: "deployed",
+          digest: data.digest,
           wit: deployedWit,
         });
       }
@@ -208,12 +245,46 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
         body: String(crash),
       });
     }
+  } else if (data.type === "instantiate") {
+    const digest = digestNumbers.get(data.digest);
+    try {
+      if (digest === undefined) {
+        throw new Error(`no contract deployed with digest ${data.digest}`);
+      }
+      const instance = wasm.instantiate(digest);
+      if (instance >= 0) {
+        send({
+          request_id,
+          type: "instantiated",
+          digest: data.digest,
+          instance,
+        });
+      }
+    } catch (crash) {
+      send({
+        request_id,
+        type: "log",
+        level: 1,
+        target: "run",
+        body: String(crash),
+      });
+    }
   } else if (data.type === "call") {
-    input = new TextEncoder().encode(
-      JSON.stringify({ name: data.name, args: data.args }),
-    );
+    const digest = digestNumbers.get(data.digest);
     callResult = undefined;
     try {
+      if (digest === undefined) {
+        throw new Error(`no contract deployed with digest ${data.digest}`);
+      }
+      // JSON-encoded `CallInput`.
+      input = new TextEncoder().encode(
+        JSON.stringify({
+          digest,
+          instance: data.instance,
+          function: data.name,
+          args: data.args,
+        }),
+      );
       if (wasm.call(input.length) >= 0) {
         send({
           request_id,

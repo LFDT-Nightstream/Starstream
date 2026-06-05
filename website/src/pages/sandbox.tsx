@@ -221,6 +221,31 @@ const NUMERIC_TYPES = new Set([
   "f64",
 ]);
 
+/// A deployed component, identified by the sha256 hex digest of its Wasm.
+interface RunDeployment {
+  digest: string;
+  wit: WitResolve;
+  deployedAt: Date;
+}
+
+/// A live instance (UTXO) of a deployment.
+interface RunInstance {
+  digest: string;
+  instance: number;
+}
+
+// The key call results are stored under, one per instance.
+function instanceKey(digest: string, instance: number): string {
+  return `${digest}#${instance}`;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 // The deployed component's callable functions: its worlds' top-level function
 // exports. (Starstream components export functions at the world level.)
 function exportedFunctions(wit: WitResolve): WitFunction[] {
@@ -457,31 +482,30 @@ function ParamInput({
   );
 }
 
-function RunPanel({
-  canDeploy,
+// The invocation form of one instance (UTXO): a function selector and one
+// input per parameter, labeled with the deployment digest and instance number.
+function InstanceCard({
   wit,
-  onDeploy,
+  digest,
+  instance,
+  called,
   onCall,
   onResetCall,
-  called,
-  log,
 }: {
-  canDeploy: boolean;
-  wit: WitResolve | undefined;
-  onDeploy: () => void;
+  wit: WitResolve;
+  digest: string;
+  instance: number;
+  called: { result: string | undefined } | undefined;
   onCall: (name: string, args: string[]) => void;
   onResetCall: () => void;
-  called: { result: string | undefined } | undefined;
-  log: string[];
 }) {
   const [selected, setSelected] = useState("");
   const [args, setArgs] = useState<Record<string, string>>({});
 
-  const exports = useMemo(() => wit && exportedFunctions(wit), [wit]);
+  const exports = useMemo(() => exportedFunctions(wit), [wit]);
 
-  // Reset the form when a new contract arrives.
   useEffect(() => {
-    setSelected(exports?.[0]?.name ?? "");
+    setSelected(exports[0]?.name ?? "");
     setArgs({});
   }, [exports]);
 
@@ -489,28 +513,26 @@ function RunPanel({
     setArgs((prev) => ({ ...prev, [path]: value }));
   }, []);
 
-  const func = exports?.find((e) => e.name === selected);
+  const func = exports.find((e) => e.name === selected);
 
   return (
-    <div className="padding--md">
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <button
-          type="button"
-          className="button button--secondary"
-          disabled={!canDeploy}
-          onClick={onDeploy}
-        >
-          Deploy
-        </button>
-        {!canDeploy && <span>Compile the code to deploy it.</span>}
+    <div
+      className="card"
+      style={{
+        marginTop: 16,
+        border: "1px solid var(--ifm-color-emphasis-300)",
+      }}
+    >
+      <div className="card__header">
+        <h4 style={{ margin: 0, overflowWrap: "anywhere" }}>
+          Instance #{instance} of <code>{digest}</code>
+        </h4>
       </div>
-      {exports &&
-        (exports.length === 0 ? (
-          <p style={{ marginTop: 16 }}>
-            The deployed component exports no functions.
-          </p>
+      <div className="card__body">
+        {exports.length === 0 ? (
+          <p>The deployed component exports no functions.</p>
         ) : (
-          <div style={{ marginTop: 16 }}>
+          <>
             <label>
               Function{" "}
               <select
@@ -529,7 +551,7 @@ function RunPanel({
                 ))}
               </select>
             </label>
-            {func && wit && (
+            {func && (
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -551,28 +573,162 @@ function RunPanel({
                     setArg={setArg}
                   />
                 ))}
-                <button
-                  type="submit"
-                  className="button button--primary"
-                  style={{ gridColumn: "1 / -1" }}
+                {/* Button and result share a row so the layout doesn't jump
+                    when the result arrives. */}
+                <div
+                  style={{
+                    gridColumn: "1 / -1",
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                  }}
                 >
-                  Call
-                </button>
+                  <button type="submit" className="button button--primary">
+                    Call
+                  </button>
+                  {called && (
+                    <span style={{ overflowWrap: "anywhere" }}>
+                      {called.result !== undefined ? (
+                        <>
+                          Result: <code>{called.result}</code>
+                        </>
+                      ) : (
+                        "Called."
+                      )}
+                    </span>
+                  )}
+                </div>
               </form>
             )}
-          </div>
-        ))}
-      {called && (
-        <p style={{ marginTop: 16 }}>
-          {called.result !== undefined ? (
-            <>
-              Result: <code>{called.result}</code>
-            </>
-          ) : (
-            "Called."
-          )}
-        </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RunPanel({
+  canDeploy,
+  deployHint,
+  onDeploy,
+  notice,
+  onDismissNotice,
+  deployments,
+  onCreateInstance,
+  instances,
+  callResults,
+  onCall,
+  onResetCall,
+  log,
+}: {
+  canDeploy: boolean;
+  /** Why deploying is unavailable, shown next to the disabled button. */
+  deployHint: string | undefined;
+  onDeploy: () => void;
+  notice: ReactNode | undefined;
+  onDismissNotice: () => void;
+  deployments: RunDeployment[];
+  onCreateInstance: (digest: string) => void;
+  instances: RunInstance[];
+  callResults: Record<string, { result: string | undefined }>;
+  onCall: (
+    digest: string,
+    instance: number,
+    name: string,
+    args: string[],
+  ) => void;
+  onResetCall: (digest: string, instance: number) => void;
+  log: string[];
+}) {
+  const [selectedDigest, setSelectedDigest] = useState("");
+
+  // Deployments are ordered most recent first; select the newest one
+  // whenever a deployment happens.
+  useEffect(() => {
+    setSelectedDigest(deployments[0]?.digest ?? "");
+  }, [deployments]);
+
+  const witByDigest = useMemo(
+    () => new Map(deployments.map((d) => [d.digest, d.wit])),
+    [deployments],
+  );
+
+  return (
+    <div className="padding--md" style={{ height: "100%", overflow: "auto" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <button
+          type="button"
+          className="button button--secondary"
+          disabled={!canDeploy}
+          onClick={onDeploy}
+        >
+          Deploy
+        </button>
+        {deployHint && <span>{deployHint}</span>}
+      </div>
+      {notice && (
+        <div className="alert alert--success" style={{ marginTop: 16 }}>
+          <button
+            aria-label="Close"
+            className="clean-btn close"
+            type="button"
+            onClick={onDismissNotice}
+          >
+            <span aria-hidden="true">&times;</span>
+          </button>
+          {notice}
+        </div>
       )}
+      {deployments.length > 0 && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <label>
+            Deployment{" "}
+            <select
+              value={selectedDigest}
+              onChange={(e) => setSelectedDigest(e.target.value)}
+            >
+              {deployments.map((d) => (
+                <option key={d.digest} value={d.digest}>
+                  {d.digest.slice(0, 16)}… — deployed{" "}
+                  {d.deployedAt.toLocaleTimeString()}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="button button--secondary"
+            disabled={!selectedDigest}
+            onClick={() => onCreateInstance(selectedDigest)}
+          >
+            Create instance (UTXO)
+          </button>
+        </div>
+      )}
+      {instances.map(({ digest, instance }) => {
+        const wit = witByDigest.get(digest);
+        return (
+          wit && (
+            <InstanceCard
+              key={instanceKey(digest, instance)}
+              wit={wit}
+              digest={digest}
+              instance={instance}
+              called={callResults[instanceKey(digest, instance)]}
+              onCall={(name, args) => onCall(digest, instance, name, args)}
+              onResetCall={() => onResetCall(digest, instance)}
+            />
+          )
+        );
+      })}
       {log.length > 0 && <pre style={{ marginTop: 16 }}>{log.join("\n")}</pre>}
     </div>
   );
@@ -635,9 +791,34 @@ export function Sandbox() {
     }
   });
 
-  const [deployedWit, setDeployedWit] = useState<WitResolve>();
-  const [called, setCalled] = useState<{ result: string | undefined }>();
+  const [deployments, setDeployments] = useState<RunDeployment[]>([]);
+  const [instances, setInstances] = useState<RunInstance[]>([]);
+  const [callResults, setCallResults] = useState<
+    Record<string, { result: string | undefined }>
+  >({});
+  const [notice, setNotice] = useState<ReactNode>();
   const [runLog, setRunLog] = useState<string[]>([]);
+
+  // The digest of the current compiler output, identifying its deployment.
+  const [componentDigest, setComponentDigest] = useState<string>();
+  useEffect(() => {
+    setComponentDigest(undefined);
+    if (!componentWasm) return;
+    let cancelled = false;
+    sha256Hex(componentWasm).then((digest) => {
+      if (!cancelled) setComponentDigest(digest);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [componentWasm]);
+
+  // The digest the Deploy button was last pressed for: deploying is disabled
+  // until the digest of the Wasm changes.
+  const [lastDeployedDigest, setLastDeployedDigest] = useState<string>();
+
+  // The instance the in-flight call belongs to, to attribute its result.
+  const pendingCall = useRef<string | undefined>(undefined);
 
   const run_request_id = useRef(0);
   const runWorker = useRunWorker((response) => {
@@ -659,43 +840,92 @@ export function Sandbox() {
         setRunLog((prev) => [...prev, `${level}: ${response.body}`]);
       }
     } else if (response.type == "deployed") {
-      setDeployedWit(response.wit);
+      const { digest, wit } = response;
+      const deployment = { digest, wit, deployedAt: new Date() };
+      // Most recent deployment first; a re-deploy moves its digest up front.
+      setDeployments((prev) => [
+        deployment,
+        ...prev.filter((d) => d.digest !== digest),
+      ]);
+      setNotice(
+        <>
+          Contract deployed:{" "}
+          <code style={{ overflowWrap: "anywhere" }}>{digest}</code>
+        </>,
+      );
+    } else if (response.type == "instantiated") {
+      // Most recent instance first, same as deployments.
+      setInstances((prev) => [
+        { digest: response.digest, instance: response.instance },
+        ...prev,
+      ]);
     } else if (response.type == "called") {
-      setCalled({ result: response.result });
+      const key = pendingCall.current;
+      if (key) {
+        setCallResults((prev) => ({
+          ...prev,
+          [key]: { result: response.result },
+        }));
+      }
     } else {
       response satisfies never;
     }
   });
 
-  // Clear the previous call's result and log, e.g. before a new request or
-  // when they no longer apply to what the Run panel shows.
-  const onResetCall = useCallback(() => {
-    setCalled(undefined);
-    setRunLog([]);
-  }, []);
-
   const onDeploy = useCallback(() => {
-    if (!componentWasm) return;
-    onResetCall();
+    if (!componentWasm || !componentDigest) return;
+    setLastDeployedDigest(componentDigest);
+    setRunLog([]);
     runWorker.request({
       request_id: ++run_request_id.current,
       type: "deploy",
+      digest: componentDigest,
       component: componentWasm,
     });
-  }, [componentWasm, onResetCall]);
+  }, [componentWasm, componentDigest]);
+
+  const onCreateInstance = useCallback((digest: string) => {
+    setRunLog([]);
+    runWorker.request({
+      request_id: ++run_request_id.current,
+      type: "instantiate",
+      digest,
+    });
+  }, []);
+
+  // Clear one instance's call result, e.g. when it no longer applies to what
+  // its form shows.
+  const onResetCall = useCallback((digest: string, instance: number) => {
+    const key = instanceKey(digest, instance);
+    setCallResults((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   const onCall = useCallback(
-    (name: string, args: string[]) => {
-      onResetCall();
+    (digest: string, instance: number, name: string, args: string[]) => {
+      pendingCall.current = instanceKey(digest, instance);
+      onResetCall(digest, instance);
+      setRunLog([]);
       runWorker.request({
         request_id: ++run_request_id.current,
         type: "call",
+        digest,
+        instance,
         name,
         args,
       });
     },
     [onResetCall],
   );
+
+  const alreadyDeployed =
+    componentDigest !== undefined &&
+    (componentDigest === lastDeployedDigest ||
+      deployments.some((d) => d.digest === componentDigest));
 
   const onTextChanged = useCallback((code: string) => {
     worker.request({ request_id: ++request_id.current, code });
@@ -771,7 +1001,10 @@ export function Sandbox() {
                     <li>
                       Downloads: Buttons for downloading the compiler outputs.
                     </li>
-                    <li>Run: Deploy and call the compiled component.</li>
+                    <li>
+                      Run: Deploy the compiled component, create instances
+                      (UTXOs) of it, and call them.
+                    </li>
                   </ul>
                   <p>Keyboard shortcuts:</p>
                   <ul>
@@ -869,12 +1102,23 @@ export function Sandbox() {
               key: "Run",
               body: (
                 <RunPanel
-                  canDeploy={componentWasm !== undefined}
-                  wit={deployedWit}
+                  canDeploy={!alreadyDeployed && componentDigest !== undefined}
+                  deployHint={
+                    !componentWasm
+                      ? "Compile the code to deploy it."
+                      : alreadyDeployed
+                        ? "Already deployed. Change the code to deploy again."
+                        : undefined
+                  }
                   onDeploy={onDeploy}
+                  notice={notice}
+                  onDismissNotice={() => setNotice(undefined)}
+                  deployments={deployments}
+                  onCreateInstance={onCreateInstance}
+                  instances={instances}
+                  callResults={callResults}
                   onCall={onCall}
                   onResetCall={onResetCall}
-                  called={called}
                   log={runLog}
                 />
               ),
