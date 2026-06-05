@@ -19,13 +19,13 @@ log = "0.4.28"
 miette.workspace = true
 serde.workspace = true
 serde_cbor = "0.11.2"
-serde_json = "1.0"
+serde_json.workspace = true
 starstream-compiler.workspace = true
 starstream-to-wasm.workspace = true
 termcolor = "1.4.1"
 wasmprinter = { workspace = true, features = ["component-model"] }
 wit-component.workspace = true
-wasmtime = { version = "45", default-features = false, features = [
+wasmtime = { workspace = true, features = [
     "component-model",
     "cranelift",
     "custom-virtual-memory",
