@@ -68,10 +68,19 @@ export interface WitResolve {
 
 export type RunWorkerRequest = {
   request_id: number;
-} & {
-  type: "deploy";
-  component: Uint8Array;
-};
+} & (
+  | {
+      type: "deploy";
+      component: Uint8Array;
+    }
+  | {
+      type: "call";
+      /** Name of the exported function to call. */
+      name: string;
+      /** One WAVE-encoded value per function parameter. */
+      args: string[];
+    }
+);
 
 export type RunWorkerResponse = {
   request_id: number;
@@ -88,6 +97,11 @@ export type RunWorkerResponse = {
   | {
       type: "deployed";
       wit: WitResolve;
+    }
+  | {
+      type: "called";
+      /** The WAVE-encoded result, absent for functions with no result. */
+      result: string | undefined;
     }
 );
 
@@ -109,12 +123,13 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_component_wasm(ptr: number, len: number): void;
 
   set_deployed_wit_json(ptr: number, len: number): void;
+  set_call_result(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
   memory: WebAssembly.Memory;
   deploy(input_len: number): number;
-  call(): void;
+  call(input_len: number): number;
 }
 // ----------------------------------------------------------------------------
 
@@ -122,6 +137,7 @@ interface SandboxWasmExports {
 let input = new Uint8Array();
 let request_id = 0;
 let deployedWit: WitResolve | undefined;
+let callResult: string | undefined;
 
 let wasm: SandboxWasmExports;
 let wasmPromise: Promise<SandboxWasmExports> | null = null;
@@ -148,6 +164,9 @@ function getWasmInstance(): Promise<SandboxWasmExports> {
         set_component_wasm() {},
         set_deployed_wit_json(ptr, len) {
           deployedWit = JSON.parse(utf8(ptr, len)) as WitResolve;
+        },
+        set_call_result(ptr, len) {
+          callResult = utf8(ptr, len);
         },
       } satisfies SandboxWasmImports,
     },
@@ -178,6 +197,28 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
           request_id,
           type: "deployed",
           wit: deployedWit,
+        });
+      }
+    } catch (crash) {
+      send({
+        request_id,
+        type: "log",
+        level: 1,
+        target: "run",
+        body: String(crash),
+      });
+    }
+  } else if (data.type === "call") {
+    input = new TextEncoder().encode(
+      JSON.stringify({ name: data.name, args: data.args }),
+    );
+    callResult = undefined;
+    try {
+      if (wasm.call(input.length) >= 0) {
+        send({
+          request_id,
+          type: "called",
+          result: callResult,
         });
       }
     } catch (crash) {

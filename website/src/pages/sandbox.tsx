@@ -255,6 +255,50 @@ function typeStr(wit: WitResolve, type: WitType): string {
   return Object.keys(kind)[0] ?? "unknown";
 }
 
+// The WAVE encoding of one argument, built from the flat form state. Inputs
+// for free-form types (lists, options, tuples, ...) are passed through as the
+// WAVE the user typed.
+function waveArg(
+  wit: WitResolve,
+  type: WitType,
+  path: string,
+  args: Record<string, string>,
+): string {
+  const value = args[path] ?? "";
+  if (typeof type === "number") {
+    const kind = wit.types[type].kind;
+    if (typeof kind !== "string") {
+      if (kind.type !== undefined) return waveArg(wit, kind.type, path, args);
+      if (kind.record) {
+        const fields = kind.record.fields.map(
+          (f) =>
+            `${f.name}: ${waveArg(wit, f.type, `${path}.${f.name}`, args)}`,
+        );
+        return `{${fields.join(", ")}}`;
+      }
+      if (kind.enum) {
+        return value || (kind.enum.cases[0]?.name ?? "");
+      }
+      if (kind.variant) {
+        const cases = kind.variant.cases;
+        const selected = cases.find((c) => c.name === value) ?? cases[0];
+        if (!selected) return value;
+        return selected.type != null
+          ? `${selected.name}(${waveArg(wit, selected.type, `${path}.${selected.name}`, args)})`
+          : selected.name;
+      }
+    }
+    return value;
+  }
+  if (type === "bool") return value === "true" ? "true" : "false";
+  if (NUMERIC_TYPES.has(type)) return value || "0";
+  if (type === "char") return `'${value.replace(/[\\']/g, (c) => `\\${c}`)}'`;
+  if (type === "string") {
+    return `"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
+  }
+  return value;
+}
+
 // A two-column grid that lines up the labels and inputs of the Fields inside.
 const FIELD_GRID: CSSProperties = {
   display: "grid",
@@ -417,10 +461,18 @@ function RunPanel({
   canDeploy,
   wit,
   onDeploy,
+  onCall,
+  onResetCall,
+  called,
+  log,
 }: {
   canDeploy: boolean;
   wit: WitResolve | undefined;
   onDeploy: () => void;
+  onCall: (name: string, args: string[]) => void;
+  onResetCall: () => void;
+  called: { result: string | undefined } | undefined;
+  log: string[];
 }) {
   const [selected, setSelected] = useState("");
   const [args, setArgs] = useState<Record<string, string>>({});
@@ -466,6 +518,8 @@ function RunPanel({
                 onChange={(e) => {
                   setSelected(e.target.value);
                   setArgs({});
+                  // The previous result belongs to another function.
+                  onResetCall();
                 }}
               >
                 {exports.map((e) => (
@@ -477,7 +531,13 @@ function RunPanel({
             </label>
             {func && wit && (
               <form
-                onSubmit={(e) => e.preventDefault()}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onCall(
+                    func.name,
+                    func.params.map((p) => waveArg(wit, p.type, p.name, args)),
+                  );
+                }}
                 style={{ ...FIELD_GRID, marginTop: 8 }}
               >
                 {func.params.map((param) => (
@@ -502,6 +562,18 @@ function RunPanel({
             )}
           </div>
         ))}
+      {called && (
+        <p style={{ marginTop: 16 }}>
+          {called.result !== undefined ? (
+            <>
+              Result: <code>{called.result}</code>
+            </>
+          ) : (
+            "Called."
+          )}
+        </p>
+      )}
+      {log.length > 0 && <pre style={{ marginTop: 16 }}>{log.join("\n")}</pre>}
     </div>
   );
 }
@@ -564,6 +636,8 @@ export function Sandbox() {
   });
 
   const [deployedWit, setDeployedWit] = useState<WitResolve>();
+  const [called, setCalled] = useState<{ result: string | undefined }>();
+  const [runLog, setRunLog] = useState<string[]>([]);
 
   const run_request_id = useRef(0);
   const runWorker = useRunWorker((response) => {
@@ -576,26 +650,52 @@ export function Sandbox() {
     if (response.type == "idle") {
       // Idle response received
     } else if (response.type == "log") {
-      console.log(
-        ["", "Error", "Warn", "Info", "Debug", "Trace"][response.level],
-        `[${response.target}]`,
-        response.body,
-      );
+      const level = ["", "Error", "Warn", "Info", "Debug", "Trace"][
+        response.level
+      ];
+      console.log(level, `[${response.target}]`, response.body);
+      // Surface errors and warnings in the Run panel.
+      if (response.level <= 2) {
+        setRunLog((prev) => [...prev, `${level}: ${response.body}`]);
+      }
     } else if (response.type == "deployed") {
       setDeployedWit(response.wit);
+    } else if (response.type == "called") {
+      setCalled({ result: response.result });
     } else {
       response satisfies never;
     }
   });
 
+  // Clear the previous call's result and log, e.g. before a new request or
+  // when they no longer apply to what the Run panel shows.
+  const onResetCall = useCallback(() => {
+    setCalled(undefined);
+    setRunLog([]);
+  }, []);
+
   const onDeploy = useCallback(() => {
     if (!componentWasm) return;
+    onResetCall();
     runWorker.request({
       request_id: ++run_request_id.current,
       type: "deploy",
       component: componentWasm,
     });
-  }, [componentWasm]);
+  }, [componentWasm, onResetCall]);
+
+  const onCall = useCallback(
+    (name: string, args: string[]) => {
+      onResetCall();
+      runWorker.request({
+        request_id: ++run_request_id.current,
+        type: "call",
+        name,
+        args,
+      });
+    },
+    [onResetCall],
+  );
 
   const onTextChanged = useCallback((code: string) => {
     worker.request({ request_id: ++request_id.current, code });
@@ -772,6 +872,10 @@ export function Sandbox() {
                   canDeploy={componentWasm !== undefined}
                   wit={deployedWit}
                   onDeploy={onDeploy}
+                  onCall={onCall}
+                  onResetCall={onResetCall}
+                  called={called}
+                  log={runLog}
                 />
               ),
             },

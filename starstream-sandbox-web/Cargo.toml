@@ -30,4 +30,5 @@ wasmtime = { version = "45", default-features = false, features = [
     "cranelift",
     "custom-virtual-memory",
     "runtime",
+    "wave",
 ] }

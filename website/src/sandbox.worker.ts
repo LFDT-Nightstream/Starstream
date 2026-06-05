@@ -58,6 +58,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
   set_component_wasm(ptr: number, len: number): void;
 
   set_deployed_wit_json(ptr: number, len: number): void;
+  set_call_result(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -141,8 +142,9 @@ self.onmessage = async function ({ data }: { data: SandboxWorkerRequest }) {
         bytes: new Uint8Array(wasm.memory.buffer, ptr, len),
       });
     },
-    // Only called by `deploy`, which the run worker handles.
+    // Only called by `deploy` and `call`, which the run worker handles.
     set_deployed_wit_json() {},
+    set_call_result() {},
   });
   try {
     wasm.run(input.length);

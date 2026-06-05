@@ -5,7 +5,8 @@ use std::panic;
 use std::sync::{LazyLock, Mutex};
 
 use log::error;
-use wasmtime::component::{Component, InstancePre, Linker};
+use wasmtime::Store;
+use wasmtime::component::{Component, InstancePre, Linker, Val};
 use wit_component::{ComponentEncoder, DecodedWasm};
 
 static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(wasmtime::Engine::default);
@@ -30,6 +31,8 @@ unsafe extern "C" {
     // Describe the WIT contract of a deployed component as wit-parser's JSON
     // serialization of the resolved WIT (`wasm-tools component wit --json`).
     unsafe fn set_deployed_wit_json(ptr: *const u8, len: usize);
+    // Report the WAVE-encoded result of a `call`.
+    unsafe fn set_call_result(ptr: *const u8, len: usize);
 }
 
 #[derive(serde::Deserialize)]
@@ -164,7 +167,9 @@ fn handle_deploy(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
     unsafe { read_input(wasm.as_mut_ptr(), wasm.len()) };
 
     let component = Component::new(&ENGINE, &wasm)?;
-    let linker = Linker::new(&ENGINE);
+    let mut linker = Linker::new(&ENGINE);
+    // TODO: Implement imports
+    linker.define_unknown_imports_as_traps(&component)?;
     let instance = linker.instantiate_pre(&component)?;
 
     let wasm = wit_component::decode(&wasm)?;
@@ -196,9 +201,81 @@ pub unsafe extern "C" fn deploy(input_len: usize) -> i32 {
     }
 }
 
-/// Calls a deployed contract, called by the JS page.
+#[derive(serde::Deserialize)]
+struct CallInput {
+    /// Name of the exported function to call.
+    name: String,
+    /// One WAVE-encoded value per function parameter.
+    args: Vec<String>,
+}
+
+fn handle_call(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let mut input = vec![0; input_len];
+    unsafe { read_input(input.as_mut_ptr(), input.len()) };
+    let input: CallInput = serde_json::from_slice(&input)?;
+
+    let instance = INSTANCE
+        .lock()
+        .map_err(|_| "instance lock poisoned, please redeploy")?;
+    let instance = instance.as_ref().ok_or("no contract deployed")?;
+
+    let mut store = Store::new(&ENGINE, ());
+    let instance = instance.instantiate(&mut store)?;
+
+    let func = instance
+        .get_func(&mut store, input.name.as_str())
+        .ok_or_else(|| format!("no exported function `{}`", input.name))?;
+
+    let ty = func.ty(&store);
+    if ty.params().len() != input.args.len() {
+        return Err(format!(
+            "`{}` takes {} argument(s), got {}",
+            input.name,
+            ty.params().len(),
+            input.args.len()
+        )
+        .into());
+    }
+    let params = ty
+        .params()
+        .zip(&input.args)
+        .map(|((_, ty), arg)| Val::from_wave(&ty, arg))
+        .collect::<wasmtime::Result<Vec<_>>>()?;
+
+    let mut results = vec![Val::Bool(false); ty.results().len()];
+    func.call(&mut store, &params, &mut results)?;
+
+    match &results[..] {
+        [] => Ok(()),
+        [result] => {
+            let result = result.to_wave()?;
+            unsafe { set_call_result(result.as_ptr(), result.len()) };
+            Ok(())
+        }
+        [..] => Err("invalid result value count".into()),
+    }
+}
+
+/// Calls an exported function of the deployed contract, called by the JS page.
+///
+/// Reports the function's result back to the UI via `set_call_result` (skipped
+/// for functions with no result) and returns 0, or -1 if the call failed.
+///
+/// # Safety
+///
+/// `input_len` must be the length of the JSON-encoded `CallInput` provided by
+/// `read_input`.
 #[unsafe(no_mangle)]
-pub extern "C" fn call() {}
+pub unsafe extern "C" fn call(input_len: usize) -> i32 {
+    init();
+    match handle_call(input_len) {
+        Ok(()) => 0,
+        Err(error) => {
+            error!("call: {error}");
+            -1
+        }
+    }
+}
 
 fn print_wit(wasm: &[u8], is_core: bool) -> Result<String, Box<dyn std::error::Error>> {
     let decoded = if is_core {
