@@ -619,7 +619,7 @@ function InstanceCard({
             log.join("\n")
           ) : (
             <span style={{ color: "var(--ifm-color-emphasis-500)" }}>
-              No log output.
+              Contract instantiated.
             </span>
           )}
         </pre>
@@ -632,8 +632,6 @@ function RunPanel({
   canDeploy,
   deployHint,
   onDeploy,
-  notice,
-  onDismissNotice,
   deployments,
   onCreateInstance,
   instances,
@@ -643,10 +641,8 @@ function RunPanel({
 }: {
   canDeploy: boolean;
   /** Why deploying is unavailable, shown next to the disabled button. */
-  deployHint: string | undefined;
+  deployHint: ReactNode | undefined;
   onDeploy: () => void;
-  notice: ReactNode | undefined;
-  onDismissNotice: () => void;
   deployments: RunDeployment[];
   onCreateInstance: (digest: string) => void;
   instances: RunInstance[];
@@ -687,19 +683,6 @@ function RunPanel({
         </button>
         {deployHint && <span>{deployHint}</span>}
       </div>
-      {notice && (
-        <div className="alert alert--success" style={{ marginTop: 16 }}>
-          <button
-            aria-label="Close"
-            className="clean-btn close"
-            type="button"
-            onClick={onDismissNotice}
-          >
-            <span aria-hidden="true">&times;</span>
-          </button>
-          {notice}
-        </div>
-      )}
       {deployments.length > 0 && (
         <div
           style={{
@@ -813,7 +796,6 @@ export function Sandbox() {
 
   const [deployments, setDeployments] = useState<RunDeployment[]>([]);
   const [instances, setInstances] = useState<RunInstance[]>([]);
-  const [notice, setNotice] = useState<ReactNode>();
   const [runLog, setRunLog] = useState<string[]>([]);
   // Call log lines of each instance, keyed by instanceKey.
   const [instanceLogs, setInstanceLogs] = useState<Record<string, string[]>>(
@@ -883,12 +865,6 @@ export function Sandbox() {
         deployment,
         ...prev.filter((d) => d.digest !== digest),
       ]);
-      setNotice(
-        <>
-          Contract deployed:{" "}
-          <code style={{ overflowWrap: "anywhere" }}>{digest}</code>
-        </>,
-      );
     } else if (response.type == "instantiated") {
       // Most recent instance first, same as deployments.
       setInstances((prev) => [
@@ -1133,15 +1109,18 @@ export function Sandbox() {
                 <RunPanel
                   canDeploy={!alreadyDeployed && componentDigest !== undefined}
                   deployHint={
-                    !componentWasm
-                      ? "Compile the code to deploy it."
-                      : alreadyDeployed
-                        ? "Already deployed. Change the code to deploy again."
-                        : undefined
+                    !componentWasm ? (
+                      "Compile the code to deploy it."
+                    ) : alreadyDeployed ? (
+                      <>
+                        Contract deployed as{" "}
+                        <code style={{ overflowWrap: "anywhere" }}>
+                          {componentDigest}
+                        </code>
+                      </>
+                    ) : undefined
                   }
                   onDeploy={onDeploy}
-                  notice={notice}
-                  onDismissNotice={() => setNotice(undefined)}
                   deployments={deployments}
                   onCreateInstance={onCreateInstance}
                   instances={instances}
