@@ -281,6 +281,7 @@ TypedProgram {
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
   (export "hello-utxo" (func 2))
+  (export "foo" (func 4))
   (func (;1;) (type 1)
     (block ;; label = @1
       (br_if 0 (;@1;)
