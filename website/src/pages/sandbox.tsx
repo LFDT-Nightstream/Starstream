@@ -17,6 +17,7 @@ import type {
   SandboxWorkerResponse,
 } from "../sandbox.worker";
 import type {
+  CallTrace,
   RunWorkerRequest,
   RunWorkerResponse,
   WitFunction,
@@ -498,18 +499,46 @@ function ParamInput({
 
 // The invocation form of one instance (UTXO): a function selector and one
 // input per parameter, labeled with the deployment digest and instance number.
+// The per-opcode execution trace of an instance's last call, collapsed by
+// default.
+function TraceDetails({ trace }: { trace: CallTrace }) {
+  const text = useMemo(
+    () =>
+      trace
+        .map(
+          (step, i) =>
+            `${i.toString().padStart(6)}  func[${step.func}]+0x${step.offset.toString(16)}  ${step.opcode}${
+              step.operands && ` ${step.operands}`
+            }`,
+        )
+        .join("\n"),
+    [trace],
+  );
+  return (
+    <details style={{ flexBasis: "100%", minWidth: 0 }}>
+      <summary>
+        Execution trace of the last call: {trace.length} opcode
+        {trace.length === 1 ? "" : "s"}
+      </summary>
+      <pre style={{ maxHeight: 240, overflow: "auto" }}>{text}</pre>
+    </details>
+  );
+}
+
 function InstanceCard({
   wit,
   digest,
   instance,
   onCall,
   log,
+  trace,
 }: {
   wit: WitResolve;
   digest: string;
   instance: number;
   onCall: (name: string, args: string[]) => void;
   log: string[];
+  trace: CallTrace | undefined;
 }) {
   const [selected, setSelected] = useState("");
   const [args, setArgs] = useState<Record<string, string>>({});
@@ -623,6 +652,7 @@ function InstanceCard({
             </span>
           )}
         </pre>
+        {trace && <TraceDetails trace={trace} />}
       </div>
     </div>
   );
@@ -638,6 +668,7 @@ function RunPanel({
   instances,
   onCall,
   instanceLogs,
+  instanceTraces,
   log,
 }: {
   canDeploy: boolean;
@@ -657,6 +688,8 @@ function RunPanel({
   ) => void;
   /** Call log lines of each instance, keyed by instanceKey. */
   instanceLogs: Record<string, string[]>;
+  /** Execution trace of each instance's last call, keyed by instanceKey. */
+  instanceTraces: Record<string, CallTrace>;
   /** Log lines not attributable to an instance (deploy/instantiate). */
   log: string[];
 }) {
@@ -743,6 +776,7 @@ function RunPanel({
               instance={instance}
               onCall={(name, args) => onCall(digest, instance, name, args)}
               log={instanceLogs[instanceKey(digest, instance)] ?? []}
+              trace={instanceTraces[instanceKey(digest, instance)]}
             />
           )
         );
@@ -822,6 +856,10 @@ export function Sandbox() {
       [key]: [...(prev[key] ?? []), entry],
     }));
   }, []);
+  // Execution trace of each instance's last call, keyed by instanceKey.
+  const [instanceTraces, setInstanceTraces] = useState<
+    Record<string, CallTrace>
+  >({});
 
   // The digest of the current compiler output, identifying its deployment.
   const [componentDigest, setComponentDigest] = useState<string>();
@@ -908,6 +946,12 @@ export function Sandbox() {
         { digest: response.digest, instance: response.instance },
         ...prev,
       ]);
+    } else if (response.type == "call_trace") {
+      const pending = pendingCall.current;
+      if (pending) {
+        const { trace } = response;
+        setInstanceTraces((prev) => ({ ...prev, [pending.key]: trace }));
+      }
     } else if (response.type == "called") {
       const pending = pendingCall.current;
       if (pending) {
@@ -924,7 +968,10 @@ export function Sandbox() {
   });
 
   const onDeploy = useCallback(() => {
-    if (!componentWasm || !componentDigest) return;
+    // The component digest identifies the deployment (and gates the Deploy
+    // button on the whole pipeline having succeeded), but the worker deploys
+    // from the core Wasm: it instruments and componentizes it itself.
+    if (!coreWasm || !componentDigest) return;
     setLastDeployedDigest(componentDigest);
     pendingCall.current = undefined;
     pendingDeploy.current = componentDigest;
@@ -934,9 +981,9 @@ export function Sandbox() {
       request_id: ++run_request_id.current,
       type: "deploy",
       digest: componentDigest,
-      component: componentWasm,
+      core: coreWasm,
     });
-  }, [componentWasm, componentDigest]);
+  }, [coreWasm, componentDigest]);
 
   const onCreateInstance = useCallback((digest: string) => {
     pendingCall.current = undefined;
@@ -1177,6 +1224,7 @@ export function Sandbox() {
                   instances={instances}
                   onCall={onCall}
                   instanceLogs={instanceLogs}
+                  instanceTraces={instanceTraces}
                   log={runLog}
                 />
               ),

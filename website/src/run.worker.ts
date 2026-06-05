@@ -67,14 +67,39 @@ export interface WitResolve {
 }
 // ----------------------------------------------------------------------------
 
+/** One executed opcode, resolved against the original core module. */
+export interface CallTraceStep {
+  /** Function index in the original (uninstrumented) core module. */
+  func: number;
+  /** Byte offset of the opcode within the original core module binary. */
+  offset: number;
+  /** Opcode mnemonic. */
+  opcode: string;
+  /**
+   * The immediate operands of the opcode (e.g. "41" for i64.const), empty
+   * for opcodes without any. Static immediates, not runtime stack values.
+   */
+  operands: string;
+}
+
+/** The per-opcode execution trace of one call, in execution order. */
+export type CallTrace = CallTraceStep[];
+
 export type RunWorkerRequest = {
   request_id: number;
 } & (
   | {
       type: "deploy";
-      /** Sha256 hex digest of `component`, identifying the deployment. */
+      /**
+       * Sha256 hex digest identifying the deployment; the page derives it
+       * from the componentized compiler output.
+       */
       digest: string;
-      component: Uint8Array;
+      /**
+       * The core Wasm of the compiler output. The sandbox instruments it for
+       * execution tracing and componentizes it itself on deploy.
+       */
+      core: Uint8Array;
     }
   | {
       type: "instantiate";
@@ -125,6 +150,15 @@ export type RunWorkerResponse = {
       instance: number;
     }
   | {
+      /**
+       * The execution trace of a call, sent before "called". Also sent for
+       * calls that failed (with the partial trace up to the trap); absent for
+       * uninstrumented deployments.
+       */
+      type: "call_trace";
+      trace: CallTrace;
+    }
+  | {
       type: "called";
       /** The WAVE-encoded result, absent for functions with no result. */
       result: string | undefined;
@@ -150,6 +184,7 @@ interface SandboxWasmImports extends WebAssembly.ModuleImports {
 
   set_deployed_wit_json(ptr: number, len: number): void;
   set_call_result(ptr: number, len: number): void;
+  set_call_trace(ptr: number, len: number): void;
 }
 
 interface SandboxWasmExports {
@@ -165,6 +200,7 @@ let input = new Uint8Array();
 let request_id = 0;
 let deployedWit: WitResolve | undefined;
 let callResult: string | undefined;
+let callTrace: CallTrace | undefined;
 
 // The numeric digest each contract is known by to the Wasm, keyed by the
 // sha256 hex digest computed by the page.
@@ -199,6 +235,9 @@ function getWasmInstance(): Promise<SandboxWasmExports> {
         set_call_result(ptr, len) {
           callResult = utf8(ptr, len);
         },
+        set_call_trace(ptr, len) {
+          callTrace = JSON.parse(utf8(ptr, len)) as CallTrace;
+        },
       } satisfies SandboxWasmImports,
     },
   ).then(({ instance }) => {
@@ -229,7 +268,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
     // CBOR-encoded `DeployInput`.
     input = encode({
       digest,
-      wasm: data.component,
+      wasm: data.core,
     });
     deployedWit = undefined;
     try {
@@ -281,6 +320,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
   } else if (data.type === "call") {
     const digest = digestNumbers.get(data.digest);
     callResult = undefined;
+    callTrace = undefined;
     try {
       if (digest === undefined) {
         throw new Error(`no contract deployed with digest ${data.digest}`);
@@ -294,7 +334,15 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
           args: data.args,
         }),
       );
-      if (wasm.call(input.length) >= 0) {
+      const ok = wasm.call(input.length) >= 0;
+      if (callTrace) {
+        send({
+          request_id,
+          type: "call_trace",
+          trace: callTrace,
+        });
+      }
+      if (ok) {
         send({
           request_id,
           type: "called",

@@ -3329,9 +3329,12 @@ dependencies = [
  "starstream-compiler",
  "starstream-to-wasm",
  "termcolor",
+ "wasm-encoder 0.240.0",
+ "wasmparser 0.240.0",
  "wasmprinter 0.240.0",
  "wasmtime",
  "wit-component",
+ "wit-parser 0.240.0",
 ]
 
 [[package]]

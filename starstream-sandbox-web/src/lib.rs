@@ -1,4 +1,5 @@
 //! WebAssembly bindings for the Starstream compiler.
+mod instrument;
 mod platform;
 
 use std::borrow::Cow;
@@ -12,10 +13,22 @@ use wasmtime::Store;
 use wasmtime::component::{Component, InstancePre, Linker, Val};
 use wit_component::{ComponentEncoder, DecodedWasm};
 
+use crate::instrument::TracePoint;
+
 static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(wasmtime::Engine::default);
 
+/// Per-call state of the `trace` import injected by [`instrument`].
+#[derive(Default)]
+struct CallState {
+    /// Executed trace-point ids in execution order.
+    trace: Vec<u32>,
+}
+
 struct Contract {
-    pre: InstancePre<()>,
+    pre: InstancePre<CallState>,
+    /// Trace-point side table produced when the deployment was instrumented;
+    /// empty if instrumentation failed.
+    points: Vec<TracePoint>,
     instances: Vec<()>, // TODO: Store state
 }
 
@@ -49,6 +62,10 @@ unsafe extern "C" {
     unsafe fn set_deployed_wit_json(ptr: *const u8, len: usize);
     // Report the WAVE-encoded result of a `call`.
     unsafe fn set_call_result(ptr: *const u8, len: usize);
+    // Report the execution trace of a `call` as a JSON array of executed
+    // opcodes:
+    // `[{ "func": u32, "offset": usize, "opcode": str, "operands": str }]`.
+    unsafe fn set_call_trace(ptr: *const u8, len: usize);
 }
 
 #[derive(serde::Deserialize)]
@@ -180,9 +197,13 @@ pub unsafe extern "C" fn run(input_len: usize) {
 
 #[derive(serde::Deserialize)]
 struct DeployInput<'a> {
-    /// Digest of `wasm`, identifying the contract.
+    /// Digest identifying the contract: the page derives it from the
+    /// componentized compiler output, but it is opaque here.
     digest: u32,
-    /// The component Wasm.
+    /// The core Wasm (with embedded component metadata). `deploy`
+    /// componentizes it itself so that it can instrument it for per-opcode
+    /// execution tracing first; the compiler output shown in the UI stays
+    /// pristine.
     wasm: &'a [u8],
 }
 
@@ -191,20 +212,33 @@ fn handle_deploy(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
     unsafe { read_input(input.as_mut_ptr(), input.len()) };
     let DeployInput { digest, wasm } = serde_cbor::from_slice(&input)?;
 
-    let component = Component::new(&ENGINE, wasm)?;
+    // Describe the contract to the UI from the pristine metadata, without the
+    // tracing plumbing injected below.
+    let (_, bindgen) = wit_component::metadata::decode(wasm)?;
+    let wit_json = serde_json::to_string(&bindgen.resolve)?;
+
+    let (wasm, points) = instrument_for_trace(wasm)?;
+    let wasm = componentize(&wasm)?;
+
+    let component = Component::new(&ENGINE, &wasm)?;
     let mut linker = Linker::new(&ENGINE);
+    linker.root().func_wrap(
+        instrument::TRACE_FUNC,
+        |mut store: wasmtime::StoreContextMut<'_, CallState>, (point,): (i32,)| {
+            store.data_mut().trace.push(point as u32);
+            Ok(())
+        },
+    )?;
     // TODO: Implement imports
     linker.define_unknown_imports_as_traps(&component)?;
     let pre = linker.instantiate_pre(&component)?;
-
-    let wasm = wit_component::decode(wasm)?;
-    let wit_json = serde_json::to_string(wasm.resolve())?;
 
     let mut contracts = get_contracts()?;
     contracts.insert(
         digest,
         Contract {
             pre,
+            points,
             instances: Vec::default(),
         },
     );
@@ -285,11 +319,15 @@ fn handle_call(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
     } = serde_json::from_slice(&input)?;
 
     let contracts = get_contracts()?;
-    let Contract { pre, instances } = contracts.get(&digest).ok_or("contract not found")?;
+    let Contract {
+        pre,
+        points,
+        instances,
+    } = contracts.get(&digest).ok_or("contract not found")?;
     let instance = usize::try_from(instance)?;
     let () = instances.get(instance).ok_or("instance not found")?;
 
-    let mut store = Store::new(&ENGINE, ());
+    let mut store = Store::new(&ENGINE, CallState::default());
     let instance = pre.instantiate(&mut store)?;
 
     let func = instance
@@ -312,8 +350,21 @@ fn handle_call(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
         .collect::<wasmtime::Result<Vec<_>>>()?;
 
     let mut results = vec![Val::Bool(false); ty.results().len()];
-    func.call(&mut store, &params, &mut results)?;
+    let res = func.call(&mut store, &params, &mut results);
 
+    // Report the execution trace before propagating a trap: a partial trace
+    // of a failed call is the most interesting one.
+    let CallState { trace } = std::mem::take(store.data_mut());
+    if !trace.is_empty() {
+        let steps = trace
+            .iter()
+            .filter_map(|&id| points.get(id as usize))
+            .collect::<Vec<_>>();
+        let trace = serde_json::to_string(&steps)?;
+        unsafe { set_call_trace(trace.as_ptr(), trace.len()) };
+    }
+
+    res?;
     match &results[..] {
         [] => Ok(()),
         [result] => {
@@ -364,6 +415,45 @@ fn componentize(wasm: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     encoder = encoder.module(wasm)?;
     let wasm = encoder.encode()?;
     Ok(wasm)
+}
+
+/// Instruments `wasm` (a core module with embedded component metadata) for
+/// per-opcode execution tracing.
+///
+/// Besides running [`instrument::instrument`], declares the injected
+/// `"$root" "trace"` core import as a `trace: func(point: s32)` import in the
+/// module's embedded WIT world, so that [`componentize`] accepts it and maps
+/// it to a component-level import, which `deploy` satisfies with a host
+/// function.
+fn instrument_for_trace(
+    wasm: &[u8],
+) -> Result<(Vec<u8>, Vec<TracePoint>), Box<dyn std::error::Error>> {
+    let instrument::Instrumented { wasm, points, .. } = instrument::instrument(wasm)?;
+
+    // `decode` also strips the metadata sections; `None` means there were
+    // none, in which case the module is reused as-is.
+    let (stripped, mut bindgen) = wit_component::metadata::decode(&wasm)?;
+    let mut wasm = stripped.unwrap_or(wasm);
+    let world = &mut bindgen.resolve.worlds[bindgen.world];
+    world.imports.insert(
+        wit_parser::WorldKey::Name(instrument::TRACE_FUNC.into()),
+        wit_parser::WorldItem::Function(wit_parser::Function {
+            name: instrument::TRACE_FUNC.into(),
+            kind: wit_parser::FunctionKind::Freestanding,
+            params: vec![("point".into(), wit_parser::Type::S32)],
+            result: None,
+            docs: Default::default(),
+            stability: Default::default(),
+        }),
+    );
+    wit_component::embed_component_metadata(
+        &mut wasm,
+        &bindgen.resolve,
+        bindgen.world,
+        wit_component::StringEncoding::UTF8,
+    )?;
+
+    Ok((wasm, points))
 }
 
 // ----------------------------------------------------------------------------
