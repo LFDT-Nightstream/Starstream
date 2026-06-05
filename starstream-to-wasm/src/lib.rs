@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
@@ -199,7 +200,7 @@ struct Compiler {
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
-    imported_interfaces: HashMap<String, TypeBuilder<InstanceType>>,
+    imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
 
     // Diagnostics.
     fatal: bool,

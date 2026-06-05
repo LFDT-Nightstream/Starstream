@@ -1371,19 +1371,19 @@ TypedProgram {
               (export (;2;) "score-progress-set-storage" (func (type 5)))
               (type (;6;)
                 (instance
+                  (type (;0;) (func (param "x" u64)))
+                  (export (;0;) "finish" (func (type 0)))
+                )
+              )
+              (import "score" (instance (;0;) (type 6)))
+              (type (;7;)
+                (instance
                   (type (;0;) (tuple u64 u64 u64 u64))
                   (type (;1;) (func (param "hash" 0)))
                   (export (;0;) "implements-method" (func (type 1)))
                 )
               )
-              (import "starstream:std/builtin" (instance (;0;) (type 6)))
-              (type (;7;)
-                (instance
-                  (type (;0;) (func (param "x" u64)))
-                  (export (;0;) "finish" (func (type 0)))
-                )
-              )
-              (import "score" (instance (;1;) (type 7)))
+              (import "starstream:std/builtin" (instance (;1;) (type 7)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -1398,10 +1398,10 @@ TypedProgram {
 package root:component;
 
 world root {
-  import starstream:std/builtin;
   import score: interface {
     finish: func(x: u64);
   }
+  import starstream:std/builtin;
 
   resource score-progress;
 
