@@ -17,7 +17,7 @@ ark-poseidon2 = { path = "../../ark-poseidon2" }
 wasm-encoder = { workspace = true }
 wit-component = { workspace = true }
 wasmparser = "0.240.0"
-wit-parser = "0.240.0"
+wit-parser = { workspace = true }
 
 [dev-dependencies]
 imbl = "6.1.0"

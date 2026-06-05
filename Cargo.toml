@@ -46,6 +46,7 @@ wasmprinter = "0.240.0"
 wasmparser = "0.240.0"
 wasmtime = { version = "45.0", default-features = false }
 wit-component = "0.240.0"
+wit-parser = "0.240.0"
 
 neo-fold = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "8b32cc8fa7cbb3e28fff34a6f6d0160ee7bc61fb" }
 neo-math = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev = "8b32cc8fa7cbb3e28fff34a6f6d0160ee7bc61fb" }
