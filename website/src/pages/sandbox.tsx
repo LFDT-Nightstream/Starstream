@@ -234,7 +234,7 @@ interface RunInstance {
   instance: number;
 }
 
-// The key call results are stored under, one per instance.
+// The key call logs are stored under, one per instance.
 function instanceKey(digest: string, instance: number): string {
   return `${digest}#${instance}`;
 }
@@ -333,6 +333,13 @@ const FIELD_GRID: CSSProperties = {
   justifyItems: "start",
 };
 
+// Text inputs fill their grid cell and shrink with it on narrow layouts.
+const INPUT_STYLE: CSSProperties = {
+  width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+};
+
 // A labeled input for one function parameter or record field, as one row (two
 // cells) of a FIELD_GRID container. Argument values are kept in a flat map
 // keyed by dotted path (e.g. "token.amount").
@@ -380,7 +387,10 @@ function ParamInput({
   args: Record<string, string>;
   setArg: (path: string, value: string) => void;
 }) {
-  const value = args[path] ?? "";
+  // Numeric inputs default to 0, matching the WAVE encoding fallback.
+  const value =
+    args[path] ??
+    (typeof type === "string" && NUMERIC_TYPES.has(type) ? "0" : "");
   if (typeof type === "number") {
     const kind = wit.types[type].kind;
     if (typeof kind !== "string") {
@@ -398,7 +408,7 @@ function ParamInput({
       }
       if (kind.record) {
         return (
-          <fieldset style={{ ...FIELD_GRID, margin: 0 }}>
+          <fieldset style={{ ...FIELD_GRID, margin: 0, minWidth: 0 }}>
             {kind.record.fields.map((field) => (
               <Field
                 key={field.name}
@@ -459,8 +469,10 @@ function ParamInput({
     return (
       <input
         type="text"
+        style={INPUT_STYLE}
         value={value}
         onChange={(e) => setArg(path, e.target.value)}
+        onFocus={(e) => e.target.select()}
       />
     );
   }
@@ -476,8 +488,10 @@ function ParamInput({
   return (
     <input
       type={NUMERIC_TYPES.has(type) ? "number" : "text"}
+      style={INPUT_STYLE}
       value={value}
       onChange={(e) => setArg(path, e.target.value)}
+      onFocus={(e) => e.target.select()}
     />
   );
 }
@@ -488,16 +502,14 @@ function InstanceCard({
   wit,
   digest,
   instance,
-  called,
   onCall,
-  onResetCall,
+  log,
 }: {
   wit: WitResolve;
   digest: string;
   instance: number;
-  called: { result: string | undefined } | undefined;
   onCall: (name: string, args: string[]) => void;
-  onResetCall: () => void;
+  log: string[];
 }) {
   const [selected, setSelected] = useState("");
   const [args, setArgs] = useState<Record<string, string>>({});
@@ -528,80 +540,89 @@ function InstanceCard({
           Instance #{instance} of <code>{digest}</code>
         </h4>
       </div>
-      <div className="card__body">
-        {exports.length === 0 ? (
-          <p>The deployed component exports no functions.</p>
-        ) : (
-          <>
-            <label>
-              Function{" "}
-              <select
-                value={selected}
-                onChange={(e) => {
-                  setSelected(e.target.value);
-                  setArgs({});
-                  // The previous result belongs to another function.
-                  onResetCall();
-                }}
-              >
-                {exports.map((e) => (
-                  <option key={e.name} value={e.name}>
-                    {e.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {func && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  onCall(
-                    func.name,
-                    func.params.map((p) => waveArg(wit, p.type, p.name, args)),
-                  );
-                }}
-                style={{ ...FIELD_GRID, marginTop: 8 }}
-              >
-                {func.params.map((param) => (
-                  <Field
-                    key={param.name}
-                    wit={wit}
-                    name={param.name}
-                    type={param.type}
-                    path={param.name}
-                    args={args}
-                    setArg={setArg}
-                  />
-                ))}
-                {/* Button and result share a row so the layout doesn't jump
-                    when the result arrives. */}
-                <div
-                  style={{
-                    gridColumn: "1 / -1",
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
+      {/* Form on the left, the call log on the right; the log wraps below
+          the form when the card is too narrow for both. */}
+      <div
+        className="card__body"
+        style={{
+          display: "flex",
+          gap: 16,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+          {exports.length === 0 ? (
+            <p>The deployed component exports no functions.</p>
+          ) : (
+            <>
+              <label>
+                Function{" "}
+                <select
+                  value={selected}
+                  onChange={(e) => {
+                    setSelected(e.target.value);
+                    setArgs({});
                   }}
                 >
-                  <button type="submit" className="button button--primary">
-                    Call
-                  </button>
-                  {called && (
-                    <span style={{ overflowWrap: "anywhere" }}>
-                      {called.result !== undefined ? (
-                        <>
-                          Result: <code>{called.result}</code>
-                        </>
-                      ) : (
-                        "Called."
-                      )}
-                    </span>
-                  )}
-                </div>
-              </form>
-            )}
-          </>
-        )}
+                  {exports.map((e) => (
+                    <option key={e.name} value={e.name}>
+                      {e.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {func && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    onCall(
+                      func.name,
+                      func.params.map((p) =>
+                        waveArg(wit, p.type, p.name, args),
+                      ),
+                    );
+                  }}
+                  style={{ ...FIELD_GRID, marginTop: 8 }}
+                >
+                  {func.params.map((param) => (
+                    <Field
+                      key={param.name}
+                      wit={wit}
+                      name={param.name}
+                      type={param.type}
+                      path={param.name}
+                      args={args}
+                      setArg={setArg}
+                    />
+                  ))}
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <button type="submit" className="button button--primary">
+                      Call
+                    </button>
+                  </div>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+        <pre
+          style={{
+            flex: "1 1 240px",
+            minWidth: 0,
+            margin: 0,
+            height: 240,
+            overflow: "auto",
+          }}
+        >
+          {log.length > 0 ? (
+            log.join("\n")
+          ) : (
+            <span style={{ color: "var(--ifm-color-emphasis-500)" }}>
+              No log output.
+            </span>
+          )}
+        </pre>
       </div>
     </div>
   );
@@ -616,9 +637,8 @@ function RunPanel({
   deployments,
   onCreateInstance,
   instances,
-  callResults,
   onCall,
-  onResetCall,
+  instanceLogs,
   log,
 }: {
   canDeploy: boolean;
@@ -630,14 +650,15 @@ function RunPanel({
   deployments: RunDeployment[];
   onCreateInstance: (digest: string) => void;
   instances: RunInstance[];
-  callResults: Record<string, { result: string | undefined }>;
   onCall: (
     digest: string,
     instance: number,
     name: string,
     args: string[],
   ) => void;
-  onResetCall: (digest: string, instance: number) => void;
+  /** Call log lines of each instance, keyed by instanceKey. */
+  instanceLogs: Record<string, string[]>;
+  /** Log lines not attributable to an instance (deploy/instantiate). */
   log: string[];
 }) {
   const [selectedDigest, setSelectedDigest] = useState("");
@@ -697,7 +718,7 @@ function RunPanel({
             >
               {deployments.map((d) => (
                 <option key={d.digest} value={d.digest}>
-                  {d.digest.slice(0, 16)}… — deployed{" "}
+                  {d.digest.slice(0, 16)}… — deployed at{" "}
                   {d.deployedAt.toLocaleTimeString()}
                 </option>
               ))}
@@ -722,9 +743,8 @@ function RunPanel({
               wit={wit}
               digest={digest}
               instance={instance}
-              called={callResults[instanceKey(digest, instance)]}
               onCall={(name, args) => onCall(digest, instance, name, args)}
-              onResetCall={() => onResetCall(digest, instance)}
+              log={instanceLogs[instanceKey(digest, instance)] ?? []}
             />
           )
         );
@@ -793,11 +813,18 @@ export function Sandbox() {
 
   const [deployments, setDeployments] = useState<RunDeployment[]>([]);
   const [instances, setInstances] = useState<RunInstance[]>([]);
-  const [callResults, setCallResults] = useState<
-    Record<string, { result: string | undefined }>
-  >({});
   const [notice, setNotice] = useState<ReactNode>();
   const [runLog, setRunLog] = useState<string[]>([]);
+  // Call log lines of each instance, keyed by instanceKey.
+  const [instanceLogs, setInstanceLogs] = useState<Record<string, string[]>>(
+    {},
+  );
+  const appendInstanceLog = useCallback((key: string, entry: string) => {
+    setInstanceLogs((prev) => ({
+      ...prev,
+      [key]: [...(prev[key] ?? []), entry],
+    }));
+  }, []);
 
   // The digest of the current compiler output, identifying its deployment.
   const [componentDigest, setComponentDigest] = useState<string>();
@@ -817,8 +844,10 @@ export function Sandbox() {
   // until the digest of the Wasm changes.
   const [lastDeployedDigest, setLastDeployedDigest] = useState<string>();
 
-  // The instance the in-flight call belongs to, to attribute its result.
-  const pendingCall = useRef<string | undefined>(undefined);
+  // The in-flight call, to attribute its logs and result to its instance.
+  const pendingCall = useRef<{ key: string; label: string } | undefined>(
+    undefined,
+  );
 
   const run_request_id = useRef(0);
   const runWorker = useRunWorker((response) => {
@@ -835,9 +864,16 @@ export function Sandbox() {
         response.level
       ];
       console.log(level, `[${response.target}]`, response.body);
-      // Surface errors and warnings in the Run panel.
+      // Surface errors and warnings in the Run panel, attributed to the
+      // instance being called if there is one.
       if (response.level <= 2) {
-        setRunLog((prev) => [...prev, `${level}: ${response.body}`]);
+        const entry = `${level}: ${response.body}`;
+        const pending = pendingCall.current;
+        if (pending) {
+          appendInstanceLog(pending.key, entry);
+        } else {
+          setRunLog((prev) => [...prev, entry]);
+        }
       }
     } else if (response.type == "deployed") {
       const { digest, wit } = response;
@@ -860,12 +896,14 @@ export function Sandbox() {
         ...prev,
       ]);
     } else if (response.type == "called") {
-      const key = pendingCall.current;
-      if (key) {
-        setCallResults((prev) => ({
-          ...prev,
-          [key]: { result: response.result },
-        }));
+      const pending = pendingCall.current;
+      if (pending) {
+        appendInstanceLog(
+          pending.key,
+          `${pending.label} returned${
+            response.result !== undefined ? ` ${response.result}` : ""
+          }`,
+        );
       }
     } else {
       response satisfies never;
@@ -875,6 +913,7 @@ export function Sandbox() {
   const onDeploy = useCallback(() => {
     if (!componentWasm || !componentDigest) return;
     setLastDeployedDigest(componentDigest);
+    pendingCall.current = undefined;
     setRunLog([]);
     runWorker.request({
       request_id: ++run_request_id.current,
@@ -885,6 +924,7 @@ export function Sandbox() {
   }, [componentWasm, componentDigest]);
 
   const onCreateInstance = useCallback((digest: string) => {
+    pendingCall.current = undefined;
     setRunLog([]);
     runWorker.request({
       request_id: ++run_request_id.current,
@@ -893,23 +933,12 @@ export function Sandbox() {
     });
   }, []);
 
-  // Clear one instance's call result, e.g. when it no longer applies to what
-  // its form shows.
-  const onResetCall = useCallback((digest: string, instance: number) => {
-    const key = instanceKey(digest, instance);
-    setCallResults((prev) => {
-      if (!(key in prev)) return prev;
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  }, []);
-
   const onCall = useCallback(
     (digest: string, instance: number, name: string, args: string[]) => {
-      pendingCall.current = instanceKey(digest, instance);
-      onResetCall(digest, instance);
-      setRunLog([]);
+      const key = instanceKey(digest, instance);
+      const label = `${name}(${args.join(", ")})`;
+      pendingCall.current = { key, label };
+      appendInstanceLog(key, `→ ${label}`);
       runWorker.request({
         request_id: ++run_request_id.current,
         type: "call",
@@ -919,7 +948,7 @@ export function Sandbox() {
         args,
       });
     },
-    [onResetCall],
+    [appendInstanceLog],
   );
 
   const alreadyDeployed =
@@ -1116,9 +1145,8 @@ export function Sandbox() {
                   deployments={deployments}
                   onCreateInstance={onCreateInstance}
                   instances={instances}
-                  callResults={callResults}
                   onCall={onCall}
-                  onResetCall={onResetCall}
+                  instanceLogs={instanceLogs}
                   log={runLog}
                 />
               ),
