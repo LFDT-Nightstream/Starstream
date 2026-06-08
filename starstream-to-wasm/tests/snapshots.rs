@@ -26,7 +26,7 @@ impl<T: Print> Print for CustomPrinter<T> {
                 .print(data, &mut wasmprinter::PrintFmtWrite(&mut wat))
                 .unwrap();
             self.write_str("\n  (@custom \"component-type\"")?;
-            for line in wat.split("\n") {
+            for line in wat.split('\n') {
                 if !line.is_empty() {
                     self.write_str("\n    ")?;
                     self.write_str(line)?;
@@ -58,7 +58,7 @@ fn inputs() {
                     .expect("failed to render diagnostic");
             }
             if let Some(program) = program {
-                writeln!(output, "{:#?}\n", program).unwrap();
+                writeln!(output, "{program:#?}\n").unwrap();
 
                 let formatted_source =
                     starstream_compiler::formatter::program(&program, &source, &comments)

@@ -1,14 +1,14 @@
 #![allow(dead_code)]
 //! Component model canonical ABI implementation.
 //!
-//! Spec: https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md
+//! Spec: <https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md>
 #![allow(unused_variables)]
 
 use std::rc::Rc;
 
 use wasm_encoder::{InstructionSink, MemArg};
 
-/// Despecialized component value type. Like [wasm_encoder::ComponentValType].
+/// Despecialized component value type. Like [`wasm_encoder::ComponentValType`].
 #[derive(Hash, PartialEq, Eq, Debug)]
 pub enum ComponentAbiType {
     Bool,
@@ -113,9 +113,9 @@ impl ComponentAbiType {
     }
 
     pub fn discriminant_type(n: usize) -> ComponentAbiType {
-        if n <= usize::from(u8::MAX) {
+        if u8::try_from(n).is_ok() {
             ComponentAbiType::U8
-        } else if n <= usize::from(u16::MAX) {
+        } else if u16::try_from(n).is_ok() {
             ComponentAbiType::U16
         } else if let Ok(m) = usize::try_from(u32::MAX)
             && n <= m

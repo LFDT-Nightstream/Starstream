@@ -120,7 +120,7 @@ impl<T: TypeRegistry> TypeBuilder<T> {
     }
 }
 
-/// Abstraction over [ComponentType] and [InstanceType].
+/// Abstraction over [`ComponentType`] and [`InstanceType`].
 #[allow(dead_code)]
 pub trait TypeRegistry {
     fn ty(&mut self) -> ComponentTypeEncoder<'_>;
