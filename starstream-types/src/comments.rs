@@ -13,11 +13,13 @@ pub struct CommentMap {
 
 impl CommentMap {
     /// Create an empty comment map.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Create a comment map from a list of comments (will be sorted and deduplicated).
+    #[must_use]
     pub fn from_comments(mut comments: Vec<Comment>) -> Self {
         comments.sort_by_key(|c| c.0.start);
         comments.dedup_by_key(|c| (c.0.start, c.0.end));
@@ -34,6 +36,7 @@ impl CommentMap {
     }
 
     /// Get all comments in the map.
+    #[must_use]
     pub fn all(&self) -> &[Comment] {
         &self.comments
     }
@@ -42,6 +45,7 @@ impl CommentMap {
     ///
     /// Returns comments whose span ends before `node_start` and which are
     /// not on the same line as any preceding code.
+    #[must_use]
     pub fn comments_before(&self, node_span: Span, source: &str) -> Vec<&Comment> {
         let node_start = node_span.start;
         let node_line = line_of_offset(source, node_start);
@@ -64,6 +68,7 @@ impl CommentMap {
     ///
     /// This finds comments between `prev_end` and `node_span.start`
     /// that are on their own line (not inline with previous code).
+    #[must_use]
     pub fn comments_between(
         &self,
         prev_end: usize,
@@ -104,6 +109,7 @@ impl CommentMap {
     ///
     /// Returns the first comment that starts after `node_span.end` but
     /// is on the same line as the node's end (no newline between them).
+    #[must_use]
     pub fn inline_comment_after(&self, node_span: Span, source: &str) -> Option<&Comment> {
         // Bounds check - span might be out of range for manually constructed AST
         if node_span.start > source.len() || node_span.end > source.len() {
@@ -133,6 +139,7 @@ impl CommentMap {
     ///
     /// Returns the concatenated content of consecutive `///` comments
     /// directly preceding the node (no other code between), or `None` if there are none.
+    #[must_use]
     pub fn doc_comments(&self, node_span: Span, source: &str) -> Option<String> {
         let node_start = node_span.start;
 
@@ -151,7 +158,7 @@ impl CommentMap {
         for comment in candidates {
             // Check if there's only whitespace between this comment and current_pos
             let between = &source[comment.0.end..current_pos];
-            if !between.chars().all(|c| c.is_whitespace()) {
+            if !between.chars().all(char::is_whitespace) {
                 // There's code between, stop looking
                 break;
             }

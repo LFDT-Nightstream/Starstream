@@ -14,6 +14,7 @@ impl Default for FileSystem {
 }
 
 impl FileSystem {
+    #[must_use]
     pub fn new() -> FileSystem {
         FileSystem {
             dependencies: Vec::new(),

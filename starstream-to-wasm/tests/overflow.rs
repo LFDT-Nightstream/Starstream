@@ -5,7 +5,7 @@ use wasmtime::{Config, Engine, Linker, Module, Store};
 fn compile_program(source: &str) -> Vec<u8> {
     let parse_output = starstream_compiler::parse_program(source);
     let (program, errors) = parse_output.into_output_errors();
-    assert!(errors.is_empty(), "Parse errors: {:?}", errors);
+    assert!(errors.is_empty(), "Parse errors: {errors:?}");
 
     let program = program.expect("No program parsed");
     let success = starstream_compiler::typecheck_program(
@@ -39,17 +39,17 @@ fn execute_wasm(wasm: &[u8], func_name: &str, params: &[i64]) -> Result<Vec<i64>
     let instance = linker.instantiate(&mut store, &module).unwrap();
     let func = instance
         .get_func(&mut store, func_name)
-        .unwrap_or_else(|| panic!("Function {} not found", func_name));
+        .unwrap_or_else(|| panic!("Function {func_name} not found"));
 
     let mut results = vec![wasmtime::Val::I64(0)];
     let params: Vec<wasmtime::Val> = params.iter().map(|&p| wasmtime::Val::I64(p)).collect();
 
     match func.call(&mut store, &params, &mut results) {
-        Ok(_) => {
+        Ok(()) => {
             let result: Vec<i64> = results.iter().map(|v| v.i64().unwrap()).collect();
             Ok(result)
         }
-        Err(e) => Err(format!("{}", e)),
+        Err(e) => Err(format!("{e}")),
     }
 }
 
@@ -59,11 +59,11 @@ fn execute_wasm(wasm: &[u8], func_name: &str, params: &[i64]) -> Result<Vec<i64>
 
 #[test]
 fn test_overflow_i64_max_plus_one() {
-    let source = r#"
+    let source = r"
 script fn overflow_test() -> i64 {
     9223372036854775807 + 1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -73,11 +73,11 @@ script fn overflow_test() -> i64 {
 
 #[test]
 fn test_overflow_i64_max_plus_max() {
-    let source = r#"
+    let source = r"
 script fn overflow_test() -> i64 {
     9223372036854775807 + 9223372036854775807
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -87,11 +87,11 @@ script fn overflow_test() -> i64 {
 
 #[test]
 fn test_overflow_i64_min_minus_one() {
-    let source = r#"
+    let source = r"
 script fn overflow_test() -> i64 {
     -9223372036854775807 - 1 + -1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -101,12 +101,12 @@ script fn overflow_test() -> i64 {
 
 #[test]
 fn test_overflow_i64_min_plus_min() {
-    let source = r#"
+    let source = r"
 script fn overflow_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min + min
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -116,11 +116,11 @@ script fn overflow_test() -> i64 {
 
 #[test]
 fn test_overflow_large_positives() {
-    let source = r#"
+    let source = r"
 script fn overflow_test() -> i64 {
     5000000000000000000 + 5000000000000000000
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -130,11 +130,11 @@ script fn overflow_test() -> i64 {
 
 #[test]
 fn test_overflow_large_negatives() {
-    let source = r#"
+    let source = r"
 script fn overflow_test() -> i64 {
     -5000000000000000000 + -5000000000000000000
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -144,11 +144,11 @@ script fn overflow_test() -> i64 {
 
 #[test]
 fn test_overflow_with_parameters() {
-    let source = r#"
+    let source = r"
 script fn overflow_test(x: i64, y: i64) -> i64 {
     x + y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -166,11 +166,11 @@ script fn overflow_test(x: i64, y: i64) -> i64 {
 
 #[test]
 fn test_no_overflow_max_plus_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     9223372036854775807 + 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -181,11 +181,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_min_plus_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     -9223372036854775807 - 1 + 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -196,11 +196,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_max_plus_min() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     9223372036854775807 + (-9223372036854775807 - 1)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -214,11 +214,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_max_minus_one() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     9223372036854775807 + -1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -229,11 +229,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_min_plus_one() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     -9223372036854775807 - 1 + 1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -244,11 +244,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_boundary_positive() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     4611686018427387903 + 4611686018427387903
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -259,11 +259,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_boundary_negative() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     -4611686018427387904 + -4611686018427387904
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -274,11 +274,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mixed_signs() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     5000000000000000000 + -3000000000000000000
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -289,11 +289,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_zero_plus_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     0 + 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -304,11 +304,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_small_positive() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     100 + 200
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -319,11 +319,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_small_negative() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test() -> i64 {
     -100 + -200
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -334,11 +334,11 @@ script fn no_overflow_test() -> i64 {
 
 #[test]
 fn test_no_overflow_with_parameters() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_test(x: i64, y: i64) -> i64 {
     x + y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -364,11 +364,11 @@ script fn no_overflow_test(x: i64, y: i64) -> i64 {
 fn test_overflow_formula_positive_overflow() {
     // Tests the formula: (x ^ y) >= 0 && (sum ^ x) < 0
     // For positive overflow: both positive, sum negative
-    let source = r#"
+    let source = r"
 script fn test(x: i64, y: i64) -> i64 {
     x + y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -380,11 +380,11 @@ script fn test(x: i64, y: i64) -> i64 {
 #[test]
 fn test_overflow_formula_negative_overflow() {
     // For negative overflow: both negative, sum wraps to positive
-    let source = r#"
+    let source = r"
 script fn test(x: i64, y: i64) -> i64 {
     x + y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -396,11 +396,11 @@ script fn test(x: i64, y: i64) -> i64 {
 #[test]
 fn test_overflow_formula_different_signs_never_overflow() {
     // When signs differ, (x ^ y) < 0, so overflow check short-circuits
-    let source = r#"
+    let source = r"
 script fn test(x: i64, y: i64) -> i64 {
     x + y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -421,12 +421,12 @@ script fn test(x: i64, y: i64) -> i64 {
 
 #[test]
 fn test_overflow_sub_i64_min_minus_one() {
-    let source = r#"
+    let source = r"
 script fn overflow_sub_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min - 1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -436,12 +436,12 @@ script fn overflow_sub_test() -> i64 {
 
 #[test]
 fn test_overflow_sub_i64_min_minus_positive() {
-    let source = r#"
+    let source = r"
 script fn overflow_sub_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min - 1000
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -451,11 +451,11 @@ script fn overflow_sub_test() -> i64 {
 
 #[test]
 fn test_overflow_sub_i64_max_minus_negative() {
-    let source = r#"
+    let source = r"
 script fn overflow_sub_test() -> i64 {
     9223372036854775807 - (-1)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -465,11 +465,11 @@ script fn overflow_sub_test() -> i64 {
 
 #[test]
 fn test_overflow_sub_positive_minus_large_negative() {
-    let source = r#"
+    let source = r"
 script fn overflow_sub_test() -> i64 {
     5000000000000000000 - (-5000000000000000000)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -479,11 +479,11 @@ script fn overflow_sub_test() -> i64 {
 
 #[test]
 fn test_overflow_sub_negative_minus_positive() {
-    let source = r#"
+    let source = r"
 script fn overflow_sub_test() -> i64 {
     -5000000000000000000 - 5000000000000000000
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -493,11 +493,11 @@ script fn overflow_sub_test() -> i64 {
 
 #[test]
 fn test_overflow_sub_with_parameters() {
-    let source = r#"
+    let source = r"
 script fn overflow_sub_test(x: i64, y: i64) -> i64 {
     x - y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -520,11 +520,11 @@ script fn overflow_sub_test(x: i64, y: i64) -> i64 {
 
 #[test]
 fn test_no_overflow_sub_max_minus_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     9223372036854775807 - 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -535,12 +535,12 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_min_minus_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min - 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -551,11 +551,11 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_zero_minus_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     0 - 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -566,11 +566,11 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_positive_minus_positive() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     500 - 200
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -581,11 +581,11 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_negative_minus_negative() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     -200 - (-500)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -596,11 +596,11 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_max_minus_positive() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     9223372036854775807 - 1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -611,12 +611,12 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_min_minus_negative() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min - (-1)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -627,11 +627,11 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_max_minus_max() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     9223372036854775807 - 9223372036854775807
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -645,12 +645,12 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_min_minus_min() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min - min
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -664,11 +664,11 @@ script fn no_overflow_sub_test() -> i64 {
 
 #[test]
 fn test_no_overflow_sub_with_parameters() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_sub_test(x: i64, y: i64) -> i64 {
     x - y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -698,11 +698,11 @@ script fn no_overflow_sub_test(x: i64, y: i64) -> i64 {
 fn test_overflow_sub_formula_positive_minus_negative() {
     // Tests the formula: (x ^ y) < 0 && (diff ^ x) < 0
     // Positive - Negative can overflow to negative
-    let source = r#"
+    let source = r"
 script fn test_sub(x: i64, y: i64) -> i64 {
     x - y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -714,11 +714,11 @@ script fn test_sub(x: i64, y: i64) -> i64 {
 #[test]
 fn test_overflow_sub_formula_negative_minus_positive() {
     // Negative - Positive can overflow to positive
-    let source = r#"
+    let source = r"
 script fn test_sub(x: i64, y: i64) -> i64 {
     x - y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -730,11 +730,11 @@ script fn test_sub(x: i64, y: i64) -> i64 {
 #[test]
 fn test_overflow_sub_formula_same_signs_never_overflow() {
     // When both operands have same sign, subtraction cannot overflow
-    let source = r#"
+    let source = r"
 script fn test_sub(x: i64, y: i64) -> i64 {
     x - y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -759,11 +759,11 @@ script fn test_sub(x: i64, y: i64) -> i64 {
 
 #[test]
 fn test_overflow_mul_i64_max_times_two() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     9223372036854775807 * 2
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -773,12 +773,12 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_i64_min_times_neg_one() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min * (-1)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -788,12 +788,12 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_neg_one_times_i64_min() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     let min = -9223372036854775807 - 1;
     (-1) * min
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -803,11 +803,11 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_large_positive_values() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     4611686018427387904 * 2
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -820,11 +820,11 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_large_negative_values() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     (-4611686018427387904) * 3
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -837,11 +837,11 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_positive_negative_large() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     4611686018427387904 * (-3)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -854,11 +854,11 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_max_times_max() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     9223372036854775807 * 9223372036854775807
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -868,12 +868,12 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_min_times_two() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min * 2
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -883,11 +883,11 @@ script fn overflow_mul_test() -> i64 {
 
 #[test]
 fn test_overflow_mul_with_parameters() {
-    let source = r#"
+    let source = r"
 script fn overflow_mul_test(x: i64, y: i64) -> i64 {
     x * y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -910,11 +910,11 @@ script fn overflow_mul_test(x: i64, y: i64) -> i64 {
 
 #[test]
 fn test_no_overflow_mul_small_values() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     123 * 456
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -925,11 +925,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_zero_times_max() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     0 * 9223372036854775807
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -940,11 +940,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_max_times_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     9223372036854775807 * 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -955,11 +955,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_one_times_max() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     1 * 9223372036854775807
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -970,11 +970,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_max_times_one() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     9223372036854775807 * 1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -985,12 +985,12 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_min_times_zero() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min * 0
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1001,12 +1001,12 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_min_times_one() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     let min = -9223372036854775807 - 1;
     min * 1
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1017,11 +1017,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_negative_one_times_positive() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     (-1) * 1000
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1033,11 +1033,11 @@ script fn no_overflow_mul_test() -> i64 {
 #[test]
 fn test_no_overflow_mul_boundary_sqrt_max() {
     // Use a value slightly under the overflow threshold
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     3037000499 * 3037000499
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1049,11 +1049,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_negative_times_negative() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test() -> i64 {
     (-50) * (-100)
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1064,11 +1064,11 @@ script fn no_overflow_mul_test() -> i64 {
 
 #[test]
 fn test_no_overflow_mul_with_parameters() {
-    let source = r#"
+    let source = r"
 script fn no_overflow_mul_test(x: i64, y: i64) -> i64 {
     x * y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1097,11 +1097,11 @@ script fn no_overflow_mul_test(x: i64, y: i64) -> i64 {
 #[test]
 fn test_overflow_mul_formula_product_division_check() {
     // Tests that if product / y != x, then overflow occurred
-    let source = r#"
+    let source = r"
 script fn test_mul(x: i64, y: i64) -> i64 {
     x * y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1116,11 +1116,11 @@ script fn test_mul(x: i64, y: i64) -> i64 {
 #[test]
 fn test_overflow_mul_special_case_min_times_neg_one() {
     // Special case: MIN * -1 must trap
-    let source = r#"
+    let source = r"
 script fn test_mul(x: i64, y: i64) -> i64 {
     x * y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 
@@ -1134,11 +1134,11 @@ script fn test_mul(x: i64, y: i64) -> i64 {
 #[test]
 fn test_no_overflow_mul_zero_multiplicand() {
     // When multiplying by zero, never overflow
-    let source = r#"
+    let source = r"
 script fn test_mul(x: i64, y: i64) -> i64 {
     x * y
 }
-"#;
+";
 
     let wasm = compile_program(source);
 

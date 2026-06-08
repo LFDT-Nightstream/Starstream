@@ -234,8 +234,8 @@ mod tests {
         // At least one output should be non-zero (very likely with our placeholder linear layers)
         assert!(output_values.iter().any(|&val| val != F::from(0u64)));
 
-        println!("Input: {:?}", input_values);
-        println!("Output: {:?}", output_values);
+        println!("Input: {input_values:?}");
+        println!("Output: {output_values:?}");
         println!("Constraint system satisfied: {}", cs.is_satisfied()?);
         println!("Number of constraints: {}", cs.num_constraints());
 
@@ -298,8 +298,8 @@ mod tests {
             F::from(10410794385812429044_u64),
         ];
 
-        println!("Input: {:?}", input_values);
-        println!("Output: {:?}", output_values);
+        println!("Input: {input_values:?}");
+        println!("Output: {output_values:?}");
         println!("Constraint system satisfied: {}", cs.is_satisfied()?);
         println!("Number of constraints: {}", cs.num_constraints());
 

@@ -186,8 +186,8 @@ fn write_outputs(
     let mut depfile_contents = Vec::new();
     if write_rule(
         &mut depfile_contents,
-        fs_tracker.outputs.iter().map(|s| s.as_path()),
-        fs_tracker.dependencies.iter().map(|s| s.as_path()),
+        fs_tracker.outputs.iter().map(PathBuf::as_path),
+        fs_tracker.dependencies.iter().map(PathBuf::as_path),
     )
     .is_ok()
     {

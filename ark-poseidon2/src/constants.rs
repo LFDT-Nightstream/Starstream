@@ -155,6 +155,7 @@ impl RoundConstants<F, 8, 4, 22> {
 }
 
 impl RoundConstants<F, 12, 4, 22> {
+    #[must_use]
     pub fn new_goldilocks_12_constants() -> Self {
         // TODO: hardcoded seed
         let mut rng = ChaCha20Rng::seed_from_u64(77);

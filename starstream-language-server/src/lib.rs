@@ -12,7 +12,14 @@ use std::sync::RwLock;
 use tower_lsp_server::{
     Client, ClientSocket, LanguageServer, LspService,
     jsonrpc::{self, Error, Result},
-    lsp_types::*,
+    lsp_types::{
+        DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+        DidSaveTextDocumentParams, DocumentFormattingParams, DocumentSymbolParams,
+        DocumentSymbolResponse, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverParams,
+        InitializeParams, InitializeResult, InitializedParams, Location, MessageType, Position,
+        Range, ReferenceParams, RenameParams, TextDocumentPositionParams, TextEdit, Uri,
+        WorkspaceEdit, WorkspaceFolder,
+    },
 };
 
 // At the moment LSP version == CLI version, but for completeness's sake:
@@ -38,7 +45,7 @@ struct TextDocumentItem<'a> {
 }
 
 impl Server {
-    /// Create a new [LspService] configured for the Starstream language server.
+    /// Create a new [`LspService`] configured for the Starstream language server.
     pub fn new() -> (LspService<Self>, ClientSocket) {
         // Any custom methods can be set here.
         LspService::new(Self::with_client)
@@ -177,7 +184,7 @@ impl LanguageServer for Server {
             text: text.as_str(),
             version: Some(version),
         })
-        .await
+        .await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {

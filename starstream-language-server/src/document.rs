@@ -1,8 +1,10 @@
 //! State tracking for an open text document.
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ropey::Rope;
 use tower_lsp_server::lsp_types::{
@@ -100,7 +102,7 @@ impl DocumentState {
         uri: &Uri,
         text: &str,
         version: Option<i32>,
-        workspace_folders: &[std::path::PathBuf],
+        workspace_folders: &[PathBuf],
     ) -> Self {
         let mut state = Self {
             rope: Rope::from_str(text),
@@ -144,7 +146,7 @@ impl DocumentState {
         uri: &Uri,
         text: &str,
         version: Option<i32>,
-        workspace_folders: &[std::path::PathBuf],
+        workspace_folders: &[PathBuf],
     ) {
         self.rope = Rope::from_str(text);
 
@@ -189,7 +191,7 @@ impl DocumentState {
         ))
     }
 
-    fn reanalyse(&mut self, uri: &Uri, text: &str, workspace_folders: &[std::path::PathBuf]) {
+    fn reanalyse(&mut self, uri: &Uri, text: &str, workspace_folders: &[PathBuf]) {
         self.diagnostics.clear();
         self.program = None;
         self.typed = None;
@@ -285,12 +287,12 @@ impl DocumentState {
         &mut self,
         uri: &Uri,
         text: &str,
-        workspace_folders: &[std::path::PathBuf],
+        workspace_folders: &[PathBuf],
     ) -> bool {
         let Some(file_path) = uri_to_file_path(uri) else {
             return false;
         };
-        let Ok(canonical_file) = std::fs::canonicalize(&file_path) else {
+        let Ok(canonical_file) = fs::canonicalize(&file_path) else {
             return false;
         };
 
@@ -301,27 +303,26 @@ impl DocumentState {
         // contract, an imported helper, or a loose orphan. Either way the
         // graph knows about it.
         let mut fs = starstream_types::FileSystem::new();
-        let graph =
-            match starstream_compiler::module_graph::load_workspace(&workspace_root, &mut fs) {
-                Ok(g) => g,
-                Err(_) => {
-                    // If the workspace scan blew up (e.g. cross-contract import
-                    // somewhere we don't own), still try to give *this* file
-                    // diagnostics by rooting a single-file graph at it.
-                    let mut local_fs = starstream_types::FileSystem::new();
-                    let Ok(local_graph) = starstream_compiler::module_graph::load_from_entry(
-                        &canonical_file,
-                        &mut local_fs,
-                    ) else {
-                        return false;
-                    };
-                    let module_id = local_graph
-                        .find_by_path(&canonical_file)
-                        .expect("entry module is always in its own graph");
-                    self.run_graph_typecheck(uri, text, &local_graph, module_id);
-                    return true;
-                }
+        let graph = if let Ok(g) =
+            starstream_compiler::module_graph::load_workspace(&workspace_root, &mut fs)
+        {
+            g
+        } else {
+            // If the workspace scan blew up (e.g. cross-contract import
+            // somewhere we don't own), still try to give *this* file
+            // diagnostics by rooting a single-file graph at it.
+            let mut local_fs = starstream_types::FileSystem::new();
+            let Ok(local_graph) =
+                starstream_compiler::module_graph::load_from_entry(&canonical_file, &mut local_fs)
+            else {
+                return false;
             };
+            let module_id = local_graph
+                .find_by_path(&canonical_file)
+                .expect("entry module is always in its own graph");
+            self.run_graph_typecheck(uri, text, &local_graph, module_id);
+            return true;
+        };
 
         if let Some(module_id) = graph.find_by_path(&canonical_file) {
             self.run_graph_typecheck(uri, text, &graph, module_id);
@@ -419,7 +420,7 @@ impl DocumentState {
     }
 
     /// Format the cached AST. Returns `None` if parsing failed.
-    pub fn format(&self) -> Result<Option<String>, std::fmt::Error> {
+    pub fn format(&self) -> Result<Option<String>, fmt::Error> {
         let program = match self.program() {
             Some(program) => program,
             None => return Ok(None),
@@ -610,21 +611,21 @@ impl DocumentState {
         match definition {
             TypedDefinition::Import(import) => self.collect_import(import),
             TypedDefinition::Function(function) => {
-                self.collect_function(function, scopes, doc.clone())
+                self.collect_function(function, scopes, doc.clone());
             }
             TypedDefinition::Struct(definition) => {
                 let untyped_struct = untyped.and_then(|u| match &u.node {
                     untyped_ast::Definition::Struct(s) => Some(s),
                     _ => None,
                 });
-                self.collect_struct(definition, untyped_struct, source, doc.clone())
+                self.collect_struct(definition, untyped_struct, source, doc.clone());
             }
             TypedDefinition::Enum(definition) => {
                 let untyped_enum = untyped.and_then(|u| match &u.node {
                     untyped_ast::Definition::Enum(e) => Some(e),
                     _ => None,
                 });
-                self.collect_enum(definition, untyped_enum, source, doc.clone())
+                self.collect_enum(definition, untyped_enum, source, doc.clone());
             }
             TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
             TypedDefinition::Abi(definition) => {
@@ -632,7 +633,7 @@ impl DocumentState {
                     untyped_ast::Definition::Abi(a) => Some(a),
                     _ => None,
                 });
-                self.collect_abi(definition, untyped_abi, source, doc.clone())
+                self.collect_abi(definition, untyped_abi, source, doc.clone());
             }
             TypedDefinition::Contract => {
                 // `contract;` is a pure marker — no symbols, no hover info.
@@ -1395,7 +1396,7 @@ impl DocumentState {
                                 })
                             });
                         if let Some(types) = types {
-                            for (pattern, ty) in patterns.iter().zip(types.into_iter()) {
+                            for (pattern, ty) in patterns.iter().zip(types) {
                                 self.collect_pattern(pattern, scopes, Some(ty));
                             }
                         } else {
@@ -1588,7 +1589,7 @@ impl DocumentState {
             .cloned()
     }
 
-    /// Find the struct name for a given type by checking the struct_type_index.
+    /// Find the struct name for a given type by checking the `struct_type_index`.
     fn find_struct_name_for_type(&self, ty: &Type) -> Option<String> {
         if !matches!(ty, Type::Record(_)) {
             return None;
@@ -1823,7 +1824,7 @@ impl DocumentState {
                 .struct_types
                 .get(name)
                 .or_else(|| self.enum_types.get(name))
-                .map(|ty| ty.to_string()),
+                .map(ToString::to_string),
         }
     }
 
@@ -2074,7 +2075,7 @@ impl DocumentState {
                             Some(
                                 types
                                     .iter()
-                                    .map(|ty| ty.to_string())
+                                    .map(ToString::to_string)
                                     .collect::<Vec<_>>()
                                     .join(", "),
                             )
@@ -2157,7 +2158,7 @@ impl DocumentState {
                 TypedUtxoPart::AbiImpl { abi, span, parts } => {
                     let impl_children = parts
                         .iter()
-                        .flat_map(|function| self.function_symbol(function))
+                        .filter_map(|function| self.function_symbol(function))
                         .collect::<Vec<_>>();
                     children.push(DocumentSymbol {
                         name: abi.to_compact_string(),
@@ -2208,7 +2209,7 @@ impl DocumentState {
                             .collect::<Vec<_>>()
                             .join(", ");
 
-                        let detail = Some(format!("({})", params));
+                        let detail = Some(format!("({params})"));
 
                         #[allow(deprecated)]
                         let child = DocumentSymbol {
@@ -2338,7 +2339,7 @@ fn format_enum_variant_hover_from_info(
             } else {
                 let payload = types
                     .iter()
-                    .map(|ty| ty.to_compact_string())
+                    .map(starstream_types::Type::to_compact_string)
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{enum_name}::{variant_name}({payload})")
@@ -2436,13 +2437,13 @@ struct StructTypeEntry {
 /// Convert an LSP `Uri` (`file:///abs/path/to/foo.star`) to a `PathBuf`.
 /// Returns `None` for non-file URIs (e.g. `untitled:`, `vscode-vfs:`) or if
 /// the URI can't be percent-decoded.
-pub fn uri_to_file_path(uri: &Uri) -> Option<std::path::PathBuf> {
+pub fn uri_to_file_path(uri: &Uri) -> Option<PathBuf> {
     let s = uri.as_str();
     let raw = s.strip_prefix("file://")?;
     // On Windows VS Code emits `file:///C:/...`; on Unix it's `file:///abs/...`.
     // After stripping `file://`, both look like `/...` (Unix) or `/C:/...` (Win).
     let decoded = percent_decode(raw);
-    Some(std::path::PathBuf::from(decoded))
+    Some(PathBuf::from(decoded))
 }
 
 /// Minimal percent-decoder. The LSP only sends URIs the editor produced, so
@@ -2452,12 +2453,13 @@ fn percent_decode(s: &str) -> String {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(h), Some(l)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
-                out.push((h << 4) | l);
-                i += 3;
-                continue;
-            }
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let (Some(h), Some(l)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2]))
+        {
+            out.push((h << 4) | l);
+            i += 3;
+            continue;
         }
         out.push(bytes[i]);
         i += 1;
@@ -2483,19 +2485,15 @@ fn hex_digit(b: u8) -> Option<u8> {
 ///
 /// If no announced folder contains the file (or the editor announced
 /// none), fall back to the file's parent directory.
-fn workspace_root_for(
-    file_path: &std::path::Path,
-    workspace_folders: &[std::path::PathBuf],
-) -> std::path::PathBuf {
-    let mut best: Option<&std::path::Path> = None;
+fn workspace_root_for(file_path: &Path, workspace_folders: &[PathBuf]) -> PathBuf {
+    let mut best: Option<&Path> = None;
     for folder in workspace_folders {
-        let candidate = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
+        let candidate = fs::canonicalize(folder).unwrap_or_else(|_| folder.clone());
         if file_path.starts_with(&candidate) {
             // Prefer the deepest containing folder.
-            if best
-                .map(|cur| candidate.as_path().components().count() > cur.components().count())
-                .unwrap_or(true)
-            {
+            if best.is_none_or(|cur| {
+                candidate.as_path().components().count() > cur.components().count()
+            }) {
                 // Storing as PathBuf via unsafe gymnastics is overkill;
                 // re-derive at the end.
                 let _ = best.replace(folder.as_path());
@@ -2503,11 +2501,10 @@ fn workspace_root_for(
         }
     }
     if let Some(found) = best {
-        return std::fs::canonicalize(found).unwrap_or_else(|_| found.to_path_buf());
+        return fs::canonicalize(found).unwrap_or_else(|_| found.to_path_buf());
     }
 
     file_path
         .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
 }

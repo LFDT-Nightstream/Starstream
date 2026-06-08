@@ -28,6 +28,7 @@ pub enum IntWidth {
 }
 
 impl IntWidth {
+    #[must_use]
     pub fn is_signed(self) -> bool {
         matches!(
             self,
@@ -35,6 +36,7 @@ impl IntWidth {
         )
     }
 
+    #[must_use]
     pub fn bit_width(self) -> u32 {
         match self {
             IntWidth::I8 | IntWidth::U8 => 8,
@@ -44,6 +46,7 @@ impl IntWidth {
         }
     }
 
+    #[must_use]
     pub fn display_name(self) -> &'static str {
         match self {
             IntWidth::I8 => "i8",
@@ -57,37 +60,42 @@ impl IntWidth {
         }
     }
 
+    #[must_use]
     pub fn min_value(self) -> i128 {
         match self {
-            IntWidth::I8 => i8::MIN as i128,
-            IntWidth::I16 => i16::MIN as i128,
-            IntWidth::I32 => i32::MIN as i128,
-            IntWidth::I64 => i64::MIN as i128,
+            IntWidth::I8 => i128::from(i8::MIN),
+            IntWidth::I16 => i128::from(i16::MIN),
+            IntWidth::I32 => i128::from(i32::MIN),
+            IntWidth::I64 => i128::from(i64::MIN),
             IntWidth::U8 | IntWidth::U16 | IntWidth::U32 | IntWidth::U64 => 0,
         }
     }
 
+    #[must_use]
     pub fn max_value(self) -> i128 {
         match self {
-            IntWidth::I8 => i8::MAX as i128,
-            IntWidth::I16 => i16::MAX as i128,
-            IntWidth::I32 => i32::MAX as i128,
-            IntWidth::I64 => i64::MAX as i128,
-            IntWidth::U8 => u8::MAX as i128,
-            IntWidth::U16 => u16::MAX as i128,
-            IntWidth::U32 => u32::MAX as i128,
-            IntWidth::U64 => u64::MAX as i128,
+            IntWidth::I8 => i128::from(i8::MAX),
+            IntWidth::I16 => i128::from(i16::MAX),
+            IntWidth::I32 => i128::from(i32::MAX),
+            IntWidth::I64 => i128::from(i64::MAX),
+            IntWidth::U8 => i128::from(u8::MAX),
+            IntWidth::U16 => i128::from(u16::MAX),
+            IntWidth::U32 => i128::from(u32::MAX),
+            IntWidth::U64 => i128::from(u64::MAX),
         }
     }
 
+    #[must_use]
     pub fn fits(self, value: i128) -> bool {
         value >= self.min_value() && value <= self.max_value()
     }
 
+    #[must_use]
     pub fn is_64bit(self) -> bool {
         matches!(self, IntWidth::I64 | IntWidth::U64)
     }
 
+    #[must_use]
     pub fn is_sub32(self) -> bool {
         matches!(
             self,
@@ -119,6 +127,7 @@ pub struct TypeVarId(pub u32);
 
 impl TypeVarId {
     /// Render the identifier using the conventional `t0`, `t1`, … scheme.
+    #[must_use]
     pub fn as_str(&self) -> String {
         format!("t{}", self.0)
     }
@@ -134,8 +143,8 @@ pub struct TypeParam {
 /// A generic type definition with its template type and named parameters.
 #[derive(Clone, Debug)]
 pub struct GenericTypeDef {
-    /// The generic type with Type::Var for each param
-    /// (type_args set to the param vars so display works naturally).
+    /// The generic type with `Type::Var` for each param
+    /// (`type_args` set to the param vars so display works naturally).
     pub ty: Type,
     pub type_params: Vec<TypeParam>,
     pub doc: Option<String>,
@@ -143,6 +152,7 @@ pub struct GenericTypeDef {
 }
 
 impl GenericTypeDef {
+    #[must_use]
     pub fn param_name_map(&self) -> HashMap<TypeVarId, String> {
         self.type_params
             .iter()
@@ -194,18 +204,22 @@ pub enum Type {
 }
 
 impl Type {
+    #[must_use]
     pub fn unit() -> Self {
         Type::Unit
     }
 
+    #[must_use]
     pub fn bool() -> Self {
         Type::Bool
     }
 
+    #[must_use]
     pub fn int() -> Self {
         Type::Int(IntWidth::I64)
     }
 
+    #[must_use]
     pub fn int_of(w: IntWidth) -> Self {
         Type::Int(w)
     }
@@ -230,6 +244,7 @@ impl Type {
     /// Anonymous pure function type helper.
     ///
     /// Use `Type::Function { ... }` directly to set full details.
+    #[must_use]
     pub fn function(params: Vec<Type>, result: Type) -> Self {
         Type::Function {
             params,
@@ -249,16 +264,19 @@ impl fmt::Display for Type {
 }
 
 impl Type {
+    #[must_use]
     pub fn to_compact_string(&self) -> String {
         render_doc(self.to_doc_mode(TypeDocMode::Compact))
     }
 
     /// Render expanded display using named type parameters for `Type::Var`.
+    #[must_use]
     pub fn display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
         render_doc(self.to_doc(TypeDocMode::Expanded, params))
     }
 
     /// Render compact display using named type parameters for `Type::Var`.
+    #[must_use]
     pub fn compact_display_with_params(&self, params: &HashMap<TypeVarId, String>) -> String {
         render_doc(self.to_doc(TypeDocMode::Compact, params))
     }
@@ -571,6 +589,7 @@ pub struct Scheme {
 }
 
 impl Scheme {
+    #[must_use]
     pub fn monomorphic(ty: Type) -> Self {
         Scheme {
             vars: Vec::new(),

@@ -95,7 +95,7 @@ pub unsafe extern "C" fn run(input_len: usize) {
     // WITify core version if we can.
     match print_wit(&wasm, true) {
         Ok(wit) => unsafe { set_wit(wit.as_ptr(), wit.len()) },
-        Err(error) => error!("print_wit(core): {}", error),
+        Err(error) => error!("print_wit(core): {error}"),
     }
 
     // Componentize.
@@ -106,13 +106,13 @@ pub unsafe extern "C" fn run(input_len: usize) {
             // WITify component version (it'll be more compact).
             match print_wit(&wasm, false) {
                 Ok(wit) => unsafe { set_wit(wit.as_ptr(), wit.len()) },
-                Err(error) => error!("print_wit(component): {}", error),
+                Err(error) => error!("print_wit(component): {error}"),
             }
 
             wasm
         }
         Err(error) => {
-            error!("componentize: {}", error);
+            error!("componentize: {error}");
             wasm
         }
     };
@@ -156,7 +156,7 @@ fn componentize(wasm: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 // ----------------------------------------------------------------------------
 
 fn write_report(report: &miette::Report) {
-    error!("{}", report);
+    error!("{report}");
 }
 
 // ----------------------------------------------------------------------------
@@ -179,7 +179,7 @@ impl log::Log for Logger {
                 record.target().len(),
                 body.as_ptr(),
                 body.len(),
-            )
+            );
         };
     }
 

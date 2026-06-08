@@ -145,7 +145,7 @@ impl ControlFlowGraph {
         _ = writeln!(gv, "digraph {{");
         _ = writeln!(gv, "start [shape=box] [style=rounded];");
         _ = writeln!(gv, "start -> 0;");
-        for bb in self.resumes.iter() {
+        for bb in &self.resumes {
             _ = writeln!(gv, "yield_{bb} -> resume_{bb} [style=dotted];");
             _ = writeln!(gv, "resume_{bb} [shape=box] [style=rounded];");
             _ = writeln!(gv, "resume_{bb} -> {bb};");
@@ -155,7 +155,7 @@ impl ControlFlowGraph {
                 gv,
                 "{} [label=\"{}\"] [shape=box];",
                 i,
-                block.disassemble().to_string().replace("\n", "\\l")
+                block.disassemble().to_string().replace('\n', "\\l")
             );
             match block.out {
                 Out::None => {}
@@ -202,7 +202,7 @@ impl ControlFlowGraph {
             writeln!(fmt, "flowchart TB")?;
             writeln!(fmt, "start([start])")?;
             writeln!(fmt, "start --> 0")?;
-            for bb in self.resumes.iter() {
+            for bb in &self.resumes {
                 writeln!(fmt, "yield_{bb} -.-> resume_{bb}")?;
                 writeln!(fmt, "resume_{bb}([resume {bb}])")?;
                 writeln!(fmt, "resume_{bb} --> {bb}")?;
@@ -234,12 +234,12 @@ impl BasicBlock {
             match self.in_type {
                 None | Some(BlockType::Empty) => {}
                 Some(other) => {
-                    writeln!(fmt, "=> {:?}", other)?;
+                    writeln!(fmt, "=> {other:?}")?;
                 }
             }
             let br = wasmparser::BinaryReader::new(&self.instructions, 0);
             let or = wasmparser::OperatorsReader::new(br);
-            for result in or.into_iter() {
+            for result in or {
                 let op = result.unwrap();
                 writeln!(fmt, "{op:?}")?;
             }
