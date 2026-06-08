@@ -4,29 +4,12 @@ mod platform;
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::panic;
-use std::sync::MutexGuard;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use log::error;
 use wasmtime::Store;
 use wasmtime::component::{Component, InstancePre, Linker, Val};
 use wit_component::{ComponentEncoder, DecodedWasm};
-
-static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(wasmtime::Engine::default);
-
-struct Contract {
-    pre: InstancePre<()>,
-    instances: Vec<()>, // TODO: Store state
-}
-
-/// Deployed contracts keyed by the digest
-static CONTRACTS: Mutex<BTreeMap<u32, Contract>> = Mutex::new(BTreeMap::new());
-
-fn get_contracts<'a>() -> Result<MutexGuard<'a, BTreeMap<u32, Contract>>, &'static str> {
-    CONTRACTS
-        .lock()
-        .map_err(|_| "contract lock poisoned, please reload")
-}
 
 // Imports to manipulate the UI contents, provided by the JS page.
 unsafe extern "C" {
@@ -51,24 +34,39 @@ unsafe extern "C" {
     unsafe fn set_call_result(ptr: *const u8, len: usize);
 }
 
+static ENGINE: LazyLock<wasmtime::Engine> = LazyLock::new(wasmtime::Engine::default);
+
+struct Contract {
+    pre: InstancePre<()>,
+    instances: Vec<()>, // TODO: Store state
+}
+
+/// Deployed contracts keyed by the digest
+static CONTRACTS: Mutex<BTreeMap<u32, Contract>> = Mutex::new(BTreeMap::new());
+
+fn get_contracts<'a>() -> Result<MutexGuard<'a, BTreeMap<u32, Contract>>, &'static str> {
+    CONTRACTS
+        .lock()
+        .map_err(|_| "contract lock poisoned, please reload")
+}
+
 #[derive(serde::Deserialize)]
 struct Input<'a> {
     code: &'a str,
 }
 
-/// Cranelift profiler that does nothing: the default one calls
-/// `Instant::now()`, which panics on wasm32-unknown-unknown.
-struct NoopProfiler;
-
-impl cranelift_codegen::timing::Profiler for NoopProfiler {
-    fn start_pass(&self, _pass: cranelift_codegen::timing::Pass) -> Box<dyn std::any::Any> {
-        Box::new(())
-    }
-}
-
 /// Set up output and panic context.
 fn init() {
-    _ = cranelift_codegen::timing::set_thread_profiler(Box::new(NoopProfiler));
+    /// Cranelift profiler that does nothing: the default one calls
+    /// `Instant::now()`, which panics on wasm32-unknown-unknown.
+    struct CraneliftProfiler;
+    impl cranelift_codegen::timing::Profiler for CraneliftProfiler {
+        fn start_pass(&self, _pass: cranelift_codegen::timing::Pass) -> Box<dyn std::any::Any> {
+            Box::new(())
+        }
+    }
+    _ = cranelift_codegen::timing::set_thread_profiler(Box::new(CraneliftProfiler));
+
     _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Trace);
     panic::set_hook(Box::new(|info| {
@@ -201,13 +199,8 @@ fn handle_deploy(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
     let wit_json = serde_json::to_string(wasm.resolve())?;
 
     let mut contracts = get_contracts()?;
-    contracts.insert(
-        digest,
-        Contract {
-            pre,
-            instances: Vec::default(),
-        },
-    );
+    let instances = Vec::default();
+    contracts.insert(digest, Contract { pre, instances });
     unsafe { set_deployed_wit_json(wit_json.as_ptr(), wit_json.len()) };
 
     Ok(())
@@ -295,18 +288,18 @@ fn handle_call(input_len: usize) -> Result<(), Box<dyn std::error::Error>> {
     let func = instance
         .get_func(&mut store, function)
         .ok_or_else(|| format!("exported function `{function}` not found"))?;
-
     let ty = func.ty(&store);
-    if ty.params().len() != args.len() {
+    let param_tys = ty.params();
+
+    if param_tys.len() != args.len() {
         return Err(format!(
             "`{function}` takes {} argument(s), got {}",
-            ty.params().len(),
+            param_tys.len(),
             args.len()
         )
         .into());
     }
-    let params = ty
-        .params()
+    let params = param_tys
         .zip(&args)
         .map(|((_, ty), arg)| Val::from_wave(&ty, arg))
         .collect::<wasmtime::Result<Vec<_>>>()?;
