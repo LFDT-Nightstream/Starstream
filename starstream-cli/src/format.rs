@@ -81,10 +81,10 @@ fn unformatted_files(files: Vec<String>) -> miette::Result<Vec<Unformatted>> {
 
         if path.is_dir() {
             for path in starstream_files_excluding_gitignore(&path) {
-                format_file(&mut problem_files, path)?
+                format_file(&mut problem_files, path)?;
             }
         } else {
-            format_file(&mut problem_files, path)?
+            format_file(&mut problem_files, path)?;
         }
     }
 

@@ -25,13 +25,12 @@ impl Explain {
                 }
             }
             Err(miette::Error::msg(format!(
-                "{} is not a valid diagnostic code",
-                diagnostic_code,
+                "{diagnostic_code} is not a valid diagnostic code",
             )))
         } else {
             let mut names = ErrorCode::iter().map(|ec| ec.name).collect::<Vec<_>>();
             names.extend(WarningCode::iter().map(|wc| wc.name));
-            names.sort();
+            names.sort_unstable();
             for name in names {
                 println!("{name}");
             }
