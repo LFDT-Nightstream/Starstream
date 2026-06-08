@@ -51,7 +51,7 @@ impl std::fmt::Display for ErrorCode {
 inventory::collect!(ErrorCode);
 
 impl ErrorCode {
-    /// Iterate over all error codes registered with [error_code].
+    /// Iterate over all error codes registered with [`error_code`].
     pub fn iter() -> impl Iterator<Item = &'static ErrorCode> {
         inventory::iter::<ErrorCode>()
     }
@@ -73,14 +73,14 @@ impl std::fmt::Display for WarningCode {
 inventory::collect!(WarningCode);
 
 impl WarningCode {
-    /// Iterate over all warning codes registered with [warning_code].
+    /// Iterate over all warning codes registered with [`warning_code`].
     pub fn iter() -> impl Iterator<Item = &'static WarningCode> {
         inventory::iter::<WarningCode>()
     }
 }
 
 /// Create an error code, attaching its docs from the associated file in the
-/// `docs` folder and registering it with [ErrorCode::iter].
+/// `docs` folder and registering it with [`ErrorCode::iter`].
 #[macro_export]
 macro_rules! error_code {
     ($id:ident) => {{
@@ -100,7 +100,7 @@ macro_rules! error_code {
 }
 
 /// Create a warning code, attaching its docs from the associated file in the
-/// `docs` folder and registering it with [WarningCode::iter].
+/// `docs` folder and registering it with [`WarningCode::iter`].
 #[macro_export]
 macro_rules! warning_code {
     ($id:ident) => {{

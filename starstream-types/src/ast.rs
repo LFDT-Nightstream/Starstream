@@ -18,6 +18,7 @@ pub const DUMMY_SPAN: Span = Span {
 /// Create a span from start and end offsets.
 ///
 /// This is a convenience function that avoids needing to import the chumsky Span trait.
+#[must_use]
 pub fn span(start: usize, end: usize) -> Span {
     Span::new((), start..end)
 }
@@ -81,16 +82,19 @@ impl Identifier {
     }
 
     /// Get the identifier's text.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.name
     }
 
-    /// Get the identifier's source span if available, or DUMMY_SPAN if the identifier was hardcoded.
+    /// Get the identifier's source span if available, or `DUMMY_SPAN` if the identifier was hardcoded.
+    #[must_use]
     pub fn span(&self) -> Span {
         self.span
     }
 
     /// Get the identifier's source span if available, or `default` if the identifier was hardcoded.
+    #[must_use]
     pub fn span_or(&self, default: Span) -> Span {
         if self.span == DUMMY_SPAN {
             default
@@ -100,6 +104,7 @@ impl Identifier {
     }
 
     /// Get the identifier's source span if available, or `None` if the identifier was hardcoded.
+    #[must_use]
     pub fn opt_span(&self) -> Option<Span> {
         if self.span == DUMMY_SPAN {
             None
@@ -124,6 +129,7 @@ pub struct Comment(pub Span);
 impl Comment {
     /// Extracts doc comments (lines starting with `///`) from a slice of comments.
     /// Consecutive `///` lines are joined with newlines. Returns None if no doc comments.
+    #[must_use]
     pub fn extract_doc(comments: &[Comment], source: &str) -> Option<String> {
         let doc_lines: Vec<&str> = comments
             .iter()
