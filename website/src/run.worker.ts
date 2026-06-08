@@ -113,6 +113,11 @@ export type RunWorkerResponse = {
       wit: WitResolve;
     }
   | {
+      type: "deploy_failed";
+      /** Digest the failed "deploy" was requested for. */
+      digest: string;
+    }
+  | {
       type: "instantiated";
       /** Digest of the deployment the instance belongs to. */
       digest: string;
@@ -235,6 +240,9 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
           digest: data.digest,
           wit: deployedWit,
         });
+      } else {
+        // The error itself was already reported as a "log" response.
+        send({ request_id, type: "deploy_failed", digest: data.digest });
       }
     } catch (crash) {
       send({
@@ -244,6 +252,7 @@ self.onmessage = async function ({ data }: { data: RunWorkerRequest }) {
         target: "run",
         body: String(crash),
       });
+      send({ request_id, type: "deploy_failed", digest: data.digest });
     }
   } else if (data.type === "instantiate") {
     const digest = digestNumbers.get(data.digest);

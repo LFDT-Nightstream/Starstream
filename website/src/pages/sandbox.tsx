@@ -631,6 +631,7 @@ function InstanceCard({
 function RunPanel({
   canDeploy,
   deployHint,
+  deployErrors,
   onDeploy,
   deployments,
   onCreateInstance,
@@ -642,6 +643,8 @@ function RunPanel({
   canDeploy: boolean;
   /** Why deploying is unavailable, shown next to the disabled button. */
   deployHint: ReactNode | undefined;
+  /** Errors of the last failed deploy, shown as a warning under the button. */
+  deployErrors: string[];
   onDeploy: () => void;
   deployments: RunDeployment[];
   onCreateInstance: (digest: string) => void;
@@ -683,6 +686,18 @@ function RunPanel({
         </button>
         {deployHint && <span>{deployHint}</span>}
       </div>
+      {deployErrors.length > 0 && (
+        <div
+          className="alert alert--warning"
+          role="alert"
+          style={{ marginTop: 8 }}
+        >
+          <strong>Deployment failed.</strong>
+          <pre style={{ margin: "8px 0 0", whiteSpace: "pre-wrap" }}>
+            {deployErrors.join("\n")}
+          </pre>
+        </div>
+      )}
       {deployments.length > 0 && (
         <div
           style={{
@@ -826,6 +841,16 @@ export function Sandbox() {
   // until the digest of the Wasm changes.
   const [lastDeployedDigest, setLastDeployedDigest] = useState<string>();
 
+  // Errors of the last failed deploy, shown as a warning next to the Deploy
+  // button. Cleared on the next deploy and when the compiler output changes.
+  const [deployErrors, setDeployErrors] = useState<string[]>([]);
+  useEffect(() => {
+    setDeployErrors([]);
+  }, [componentWasm]);
+
+  // The in-flight deploy, to attribute its error logs to the deploy warning.
+  const pendingDeploy = useRef<string | undefined>(undefined);
+
   // The in-flight call, to attribute its logs and result to its instance.
   const pendingCall = useRef<{ key: string; label: string } | undefined>(
     undefined,
@@ -853,11 +878,14 @@ export function Sandbox() {
         const pending = pendingCall.current;
         if (pending) {
           appendInstanceLog(pending.key, entry);
+        } else if (pendingDeploy.current !== undefined) {
+          setDeployErrors((prev) => [...prev, entry]);
         } else {
           setRunLog((prev) => [...prev, entry]);
         }
       }
     } else if (response.type == "deployed") {
+      pendingDeploy.current = undefined;
       const { digest, wit } = response;
       const deployment = { digest, wit, deployedAt: new Date() };
       // Most recent deployment first; a re-deploy moves its digest up front.
@@ -865,6 +893,15 @@ export function Sandbox() {
         deployment,
         ...prev.filter((d) => d.digest !== digest),
       ]);
+    } else if (response.type == "deploy_failed") {
+      pendingDeploy.current = undefined;
+      // The cause arrived as "log" responses; make sure the warning shows
+      // even if none did.
+      setDeployErrors((prev) => (prev.length > 0 ? prev : ["Unknown error."]));
+      // Re-enable the Deploy button that onDeploy optimistically disabled.
+      setLastDeployedDigest((prev) =>
+        prev === response.digest ? undefined : prev,
+      );
     } else if (response.type == "instantiated") {
       // Most recent instance first, same as deployments.
       setInstances((prev) => [
@@ -890,6 +927,8 @@ export function Sandbox() {
     if (!componentWasm || !componentDigest) return;
     setLastDeployedDigest(componentDigest);
     pendingCall.current = undefined;
+    pendingDeploy.current = componentDigest;
+    setDeployErrors([]);
     setRunLog([]);
     runWorker.request({
       request_id: ++run_request_id.current,
@@ -901,6 +940,7 @@ export function Sandbox() {
 
   const onCreateInstance = useCallback((digest: string) => {
     pendingCall.current = undefined;
+    pendingDeploy.current = undefined;
     setRunLog([]);
     runWorker.request({
       request_id: ++run_request_id.current,
@@ -914,6 +954,7 @@ export function Sandbox() {
       const key = instanceKey(digest, instance);
       const label = `${name}(${args.join(", ")})`;
       pendingCall.current = { key, label };
+      pendingDeploy.current = undefined;
       appendInstanceLog(key, `→ ${label}`);
       runWorker.request({
         request_id: ++run_request_id.current,
@@ -927,10 +968,15 @@ export function Sandbox() {
     [appendInstanceLog],
   );
 
-  const alreadyDeployed =
+  // Whether the current compiler output is deployed (confirmed by the
+  // worker), and whether a deploy of it is still in flight.
+  const deployed =
     componentDigest !== undefined &&
-    (componentDigest === lastDeployedDigest ||
-      deployments.some((d) => d.digest === componentDigest));
+    deployments.some((d) => d.digest === componentDigest);
+  const deploying =
+    !deployed &&
+    componentDigest !== undefined &&
+    componentDigest === lastDeployedDigest;
 
   const onTextChanged = useCallback((code: string) => {
     worker.request({ request_id: ++request_id.current, code });
@@ -1107,11 +1153,15 @@ export function Sandbox() {
               key: "Run",
               body: (
                 <RunPanel
-                  canDeploy={!alreadyDeployed && componentDigest !== undefined}
+                  canDeploy={
+                    !deployed && !deploying && componentDigest !== undefined
+                  }
                   deployHint={
                     !componentWasm ? (
                       "Compile the code to deploy it."
-                    ) : alreadyDeployed ? (
+                    ) : deploying ? (
+                      "Deploying…"
+                    ) : deployed ? (
                       <>
                         Contract deployed as{" "}
                         <code style={{ overflowWrap: "anywhere" }}>
@@ -1120,6 +1170,7 @@ export function Sandbox() {
                       </>
                     ) : undefined
                   }
+                  deployErrors={deployErrors}
                   onDeploy={onDeploy}
                   deployments={deployments}
                   onCreateInstance={onCreateInstance}
