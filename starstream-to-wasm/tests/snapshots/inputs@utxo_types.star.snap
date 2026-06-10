@@ -154,6 +154,10 @@ TypedProgram {
               (type (;3;) (borrow 0))
               (type (;4;) (func (param "utxo" 2) (param "my-utxo" 3)))
               (export (;0;) "script-accepts-utxos" (func (type 4)))
+              (type (;5;)
+                (instance)
+              )
+              (export (;0;) "my-utxo" (instance (type 5)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -173,4 +177,6 @@ world root {
   resource utxo;
 
   export script-accepts-utxos: func(utxo: borrow<utxo>, my-utxo: borrow<my-utxo>);
+  export my-utxo: interface {
+  }
 }

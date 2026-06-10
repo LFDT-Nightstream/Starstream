@@ -1193,8 +1193,8 @@ TypedProgram {
   (export "plus_mult" (func 8))
   (export "mult_mult" (func 9))
   (export "finish" (func 10))
-  (export "score-progress-get-storage" (func 12))
-  (export "score-progress-set-storage" (func 13))
+  (export "score-progress#get-storage" (func 12))
+  (export "score-progress#set-storage" (func 13))
   (export "memory" (memory 0))
   (func (;2;) (type 2)
     (block ;; label = @1
@@ -1363,27 +1363,32 @@ TypedProgram {
               (import "score-progress" (type (;0;) (sub resource)))
               (type (;1;) (func))
               (export (;0;) "new" (func (type 1)))
-              (type (;2;) (record (field "chips" u64) (field "mult" u64)))
-              (import "score-progress-storage" (type (;3;) (eq 2)))
-              (type (;4;) (func (result 3)))
-              (export (;1;) "score-progress-get-storage" (func (type 4)))
-              (type (;5;) (func (param "storage" 3)))
-              (export (;2;) "score-progress-set-storage" (func (type 5)))
-              (type (;6;)
+              (type (;2;)
                 (instance
                   (type (;0;) (func (param "x" u64)))
                   (export (;0;) "finish" (func (type 0)))
                 )
               )
-              (import "score" (instance (;0;) (type 6)))
-              (type (;7;)
+              (import "score" (instance (;0;) (type 2)))
+              (type (;3;)
                 (instance
                   (type (;0;) (tuple u64 u64 u64 u64))
                   (type (;1;) (func (param "hash" 0)))
                   (export (;0;) "implements-method" (func (type 1)))
                 )
               )
-              (import "starstream:std/builtin" (instance (;1;) (type 7)))
+              (import "starstream:std/builtin" (instance (;1;) (type 3)))
+              (type (;4;)
+                (instance
+                  (type (;0;) (record (field "chips" u64) (field "mult" u64)))
+                  (export (;1;) "storage" (type (eq 0)))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "get-storage" (func (type 2)))
+                  (type (;3;) (func (param "storage" 1)))
+                  (export (;1;) "set-storage" (func (type 3)))
+                )
+              )
+              (export (;2;) "score-progress" (instance (type 4)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -1405,14 +1410,17 @@ world root {
 
   resource score-progress;
 
-  record score-progress-storage {
-    chips: u64,
-    mult: u64,
-  }
-
   export new: func();
-  export score-progress-get-storage: func() -> score-progress-storage;
-  export score-progress-set-storage: func(storage: score-progress-storage);
+  export score-progress: interface {
+    record storage {
+      chips: u64,
+      mult: u64,
+    }
+
+    get-storage: func() -> storage;
+
+    set-storage: func(storage: storage);
+  }
 }
 package starstream:std {
   interface builtin {

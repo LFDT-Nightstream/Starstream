@@ -19,10 +19,10 @@ use starstream_types::{
 use thiserror::Error;
 use wasm_encoder::{
     BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
-    ComponentTypeRef, ComponentTypeSection, ComponentValType, ConstExpr, CustomSection,
-    DataSection, EntityType, ExportKind, ExportSection, FuncType, Function, FunctionSection,
-    GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink,
-    MemorySection, MemoryType, Module, TypeBounds, TypeSection, ValType,
+    ComponentTypeRef, ComponentTypeSection, ConstExpr, CustomSection, DataSection, EntityType,
+    ExportKind, ExportSection, FuncType, Function, FunctionSection, GlobalSection, GlobalType,
+    Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink, MemorySection, MemoryType,
+    Module, TypeBounds, TypeSection, ValType,
 };
 
 use crate::component_abi::{
@@ -224,6 +224,7 @@ struct Compiler {
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
     imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
+    exported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
 
     // Diagnostics.
     fatal: bool,
@@ -321,6 +322,13 @@ impl Compiler {
                 .inner
                 .import(&interface_name, ComponentTypeRef::Instance(i));
         }
+        for (interface_name, instance) in self.exported_interfaces {
+            let (i, ty) = self.world_type.ty();
+            ty.instance(&instance.inner);
+            self.world_type
+                .inner
+                .export(&interface_name, ComponentTypeRef::Instance(i));
+        }
 
         // The package type must always have 0 imports and 1 export which is the world.
         // Export must be named namespace:package/world, but @version is optional.
@@ -400,15 +408,15 @@ impl Compiler {
 
     fn generate_storage_exports(
         &mut self,
+        iface: &mut TypeBuilder<InstanceType>,
         name: &Identifier,
         scope: &dyn Locals,
         fields: Vec<TypedStructField>,
     ) {
         if !fields.is_empty() {
             let resource_name = to_kebab_case(name.as_str());
-            let storage_name = format!("{name}Storage");
             let storage_struct = Type::Record(RecordType {
-                name: storage_name.clone(),
+                name: format!("{name}::Storage"),
                 fields: fields
                     .iter()
                     .map(|f| RecordFieldType {
@@ -417,11 +425,11 @@ impl Compiler {
                     })
                     .collect(),
             });
-            self.visit_struct(&TypedStructDef {
-                name: Identifier::new(storage_name.clone(), name.span()),
-                fields: fields.clone(),
-                ty: storage_struct.clone(),
-            });
+            iface.export_ty(
+                "storage",
+                &self.star_to_component_type(&storage_struct).unwrap(),
+            );
+
             let get_storage = TypedFunctionDef {
                 export: None,
                 name: Identifier::new(format!("{name}::get_storage"), name.span),
@@ -446,13 +454,11 @@ impl Compiler {
                 })),
             };
             let sig = self.star_to_component_signature(&get_storage);
-            let get_storage_core = self.visit_function(None, &get_storage, scope);
-            self.export_component_fn(
-                &format!("{resource_name}-get-storage"),
-                name.span,
-                &sig,
-                &get_storage_core,
-            );
+            let core = self.visit_function(None, &get_storage, scope);
+            if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
+                self.export_core_fn(&format!("{resource_name}#get-storage"), func_idx);
+                iface.export_fn("get-storage", &sig);
+            }
 
             let set_storage = TypedFunctionDef {
                 export: None,
@@ -486,13 +492,11 @@ impl Compiler {
                 ),
             };
             let sig = self.star_to_component_signature(&set_storage);
-            let set_storage_core = self.visit_function(None, &set_storage, scope);
-            self.export_component_fn(
-                &format!("{resource_name}-set-storage"),
-                name.span,
-                &sig,
-                &set_storage_core,
-            );
+            let core = self.visit_function(None, &set_storage, scope);
+            if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
+                self.export_core_fn(&format!("{resource_name}#set-storage"), func_idx);
+                iface.export_fn("set-storage", &sig);
+            }
         }
     }
 
@@ -847,28 +851,14 @@ impl Compiler {
     ) {
         if let Some(func_idx) = self.make_component_export_wrapper_fn(span, sig, core) {
             self.export_core_fn(wit_name, func_idx);
-            let type_idx = self.world_type.encode_func_sig(sig);
-            self.world_type
-                .inner
-                .export(wit_name, ComponentTypeRef::Func(type_idx));
+            self.world_type.export_fn(wit_name, sig);
         }
     }
 
     fn export_component_ty(&mut self, name: &str, ty: &Type) {
         let component_ty = self.star_to_component_type(ty).unwrap();
-        let ComponentValType::Type(idx) = self.world_type.encode_value(&component_ty) else {
-            unreachable!()
-        };
-        // "Exporting" a type consists of importing it with an equality constraint.
-        let new_idx = self.world_type.inner.type_count();
-        self.world_type.inner.import(
-            &to_kebab_case(name),
-            ComponentTypeRef::Type(TypeBounds::Eq(idx)),
-        );
-        // Future uses must also refer to the imported version.
         self.world_type
-            .component_to_encoded
-            .insert(component_ty, ComponentValType::Type(new_idx));
+            .export_ty(&to_kebab_case(name), &component_ty);
     }
 
     // ------------------------------------------------------------------------
@@ -1528,6 +1518,8 @@ impl Compiler {
     }
 
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        let mut iface = TypeBuilder::<InstanceType>::default();
+
         // Declare the resource type.
         let resource_name = to_kebab_case(utxo.name.as_str());
         let resource = self.world_type.inner.type_count();
@@ -1597,10 +1589,13 @@ impl Compiler {
 
         // Generate storage exports.
         self.generate_storage_exports(
+            &mut iface,
             &utxo.name,
             &(&() as &dyn Locals, &utxo_storage),
             utxo_record_type,
         );
+
+        self.exported_interfaces.insert(resource_name, iface);
     }
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {

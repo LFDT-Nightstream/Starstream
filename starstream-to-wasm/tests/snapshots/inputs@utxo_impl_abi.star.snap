@@ -219,6 +219,10 @@ TypedProgram {
           (type (;0;)
             (component
               (import "my-utxo" (type (;0;) (sub resource)))
+              (type (;1;)
+                (instance)
+              )
+              (export (;0;) "my-utxo" (instance (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -234,4 +238,7 @@ package root:component;
 
 world root {
   resource my-utxo;
+
+  export my-utxo: interface {
+  }
 }

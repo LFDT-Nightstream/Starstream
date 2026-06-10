@@ -330,6 +330,10 @@ TypedProgram {
                 )
               )
               (import "starstream:std/builtin" (instance (;0;) (type 2)))
+              (type (;3;)
+                (instance)
+              )
+              (export (;1;) "my-utxo" (instance (type 3)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -349,6 +353,8 @@ world root {
   resource my-utxo;
 
   export hello-utxo: func(x: s32);
+  export my-utxo: interface {
+  }
 }
 package starstream:std {
   interface builtin {
