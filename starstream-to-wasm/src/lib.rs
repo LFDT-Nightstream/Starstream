@@ -414,94 +414,94 @@ impl Compiler {
         scope: &dyn Locals,
         fields: Vec<TypedStructField>,
     ) {
-        if !fields.is_empty() {
-            let name = &utxo.name;
-            let storage_struct = Type::Record(RecordType {
-                name: format!("{name}::Storage"),
-                fields: fields
-                    .iter()
-                    .map(|f| RecordFieldType {
-                        name: f.name.name.clone(),
-                        ty: f.ty.clone(),
-                    })
-                    .collect(),
-            });
-            iface.export_ty(
-                "storage",
-                &self.star_to_component_type(&storage_struct).unwrap(),
-            );
+        if fields.is_empty() {
+            return;
+        }
 
-            let get_storage = TypedFunctionDef {
-                export: None,
-                name: Identifier::new(format!("{name}::get_storage"), name.span),
-                params: Vec::new(),
-                return_type: storage_struct.clone(),
-                effect: EffectKind::Pure,
-                body: TypedBlock::from(Spanned::none(TypedExpr {
-                    ty: storage_struct.clone(),
-                    kind: TypedExprKind::StructLiteral {
-                        name: name.clone(),
-                        fields: fields
-                            .iter()
-                            .map(|f| TypedStructLiteralField {
-                                name: f.name.clone(),
-                                value: Spanned::none(TypedExpr {
-                                    ty: f.ty.clone(),
-                                    kind: TypedExprKind::Identifier(f.name.clone()),
-                                }),
-                            })
-                            .collect(),
-                    },
-                })),
-            };
-            let sig = self.star_to_component_signature(Some(&utxo.ty), &get_storage);
-            let core = self.visit_function(Some(&utxo.ty), &get_storage, scope);
-            if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
-                self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
-                iface.export_fn("get-storage", &sig);
-            }
+        let name = &utxo.name;
+        let storage_struct = Type::Record(RecordType {
+            name: format!("{name}::Storage"),
+            fields: fields
+                .iter()
+                .map(|f| RecordFieldType {
+                    name: f.name.name.clone(),
+                    ty: f.ty.clone(),
+                })
+                .collect(),
+        });
+        iface.export_ty(
+            "storage",
+            &self.star_to_component_type(&storage_struct).unwrap(),
+        );
 
-            let set_storage = TypedFunctionDef {
-                export: None,
-                name: Identifier::new(format!("{name}::set_storage"), name.span),
-                params: vec![TypedFunctionParam {
-                    public: false,
-                    name: Identifier::anon("storage"),
-                    ty: storage_struct.clone(),
-                }],
-                return_type: utxo.ty.clone(),
-                effect: EffectKind::Pure,
-                body: TypedBlock::new(
-                    fields
+        let get_storage = TypedFunctionDef {
+            export: None,
+            name: Identifier::new(format!("{name}::get_storage"), name.span),
+            params: Vec::new(),
+            return_type: storage_struct.clone(),
+            effect: EffectKind::Pure,
+            body: TypedBlock::from(Spanned::none(TypedExpr {
+                ty: storage_struct.clone(),
+                kind: TypedExprKind::StructLiteral {
+                    name: name.clone(),
+                    fields: fields
                         .iter()
-                        .map(|f| TypedStatement::Assignment {
-                            target: f.name.clone(),
+                        .map(|f| TypedStructLiteralField {
+                            name: f.name.clone(),
                             value: Spanned::none(TypedExpr {
                                 ty: f.ty.clone(),
-                                kind: TypedExprKind::FieldAccess {
-                                    target: Box::new(Spanned::none(TypedExpr {
-                                        ty: storage_struct.clone(),
-                                        kind: TypedExprKind::Identifier(Identifier::anon(
-                                            "storage",
-                                        )),
-                                    })),
-                                    field: f.name.clone(),
-                                },
+                                kind: TypedExprKind::Identifier(f.name.clone()),
                             }),
                         })
-                        .collect::<Vec<_>>(),
-                    Some(Spanned::none(TypedExpr::new(
-                        utxo.ty.clone(),
-                        TypedExprKind::Literal(Literal::Integer(0)),
-                    ))),
-                ),
-            };
-            let sig = self.star_to_component_signature(None, &set_storage);
-            let core = self.visit_function(None, &set_storage, scope);
-            if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
-                self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
-                iface.export_fn("set-storage", &sig);
-            }
+                        .collect(),
+                },
+            })),
+        };
+        let sig = self.star_to_component_signature(Some(&utxo.ty), &get_storage);
+        let core = self.visit_function(Some(&utxo.ty), &get_storage, scope);
+        if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
+            self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
+            iface.export_fn("get-storage", &sig);
+        }
+
+        let set_storage = TypedFunctionDef {
+            export: None,
+            name: Identifier::new(format!("{name}::set_storage"), name.span),
+            params: vec![TypedFunctionParam {
+                public: false,
+                name: Identifier::anon("storage"),
+                ty: storage_struct.clone(),
+            }],
+            return_type: utxo.ty.clone(),
+            effect: EffectKind::Pure,
+            body: TypedBlock::new(
+                fields
+                    .iter()
+                    .map(|f| TypedStatement::Assignment {
+                        target: f.name.clone(),
+                        value: Spanned::none(TypedExpr {
+                            ty: f.ty.clone(),
+                            kind: TypedExprKind::FieldAccess {
+                                target: Box::new(Spanned::none(TypedExpr {
+                                    ty: storage_struct.clone(),
+                                    kind: TypedExprKind::Identifier(Identifier::anon("storage")),
+                                })),
+                                field: f.name.clone(),
+                            },
+                        }),
+                    })
+                    .collect::<Vec<_>>(),
+                Some(Spanned::none(TypedExpr::new(
+                    utxo.ty.clone(),
+                    TypedExprKind::Literal(Literal::Integer(0)),
+                ))),
+            ),
+        };
+        let sig = self.star_to_component_signature(None, &set_storage);
+        let core = self.visit_function(None, &set_storage, scope);
+        if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
+            self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
+            iface.export_fn("set-storage", &sig);
         }
     }
 
