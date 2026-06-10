@@ -5,7 +5,7 @@ use wasm_encoder::{
     PrimitiveValType,
 };
 
-use crate::component_abi::ComponentAbiType;
+use crate::component_abi::{ComponentAbiFunctionSignature, ComponentAbiType};
 
 #[derive(Default)]
 pub struct TypeBuilder<T: ?Sized> {
@@ -28,6 +28,19 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             .map(|p| (p.0, self.encode_value(&p.1)))
             .collect::<Vec<_>>();
         let result = result.map(|r| self.encode_value(r));
+
+        let (idx, ty) = self.ty();
+        ty.function().params(params).result(result);
+        idx
+    }
+
+    pub fn encode_func_sig<'a>(&mut self, signature: &ComponentAbiFunctionSignature) -> u32 {
+        let params = signature
+            .params
+            .iter()
+            .map(|p| (p.0.as_str(), self.encode_value(&p.1)))
+            .collect::<Vec<_>>();
+        let result = signature.result.as_ref().map(|r| self.encode_value(r));
 
         let (idx, ty) = self.ty();
         ty.function().params(params).result(result);

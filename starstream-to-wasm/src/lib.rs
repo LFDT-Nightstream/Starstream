@@ -25,7 +25,9 @@ use wasm_encoder::{
     MemorySection, MemoryType, Module, TypeBounds, TypeSection, ValType,
 };
 
-use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
+use crate::component_abi::{
+    ComponentAbiFunctionSignature, ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS,
+};
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
 use crate::encoder::TypeBuilder;
 use crate::ir::{ControlFlowGraph, Out};
@@ -422,7 +424,7 @@ impl Compiler {
             });
             let get_storage = TypedFunctionDef {
                 export: None,
-                name: Identifier::anon(format!("{name}::get_storage")),
+                name: Identifier::new(format!("{name}::get_storage"), name.span),
                 params: Vec::new(),
                 return_type: storage_struct.clone(),
                 effect: EffectKind::Pure,
@@ -443,18 +445,18 @@ impl Compiler {
                     },
                 })),
             };
-            let get_storage_core = self.visit_function(&get_storage, scope);
+            let sig = self.star_to_component_signature(&get_storage);
+            let get_storage_core = self.visit_function(None, &get_storage, scope);
             self.export_component_fn(
                 &format!("{resource_name}-get-storage"),
-                &get_storage,
-                get_storage_core.idx,
-                &get_storage_core.params,
-                &get_storage_core.results,
+                name.span,
+                &sig,
+                &get_storage_core,
             );
 
             let set_storage = TypedFunctionDef {
                 export: None,
-                name: Identifier::anon(format!("{name}::set_storage")),
+                name: Identifier::new(format!("{name}::set_storage"), name.span),
                 params: vec![TypedFunctionParam {
                     public: false,
                     name: Identifier::anon("storage"),
@@ -483,13 +485,13 @@ impl Compiler {
                         .collect::<Vec<_>>(),
                 ),
             };
-            let set_storage_core = self.visit_function(&set_storage, scope);
+            let sig = self.star_to_component_signature(&set_storage);
+            let set_storage_core = self.visit_function(None, &set_storage, scope);
             self.export_component_fn(
                 &format!("{resource_name}-set-storage"),
-                &set_storage,
-                set_storage_core.idx,
-                &set_storage_core.params,
-                &set_storage_core.results,
+                name.span,
+                &sig,
+                &set_storage_core,
             );
         }
     }
@@ -777,7 +779,10 @@ impl Compiler {
     // ------------------------------------------------------------------------
     // Component table management
 
-    fn encode_component_func_type(&mut self, function: &TypedFunctionDef) -> u32 {
+    fn star_to_component_signature(
+        &mut self,
+        function: &TypedFunctionDef,
+    ) -> ComponentAbiFunctionSignature {
         let params = function
             .params
             .iter()
@@ -786,40 +791,36 @@ impl Compiler {
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
             })
             .collect::<Vec<_>>();
-        // Annoying clone, maybe fixable? At least it's just an Rc
-        let params = params.iter().map(|(a, b)| (a.as_str(), b.clone()));
         let result = self.star_to_component_type(&function.return_type);
-        self.world_type
-            .encode_func(params.into_iter(), result.as_ref())
+        ComponentAbiFunctionSignature { params, result }
     }
 
     fn make_component_export_wrapper_fn(
         &mut self,
-        function: &TypedFunctionDef,
-        func_idx: u32,
-        params: &[ValType],
-        core_results: &[ValType],
+        span: Span,
+        sig: &ComponentAbiFunctionSignature,
+        core: &CoreFn,
     ) -> Option<u32> {
-        if params.len() <= MAX_FLAT_PARAMS && core_results.len() <= MAX_FLAT_RESULTS {
+        if core.params.len() <= MAX_FLAT_PARAMS && core.results.len() <= MAX_FLAT_RESULTS {
             // No need to spill params or results to heap, so don't wrap.
-            Some(func_idx)
-        } else if params.len() <= MAX_FLAT_PARAMS {
+            Some(core.idx)
+        } else if core.params.len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
-            let result = self.star_to_component_type(&function.return_type).unwrap();
+            let result = sig.result.as_ref().unwrap();
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
-            let mut wrapper_func = StFunction::new(params, &[ValType::I32]);
+            let mut wrapper_func = StFunction::new(&core.params, &[ValType::I32]);
             let bb = &wrapper_func.cfg.add_block();
             wrapper_func.cfg.seal(*bb, BlockType::Empty);
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
-            for i in 0..params.len() {
+            for i in 0..core.params.len() {
                 wrapper_func.instructions(bb).local_get(i as u32);
             }
-            wrapper_func.instructions(bb).call(func_idx);
+            wrapper_func.instructions(bb).call(core.idx);
             // Write to our return slot.
-            self.component_store(function.name.span(), &mut wrapper_func, bb, &result, 0);
+            self.component_store(span, &mut wrapper_func, bb, &result, 0);
             // Return our return slot.
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             wrapper_func.cfg.fill(*bb, Out::Return);
@@ -830,7 +831,7 @@ impl Compiler {
             Some(wrapper_func_idx)
         } else {
             self.push_error(
-                function.name.span(),
+                span,
                 "TODO: Component ABI for function with too many params",
             );
             None
@@ -840,16 +841,13 @@ impl Compiler {
     fn export_component_fn(
         &mut self,
         wit_name: &str,
-        function: &TypedFunctionDef,
-        func_idx: u32,
-        params: &[ValType],
-        results: &[ValType],
+        span: Span,
+        sig: &ComponentAbiFunctionSignature,
+        core: &CoreFn,
     ) {
-        if let Some(func_idx) =
-            self.make_component_export_wrapper_fn(function, func_idx, params, results)
-        {
+        if let Some(func_idx) = self.make_component_export_wrapper_fn(span, sig, core) {
             self.export_core_fn(wit_name, func_idx);
-            let type_idx = self.encode_component_func_type(function);
+            let type_idx = self.world_type.encode_func_sig(sig);
             self.world_type
                 .inner
                 .export(wit_name, ComponentTypeRef::Func(type_idx));
@@ -1264,16 +1262,10 @@ impl Compiler {
                 .entry("starstream:std/builtin".to_owned())
                 .or_default();
             let u64_ty = Rc::new(ComponentAbiType::U64);
-            let implements_method_ty = builtin.encode_func(
-                [(
-                    "hash",
-                    Rc::new(ComponentAbiType::Tuple {
-                        fields: vec![u64_ty; 4],
-                    }),
-                )]
-                .into_iter(),
-                None,
-            );
+            let tuple = Rc::new(ComponentAbiType::Tuple {
+                fields: vec![u64_ty; 4],
+            });
+            let implements_method_ty = builtin.encode_func([("hash", tuple)].into_iter(), None);
             builtin.inner.export(
                 "implements-method",
                 ComponentTypeRef::Func(implements_method_ty),
@@ -1300,14 +1292,14 @@ impl Compiler {
                 TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
 
                 TypedDefinition::Function(func) => {
-                    let core = self.visit_function(func, &());
+                    let core = self.visit_function(None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
+                        let sig = self.star_to_component_signature(func);
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
-                            func,
-                            core.idx,
-                            &core.params,
-                            &core.results,
+                            func.name.span,
+                            &sig,
+                            &core,
                         );
                     }
                 }
@@ -1459,9 +1451,17 @@ impl Compiler {
     }
 
     /// Compile a function body into a Wasm core function. Does not handle exporting.
-    fn visit_function(&mut self, function: &TypedFunctionDef, parent: &dyn Locals) -> CoreFn {
+    fn visit_function(
+        &mut self,
+        this: Option<&Type>,
+        function: &TypedFunctionDef,
+        parent: &dyn Locals,
+    ) -> CoreFn {
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
+        if let Some(this) = this {
+            _ = self.star_to_core_types(function.name.span(), &mut params, this);
+        }
         for p in &function.params {
             locals.insert(
                 p.name.name.clone(),
@@ -1561,14 +1561,15 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::Function(function) => {
-                    let core = self.visit_function(function, &(&() as &dyn Locals, &utxo_storage));
+                    let core =
+                        self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
+                        let sig = self.star_to_component_signature(&function);
                         self.export_component_fn(
                             &to_kebab_case(function.name.as_str()),
-                            function,
-                            core.idx,
-                            &core.params,
-                            &core.results,
+                            function.name.span,
+                            &sig,
+                            &core,
                         );
                     }
                 }
@@ -1579,8 +1580,11 @@ impl Compiler {
                 } => {
                     _ = abi; // TODO: generate cast functions
                     for function in parts {
-                        let core =
-                            self.visit_function(function, &(&() as &dyn Locals, &utxo_storage));
+                        let core = self.visit_function(
+                            None,
+                            function,
+                            &(&() as &dyn Locals, &utxo_storage),
+                        );
                         self.export_core_fn(function.name.as_str(), core.idx);
                     }
                 }

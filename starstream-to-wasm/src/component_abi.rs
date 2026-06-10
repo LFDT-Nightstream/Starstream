@@ -11,6 +11,15 @@ use wasm_encoder::{InstructionSink, MemArg};
 /// Function used to generate instructions to store a single value to memory.
 pub type StoreFn = Box<dyn Fn(InstructionSink)>;
 
+/// Component function signature type.
+///
+/// Non-static `resource` methods have a first parameter named `self` which is
+/// a Borrow of that resource.
+pub struct ComponentAbiFunctionSignature {
+    pub params: Vec<(String, Rc<ComponentAbiType>)>,
+    pub result: Option<Rc<ComponentAbiType>>,
+}
+
 /// Despecialized component value type. Like [`wasm_encoder::ComponentValType`].
 #[derive(Hash, PartialEq, Eq, Debug)]
 pub enum ComponentAbiType {
