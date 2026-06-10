@@ -57,7 +57,7 @@ pub fn stackify(func: &StFunction, entry: usize, mode: AsyncMode) -> Stackified<
     s
 }
 
-impl<'a> Stackified<'a> {
+impl Stackified<'_> {
     fn compile(&mut self) {
         let Stackified { func, entry, .. } = *self;
         func.cfg.assert_complete();
@@ -253,7 +253,7 @@ impl<'a> Stackified<'a> {
                     }
                 }
             }
-            for item in self.seq.iter() {
+            for item in &self.seq {
                 if let &SeqItem::Basic(bb) = item {
                     write!(fmt, "{}", self.func.cfg.blocks[bb].out.to_mermaid(bb))?;
                 }
@@ -301,9 +301,8 @@ impl DepthTracker {
 
 fn next_block_is(seq: &[SeqItem], next: usize) -> bool {
     for each in seq {
-        match each {
-            &SeqItem::Basic(bb) => return bb == next,
-            _ => {}
+        if let &SeqItem::Basic(bb) = each {
+            return bb == next;
         }
     }
     false

@@ -66,13 +66,12 @@ pub fn starstream_files_excluding_gitignore(dir: &Path) -> impl Iterator<Item = 
         .require_git(false)
         .build()
         .filter_map(Result::ok)
-        .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        .filter(|e| e.file_type().is_some_and(|t| t.is_file()))
         .map(ignore::DirEntry::into_path)
         .filter(move |d| is_starstream_path(d))
 }
 
 fn is_starstream_path(path: &Path) -> bool {
     path.extension()
-        .map(|e| e == starstream_compiler::FILE_EXTENSION)
-        .unwrap_or_default()
+        .is_some_and(|e| e == starstream_compiler::FILE_EXTENSION)
 }

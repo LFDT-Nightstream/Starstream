@@ -4,9 +4,23 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
-use starstream_types::*;
+use starstream_types::{
+    BinaryOp, EffectKind, EnumType, EnumVariantKind, FunctionExport, Identifier, IntWidth, Literal,
+    RecordFieldType, RecordType, Span, Spanned, Type, TypedAbiDef, TypedAbiPart, TypedBlock,
+    TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef, TypedEnumPatternPayload, TypedExpr,
+    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
+    TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement,
+    TypedStructDef, TypedStructField, TypedStructLiteralField, TypedUtxoDef, TypedUtxoPart,
+    UnaryOp,
+};
 use thiserror::Error;
-use wasm_encoder::*;
+use wasm_encoder::{
+    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
+    ComponentTypeRef, ComponentTypeSection, ComponentValType, ConstExpr, CustomSection,
+    DataSection, EntityType, ExportKind, ExportSection, FuncType, Function, FunctionSection,
+    GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink,
+    MemorySection, MemoryType, Module, TypeBounds, TypeSection, ValType,
+};
 
 use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
 use crate::decision_tree::{Ctor, DecisionTree, Matrix, Pat, Row};
@@ -52,7 +66,7 @@ mod stackifier;
 pub struct CompileOptions {
     /// Change to `false` to wrap instead of error on arithmetic overflow.
     pub check_overflows: bool,
-    /// Change to `true` to populate [CompileResult::mermaid].
+    /// Change to `true` to populate [`CompileResult::mermaid`].
     pub output_mermaid: bool,
 }
 
@@ -64,7 +78,7 @@ pub struct CompileResult {
     pub wasm: Option<Vec<u8>>,
     /// The WIT custom section bytes.
     pub binary_wit: Option<Vec<u8>>,
-    /// List of (name, flowchart) pairs. Requires [CompileOptions::output_mermaid].
+    /// List of (name, flowchart) pairs. Requires [`CompileOptions::output_mermaid`].
     pub mermaid: Vec<(String, String)>,
 }
 
@@ -77,6 +91,7 @@ pub struct CompileError {
 }
 
 /// Compile a Starstream program to a Wasm module with default options.
+#[must_use]
 pub fn compile(program: &TypedProgram) -> CompileResult {
     CompileOptions::default().compile(program)
 }
@@ -90,6 +105,7 @@ pub fn compile(program: &TypedProgram) -> CompileResult {
 /// becomes an exported transaction root, whether it's declared in the entry
 /// itself or in one of its helpers — if you wrote `script fn`, it gets
 /// exported.
+#[must_use]
 pub fn compile_contract(
     graph: &starstream_compiler::TypedModuleGraph,
     entry: starstream_compiler::ModuleId,
@@ -107,6 +123,7 @@ impl Default for CompileOptions {
 }
 
 impl CompileOptions {
+    #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
         let mut compiler = Compiler::default();
         compiler.options = self;
@@ -114,6 +131,7 @@ impl CompileOptions {
         compiler.finish()
     }
 
+    #[must_use]
     pub fn compile_contract(
         self,
         graph: &starstream_compiler::TypedModuleGraph,
@@ -133,23 +151,19 @@ impl CompileOptions {
         while let Some(id) = stack.pop() {
             let module = graph.module(id);
             for def in &module.program.definitions {
-                if let TypedDefinition::Import(import) = def {
-                    if let TypedImportSource::Path {
+                if let TypedDefinition::Import(import) = def
+                    && let TypedImportSource::Path {
                         canonical: Some(canonical),
                         ..
                     } = &import.from
-                    {
-                        if let Some(target) = graph
-                            .modules
-                            .iter()
-                            .find(|m| &m.abs_path == canonical)
-                            .map(|m| m.id)
-                        {
-                            if reachable.insert(target) {
-                                stack.push(target);
-                            }
-                        }
-                    }
+                    && let Some(target) = graph
+                        .modules
+                        .iter()
+                        .find(|m| &m.abs_path == canonical)
+                        .map(|m| m.id)
+                    && reachable.insert(target)
+                {
+                    stack.push(target);
                 }
             }
         }
@@ -226,7 +240,7 @@ struct Compiler {
 }
 
 impl Compiler {
-    /// After [Compiler::visit_program], this function collates all the
+    /// After [`Compiler::visit_program`], this function collates all the
     /// in-progress sections into an actual Wasm binary module.
     fn finish(mut self) -> CompileResult {
         // TODO: any other final activity on the sections here, such as
@@ -383,7 +397,7 @@ impl Compiler {
     ) {
         if !fields.is_empty() {
             let resource_name = to_kebab_case(name.as_str());
-            let storage_name = format!("{}Storage", name);
+            let storage_name = format!("{name}Storage");
             let storage_struct = Type::Record(RecordType {
                 name: storage_name.clone(),
                 fields: fields
@@ -400,7 +414,7 @@ impl Compiler {
                 ty: storage_struct.clone(),
             });
             self.visit_function(
-                &format!("{}-get-storage", resource_name),
+                &format!("{resource_name}-get-storage"),
                 &TypedFunctionDef {
                     export: Some(FunctionExport::Script),
                     name: Identifier::anon(format!("{name}::get_storage")),
@@ -427,7 +441,7 @@ impl Compiler {
                 scope,
             );
             self.visit_function(
-                &format!("{}-set-storage", resource_name),
+                &format!("{resource_name}-set-storage"),
                 &TypedFunctionDef {
                     export: Some(FunctionExport::Script),
                     name: Identifier::anon(format!("{name}::set_storage")),
@@ -470,14 +484,13 @@ impl Compiler {
     /// Add a function signature to the `types` section if needed, and return
     /// the index of the new or existing entry.
     fn add_core_func_type(&mut self, ty: FuncType) -> u32 {
-        match self.core_func_type_cache.get(&ty) {
-            Some(&index) => index,
-            None => {
-                let index = self.types.len();
-                self.types.ty().func_type(&ty);
-                self.core_func_type_cache.insert(ty, index);
-                index
-            }
+        if let Some(&index) = self.core_func_type_cache.get(&ty) {
+            index
+        } else {
+            let index = self.types.len();
+            self.types.ty().func_type(&ty);
+            self.core_func_type_cache.insert(ty, index);
+            index
         }
     }
 
@@ -752,7 +765,7 @@ impl Compiler {
         let params = function
             .params
             .iter()
-            .flat_map(|p| {
+            .filter_map(|p| {
                 self.star_to_component_type(&p.ty)
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
             })
@@ -943,7 +956,7 @@ impl Compiler {
                 let fields = record
                     .fields
                     .iter()
-                    .flat_map(|f| {
+                    .filter_map(|f| {
                         self.star_to_component_type(&f.ty)
                             .map(|ty| (f.name.as_str().to_owned(), ty))
                     })
@@ -1005,7 +1018,7 @@ impl Compiler {
                                 EnumVariantKind::Tuple(fields) => {
                                     let fields: Vec<_> = fields
                                         .iter()
-                                        .flat_map(|f| self.star_to_component_type(f))
+                                        .filter_map(|f| self.star_to_component_type(f))
                                         .collect();
                                     if fields.is_empty() {
                                         None
@@ -1016,7 +1029,7 @@ impl Compiler {
                                 EnumVariantKind::Struct(fields) => {
                                     let fields: Vec<_> = fields
                                         .iter()
-                                        .flat_map(|f| self.star_to_component_type(&f.ty))
+                                        .filter_map(|f| self.star_to_component_type(&f.ty))
                                         .collect();
                                     if fields.is_empty() {
                                         None
@@ -1329,7 +1342,7 @@ impl Compiler {
                     // Component import
                     let comp_params = params
                         .iter()
-                        .flat_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
+                        .filter_map(|p| self.star_to_component_type(p).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
                     let comp_result = self.star_to_component_type(result);
                     let iface = self
@@ -1402,7 +1415,7 @@ impl Compiler {
                     let comp_params = event
                         .params
                         .iter()
-                        .flat_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
+                        .filter_map(|p| self.star_to_component_type(&p.ty).map(|t| ("x", t)))
                         .collect::<Vec<_>>();
                     let comp_result = None;
                     let iface = self.imported_interfaces.entry(interface).or_default();
@@ -1456,7 +1469,7 @@ impl Compiler {
             self.mermaid
                 .push((wit_name.to_string(), func.cfg.to_mermaid().to_string()));
             self.mermaid.push((
-                format!("{}_{}", wit_name, bb_orig),
+                format!("{wit_name}_{bb_orig}"),
                 stackified.to_mermaid().to_string(),
             ));
         }
@@ -1469,7 +1482,7 @@ impl Compiler {
             let stackified = stackify(&func, resume, stackifier::AsyncMode::AsyncContinuation);
             if self.options.output_mermaid {
                 self.mermaid.push((
-                    format!("{}_{}", wit_name, resume),
+                    format!("{wit_name}_{resume}"),
                     stackified.to_mermaid().to_string(),
                 ));
             }
@@ -1478,7 +1491,7 @@ impl Compiler {
         }
 
         match function.export {
-            Some(FunctionExport::Script) | Some(FunctionExport::UtxoMain) => {
+            Some(FunctionExport::Script | FunctionExport::UtxoMain) => {
                 self.export_component_fn(wit_name, function, idx, &params, &results);
             }
             None => {}
@@ -1572,7 +1585,7 @@ impl Compiler {
             for yield_id in range {
                 func.instructions().block(BlockType::Empty);
                 func.instructions().global_get(yield_global);
-                func.instructions().i32_const((yield_id + 1) as i32);
+                func.instructions().i32_const(yield_id + 1);
                 func.instructions().i32_ne();
                 func.instructions().br_if(0);
                 func.instructions()
@@ -1992,7 +2005,7 @@ impl Compiler {
                 Ok(())
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
-                func.instructions(bb).i32_const(*b as i32);
+                func.instructions(bb).i32_const(i32::from(*b));
                 assert_eq!(expr.ty, Type::Bool);
                 Ok(())
             }
@@ -2511,7 +2524,7 @@ impl Compiler {
                     }
                     other => Err(self.push_error(
                         field.span_or(target.span),
-                        format!("field access is only valid on structs, not {:?}", other),
+                        format!("field access is only valid on structs, not {other:?}"),
                     )),
                 }
             }
@@ -2650,10 +2663,7 @@ impl Compiler {
                     }
                     TypedEnumConstructorPayload::Struct(fields) => {
                         let EnumVariantKind::Struct(struct_) = &variant_ty.kind else {
-                            panic!(
-                                "EnumConstructor struct used for non-struct variant {}",
-                                variant
-                            );
+                            panic!("EnumConstructor struct used for non-struct variant {variant}");
                         };
                         let fields = fields
                             .iter()
@@ -2902,7 +2912,7 @@ impl Compiler {
         Ok(())
     }
 
-    /// Same as visit_match_stack but drops the result.
+    /// Same as `visit_match_stack` but drops the result.
     fn visit_match_drop(
         &mut self,
         func: &mut StFunction,
@@ -2949,7 +2959,7 @@ impl Compiler {
         Ok(())
     }
 
-    /// Lower a TypedPattern into the simplified Pat for the decision tree matrix.
+    /// Lower a `TypedPattern` into the simplified Pat for the decision tree matrix.
     /// Bindings are embedded as `Pat::Wildcard { binding: Some(...) }` so that
     /// the CC algorithm's specialization automatically tracks them through columns.
     fn lower_pattern(&mut self, pattern: &TypedPattern, arm_idx: usize, ty: &Type) -> Pat {
@@ -3068,7 +3078,14 @@ impl Compiler {
                     }
                 }
 
-                if !bulk.is_empty() {
+                if bulk.is_empty() {
+                    let _ = self.visit_block_drop(
+                        func,
+                        bb,
+                        &(locals, &arm_locals),
+                        &arms[*action].body,
+                    );
+                } else {
                     let _ = self.visit_block_stack(
                         func,
                         bb,
@@ -3076,13 +3093,6 @@ impl Compiler {
                         &arms[*action].body,
                     );
                     bulk.store(func, bb);
-                } else {
-                    let _ = self.visit_block_drop(
-                        func,
-                        bb,
-                        &(locals, &arm_locals),
-                        &arms[*action].body,
-                    );
                 }
                 func.cfg.fill(*bb, Out::Next(bb_end));
             }
@@ -3415,7 +3425,7 @@ impl Compiler {
         }
     }
 
-    /// Expand col_locals for a struct match: replace the struct column with field columns.
+    /// Expand `col_locals` for a struct match: replace the struct column with field columns.
     fn expand_col_locals_for_struct(
         &mut self,
         col_locals: &[(u32, Type)],
@@ -3479,9 +3489,9 @@ impl Locals for (&dyn Locals, &HashMap<String, Var>) {
     }
 }
 
-/// A replacement for [wasm_encoder::Function] that allows adding locals gradually.
+/// A replacement for [`wasm_encoder::Function`] that allows adding locals gradually.
 ///
-/// Bytecode can be encoded to the return value of [Function::instructions].
+/// Bytecode can be encoded to the return value of [`Function::instructions`].
 #[derive(Default)]
 struct StFunction {
     params: Vec<ValType>,
@@ -3545,14 +3555,14 @@ impl FromIterator<ValType> for RleLocals {
 impl wasm_encoder::Encode for RleLocals {
     fn encode(&self, sink: &mut Vec<u8>) {
         self.0.len().encode(sink);
-        for &(count, ty) in self.0.iter() {
+        for &(count, ty) in &self.0 {
             count.encode(sink);
             ty.encode(sink);
         }
     }
 }
 
-/// Switch between 0 results, 1 result that can be a BlockType, or 2+ results that must be in locals.
+/// Switch between 0 results, 1 result that can be a `BlockType`, or 2+ results that must be in locals.
 enum BulkBlockOutput {
     BlockType(BlockType),
     Locals { start: u32, len: u32 },
@@ -3606,7 +3616,7 @@ struct CoreFn {
     idx: u32,
 }
 
-/// Remove column `col` from a col_locals slice.
+/// Remove column `col` from a `col_locals` slice.
 fn remove_col(col_locals: &[(u32, Type)], col: usize) -> Vec<(u32, Type)> {
     let mut result = Vec::with_capacity(col_locals.len() - 1);
     result.extend_from_slice(&col_locals[..col]);

@@ -82,13 +82,13 @@ impl std::fmt::Display for TypedImportSource {
                 package,
                 interface,
             } => {
-                write!(f, "{}:{}", namespace, package)?;
+                write!(f, "{namespace}:{package}")?;
                 if let Some(interface) = interface {
-                    write!(f, "/{}", interface)?;
+                    write!(f, "/{interface}")?;
                 }
                 Ok(())
             }
-            TypedImportSource::Path { value, .. } => write!(f, "\"{}\"", value),
+            TypedImportSource::Path { value, .. } => write!(f, "\"{value}\""),
         }
     }
 }
@@ -182,6 +182,7 @@ pub struct TypedAbiMethodDecl {
 
 impl TypedAbiMethodDecl {
     /// Get the stable hashable identity of this method type.
+    #[must_use]
     pub fn identity(&self) -> &str {
         // TODO: specify hashing for types and include real type signature here
         self.name.as_str()
@@ -386,12 +387,14 @@ pub struct TypedStructPatternField {
 }
 
 impl TypedExpr {
+    #[must_use]
     pub fn new(ty: Type, kind: TypedExprKind) -> Self {
         Self { ty, kind }
     }
 }
 
 impl TypedBlock {
+    #[must_use]
     pub fn new(
         statements: Vec<TypedStatement>,
         tail_expression: Option<Spanned<TypedExpr>>,

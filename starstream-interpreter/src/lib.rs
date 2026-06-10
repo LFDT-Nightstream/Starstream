@@ -350,6 +350,7 @@ impl From<bool> for Value {
 }
 
 impl Value {
+    #[must_use]
     pub fn to_bool(&self) -> bool {
         match *self {
             Value::Boolean(v) => v,

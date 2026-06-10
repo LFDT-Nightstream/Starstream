@@ -33,7 +33,7 @@ where
 
     let labels: Vec<LabeledSpan> = diagnostic
         .labels()
-        .map(|iter| iter.collect())
+        .map(Iterator::collect)
         .unwrap_or_default();
 
     let mut range = Range::default();
@@ -49,7 +49,7 @@ where
 
     for label in labels.iter().skip(1) {
         let related_range = source_span_to_range(rope, label.inner());
-        let related_message = label.label().map(|s| s.to_string()).unwrap_or_default();
+        let related_message = label.label().map(ToString::to_string).unwrap_or_default();
 
         related_information.push(DiagnosticRelatedInformation {
             message: related_message,
@@ -68,7 +68,7 @@ where
             .or(Some(DiagnosticSeverity::ERROR)),
         code: diagnostic
             .code()
-            .map(|code| NumberOrString::String(format!("star-{}", code))),
+            .map(|code| NumberOrString::String(format!("star-{code}"))),
         code_description: diagnostic.url().and_then(|url| {
             url.to_string()
                 .parse()

@@ -171,8 +171,8 @@ impl Wasm {
             let mut depfile_contents = Vec::new();
             write_rule(
                 &mut depfile_contents,
-                fs.outputs.iter().map(|s| s.as_path()),
-                fs.dependencies.iter().map(|s| s.as_path()),
+                fs.outputs.iter().map(PathBuf::as_path),
+                fs.dependencies.iter().map(PathBuf::as_path),
             )
             .expect("Error writing depfile");
             fs.write(&depfile, &depfile_contents)

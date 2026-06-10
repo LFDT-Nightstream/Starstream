@@ -98,7 +98,7 @@ pub struct Matrix {
     pub rows: Vec<Row>,
 }
 
-/// A binding extracted from a Leaf node: (arm_index, name, column_index).
+/// A binding extracted from a Leaf node: (`arm_index`, `name`, `column_index`).
 #[derive(Clone, Debug)]
 pub struct LeafBinding {
     pub action: usize,
@@ -176,12 +176,12 @@ pub fn compile(matrix: &Matrix, col_types: &[Type]) -> DecisionTree {
         })
         .collect();
 
-    let default = if !complete {
+    let default = if complete {
+        None
+    } else {
         let def_matrix = default_matrix(matrix, i);
         let def_col_types = default_col_types(col_types, i);
         Some(Box::new(compile(&def_matrix, &def_col_types)))
-    } else {
-        None
     };
 
     DecisionTree::Switch {
