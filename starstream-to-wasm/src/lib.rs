@@ -1557,7 +1557,10 @@ impl Compiler {
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
                         let sig = self.star_to_component_signature(&function);
-                        let wit_name = to_kebab_case(function.name.as_str());
+                        let wit_name = format!(
+                            "[static]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
                         if let Some(func_idx) =
                             self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
                         {

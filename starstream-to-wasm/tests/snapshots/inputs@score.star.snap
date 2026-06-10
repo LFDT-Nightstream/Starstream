@@ -1188,7 +1188,7 @@ TypedProgram {
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i64) (i64.const 0))
   (global (;2;) (mut i64) (i64.const 0))
-  (export "score-progress#new" (func 4))
+  (export "score-progress#[static]score-progress.new" (func 4))
   (export "score-progress#plus-chips" (func 7))
   (export "score-progress#plus-mult" (func 8))
   (export "score-progress#mult-mult" (func 9))
@@ -1379,7 +1379,7 @@ TypedProgram {
                 (instance
                   (export (;0;) "score-progress" (type (sub resource)))
                   (type (;1;) (func))
-                  (export (;0;) "new" (func (type 1)))
+                  (export (;0;) "[static]score-progress.new" (func (type 1)))
                   (type (;2;) (func (param "chips2" u64)))
                   (export (;1;) "plus-chips" (func (type 2)))
                   (type (;3;) (func (param "mult2" u64)))
@@ -1417,14 +1417,14 @@ world root {
   import starstream:std/builtin;
 
   export score-progress: interface {
-    resource score-progress;
+    resource score-progress {
+      new: static func();
+    }
 
     record storage {
       chips: u64,
       mult: u64,
     }
-
-    new: func();
 
     plus-chips: func(chips2: u64);
 
