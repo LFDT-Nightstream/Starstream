@@ -343,9 +343,10 @@ TypedProgram {
 (module
   (type (;0;) (func))
   (type (;1;) (func (param i64 i64) (result i64)))
-  (type (;2;) (func (param i32) (result i64 i64)))
-  (type (;3;) (func (param i32) (result i32)))
-  (type (;4;) (func (param i64 i64) (result i32)))
+  (type (;2;) (func (result i32)))
+  (type (;3;) (func (param i32) (result i64 i64)))
+  (type (;4;) (func (param i32) (result i32)))
+  (type (;5;) (func (param i64 i64) (result i32)))
   (memory (;0;) 1)
   (global (;0;) (mut i64) (i64.const 0))
   (global (;1;) (mut i64) (i64.const 0))
@@ -380,23 +381,25 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;2;) (type 0)
+  (func (;2;) (type 2) (result i32)
     (global.set 0
       (call 1
         (global.get 0)
         (i64.const 1)))
+    (i32.const 0)
   )
-  (func (;3;) (type 0)
+  (func (;3;) (type 2) (result i32)
     (global.set 1
       (call 1
         (global.get 1)
         (i64.const 1)))
+    (i32.const 0)
   )
-  (func (;4;) (type 2) (param i32) (result i64 i64)
+  (func (;4;) (type 3) (param i32) (result i64 i64)
     (global.get 0)
     (global.get 1)
   )
-  (func (;5;) (type 3) (param i32) (result i32)
+  (func (;5;) (type 4) (param i32) (result i32)
     (local i32 i64 i64)
     (i32.const 8)
     (call 4
@@ -412,7 +415,7 @@ TypedProgram {
       (local.get 3))
     (i32.const 8)
   )
-  (func (;6;) (type 4) (param i64 i64) (result i32)
+  (func (;6;) (type 5) (param i64 i64) (result i32)
     (local i64)
     (global.set 0
       (local.get 0)
@@ -436,17 +439,17 @@ TypedProgram {
               (type (;0;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
-                  (type (;1;) (func))
-                  (export (;0;) "[static]utxo.increment" (func (type 1)))
-                  (type (;2;) (func))
-                  (export (;1;) "[static]utxo.increment-mult" (func (type 2)))
-                  (type (;3;) (record (field "counter" s64) (field "multiplier" s64)))
-                  (export (;4;) "storage" (type (eq 3)))
-                  (type (;5;) (borrow 0))
-                  (type (;6;) (func (param "self" 5) (result 4)))
-                  (export (;2;) "get-storage" (func (type 6)))
-                  (type (;7;) (own 0))
-                  (type (;8;) (func (param "storage" 4) (result 7)))
+                  (type (;1;) (own 0))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "[static]utxo.increment" (func (type 2)))
+                  (type (;3;) (func (result 1)))
+                  (export (;1;) "[static]utxo.increment-mult" (func (type 3)))
+                  (type (;4;) (record (field "counter" s64) (field "multiplier" s64)))
+                  (export (;5;) "storage" (type (eq 4)))
+                  (type (;6;) (borrow 0))
+                  (type (;7;) (func (param "self" 6) (result 5)))
+                  (export (;2;) "get-storage" (func (type 7)))
+                  (type (;8;) (func (param "storage" 5) (result 1)))
                   (export (;3;) "set-storage" (func (type 8)))
                 )
               )
@@ -467,8 +470,8 @@ package root:component;
 world root {
   export my-utxo: interface {
     resource utxo {
-      increment: static func();
-      increment-mult: static func();
+      increment: static func() -> utxo;
+      increment-mult: static func() -> utxo;
     }
 
     record storage {

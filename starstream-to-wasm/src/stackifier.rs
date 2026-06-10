@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use wasm_encoder::{Encode, FuncType, InstructionSink};
+use wasm_encoder::{Encode, FuncType, InstructionSink, ValType};
 
 use crate::{
     DisplayClosure, StFunction,
@@ -73,7 +73,8 @@ impl Stackified<'_> {
             AsyncMode::AsyncStart => {
                 // TODO: conform to wasm-component async ABI...?
                 // For now, our async functions always have no returns anyways, so we don't have to deal with that yet.
-                self.ty = FuncType::new(func.params.iter().copied(), func.results.iter().copied());
+                assert!(func.results.is_empty());
+                self.ty = FuncType::new(func.params.iter().copied(), [ValType::I32]);
                 locals = crate::RleLocals::from_iter(func.locals.iter().copied());
             }
             AsyncMode::AsyncContinuation => {
@@ -176,6 +177,10 @@ impl Stackified<'_> {
         }
 
         // Finishing touch
+        if matches!(self.mode, AsyncMode::AsyncStart) {
+            // Currently a dummy resource handle, in the future might be a status code
+            InstructionSink::new(sink).i32_const(0);
+        }
         InstructionSink::new(sink).end();
         self.seq = seq;
     }

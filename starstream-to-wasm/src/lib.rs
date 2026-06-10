@@ -1572,7 +1572,8 @@ impl Compiler {
                     let core =
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
-                        let sig = self.star_to_component_signature(None, &function);
+                        let mut sig = self.star_to_component_signature(None, &function);
+                        sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
                         let wit_name = format!(
                             "[static]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())

@@ -249,6 +249,7 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func))
+  (type (;1;) (func (result i32)))
   (import "foo-abi" "hello-event" (func (;0;) (type 0)))
   (export "my-utxo#[static]utxo.hello-utxo" (func 3))
   (func (;1;) (type 0)
@@ -257,8 +258,9 @@ TypedProgram {
   (func (;2;) (type 0)
     (call 0)
   )
-  (func (;3;) (type 0)
+  (func (;3;) (type 1) (result i32)
     (call 2)
+    (i32.const 0)
   )
   (@custom "component-type"
     (component
@@ -277,8 +279,9 @@ TypedProgram {
               (type (;1;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
-                  (type (;1;) (func))
-                  (export (;0;) "[static]utxo.hello-utxo" (func (type 1)))
+                  (type (;1;) (own 0))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "[static]utxo.hello-utxo" (func (type 2)))
                 )
               )
               (export (;1;) "my-utxo" (instance (type 1)))
@@ -302,7 +305,7 @@ world root {
 
   export my-utxo: interface {
     resource utxo {
-      hello-utxo: static func();
+      hello-utxo: static func() -> utxo;
     }
   }
 }

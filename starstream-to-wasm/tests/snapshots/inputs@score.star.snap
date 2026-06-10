@@ -1179,11 +1179,12 @@ TypedProgram {
   (type (;1;) (func (param i64)))
   (type (;2;) (func))
   (type (;3;) (func (param i64 i64) (result i64)))
-  (type (;4;) (func (param i32 i64)))
-  (type (;5;) (func (param i32)))
-  (type (;6;) (func (param i32) (result i64 i64)))
-  (type (;7;) (func (param i32) (result i32)))
-  (type (;8;) (func (param i64 i64) (result i32)))
+  (type (;4;) (func (result i32)))
+  (type (;5;) (func (param i32 i64)))
+  (type (;6;) (func (param i32)))
+  (type (;7;) (func (param i32) (result i64 i64)))
+  (type (;8;) (func (param i32) (result i32)))
+  (type (;9;) (func (param i64 i64) (result i32)))
   (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
   (import "score" "finish" (func (;1;) (type 1)))
   (memory (;0;) 1)
@@ -1247,7 +1248,7 @@ TypedProgram {
           (then
             (unreachable)))))
   )
-  (func (;4;) (type 2)
+  (func (;4;) (type 4) (result i32)
     (global.set 0
       (i32.const 1))
     (call 0
@@ -1270,6 +1271,7 @@ TypedProgram {
       (i64.const 7822374597054249491)
       (i64.const -6997249775370434463)
       (i64.const -2683880554626369430))
+    (i32.const 0)
   )
   (func (;5;) (type 2)
     (call 1
@@ -1300,19 +1302,19 @@ TypedProgram {
       (then
         (unreachable)))
   )
-  (func (;7;) (type 4) (param i32 i64)
+  (func (;7;) (type 5) (param i32 i64)
     (global.set 1
       (call 6
         (global.get 1)
         (local.get 1)))
   )
-  (func (;8;) (type 4) (param i32 i64)
+  (func (;8;) (type 5) (param i32 i64)
     (global.set 2
       (call 6
         (global.get 2)
         (local.get 1)))
   )
-  (func (;9;) (type 4) (param i32 i64)
+  (func (;9;) (type 5) (param i32 i64)
     (global.set 2
       (i64.div_u
         (call 3
@@ -1320,14 +1322,14 @@ TypedProgram {
           (local.get 1))
         (i64.const 100)))
   )
-  (func (;10;) (type 5) (param i32)
+  (func (;10;) (type 6) (param i32)
     (return_call 2)
   )
-  (func (;11;) (type 6) (param i32) (result i64 i64)
+  (func (;11;) (type 7) (param i32) (result i64 i64)
     (global.get 1)
     (global.get 2)
   )
-  (func (;12;) (type 7) (param i32) (result i32)
+  (func (;12;) (type 8) (param i32) (result i32)
     (local i32 i64 i64)
     (i32.const 8)
     (call 11
@@ -1343,7 +1345,7 @@ TypedProgram {
       (local.get 3))
     (i32.const 8)
   )
-  (func (;13;) (type 8) (param i64 i64) (result i32)
+  (func (;13;) (type 9) (param i64 i64) (result i32)
     (local i64)
     (global.set 1
       (local.get 0)
@@ -1382,23 +1384,23 @@ TypedProgram {
               (type (;2;)
                 (instance
                   (export (;0;) "utxo" (type (sub resource)))
-                  (type (;1;) (func))
-                  (export (;0;) "[static]utxo.new" (func (type 1)))
-                  (type (;2;) (borrow 0))
-                  (type (;3;) (func (param "self" 2) (param "chips2" u64)))
-                  (export (;1;) "[method]utxo.plus-chips" (func (type 3)))
-                  (type (;4;) (func (param "self" 2) (param "mult2" u64)))
-                  (export (;2;) "[method]utxo.plus-mult" (func (type 4)))
-                  (type (;5;) (func (param "self" 2) (param "mult-pct" u64)))
-                  (export (;3;) "[method]utxo.mult-mult" (func (type 5)))
-                  (type (;6;) (func (param "self" 2)))
-                  (export (;4;) "[method]utxo.finish" (func (type 6)))
-                  (type (;7;) (record (field "chips" u64) (field "mult" u64)))
-                  (export (;8;) "storage" (type (eq 7)))
-                  (type (;9;) (func (param "self" 2) (result 8)))
-                  (export (;5;) "get-storage" (func (type 9)))
-                  (type (;10;) (own 0))
-                  (type (;11;) (func (param "storage" 8) (result 10)))
+                  (type (;1;) (own 0))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "[static]utxo.new" (func (type 2)))
+                  (type (;3;) (borrow 0))
+                  (type (;4;) (func (param "self" 3) (param "chips2" u64)))
+                  (export (;1;) "[method]utxo.plus-chips" (func (type 4)))
+                  (type (;5;) (func (param "self" 3) (param "mult2" u64)))
+                  (export (;2;) "[method]utxo.plus-mult" (func (type 5)))
+                  (type (;6;) (func (param "self" 3) (param "mult-pct" u64)))
+                  (export (;3;) "[method]utxo.mult-mult" (func (type 6)))
+                  (type (;7;) (func (param "self" 3)))
+                  (export (;4;) "[method]utxo.finish" (func (type 7)))
+                  (type (;8;) (record (field "chips" u64) (field "mult" u64)))
+                  (export (;9;) "storage" (type (eq 8)))
+                  (type (;10;) (func (param "self" 3) (result 9)))
+                  (export (;5;) "get-storage" (func (type 10)))
+                  (type (;11;) (func (param "storage" 9) (result 1)))
                   (export (;6;) "set-storage" (func (type 11)))
                 )
               )
@@ -1424,7 +1426,7 @@ world root {
 
   export score-progress: interface {
     resource utxo {
-      new: static func();
+      new: static func() -> utxo;
       plus-chips: func(chips2: u64);
       plus-mult: func(mult2: u64);
       mult-mult: func(mult-pct: u64);
