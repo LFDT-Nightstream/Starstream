@@ -408,6 +408,7 @@ impl Compiler {
 
     fn generate_storage_exports(
         &mut self,
+        utxo_ty: &Type,
         iface: &mut TypeBuilder<InstanceType>,
         name: &Identifier,
         scope: &dyn Locals,
@@ -453,8 +454,8 @@ impl Compiler {
                     },
                 })),
             };
-            let sig = self.star_to_component_signature(None, &get_storage);
-            let core = self.visit_function(None, &get_storage, scope);
+            let sig = self.star_to_component_signature(Some(utxo_ty), &get_storage);
+            let core = self.visit_function(Some(utxo_ty), &get_storage, scope);
             if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
                 self.export_core_fn(&format!("{resource_name}#get-storage"), func_idx);
                 iface.export_fn("get-storage", &sig);
@@ -1607,6 +1608,7 @@ impl Compiler {
 
         // Generate storage exports.
         self.generate_storage_exports(
+            &utxo.ty,
             &mut iface,
             &utxo.name,
             &(&() as &dyn Locals, &utxo_storage),
