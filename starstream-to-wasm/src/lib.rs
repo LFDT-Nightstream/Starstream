@@ -413,67 +413,76 @@ impl Compiler {
                 fields: fields.clone(),
                 ty: storage_struct.clone(),
             });
-            self.visit_function(
-                &format!("{resource_name}-get-storage"),
-                &TypedFunctionDef {
-                    export: Some(FunctionExport::Script),
-                    name: Identifier::anon(format!("{name}::get_storage")),
-                    params: Vec::new(),
-                    return_type: storage_struct.clone(),
-                    effect: EffectKind::Pure,
-                    body: TypedBlock::from(Spanned::none(TypedExpr {
-                        ty: storage_struct.clone(),
-                        kind: TypedExprKind::StructLiteral {
-                            name: name.clone(),
-                            fields: fields
-                                .iter()
-                                .map(|f| TypedStructLiteralField {
-                                    name: f.name.clone(),
-                                    value: Spanned::none(TypedExpr {
-                                        ty: f.ty.clone(),
-                                        kind: TypedExprKind::Identifier(f.name.clone()),
-                                    }),
-                                })
-                                .collect(),
-                        },
-                    })),
-                },
-                scope,
-            );
-            self.visit_function(
-                &format!("{resource_name}-set-storage"),
-                &TypedFunctionDef {
-                    export: Some(FunctionExport::Script),
-                    name: Identifier::anon(format!("{name}::set_storage")),
-                    params: vec![TypedFunctionParam {
-                        public: false,
-                        name: Identifier::anon("storage"),
-                        ty: storage_struct.clone(),
-                    }],
-                    return_type: Type::Unit,
-                    effect: EffectKind::Pure,
-                    body: TypedBlock::from(
-                        fields
+            let get_storage = TypedFunctionDef {
+                export: None,
+                name: Identifier::anon(format!("{name}::get_storage")),
+                params: Vec::new(),
+                return_type: storage_struct.clone(),
+                effect: EffectKind::Pure,
+                body: TypedBlock::from(Spanned::none(TypedExpr {
+                    ty: storage_struct.clone(),
+                    kind: TypedExprKind::StructLiteral {
+                        name: name.clone(),
+                        fields: fields
                             .iter()
-                            .map(|f| TypedStatement::Assignment {
-                                target: f.name.clone(),
+                            .map(|f| TypedStructLiteralField {
+                                name: f.name.clone(),
                                 value: Spanned::none(TypedExpr {
                                     ty: f.ty.clone(),
-                                    kind: TypedExprKind::FieldAccess {
-                                        target: Box::new(Spanned::none(TypedExpr {
-                                            ty: storage_struct.clone(),
-                                            kind: TypedExprKind::Identifier(Identifier::anon(
-                                                "storage",
-                                            )),
-                                        })),
-                                        field: f.name.clone(),
-                                    },
+                                    kind: TypedExprKind::Identifier(f.name.clone()),
                                 }),
                             })
-                            .collect::<Vec<_>>(),
-                    ),
-                },
-                scope,
+                            .collect(),
+                    },
+                })),
+            };
+            let get_storage_core = self.visit_function(&get_storage, scope);
+            self.export_component_fn(
+                &format!("{resource_name}-get-storage"),
+                &get_storage,
+                get_storage_core.idx,
+                &get_storage_core.params,
+                &get_storage_core.results,
+            );
+
+            let set_storage = TypedFunctionDef {
+                export: None,
+                name: Identifier::anon(format!("{name}::set_storage")),
+                params: vec![TypedFunctionParam {
+                    public: false,
+                    name: Identifier::anon("storage"),
+                    ty: storage_struct.clone(),
+                }],
+                return_type: Type::Unit,
+                effect: EffectKind::Pure,
+                body: TypedBlock::from(
+                    fields
+                        .iter()
+                        .map(|f| TypedStatement::Assignment {
+                            target: f.name.clone(),
+                            value: Spanned::none(TypedExpr {
+                                ty: f.ty.clone(),
+                                kind: TypedExprKind::FieldAccess {
+                                    target: Box::new(Spanned::none(TypedExpr {
+                                        ty: storage_struct.clone(),
+                                        kind: TypedExprKind::Identifier(Identifier::anon(
+                                            "storage",
+                                        )),
+                                    })),
+                                    field: f.name.clone(),
+                                },
+                            }),
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            };
+            let set_storage_core = self.visit_function(&set_storage, scope);
+            self.export_component_fn(
+                &format!("{resource_name}-set-storage"),
+                &set_storage,
+                set_storage_core.idx,
+                &set_storage_core.params,
+                &set_storage_core.results,
             );
         }
     }
@@ -827,10 +836,10 @@ impl Compiler {
         function: &TypedFunctionDef,
         func_idx: u32,
         params: &[ValType],
-        core_results: &[ValType],
+        results: &[ValType],
     ) {
         if let Some(func_idx) =
-            self.make_component_export_wrapper_fn(function, func_idx, params, core_results)
+            self.make_component_export_wrapper_fn(function, func_idx, params, results)
         {
             self.export_core_fn(wit_name, func_idx);
             let type_idx = self.encode_component_func_type(function);
@@ -1283,7 +1292,16 @@ impl Compiler {
                 TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
 
                 TypedDefinition::Function(func) => {
-                    self.visit_function(&to_kebab_case(func.name.as_str()), func, &());
+                    let core = self.visit_function(func, &());
+                    if let Some(FunctionExport::Script) = func.export {
+                        self.export_component_fn(
+                            &to_kebab_case(func.name.as_str()),
+                            func,
+                            core.idx,
+                            &core.params,
+                            &core.results,
+                        );
+                    }
                 }
                 TypedDefinition::Struct(struct_) => self.visit_struct(struct_),
                 TypedDefinition::Utxo(utxo) => self.visit_utxo(utxo),
@@ -1432,12 +1450,8 @@ impl Compiler {
         }
     }
 
-    fn visit_function(
-        &mut self,
-        wit_name: &str,
-        function: &TypedFunctionDef,
-        parent: &dyn Locals,
-    ) -> CoreFn {
+    /// Compile a function body into a Wasm core function. Does not handle exporting.
+    fn visit_function(&mut self, function: &TypedFunctionDef, parent: &dyn Locals) -> CoreFn {
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
@@ -1467,9 +1481,9 @@ impl Compiler {
         let stackified = stackify(&func, bb_orig, async_mode);
         if self.options.output_mermaid {
             self.mermaid
-                .push((wit_name.to_string(), func.cfg.to_mermaid().to_string()));
+                .push((function.name.to_string(), func.cfg.to_mermaid().to_string()));
             self.mermaid.push((
-                format!("{wit_name}_{bb_orig}"),
+                format!("{}_{bb_orig}", function.name),
                 stackified.to_mermaid().to_string(),
             ));
         }
@@ -1482,7 +1496,7 @@ impl Compiler {
             let stackified = stackify(&func, resume, stackifier::AsyncMode::AsyncContinuation);
             if self.options.output_mermaid {
                 self.mermaid.push((
-                    format!("{wit_name}_{resume}"),
+                    format!("{}_{resume}", function.name),
                     stackified.to_mermaid().to_string(),
                 ));
             }
@@ -1490,14 +1504,11 @@ impl Compiler {
             self.yield_funcs.push(idx);
         }
 
-        match function.export {
-            Some(FunctionExport::Script | FunctionExport::UtxoMain) => {
-                self.export_component_fn(wit_name, function, idx, &params, &results);
-            }
-            None => {}
+        CoreFn {
+            idx,
+            params,
+            results,
         }
-
-        CoreFn { idx }
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
@@ -1542,11 +1553,16 @@ impl Compiler {
                     }
                 }
                 TypedUtxoPart::Function(function) => {
-                    self.visit_function(
-                        &to_kebab_case(function.name.as_str()),
-                        function,
-                        &(&() as &dyn Locals, &utxo_storage),
-                    );
+                    let core = self.visit_function(function, &(&() as &dyn Locals, &utxo_storage));
+                    if let Some(FunctionExport::UtxoMain) = function.export {
+                        self.export_component_fn(
+                            &to_kebab_case(function.name.as_str()),
+                            function,
+                            core.idx,
+                            &core.params,
+                            &core.results,
+                        );
+                    }
                 }
                 TypedUtxoPart::AbiImpl {
                     span: _,
@@ -1555,12 +1571,9 @@ impl Compiler {
                 } => {
                     _ = abi; // TODO: generate cast functions
                     for function in parts {
-                        let core_fn = self.visit_function(
-                            &to_kebab_case(function.name.as_str()),
-                            function,
-                            &(&() as &dyn Locals, &utxo_storage),
-                        );
-                        self.export_core_fn(function.name.as_str(), core_fn.idx);
+                        let core =
+                            self.visit_function(function, &(&() as &dyn Locals, &utxo_storage));
+                        self.export_core_fn(function.name.as_str(), core.idx);
                     }
                 }
             }
@@ -3612,8 +3625,11 @@ impl BulkBlockOutput {
     }
 }
 
+/// ID and signature of a Wasm core function.
 struct CoreFn {
     idx: u32,
+    params: Vec<ValType>,
+    results: Vec<ValType>,
 }
 
 /// Remove column `col` from a `col_locals` slice.
