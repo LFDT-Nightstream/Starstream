@@ -453,7 +453,7 @@ impl Compiler {
                     },
                 })),
             };
-            let sig = self.star_to_component_signature(&get_storage);
+            let sig = self.star_to_component_signature(None, &get_storage);
             let core = self.visit_function(None, &get_storage, scope);
             if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
                 self.export_core_fn(&format!("{resource_name}#get-storage"), func_idx);
@@ -491,7 +491,7 @@ impl Compiler {
                         .collect::<Vec<_>>(),
                 ),
             };
-            let sig = self.star_to_component_signature(&set_storage);
+            let sig = self.star_to_component_signature(None, &set_storage);
             let core = self.visit_function(None, &set_storage, scope);
             if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
                 self.export_core_fn(&format!("{resource_name}#set-storage"), func_idx);
@@ -785,15 +785,19 @@ impl Compiler {
 
     fn star_to_component_signature(
         &mut self,
+        this: Option<&Type>,
         function: &TypedFunctionDef,
     ) -> ComponentAbiFunctionSignature {
-        let params = function
-            .params
-            .iter()
-            .filter_map(|p| {
+        let this = this.and_then(|ty| {
+            self.star_to_component_type(ty)
+                .map(|t| ("self".to_owned(), t))
+        });
+        let params = this
+            .into_iter()
+            .chain(function.params.iter().filter_map(|p| {
                 self.star_to_component_type(&p.ty)
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
-            })
+            }))
             .collect::<Vec<_>>();
         let result = self.star_to_component_type(&function.return_type);
         ComponentAbiFunctionSignature { params, result }
@@ -1284,7 +1288,7 @@ impl Compiler {
                 TypedDefinition::Function(func) => {
                     let core = self.visit_function(None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
-                        let sig = self.star_to_component_signature(func);
+                        let sig = self.star_to_component_signature(None, func);
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
@@ -1556,7 +1560,7 @@ impl Compiler {
                     let core =
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
-                        let sig = self.star_to_component_signature(&function);
+                        let sig = self.star_to_component_signature(None, &function);
                         let wit_name = format!(
                             "[static]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
@@ -1577,12 +1581,15 @@ impl Compiler {
                     _ = abi; // TODO: generate cast functions
                     for function in parts {
                         let core = self.visit_function(
-                            None,
+                            Some(&utxo.ty),
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        let sig = self.star_to_component_signature(&function);
-                        let wit_name = to_kebab_case(function.name.as_str());
+                        let sig = self.star_to_component_signature(Some(&utxo.ty), &function);
+                        let wit_name = format!(
+                            "[method]{resource_name}.{}",
+                            to_kebab_case(function.name.as_str())
+                        );
                         if let Some(func_idx) =
                             self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
                         {
