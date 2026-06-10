@@ -349,8 +349,8 @@ TypedProgram {
   (memory (;0;) 1)
   (global (;0;) (mut i64) (i64.const 0))
   (global (;1;) (mut i64) (i64.const 0))
-  (export "increment" (func 2))
-  (export "increment-mult" (func 3))
+  (export "my-utxo#increment" (func 2))
+  (export "my-utxo#increment-mult" (func 3))
   (export "my-utxo#get-storage" (func 5))
   (export "my-utxo#set-storage" (func 6))
   (export "memory" (memory 0))
@@ -432,21 +432,21 @@ TypedProgram {
           (type (;0;)
             (component
               (import "my-utxo" (type (;0;) (sub resource)))
-              (type (;1;) (func))
-              (export (;0;) "increment" (func (type 1)))
-              (type (;2;) (func))
-              (export (;1;) "increment-mult" (func (type 2)))
-              (type (;3;)
+              (type (;1;)
                 (instance
-                  (type (;0;) (record (field "counter" s64) (field "multiplier" s64)))
-                  (export (;1;) "storage" (type (eq 0)))
-                  (type (;2;) (func (result 1)))
-                  (export (;0;) "get-storage" (func (type 2)))
-                  (type (;3;) (func (param "storage" 1)))
-                  (export (;1;) "set-storage" (func (type 3)))
+                  (type (;0;) (func))
+                  (export (;0;) "increment" (func (type 0)))
+                  (type (;1;) (func))
+                  (export (;1;) "increment-mult" (func (type 1)))
+                  (type (;2;) (record (field "counter" s64) (field "multiplier" s64)))
+                  (export (;3;) "storage" (type (eq 2)))
+                  (type (;4;) (func (result 3)))
+                  (export (;2;) "get-storage" (func (type 4)))
+                  (type (;5;) (func (param "storage" 3)))
+                  (export (;3;) "set-storage" (func (type 5)))
                 )
               )
-              (export (;0;) "my-utxo" (instance (type 3)))
+              (export (;0;) "my-utxo" (instance (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -463,13 +463,15 @@ package root:component;
 world root {
   resource my-utxo;
 
-  export increment: func();
-  export increment-mult: func();
   export my-utxo: interface {
     record storage {
       counter: s64,
       multiplier: s64,
     }
+
+    increment: func();
+
+    increment-mult: func();
 
     get-storage: func() -> storage;
 

@@ -1557,12 +1557,13 @@ impl Compiler {
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
                         let sig = self.star_to_component_signature(&function);
-                        self.export_component_fn(
-                            &to_kebab_case(function.name.as_str()),
-                            function.name.span,
-                            &sig,
-                            &core,
-                        );
+                        let wit_name = to_kebab_case(function.name.as_str());
+                        if let Some(func_idx) =
+                            self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
+                        {
+                            self.export_core_fn(&format!("{resource_name}#{wit_name}"), func_idx);
+                            iface.export_fn(&wit_name, &sig);
+                        }
                     }
                 }
                 TypedUtxoPart::AbiImpl {
@@ -1577,7 +1578,14 @@ impl Compiler {
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        self.export_core_fn(function.name.as_str(), core.idx);
+                        let sig = self.star_to_component_signature(&function);
+                        let wit_name = to_kebab_case(function.name.as_str());
+                        if let Some(func_idx) =
+                            self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
+                        {
+                            self.export_core_fn(&format!("{resource_name}#{wit_name}"), func_idx);
+                            iface.export_fn(&wit_name, &sig);
+                        }
                     }
                 }
             }
