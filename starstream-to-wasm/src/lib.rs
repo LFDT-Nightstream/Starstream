@@ -469,9 +469,9 @@ impl Compiler {
                     name: Identifier::anon("storage"),
                     ty: storage_struct.clone(),
                 }],
-                return_type: Type::Unit,
+                return_type: utxo_ty.clone(),
                 effect: EffectKind::Pure,
-                body: TypedBlock::from(
+                body: TypedBlock::new(
                     fields
                         .iter()
                         .map(|f| TypedStatement::Assignment {
@@ -490,6 +490,10 @@ impl Compiler {
                             }),
                         })
                         .collect::<Vec<_>>(),
+                    Some(Spanned::none(TypedExpr::new(
+                        utxo_ty.clone(),
+                        TypedExprKind::Literal(Literal::Integer(0)),
+                    ))),
                 ),
             };
             let sig = self.star_to_component_signature(None, &set_storage);
@@ -800,7 +804,13 @@ impl Compiler {
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
             }))
             .collect::<Vec<_>>();
-        let result = self.star_to_component_type(&function.return_type);
+        let mut result = self.star_to_component_type(&function.return_type);
+        if let Some(m) = &result
+            && let ComponentAbiType::Borrow { resource } = **m
+        {
+            // Component return types can't be borrowed resources.
+            result = Some(Rc::new(ComponentAbiType::Own { resource }));
+        }
         ComponentAbiFunctionSignature { params, result }
     }
 
@@ -2036,13 +2046,15 @@ impl Compiler {
                 match &expr.ty {
                     Type::Int(w) if w.is_64bit() => {
                         func.instructions(bb).i64_const(*i as i64);
+                        Ok(())
                     }
-                    Type::Int(_) => {
+                    Type::Int(_) | Type::UtxoNamed(_) => {
                         func.instructions(bb).i32_const(*i as i32);
+                        Ok(())
                     }
-                    _ => {}
+                    ty => Err(self
+                        .push_error(span, format!("unknown type for integer literal: {:?}", ty))),
                 }
-                Ok(())
             }
             TypedExprKind::Literal(Literal::Boolean(b)) => {
                 func.instructions(bb).i32_const(i32::from(*b));
