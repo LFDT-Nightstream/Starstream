@@ -1,3 +1,6 @@
+//! Compiler from Starstream DSL to core WebAssembly with component-types section.
+#![allow(clippy::too_many_arguments)]
+
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
@@ -125,8 +128,10 @@ impl Default for CompileOptions {
 impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
-        let mut compiler = Compiler::default();
-        compiler.options = self;
+        let mut compiler = Compiler {
+            options: self,
+            ..Compiler::default()
+        };
         compiler.visit_program(program);
         compiler.finish()
     }
@@ -137,8 +142,10 @@ impl CompileOptions {
         graph: &starstream_compiler::TypedModuleGraph,
         entry: starstream_compiler::ModuleId,
     ) -> CompileResult {
-        let mut compiler = Compiler::default();
-        compiler.options = self;
+        let mut compiler = Compiler {
+            options: self,
+            ..Compiler::default()
+        };
 
         // Build a reachable-from-entry set by chasing edges through the typed
         // graph. We don't have the untyped graph's edges here, so we synthesize
@@ -1256,11 +1263,12 @@ impl Compiler {
                 .imported_interfaces
                 .entry("starstream:std/builtin".to_owned())
                 .or_default();
+            let u64_ty = Rc::new(ComponentAbiType::U64);
             let implements_method_ty = builtin.encode_func(
                 [(
                     "hash",
                     Rc::new(ComponentAbiType::Tuple {
-                        fields: vec![Rc::new(ComponentAbiType::U64); 4],
+                        fields: vec![u64_ty; 4],
                     }),
                 )]
                 .into_iter(),

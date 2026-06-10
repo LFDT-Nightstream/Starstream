@@ -389,13 +389,13 @@ pub fn typecheck_modules(
         for (idx, definition) in module.program.definitions.iter().enumerate() {
             // Path imports are short-circuited: build the typed AST from the
             // pre-resolved info instead of going through `register_import`.
-            if let Definition::Import(import) = &definition.node {
-                if let ImportSource::Path(_) = &import.from {
-                    if let Some(typed) = import_resolution.typed_imports.get(&idx) {
-                        typed_definitions.push(TypedDefinition::Import(typed.clone()));
-                    }
-                    continue;
+            if let Definition::Import(import) = &definition.node
+                && let ImportSource::Path(_) = &import.from
+            {
+                if let Some(typed) = import_resolution.typed_imports.get(&idx) {
+                    typed_definitions.push(TypedDefinition::Import(typed.clone()));
                 }
+                continue;
             }
 
             match inferencer.infer_definition(&mut env, &definition.node) {
@@ -484,7 +484,7 @@ pub fn typecheck_modules(
     for source_module in graph.modules() {
         let typed_program = typed_modules
             .remove(&source_module.id.0)
-            .unwrap_or_else(TypedProgram::default);
+            .unwrap_or_default();
         modules.push(TypedModule {
             id: source_module.id,
             abs_path: source_module.abs_path.clone(),
@@ -579,10 +579,10 @@ fn resolve_path_imports(
                         // Types live in the shared `TypeRegistry` keyed by their
                         // original name. If the local name differs, register an
                         // alias so look-ups under the local name succeed.
-                        if item.local.name != item.imported.name {
-                            if let Some(entry) = inferencer.types.entries.get(imported).cloned() {
-                                inferencer.types.insert(item.local.name.clone(), entry);
-                            }
+                        if item.local.name != item.imported.name
+                            && let Some(entry) = inferencer.types.entries.get(imported).cloned()
+                        {
+                            inferencer.types.insert(item.local.name.clone(), entry);
                         }
                         typed_items.push(TypedImportNamedItem {
                             imported: item.imported.clone(),

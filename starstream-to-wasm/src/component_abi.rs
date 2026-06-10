@@ -1,12 +1,15 @@
-#![allow(dead_code)]
 //! Component model canonical ABI implementation.
 //!
 //! Spec: <https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md>
 #![allow(unused_variables)]
+#![allow(dead_code)]
 
 use std::rc::Rc;
 
 use wasm_encoder::{InstructionSink, MemArg};
+
+/// Function used to generate instructions to store a single value to memory.
+pub type StoreFn = Box<dyn Fn(InstructionSink)>;
 
 /// Despecialized component value type. Like [`wasm_encoder::ComponentValType`].
 #[derive(Hash, PartialEq, Eq, Debug)]
@@ -195,12 +198,7 @@ impl ComponentAbiType {
     }
 
     // https://github.com/WebAssembly/component-model/blob/main/design/mvp/CanonicalABI.md#storing
-    pub fn get_store_fns(
-        &self,
-        memory_index: u32,
-        offset: u64,
-        out: &mut Vec<Box<dyn Fn(InstructionSink)>>,
-    ) {
+    pub fn get_store_fns(&self, memory_index: u32, offset: u64, out: &mut Vec<StoreFn>) {
         let mem_arg = MemArg {
             offset,
             align: log2(self.alignment()),
