@@ -319,24 +319,24 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (import "my-utxo" (type (;0;) (sub resource)))
-              (type (;1;)
+              (type (;0;)
                 (instance
                   (type (;0;) (tuple u64 u64 u64 u64))
                   (type (;1;) (func (param "hash" 0)))
                   (export (;0;) "implements-method" (func (type 1)))
                 )
               )
-              (import "starstream:std/builtin" (instance (;0;) (type 1)))
-              (type (;2;)
+              (import "starstream:std/builtin" (instance (;0;) (type 0)))
+              (type (;1;)
                 (instance
-                  (type (;0;) (func (param "x" s32)))
-                  (export (;0;) "hello-utxo" (func (type 0)))
-                  (type (;1;) (func))
-                  (export (;1;) "foo" (func (type 1)))
+                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (type (;1;) (func (param "x" s32)))
+                  (export (;0;) "hello-utxo" (func (type 1)))
+                  (type (;2;) (func))
+                  (export (;1;) "foo" (func (type 2)))
                 )
               )
-              (export (;1;) "my-utxo" (instance (type 2)))
+              (export (;1;) "my-utxo" (instance (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -353,9 +353,9 @@ package root:component;
 world root {
   import starstream:std/builtin;
 
-  resource my-utxo;
-
   export my-utxo: interface {
+    resource my-utxo;
+
     hello-utxo: func(x: s32);
 
     foo: func();

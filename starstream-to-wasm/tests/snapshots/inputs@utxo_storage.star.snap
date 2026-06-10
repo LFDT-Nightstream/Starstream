@@ -431,22 +431,22 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (import "my-utxo" (type (;0;) (sub resource)))
-              (type (;1;)
+              (type (;0;)
                 (instance
-                  (type (;0;) (func))
-                  (export (;0;) "increment" (func (type 0)))
+                  (export (;0;) "my-utxo" (type (sub resource)))
                   (type (;1;) (func))
-                  (export (;1;) "increment-mult" (func (type 1)))
-                  (type (;2;) (record (field "counter" s64) (field "multiplier" s64)))
-                  (export (;3;) "storage" (type (eq 2)))
-                  (type (;4;) (func (result 3)))
-                  (export (;2;) "get-storage" (func (type 4)))
-                  (type (;5;) (func (param "storage" 3)))
-                  (export (;3;) "set-storage" (func (type 5)))
+                  (export (;0;) "increment" (func (type 1)))
+                  (type (;2;) (func))
+                  (export (;1;) "increment-mult" (func (type 2)))
+                  (type (;3;) (record (field "counter" s64) (field "multiplier" s64)))
+                  (export (;4;) "storage" (type (eq 3)))
+                  (type (;5;) (func (result 4)))
+                  (export (;2;) "get-storage" (func (type 5)))
+                  (type (;6;) (func (param "storage" 4)))
+                  (export (;3;) "set-storage" (func (type 6)))
                 )
               )
-              (export (;0;) "my-utxo" (instance (type 1)))
+              (export (;0;) "my-utxo" (instance (type 0)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -461,9 +461,9 @@ TypedProgram {
 package root:component;
 
 world root {
-  resource my-utxo;
-
   export my-utxo: interface {
+    resource my-utxo;
+
     record storage {
       counter: s64,
       multiplier: s64,

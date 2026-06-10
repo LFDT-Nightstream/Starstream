@@ -177,21 +177,21 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (import "my-utxo" (type (;0;) (sub resource)))
-              (type (;1;)
+              (type (;0;)
                 (instance
                   (type (;0;) (func))
                   (export (;0;) "hello-event" (func (type 0)))
                 )
               )
-              (import "foo-abi" (instance (;0;) (type 1)))
-              (type (;2;)
+              (import "foo-abi" (instance (;0;) (type 0)))
+              (type (;1;)
                 (instance
-                  (type (;0;) (func))
-                  (export (;0;) "hello-utxo" (func (type 0)))
+                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (type (;1;) (func))
+                  (export (;0;) "hello-utxo" (func (type 1)))
                 )
               )
-              (export (;1;) "my-utxo" (instance (type 2)))
+              (export (;1;) "my-utxo" (instance (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -210,9 +210,9 @@ world root {
     hello-event: func();
   }
 
-  resource my-utxo;
-
   export my-utxo: interface {
+    resource my-utxo;
+
     hello-utxo: func();
   }
 }

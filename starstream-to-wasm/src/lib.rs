@@ -1523,7 +1523,7 @@ impl Compiler {
         // Declare the resource type.
         let resource_name = to_kebab_case(utxo.name.as_str());
         let resource = self.world_type.inner.type_count();
-        self.world_type.inner.import(
+        iface.inner.export(
             &resource_name,
             ComponentTypeRef::Type(TypeBounds::SubResource),
         );
