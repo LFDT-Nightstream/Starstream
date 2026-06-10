@@ -839,7 +839,7 @@ impl Compiler {
             }
             wrapper_func.instructions(bb).call(core.idx);
             // Write to our return slot.
-            self.component_store(span, &mut wrapper_func, bb, &result, 0);
+            self.component_store(span, &mut wrapper_func, bb, result, 0);
             // Return our return slot.
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             wrapper_func.cfg.fill(*bb, Out::Return);
@@ -1540,7 +1540,7 @@ impl Compiler {
         let resource_name = "utxo";
         let resource = self.world_type.inner.type_count();
         iface.inner.export(
-            &resource_name,
+            resource_name,
             ComponentTypeRef::Type(TypeBounds::SubResource),
         );
         self.resources.insert(utxo.name.to_string(), resource);
@@ -1572,7 +1572,7 @@ impl Compiler {
                     let core =
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
-                        let mut sig = self.star_to_component_signature(None, &function);
+                        let mut sig = self.star_to_component_signature(None, function);
                         sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
                         let wit_name = format!(
                             "[static]{resource_name}.{}",
@@ -1598,7 +1598,7 @@ impl Compiler {
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        let sig = self.star_to_component_signature(Some(&utxo.ty), &function);
+                        let sig = self.star_to_component_signature(Some(&utxo.ty), function);
                         let wit_name = format!(
                             "[method]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())

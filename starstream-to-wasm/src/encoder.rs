@@ -34,7 +34,7 @@ impl<T: TypeRegistry> TypeBuilder<T> {
         idx
     }
 
-    pub fn encode_func_sig<'a>(&mut self, signature: &ComponentAbiFunctionSignature) -> u32 {
+    pub fn encode_func_sig(&mut self, signature: &ComponentAbiFunctionSignature) -> u32 {
         let params = signature
             .params
             .iter()
