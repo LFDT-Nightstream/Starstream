@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "build",
+    "noEmit": true,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    "module": "esnext",
+    "target": "es2025",
+    "types": ["node"],
+
+    "allowImportingTsExtensions": true,
+    "noImplicitAny": true,
+  },
+  "include": ["src/**/*"],
+}

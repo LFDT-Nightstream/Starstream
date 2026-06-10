@@ -1,0 +1,1421 @@
+---
+source: starstream-to-wasm/tests/snapshots.rs
+input_file: starstream-to-wasm/tests/inputs/score.star
+---
+==== AST ====
+Program {
+    shebang: None,
+    definitions: [
+        Spanned {
+            node: Abi(
+                AbiDef {
+                    name: Identifier {
+                        name: "Score",
+                        span: 4..9,
+                    },
+                    parts: [
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "plus_chips",
+                                    span: 19..29,
+                                },
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "chips",
+                                            span: 30..35,
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: Identifier {
+                                                name: "u64",
+                                                span: 37..40,
+                                            },
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                return_type: None,
+                                span: 16..47,
+                            },
+                        ),
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "plus_mult",
+                                    span: 50..59,
+                                },
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "mult",
+                                            span: 60..64,
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: Identifier {
+                                                name: "u64",
+                                                span: 66..69,
+                                            },
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                return_type: None,
+                                span: 47..76,
+                            },
+                        ),
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "mult_mult",
+                                    span: 79..88,
+                                },
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "mult_pct",
+                                            span: 89..97,
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: Identifier {
+                                                name: "u64",
+                                                span: 99..102,
+                                            },
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                return_type: None,
+                                span: 76..109,
+                            },
+                        ),
+                        FnDecl(
+                            AbiMethodDecl {
+                                name: Identifier {
+                                    name: "finish",
+                                    span: 112..118,
+                                },
+                                params: [],
+                                return_type: None,
+                                span: 109..126,
+                            },
+                        ),
+                        Event(
+                            EventDef {
+                                name: Identifier {
+                                    name: "Finish",
+                                    span: 132..138,
+                                },
+                                params: [
+                                    FunctionParam {
+                                        public: false,
+                                        name: Identifier {
+                                            name: "total",
+                                            span: 139..144,
+                                        },
+                                        ty: TypeAnnotation {
+                                            name: Identifier {
+                                                name: "u64",
+                                                span: 146..149,
+                                            },
+                                            generics: [],
+                                        },
+                                    },
+                                ],
+                                span: 126..152,
+                            },
+                        ),
+                    ],
+                },
+            ),
+            span: 0..155,
+        },
+        Spanned {
+            node: Utxo(
+                UtxoDef {
+                    name: Identifier {
+                        name: "ScoreProgress",
+                        span: 160..173,
+                    },
+                    parts: [
+                        Storage(
+                            [
+                                UtxoGlobal {
+                                    name: Identifier {
+                                        name: "chips",
+                                        span: 206..211,
+                                    },
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "u64",
+                                            span: 213..216,
+                                        },
+                                        generics: [],
+                                    },
+                                },
+                                UtxoGlobal {
+                                    name: Identifier {
+                                        name: "mult",
+                                        span: 234..238,
+                                    },
+                                    ty: TypeAnnotation {
+                                        name: Identifier {
+                                            name: "u64",
+                                            span: 240..243,
+                                        },
+                                        generics: [],
+                                    },
+                                },
+                            ],
+                        ),
+                        Function(
+                            FunctionDef {
+                                export: Some(
+                                    UtxoMain,
+                                ),
+                                name: Identifier {
+                                    name: "new",
+                                    span: 263..266,
+                                },
+                                params: [],
+                                return_type: None,
+                                body: Block {
+                                    statements: [
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Yield {
+                                                        abis: [
+                                                            Identifier {
+                                                                name: "Score",
+                                                                span: 285..290,
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: 279..291,
+                                                },
+                                            ),
+                                            span: 279..301,
+                                        },
+                                        Spanned {
+                                            node: Expression(
+                                                Spanned {
+                                                    node: Emit {
+                                                        event: Identifier {
+                                                            name: "Finish",
+                                                            span: 306..312,
+                                                        },
+                                                        args: [
+                                                            Spanned {
+                                                                node: Binary {
+                                                                    op: Multiply,
+                                                                    left: Spanned {
+                                                                        node: Identifier(
+                                                                            Identifier {
+                                                                                name: "chips",
+                                                                                span: 313..318,
+                                                                            },
+                                                                        ),
+                                                                        span: 313..319,
+                                                                    },
+                                                                    right: Spanned {
+                                                                        node: Identifier(
+                                                                            Identifier {
+                                                                                name: "mult",
+                                                                                span: 321..325,
+                                                                            },
+                                                                        ),
+                                                                        span: 321..325,
+                                                                    },
+                                                                },
+                                                                span: 313..325,
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: 301..326,
+                                                },
+                                            ),
+                                            span: 301..332,
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                    span: 269..338,
+                                },
+                            },
+                        ),
+                        AbiImpl {
+                            abi: Identifier {
+                                name: "Score",
+                                span: 343..348,
+                            },
+                            parts: [
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "plus_chips",
+                                        span: 362..372,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: true,
+                                            name: Identifier {
+                                                name: "chips2",
+                                                span: 377..383,
+                                            },
+                                            ty: TypeAnnotation {
+                                                name: Identifier {
+                                                    name: "u64",
+                                                    span: 385..388,
+                                                },
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Assignment {
+                                                    target: Identifier {
+                                                        name: "chips",
+                                                        span: 404..409,
+                                                    },
+                                                    value: Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "chips",
+                                                                        span: 412..417,
+                                                                    },
+                                                                ),
+                                                                span: 412..418,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "chips2",
+                                                                        span: 420..426,
+                                                                    },
+                                                                ),
+                                                                span: 420..426,
+                                                            },
+                                                        },
+                                                        span: 412..426,
+                                                    },
+                                                },
+                                                span: 404..436,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 390..446,
+                                    },
+                                },
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "plus_mult",
+                                        span: 449..458,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: true,
+                                            name: Identifier {
+                                                name: "mult2",
+                                                span: 463..468,
+                                            },
+                                            ty: TypeAnnotation {
+                                                name: Identifier {
+                                                    name: "u64",
+                                                    span: 470..473,
+                                                },
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Assignment {
+                                                    target: Identifier {
+                                                        name: "mult",
+                                                        span: 489..493,
+                                                    },
+                                                    value: Spanned {
+                                                        node: Binary {
+                                                            op: Add,
+                                                            left: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "mult",
+                                                                        span: 496..500,
+                                                                    },
+                                                                ),
+                                                                span: 496..501,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Identifier(
+                                                                    Identifier {
+                                                                        name: "mult2",
+                                                                        span: 503..508,
+                                                                    },
+                                                                ),
+                                                                span: 503..508,
+                                                            },
+                                                        },
+                                                        span: 496..508,
+                                                    },
+                                                },
+                                                span: 489..518,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 475..528,
+                                    },
+                                },
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "mult_mult",
+                                        span: 531..540,
+                                    },
+                                    params: [
+                                        FunctionParam {
+                                            public: true,
+                                            name: Identifier {
+                                                name: "mult_pct",
+                                                span: 545..553,
+                                            },
+                                            ty: TypeAnnotation {
+                                                name: Identifier {
+                                                    name: "u64",
+                                                    span: 555..558,
+                                                },
+                                                generics: [],
+                                            },
+                                        },
+                                    ],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Assignment {
+                                                    target: Identifier {
+                                                        name: "mult",
+                                                        span: 574..578,
+                                                    },
+                                                    value: Spanned {
+                                                        node: Binary {
+                                                            op: Divide,
+                                                            left: Spanned {
+                                                                node: Binary {
+                                                                    op: Multiply,
+                                                                    left: Spanned {
+                                                                        node: Identifier(
+                                                                            Identifier {
+                                                                                name: "mult",
+                                                                                span: 581..585,
+                                                                            },
+                                                                        ),
+                                                                        span: 581..586,
+                                                                    },
+                                                                    right: Spanned {
+                                                                        node: Identifier(
+                                                                            Identifier {
+                                                                                name: "mult_pct",
+                                                                                span: 588..596,
+                                                                            },
+                                                                        ),
+                                                                        span: 588..597,
+                                                                    },
+                                                                },
+                                                                span: 581..597,
+                                                            },
+                                                            right: Spanned {
+                                                                node: Literal(
+                                                                    Integer(
+                                                                        100,
+                                                                    ),
+                                                                ),
+                                                                span: 599..602,
+                                                            },
+                                                        },
+                                                        span: 581..602,
+                                                    },
+                                                },
+                                                span: 574..612,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 560..622,
+                                    },
+                                },
+                                FunctionDef {
+                                    export: None,
+                                    name: Identifier {
+                                        name: "finish",
+                                        span: 625..631,
+                                    },
+                                    params: [],
+                                    return_type: None,
+                                    body: Block {
+                                        statements: [
+                                            Spanned {
+                                                node: Resume,
+                                                span: 648..664,
+                                            },
+                                        ],
+                                        tail_expression: None,
+                                        span: 634..670,
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ),
+            span: 155..674,
+        },
+    ],
+}
+
+==== Inference trace ====
+
+T-Utxo: ScoreProgress => 
+  T-Fn: new => ()
+    T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ yield(Score); ⇒ ()
+    T-Expr: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult); ⇒ ()
+      T-Emit: {chips: u64, mult: u64, new: fn() -> ()} ⊢ emit Finish(chips * mult) ⇒ ()
+        T-Bin-Mul: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips * mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ chips ⇒ u64
+          T-Var: {chips: u64, mult: u64, new: fn() -> ()} ⊢ mult ⇒ u64
+          Unify-Const: u64 ~ u64 => {}
+        Unify-Const: u64 ~ u64 => {}
+  T-Fn: plus_chips => ()
+    T-Assign: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips = chips + chips2; ⇒ u64
+      T-Bin-Add: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips + chips2 ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips ⇒ u64
+        T-Var: {chips: u64, chips2: u64, mult: u64, new: fn() -> (), plus_chips: fn(u64) -> ()} ⊢ chips2 ⇒ u64
+        Unify-Const: u64 ~ u64 => {}
+      Unify-Const: u64 ~ u64 => {}
+  T-Fn: plus_mult => ()
+    T-Assign: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult + mult2; ⇒ u64
+      T-Bin-Add: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult + mult2 ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
+        T-Var: {chips: u64, mult: u64, mult2: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult2 ⇒ u64
+        Unify-Const: u64 ~ u64 => {}
+      Unify-Const: u64 ~ u64 => {}
+  T-Fn: mult_mult => ()
+    T-Assign: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult = mult * mult_pct / 100; ⇒ u64
+      T-Bin-Div: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct / 100 ⇒ u64
+        T-Bin-Mul: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult * mult_pct ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult ⇒ u64
+          T-Var: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ mult_pct ⇒ u64
+          Unify-Const: u64 ~ u64 => {}
+        T-Int: {chips: u64, mult: u64, mult_mult: fn(u64) -> (), mult_pct: u64, new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ 100 ⇒ i64
+        Unify-Var: u64 ~ i64 => {u64/t3}
+      Unify-Const: u64 ~ u64 => {}
+  T-Fn: finish => ()
+    T-Resume: {chips: u64, finish: fn() -> (), mult: u64, mult_mult: fn(u64) -> (), new: fn() -> (), plus_chips: fn(u64) -> (), plus_mult: fn(u64) -> ()} ⊢ resume; ⇒ ()
+      Unify-Const: () ~ () => {}
+
+==== Typed AST ====
+TypedProgram {
+    has_yields: true,
+    definitions: [
+        Abi(
+            TypedAbiDef {
+                name: Identifier {
+                    name: "Score",
+                    span: 4..9,
+                },
+                parts: [
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "plus_chips",
+                                span: 19..29,
+                            },
+                            params: [
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "chips",
+                                        span: 30..35,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                },
+                            ],
+                            return_type: Unit,
+                            span: 19..29,
+                        },
+                    ),
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "plus_mult",
+                                span: 50..59,
+                            },
+                            params: [
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "mult",
+                                        span: 60..64,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                },
+                            ],
+                            return_type: Unit,
+                            span: 50..59,
+                        },
+                    ),
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "mult_mult",
+                                span: 79..88,
+                            },
+                            params: [
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "mult_pct",
+                                        span: 89..97,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                },
+                            ],
+                            return_type: Unit,
+                            span: 79..88,
+                        },
+                    ),
+                    FnDecl(
+                        TypedAbiMethodDecl {
+                            name: Identifier {
+                                name: "finish",
+                                span: 112..118,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            span: 112..118,
+                        },
+                    ),
+                    Event(
+                        TypedEventDef {
+                            name: Identifier {
+                                name: "Finish",
+                                span: 132..138,
+                            },
+                            params: [
+                                TypedFunctionParam {
+                                    public: false,
+                                    name: Identifier {
+                                        name: "total",
+                                        span: 139..144,
+                                    },
+                                    ty: Int(
+                                        U64,
+                                    ),
+                                },
+                            ],
+                        },
+                    ),
+                ],
+            },
+        ),
+        Utxo(
+            TypedUtxoDef {
+                name: Identifier {
+                    name: "ScoreProgress",
+                    span: 160..173,
+                },
+                parts: [
+                    Storage(
+                        [
+                            TypedUtxoGlobal {
+                                name: Identifier {
+                                    name: "chips",
+                                    span: 206..211,
+                                },
+                                ty: Int(
+                                    U64,
+                                ),
+                            },
+                            TypedUtxoGlobal {
+                                name: Identifier {
+                                    name: "mult",
+                                    span: 234..238,
+                                },
+                                ty: Int(
+                                    U64,
+                                ),
+                            },
+                        ],
+                    ),
+                    Function(
+                        TypedFunctionDef {
+                            export: Some(
+                                UtxoMain,
+                            ),
+                            name: Identifier {
+                                name: "new",
+                                span: 263..266,
+                            },
+                            params: [],
+                            return_type: Unit,
+                            effect: Pure,
+                            body: TypedBlock {
+                                statements: [
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Yield {
+                                                    abis: [
+                                                        Abi {
+                                                            name: Identifier {
+                                                                name: "Score",
+                                                                span: 4..9,
+                                                            },
+                                                            methods: [
+                                                                TypedAbiMethodDecl {
+                                                                    name: Identifier {
+                                                                        name: "plus_chips",
+                                                                        span: 19..29,
+                                                                    },
+                                                                    params: [
+                                                                        TypedFunctionParam {
+                                                                            public: false,
+                                                                            name: Identifier {
+                                                                                name: "chips",
+                                                                                span: 30..35,
+                                                                            },
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                    return_type: Unit,
+                                                                    span: 19..29,
+                                                                },
+                                                                TypedAbiMethodDecl {
+                                                                    name: Identifier {
+                                                                        name: "plus_mult",
+                                                                        span: 50..59,
+                                                                    },
+                                                                    params: [
+                                                                        TypedFunctionParam {
+                                                                            public: false,
+                                                                            name: Identifier {
+                                                                                name: "mult",
+                                                                                span: 60..64,
+                                                                            },
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                    return_type: Unit,
+                                                                    span: 50..59,
+                                                                },
+                                                                TypedAbiMethodDecl {
+                                                                    name: Identifier {
+                                                                        name: "mult_mult",
+                                                                        span: 79..88,
+                                                                    },
+                                                                    params: [
+                                                                        TypedFunctionParam {
+                                                                            public: false,
+                                                                            name: Identifier {
+                                                                                name: "mult_pct",
+                                                                                span: 89..97,
+                                                                            },
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                        },
+                                                                    ],
+                                                                    return_type: Unit,
+                                                                    span: 79..88,
+                                                                },
+                                                                TypedAbiMethodDecl {
+                                                                    name: Identifier {
+                                                                        name: "finish",
+                                                                        span: 112..118,
+                                                                    },
+                                                                    params: [],
+                                                                    return_type: Unit,
+                                                                    span: 112..118,
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                            },
+                                            span: 279..291,
+                                        },
+                                    ),
+                                    Expression(
+                                        Spanned {
+                                            node: TypedExpr {
+                                                ty: Unit,
+                                                kind: Emit {
+                                                    event: Identifier {
+                                                        name: "Finish",
+                                                        span: 306..312,
+                                                    },
+                                                    args: [
+                                                        Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Binary {
+                                                                    op: Multiply,
+                                                                    left: Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                            kind: Identifier(
+                                                                                Identifier {
+                                                                                    name: "chips",
+                                                                                    span: 313..318,
+                                                                                },
+                                                                            ),
+                                                                        },
+                                                                        span: 313..319,
+                                                                    },
+                                                                    right: Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                            kind: Identifier(
+                                                                                Identifier {
+                                                                                    name: "mult",
+                                                                                    span: 321..325,
+                                                                                },
+                                                                            ),
+                                                                        },
+                                                                        span: 321..325,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: 313..325,
+                                                        },
+                                                    ],
+                                                },
+                                            },
+                                            span: 301..326,
+                                        },
+                                    ),
+                                ],
+                                tail_expression: None,
+                            },
+                        },
+                    ),
+                    AbiImpl {
+                        span: 343..348,
+                        abi: AbiNarrow(
+                            Abi {
+                                name: Identifier {
+                                    name: "Score",
+                                    span: 4..9,
+                                },
+                                methods: [
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "plus_chips",
+                                            span: 19..29,
+                                        },
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "chips",
+                                                    span: 30..35,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                            },
+                                        ],
+                                        return_type: Unit,
+                                        span: 19..29,
+                                    },
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "plus_mult",
+                                            span: 50..59,
+                                        },
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult",
+                                                    span: 60..64,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                            },
+                                        ],
+                                        return_type: Unit,
+                                        span: 50..59,
+                                    },
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "mult_mult",
+                                            span: 79..88,
+                                        },
+                                        params: [
+                                            TypedFunctionParam {
+                                                public: false,
+                                                name: Identifier {
+                                                    name: "mult_pct",
+                                                    span: 89..97,
+                                                },
+                                                ty: Int(
+                                                    U64,
+                                                ),
+                                            },
+                                        ],
+                                        return_type: Unit,
+                                        span: 79..88,
+                                    },
+                                    TypedAbiMethodDecl {
+                                        name: Identifier {
+                                            name: "finish",
+                                            span: 112..118,
+                                        },
+                                        params: [],
+                                        return_type: Unit,
+                                        span: 112..118,
+                                    },
+                                ],
+                            },
+                        ),
+                        parts: [
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "plus_chips",
+                                    span: 362..372,
+                                },
+                                params: [
+                                    TypedFunctionParam {
+                                        public: true,
+                                        name: Identifier {
+                                            name: "chips2",
+                                            span: 377..383,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                    },
+                                ],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [
+                                        Assignment {
+                                            target: Identifier {
+                                                name: "chips",
+                                                span: 404..409,
+                                            },
+                                            value: Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        U64,
+                                                    ),
+                                                    kind: Binary {
+                                                        op: Add,
+                                                        left: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Identifier(
+                                                                    Identifier {
+                                                                        name: "chips",
+                                                                        span: 412..417,
+                                                                    },
+                                                                ),
+                                                            },
+                                                            span: 412..418,
+                                                        },
+                                                        right: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Identifier(
+                                                                    Identifier {
+                                                                        name: "chips2",
+                                                                        span: 420..426,
+                                                                    },
+                                                                ),
+                                                            },
+                                                            span: 420..426,
+                                                        },
+                                                    },
+                                                },
+                                                span: 412..426,
+                                            },
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "plus_mult",
+                                    span: 449..458,
+                                },
+                                params: [
+                                    TypedFunctionParam {
+                                        public: true,
+                                        name: Identifier {
+                                            name: "mult2",
+                                            span: 463..468,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                    },
+                                ],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [
+                                        Assignment {
+                                            target: Identifier {
+                                                name: "mult",
+                                                span: 489..493,
+                                            },
+                                            value: Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        U64,
+                                                    ),
+                                                    kind: Binary {
+                                                        op: Add,
+                                                        left: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Identifier(
+                                                                    Identifier {
+                                                                        name: "mult",
+                                                                        span: 496..500,
+                                                                    },
+                                                                ),
+                                                            },
+                                                            span: 496..501,
+                                                        },
+                                                        right: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Identifier(
+                                                                    Identifier {
+                                                                        name: "mult2",
+                                                                        span: 503..508,
+                                                                    },
+                                                                ),
+                                                            },
+                                                            span: 503..508,
+                                                        },
+                                                    },
+                                                },
+                                                span: 496..508,
+                                            },
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "mult_mult",
+                                    span: 531..540,
+                                },
+                                params: [
+                                    TypedFunctionParam {
+                                        public: true,
+                                        name: Identifier {
+                                            name: "mult_pct",
+                                            span: 545..553,
+                                        },
+                                        ty: Int(
+                                            U64,
+                                        ),
+                                    },
+                                ],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [
+                                        Assignment {
+                                            target: Identifier {
+                                                name: "mult",
+                                                span: 574..578,
+                                            },
+                                            value: Spanned {
+                                                node: TypedExpr {
+                                                    ty: Int(
+                                                        U64,
+                                                    ),
+                                                    kind: Binary {
+                                                        op: Divide,
+                                                        left: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Binary {
+                                                                    op: Multiply,
+                                                                    left: Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                            kind: Identifier(
+                                                                                Identifier {
+                                                                                    name: "mult",
+                                                                                    span: 581..585,
+                                                                                },
+                                                                            ),
+                                                                        },
+                                                                        span: 581..586,
+                                                                    },
+                                                                    right: Spanned {
+                                                                        node: TypedExpr {
+                                                                            ty: Int(
+                                                                                U64,
+                                                                            ),
+                                                                            kind: Identifier(
+                                                                                Identifier {
+                                                                                    name: "mult_pct",
+                                                                                    span: 588..596,
+                                                                                },
+                                                                            ),
+                                                                        },
+                                                                        span: 588..597,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: 581..597,
+                                                        },
+                                                        right: Spanned {
+                                                            node: TypedExpr {
+                                                                ty: Int(
+                                                                    U64,
+                                                                ),
+                                                                kind: Literal(
+                                                                    Integer(
+                                                                        100,
+                                                                    ),
+                                                                ),
+                                                            },
+                                                            span: 599..602,
+                                                        },
+                                                    },
+                                                },
+                                                span: 581..602,
+                                            },
+                                        },
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                            TypedFunctionDef {
+                                export: None,
+                                name: Identifier {
+                                    name: "finish",
+                                    span: 625..631,
+                                },
+                                params: [],
+                                return_type: Unit,
+                                effect: Pure,
+                                body: TypedBlock {
+                                    statements: [
+                                        Resume,
+                                    ],
+                                    tail_expression: None,
+                                },
+                            },
+                        ],
+                    },
+                ],
+                ty: UtxoNamed(
+                    "ScoreProgress",
+                ),
+            },
+        ),
+    ],
+}
+
+==== Core WebAssembly ====
+(module
+  (type (;0;) (func (param i64 i64 i64 i64)))
+  (type (;1;) (func (param i64)))
+  (type (;2;) (func))
+  (type (;3;) (func (param i64 i64) (result i64)))
+  (type (;4;) (func (result i64 i64)))
+  (type (;5;) (func (result i32)))
+  (type (;6;) (func (param i64 i64)))
+  (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (import "score" "finish" (func (;1;) (type 1)))
+  (memory (;0;) 1)
+  (global (;0;) (mut i32) (i32.const 0))
+  (global (;1;) (mut i64) (i64.const 0))
+  (global (;2;) (mut i64) (i64.const 0))
+  (export "new" (func 4))
+  (export "plus_chips" (func 7))
+  (export "plus_mult" (func 8))
+  (export "mult_mult" (func 9))
+  (export "finish" (func 10))
+  (export "score-progress-get-storage" (func 12))
+  (export "score-progress-set-storage" (func 13))
+  (export "memory" (memory 0))
+  (func (;2;) (type 2)
+    (block ;; label = @1
+      (br_if 0 (;@1;)
+        (i32.ne
+          (global.get 0)
+          (i32.const 1)))
+      (return_call 5))
+    (unreachable)
+  )
+  (func (;3;) (type 3) (param i64 i64) (result i64)
+    (local i64 i64 i64)
+    (local.tee 2
+      (i64.mul
+        (local.tee 3
+          (local.get 0))
+        (local.tee 4
+          (local.get 1))))
+    (if ;; label = @1
+      (i32.or
+        (i32.and
+          (i64.eq
+            (local.get 3)
+            (i64.const -9223372036854775808))
+          (i64.eq
+            (local.get 4)
+            (i64.const -1)))
+        (i32.and
+          (i64.eq
+            (local.get 4)
+            (i64.const -9223372036854775808))
+          (i64.eq
+            (local.get 3)
+            (i64.const -1))))
+      (then
+        (unreachable)))
+    (if ;; label = @1
+      (i64.ne
+        (local.get 4)
+        (i64.const 0))
+      (then
+        (if ;; label = @2
+          (i64.ne
+            (i64.div_s
+              (local.get 2)
+              (local.get 4))
+            (local.get 3))
+          (then
+            (unreachable)))))
+  )
+  (func (;4;) (type 2)
+    (global.set 0
+      (i32.const 1))
+    (call 0
+      (i64.const -8462002850237496965)
+      (i64.const 3777191895585416912)
+      (i64.const -7032313579976096834)
+      (i64.const -593716351821793027))
+    (call 0
+      (i64.const -8415072477063627739)
+      (i64.const 5859691412821126436)
+      (i64.const -3810519776703246304)
+      (i64.const -46505724939742969))
+    (call 0
+      (i64.const -7959776885903164596)
+      (i64.const -5373630742727988565)
+      (i64.const -4027567226927148146)
+      (i64.const -2641969232007030050))
+    (call 0
+      (i64.const 5384737671178596162)
+      (i64.const 7822374597054249491)
+      (i64.const -6997249775370434463)
+      (i64.const -2683880554626369430))
+  )
+  (func (;5;) (type 2)
+    (call 1
+      (call 3
+        (global.get 1)
+        (global.get 2)))
+  )
+  (func (;6;) (type 3) (param i64 i64) (result i64)
+    (local i64)
+    (local.tee 2
+      (i64.add
+        (local.get 0)
+        (local.get 1)))
+    (if ;; label = @1
+      (i32.ne
+        (i32.and
+          (i64.ge_s
+            (i64.xor
+              (local.get 0)
+              (local.get 1))
+            (i64.const 0))
+          (i64.lt_s
+            (i64.xor
+              (local.get 2)
+              (local.get 0))
+            (i64.const 0)))
+        (i32.const 0))
+      (then
+        (unreachable)))
+  )
+  (func (;7;) (type 1) (param i64)
+    (global.set 1
+      (call 6
+        (global.get 1)
+        (local.get 0)))
+  )
+  (func (;8;) (type 1) (param i64)
+    (global.set 2
+      (call 6
+        (global.get 2)
+        (local.get 0)))
+  )
+  (func (;9;) (type 1) (param i64)
+    (global.set 2
+      (i64.div_u
+        (call 3
+          (global.get 2)
+          (local.get 0))
+        (i64.const 100)))
+  )
+  (func (;10;) (type 2)
+    (return_call 2)
+  )
+  (func (;11;) (type 4) (result i64 i64)
+    (global.get 1)
+    (global.get 2)
+  )
+  (func (;12;) (type 5) (result i32)
+    (local i32 i64 i64)
+    (i32.const 8)
+    (call 11)
+    (local.set 2)
+    (local.set 1)
+    (local.set 0)
+    (i64.store
+      (local.get 0)
+      (local.get 1))
+    (i64.store offset=8
+      (local.get 0)
+      (local.get 2))
+    (i32.const 8)
+  )
+  (func (;13;) (type 6) (param i64 i64)
+    (local i64)
+    (global.set 1
+      (local.get 0)
+      (drop
+        (local.get 1)))
+    (drop
+      (local.get 0)
+      (local.set 2
+        (local.get 1)))
+    (global.set 2
+      (local.get 2))
+  )
+  (@custom "component-type"
+    (component
+      (@custom "wit-component-encoding" "\04\00")
+      (type (;0;)
+        (component
+          (type (;0;)
+            (component
+              (import "score-progress" (type (;0;) (sub resource)))
+              (type (;1;) (func))
+              (export (;0;) "new" (func (type 1)))
+              (type (;2;) (record (field "chips" u64) (field "mult" u64)))
+              (import "score-progress-storage" (type (;3;) (eq 2)))
+              (type (;4;) (func (result 3)))
+              (export (;1;) "score-progress-get-storage" (func (type 4)))
+              (type (;5;) (func (param "storage" 3)))
+              (export (;2;) "score-progress-set-storage" (func (type 5)))
+              (type (;6;)
+                (instance
+                  (type (;0;) (func (param "x" u64)))
+                  (export (;0;) "finish" (func (type 0)))
+                )
+              )
+              (import "score" (instance (;0;) (type 6)))
+              (type (;7;)
+                (instance
+                  (type (;0;) (tuple u64 u64 u64 u64))
+                  (type (;1;) (func (param "hash" 0)))
+                  (export (;0;) "implements-method" (func (type 1)))
+                )
+              )
+              (import "starstream:std/builtin" (instance (;1;) (type 7)))
+            )
+          )
+          (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
+        )
+      )
+      (export (;1;) "x" (type 0))
+    )
+  )
+)
+
+==== WIT ====
+package root:component;
+
+world root {
+  import score: interface {
+    finish: func(x: u64);
+  }
+  import starstream:std/builtin;
+
+  resource score-progress;
+
+  record score-progress-storage {
+    chips: u64,
+    mult: u64,
+  }
+
+  export new: func();
+  export score-progress-get-storage: func() -> score-progress-storage;
+  export score-progress-set-storage: func(storage: score-progress-storage);
+}
+package starstream:std {
+  interface builtin {
+    implements-method: func(hash: tuple<u64, u64, u64, u64>);
+  }
+}

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::{borrow::Cow, collections::HashMap, rc::Rc};
 
@@ -14,12 +15,11 @@ use starstream_types::{
 };
 use thiserror::Error;
 use wasm_encoder::{
-    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection,
-    ComponentSection, ComponentType, ComponentTypeRef, ComponentTypeSection, ComponentValType,
-    ConstExpr, CustomSection, DataSection, Encode, EntityType, ExportKind, ExportSection, FuncType,
-    Function, FunctionSection, GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection,
-    InstanceType, InstructionSink, MemorySection, MemoryType, Module, Section, TypeBounds,
-    TypeSection, ValType,
+    BlockType, CodeSection, Component, ComponentExportKind, ComponentExportSection, ComponentType,
+    ComponentTypeRef, ComponentTypeSection, ComponentValType, ConstExpr, CustomSection,
+    DataSection, EntityType, ExportKind, ExportSection, FuncType, Function, FunctionSection,
+    GlobalSection, GlobalType, Ieee32, Ieee64, ImportSection, InstanceType, InstructionSink,
+    MemorySection, MemoryType, Module, TypeBounds, TypeSection, ValType,
 };
 
 use crate::component_abi::{ComponentAbiType, MAX_FLAT_PARAMS, MAX_FLAT_RESULTS};
@@ -214,7 +214,7 @@ struct Compiler {
     // Component binary output.
     world_type: TypeBuilder<ComponentType>,
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
-    imported_interfaces: HashMap<String, TypeBuilder<InstanceType>>,
+    imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
 
     // Diagnostics.
     fatal: bool,
@@ -1432,7 +1432,12 @@ impl Compiler {
         }
     }
 
-    fn visit_function(&mut self, wit_name: &str, function: &TypedFunctionDef, parent: &dyn Locals) {
+    fn visit_function(
+        &mut self,
+        wit_name: &str,
+        function: &TypedFunctionDef,
+        parent: &dyn Locals,
+    ) -> CoreFn {
         let mut locals = HashMap::<String, Var>::new();
         let mut params = Vec::with_capacity(16);
         for p in &function.params {
@@ -1491,6 +1496,8 @@ impl Compiler {
             }
             None => {}
         }
+
+        CoreFn { idx }
     }
 
     fn visit_struct(&mut self, struct_: &TypedStructDef) {
@@ -1548,11 +1555,12 @@ impl Compiler {
                 } => {
                     _ = abi; // TODO: generate cast functions
                     for function in parts {
-                        self.visit_function(
+                        let core_fn = self.visit_function(
                             &to_kebab_case(function.name.as_str()),
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
+                        self.export_core_fn(function.name.as_str(), core_fn.idx);
                     }
                 }
             }
@@ -3602,6 +3610,10 @@ impl BulkBlockOutput {
             }
         }
     }
+}
+
+struct CoreFn {
+    idx: u32,
 }
 
 /// Remove column `col` from a `col_locals` slice.

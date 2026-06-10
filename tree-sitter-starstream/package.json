@@ -2,11 +2,9 @@
   "name": "tree-sitter-starstream",
   "version": "0.0.0",
   "description": "Starstream grammar for tree-sitter",
-  "repository": "https://github.com/paimastudios/starstream",
-  "license": "MIT/Apache-2.0",
-  "author": {
-    "name": "Paima Studios"
-  },
+  "repository": "https://github.com/LFDT-Nightstream/Starstream",
+  "license": "(MIT OR Apache-2.0)",
+  "author": "Midnight Foundation",
   "main": "bindings/node",
   "types": "bindings/node",
   "keywords": [
