@@ -154,7 +154,7 @@ TypedProgram {
               (export (;0;) "script-accepts-utxos" (func (type 2)))
               (type (;3;)
                 (instance
-                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (export (;0;) "utxo" (type (sub resource)))
                 )
               )
               (export (;0;) "my-utxo" (instance (type 3)))
@@ -176,6 +176,6 @@ world root {
 
   export script-accepts-utxos: func(utxo: borrow<utxo>, my-utxo: borrow<utxo>);
   export my-utxo: interface {
-    resource my-utxo;
+    resource utxo;
   }
 }

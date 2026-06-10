@@ -280,8 +280,8 @@ TypedProgram {
   (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]my-utxo.hello-utxo" (func 2))
-  (export "my-utxo#[method]my-utxo.foo" (func 4))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 2))
+  (export "my-utxo#[method]utxo.foo" (func 4))
   (func (;1;) (type 1)
     (block ;; label = @1
       (br_if 0 (;@1;)
@@ -329,12 +329,12 @@ TypedProgram {
               (import "starstream:std/builtin" (instance (;0;) (type 0)))
               (type (;1;)
                 (instance
-                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (func (param "x" s32)))
-                  (export (;0;) "[static]my-utxo.hello-utxo" (func (type 1)))
+                  (export (;0;) "[static]utxo.hello-utxo" (func (type 1)))
                   (type (;2;) (borrow 0))
                   (type (;3;) (func (param "self" 2)))
-                  (export (;1;) "[method]my-utxo.foo" (func (type 3)))
+                  (export (;1;) "[method]utxo.foo" (func (type 3)))
                 )
               )
               (export (;1;) "my-utxo" (instance (type 1)))
@@ -355,7 +355,7 @@ world root {
   import starstream:std/builtin;
 
   export my-utxo: interface {
-    resource my-utxo {
+    resource utxo {
       hello-utxo: static func(x: s32);
       foo: func();
     }

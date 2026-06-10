@@ -250,7 +250,7 @@ TypedProgram {
 (module
   (type (;0;) (func))
   (import "foo-abi" "hello-event" (func (;0;) (type 0)))
-  (export "my-utxo#[static]my-utxo.hello-utxo" (func 3))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 3))
   (func (;1;) (type 0)
     (unreachable)
   )
@@ -276,9 +276,9 @@ TypedProgram {
               (import "foo-abi" (instance (;0;) (type 0)))
               (type (;1;)
                 (instance
-                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (func))
-                  (export (;0;) "[static]my-utxo.hello-utxo" (func (type 1)))
+                  (export (;0;) "[static]utxo.hello-utxo" (func (type 1)))
                 )
               )
               (export (;1;) "my-utxo" (instance (type 1)))
@@ -301,7 +301,7 @@ world root {
   }
 
   export my-utxo: interface {
-    resource my-utxo {
+    resource utxo {
       hello-utxo: static func();
     }
   }

@@ -349,8 +349,8 @@ TypedProgram {
   (memory (;0;) 1)
   (global (;0;) (mut i64) (i64.const 0))
   (global (;1;) (mut i64) (i64.const 0))
-  (export "my-utxo#[static]my-utxo.increment" (func 2))
-  (export "my-utxo#[static]my-utxo.increment-mult" (func 3))
+  (export "my-utxo#[static]utxo.increment" (func 2))
+  (export "my-utxo#[static]utxo.increment-mult" (func 3))
   (export "my-utxo#get-storage" (func 5))
   (export "my-utxo#set-storage" (func 6))
   (export "memory" (memory 0))
@@ -435,11 +435,11 @@ TypedProgram {
             (component
               (type (;0;)
                 (instance
-                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (func))
-                  (export (;0;) "[static]my-utxo.increment" (func (type 1)))
+                  (export (;0;) "[static]utxo.increment" (func (type 1)))
                   (type (;2;) (func))
-                  (export (;1;) "[static]my-utxo.increment-mult" (func (type 2)))
+                  (export (;1;) "[static]utxo.increment-mult" (func (type 2)))
                   (type (;3;) (record (field "counter" s64) (field "multiplier" s64)))
                   (export (;4;) "storage" (type (eq 3)))
                   (type (;5;) (borrow 0))
@@ -466,7 +466,7 @@ package root:component;
 
 world root {
   export my-utxo: interface {
-    resource my-utxo {
+    resource utxo {
       increment: static func();
       increment-mult: static func();
     }
@@ -476,8 +476,8 @@ world root {
       multiplier: s64,
     }
 
-    get-storage: func(self: borrow<my-utxo>) -> storage;
+    get-storage: func(self: borrow<utxo>) -> storage;
 
-    set-storage: func(storage: storage) -> my-utxo;
+    set-storage: func(storage: storage) -> utxo;
   }
 }

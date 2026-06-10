@@ -1190,11 +1190,11 @@ TypedProgram {
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i64) (i64.const 0))
   (global (;2;) (mut i64) (i64.const 0))
-  (export "score-progress#[static]score-progress.new" (func 4))
-  (export "score-progress#[method]score-progress.plus-chips" (func 7))
-  (export "score-progress#[method]score-progress.plus-mult" (func 8))
-  (export "score-progress#[method]score-progress.mult-mult" (func 9))
-  (export "score-progress#[method]score-progress.finish" (func 10))
+  (export "score-progress#[static]utxo.new" (func 4))
+  (export "score-progress#[method]utxo.plus-chips" (func 7))
+  (export "score-progress#[method]utxo.plus-mult" (func 8))
+  (export "score-progress#[method]utxo.mult-mult" (func 9))
+  (export "score-progress#[method]utxo.finish" (func 10))
   (export "score-progress#get-storage" (func 12))
   (export "score-progress#set-storage" (func 13))
   (export "memory" (memory 0))
@@ -1381,18 +1381,18 @@ TypedProgram {
               (import "starstream:std/builtin" (instance (;1;) (type 1)))
               (type (;2;)
                 (instance
-                  (export (;0;) "score-progress" (type (sub resource)))
+                  (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (func))
-                  (export (;0;) "[static]score-progress.new" (func (type 1)))
+                  (export (;0;) "[static]utxo.new" (func (type 1)))
                   (type (;2;) (borrow 0))
                   (type (;3;) (func (param "self" 2) (param "chips2" u64)))
-                  (export (;1;) "[method]score-progress.plus-chips" (func (type 3)))
+                  (export (;1;) "[method]utxo.plus-chips" (func (type 3)))
                   (type (;4;) (func (param "self" 2) (param "mult2" u64)))
-                  (export (;2;) "[method]score-progress.plus-mult" (func (type 4)))
+                  (export (;2;) "[method]utxo.plus-mult" (func (type 4)))
                   (type (;5;) (func (param "self" 2) (param "mult-pct" u64)))
-                  (export (;3;) "[method]score-progress.mult-mult" (func (type 5)))
+                  (export (;3;) "[method]utxo.mult-mult" (func (type 5)))
                   (type (;6;) (func (param "self" 2)))
-                  (export (;4;) "[method]score-progress.finish" (func (type 6)))
+                  (export (;4;) "[method]utxo.finish" (func (type 6)))
                   (type (;7;) (record (field "chips" u64) (field "mult" u64)))
                   (export (;8;) "storage" (type (eq 7)))
                   (type (;9;) (func (param "self" 2) (result 8)))
@@ -1423,7 +1423,7 @@ world root {
   import starstream:std/builtin;
 
   export score-progress: interface {
-    resource score-progress {
+    resource utxo {
       new: static func();
       plus-chips: func(chips2: u64);
       plus-mult: func(mult2: u64);
@@ -1436,9 +1436,9 @@ world root {
       mult: u64,
     }
 
-    get-storage: func(self: borrow<score-progress>) -> storage;
+    get-storage: func(self: borrow<utxo>) -> storage;
 
-    set-storage: func(storage: storage) -> score-progress;
+    set-storage: func(storage: storage) -> utxo;
   }
 }
 package starstream:std {

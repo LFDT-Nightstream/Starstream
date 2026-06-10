@@ -204,7 +204,7 @@ TypedProgram {
 (module
   (type (;0;) (func))
   (type (;1;) (func (param i32) (result i32)))
-  (export "my-utxo#[method]my-utxo.hello" (func 1))
+  (export "my-utxo#[method]utxo.hello" (func 1))
   (func (;0;) (type 0)
     (unreachable)
   )
@@ -220,10 +220,10 @@ TypedProgram {
             (component
               (type (;0;)
                 (instance
-                  (export (;0;) "my-utxo" (type (sub resource)))
+                  (export (;0;) "utxo" (type (sub resource)))
                   (type (;1;) (borrow 0))
                   (type (;2;) (func (param "self" 1) (result s32)))
-                  (export (;0;) "[method]my-utxo.hello" (func (type 2)))
+                  (export (;0;) "[method]utxo.hello" (func (type 2)))
                 )
               )
               (export (;0;) "my-utxo" (instance (type 0)))
@@ -242,7 +242,7 @@ package root:component;
 
 world root {
   export my-utxo: interface {
-    resource my-utxo {
+    resource utxo {
       hello: func() -> s32;
     }
   }

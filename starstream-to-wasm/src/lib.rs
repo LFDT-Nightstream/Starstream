@@ -408,14 +408,14 @@ impl Compiler {
 
     fn generate_storage_exports(
         &mut self,
-        utxo_ty: &Type,
+        utxo: &TypedUtxoDef,
         iface: &mut TypeBuilder<InstanceType>,
-        name: &Identifier,
+        interface_name: &str,
         scope: &dyn Locals,
         fields: Vec<TypedStructField>,
     ) {
         if !fields.is_empty() {
-            let resource_name = to_kebab_case(name.as_str());
+            let name = &utxo.name;
             let storage_struct = Type::Record(RecordType {
                 name: format!("{name}::Storage"),
                 fields: fields
@@ -454,10 +454,10 @@ impl Compiler {
                     },
                 })),
             };
-            let sig = self.star_to_component_signature(Some(utxo_ty), &get_storage);
-            let core = self.visit_function(Some(utxo_ty), &get_storage, scope);
+            let sig = self.star_to_component_signature(Some(&utxo.ty), &get_storage);
+            let core = self.visit_function(Some(&utxo.ty), &get_storage, scope);
             if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
-                self.export_core_fn(&format!("{resource_name}#get-storage"), func_idx);
+                self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
                 iface.export_fn("get-storage", &sig);
             }
 
@@ -469,7 +469,7 @@ impl Compiler {
                     name: Identifier::anon("storage"),
                     ty: storage_struct.clone(),
                 }],
-                return_type: utxo_ty.clone(),
+                return_type: utxo.ty.clone(),
                 effect: EffectKind::Pure,
                 body: TypedBlock::new(
                     fields
@@ -491,7 +491,7 @@ impl Compiler {
                         })
                         .collect::<Vec<_>>(),
                     Some(Spanned::none(TypedExpr::new(
-                        utxo_ty.clone(),
+                        utxo.ty.clone(),
                         TypedExprKind::Literal(Literal::Integer(0)),
                     ))),
                 ),
@@ -499,7 +499,7 @@ impl Compiler {
             let sig = self.star_to_component_signature(None, &set_storage);
             let core = self.visit_function(None, &set_storage, scope);
             if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
-                self.export_core_fn(&format!("{resource_name}#set-storage"), func_idx);
+                self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
                 iface.export_fn("set-storage", &sig);
             }
         }
@@ -1536,7 +1536,8 @@ impl Compiler {
         let mut iface = TypeBuilder::<InstanceType>::default();
 
         // Declare the resource type.
-        let resource_name = to_kebab_case(utxo.name.as_str());
+        let interface_name = to_kebab_case(utxo.name.as_str());
+        let resource_name = "utxo";
         let resource = self.world_type.inner.type_count();
         iface.inner.export(
             &resource_name,
@@ -1579,7 +1580,7 @@ impl Compiler {
                         if let Some(func_idx) =
                             self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
                         {
-                            self.export_core_fn(&format!("{resource_name}#{wit_name}"), func_idx);
+                            self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
                             iface.export_fn(&wit_name, &sig);
                         }
                     }
@@ -1604,7 +1605,7 @@ impl Compiler {
                         if let Some(func_idx) =
                             self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
                         {
-                            self.export_core_fn(&format!("{resource_name}#{wit_name}"), func_idx);
+                            self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
                             iface.export_fn(&wit_name, &sig);
                         }
                     }
@@ -1618,14 +1619,14 @@ impl Compiler {
 
         // Generate storage exports.
         self.generate_storage_exports(
-            &utxo.ty,
+            utxo,
             &mut iface,
-            &utxo.name,
+            &interface_name,
             &(&() as &dyn Locals, &utxo_storage),
             utxo_record_type,
         );
 
-        self.exported_interfaces.insert(resource_name, iface);
+        self.exported_interfaces.insert(interface_name, iface);
     }
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
