@@ -468,7 +468,9 @@ impl Compiler {
         };
         let sig = self.star_to_component_signature(Some(&utxo.ty), &get_storage);
         let core = self.visit_function(Some(&utxo.ty), &get_storage, scope);
-        if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
+        if let Some(func_idx) =
+            self.make_component_export_wrapper_fn(name.span, &sig, core.idx, &core.ty)
+        {
             self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
             iface.export_fn("get-storage", &sig);
         }
@@ -508,7 +510,9 @@ impl Compiler {
         };
         let sig = self.star_to_component_signature(None, &set_storage);
         let core = self.visit_function(None, &set_storage, scope);
-        if let Some(func_idx) = self.make_component_export_wrapper_fn(name.span, &sig, &core) {
+        if let Some(func_idx) =
+            self.make_component_export_wrapper_fn(name.span, &sig, core.idx, &core.ty)
+        {
             self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
             iface.export_fn("set-storage", &sig);
         }
@@ -827,27 +831,28 @@ impl Compiler {
         &mut self,
         span: Span,
         sig: &ComponentAbiFunctionSignature,
-        core: &CoreFn,
+        core_idx: u32,
+        core_ty: &FuncType,
     ) -> Option<u32> {
-        if core.ty.params().len() <= MAX_FLAT_PARAMS && core.ty.results().len() <= MAX_FLAT_RESULTS
+        if core_ty.params().len() <= MAX_FLAT_PARAMS && core_ty.results().len() <= MAX_FLAT_RESULTS
         {
             // No need to spill params or results to heap, so don't wrap.
-            Some(core.idx)
-        } else if core.ty.params().len() <= MAX_FLAT_PARAMS {
+            Some(core_idx)
+        } else if core_ty.params().len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
             let result = sig.result.as_ref().unwrap();
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
-            let mut wrapper_func = StFunction::new(core.ty.params(), &[ValType::I32]);
+            let mut wrapper_func = StFunction::new(core_ty.params(), &[ValType::I32]);
             let bb = &wrapper_func.cfg.add_block();
             wrapper_func.cfg.seal(*bb, BlockType::Empty);
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
-            for i in 0..core.ty.params().len() {
+            for i in 0..core_ty.params().len() {
                 wrapper_func.instructions(bb).local_get(i as u32);
             }
-            wrapper_func.instructions(bb).call(core.idx);
+            wrapper_func.instructions(bb).call(core_idx);
             // Write to our return slot.
             self.component_store(span, &mut wrapper_func, bb, result, 0);
             // Return our return slot.
@@ -874,7 +879,8 @@ impl Compiler {
         sig: &ComponentAbiFunctionSignature,
         core: &CoreFn,
     ) {
-        if let Some(func_idx) = self.make_component_export_wrapper_fn(span, sig, core) {
+        if let Some(func_idx) = self.make_component_export_wrapper_fn(span, sig, core.idx, &core.ty)
+        {
             self.export_core_fn(wit_name, func_idx);
             self.world_type.export_fn(wit_name, sig);
         }
@@ -1635,9 +1641,12 @@ impl Compiler {
                             "[static]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
                         );
-                        if let Some(func_idx) =
-                            self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
-                        {
+                        if let Some(func_idx) = self.make_component_export_wrapper_fn(
+                            function.name.span,
+                            &sig,
+                            core.idx,
+                            &core.ty,
+                        ) {
                             self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
                             iface.export_fn(&wit_name, &sig);
                         }
@@ -1660,9 +1669,12 @@ impl Compiler {
                             "[method]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
                         );
-                        if let Some(func_idx) =
-                            self.make_component_export_wrapper_fn(function.name.span, &sig, &core)
-                        {
+                        if let Some(func_idx) = self.make_component_export_wrapper_fn(
+                            function.name.span,
+                            &sig,
+                            core.idx,
+                            &core.ty,
+                        ) {
                             self.export_core_fn(&format!("{interface_name}#{wit_name}"), func_idx);
                             iface.export_fn(&wit_name, &sig);
                         }
