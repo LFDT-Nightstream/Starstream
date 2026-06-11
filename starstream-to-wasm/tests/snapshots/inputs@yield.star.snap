@@ -283,6 +283,7 @@ TypedProgram {
   (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
+  (global (;2;) (mut i32) (i32.const 0))
   (export "my-utxo#[static]utxo.hello-utxo" (func 4))
   (export "my-utxo#[method]utxo.foo" (func 6))
   (func (;3;) (type 3)
@@ -295,22 +296,32 @@ TypedProgram {
     (unreachable)
   )
   (func (;4;) (type 1) (param i32) (result i32)
+    (local i32)
+    (local.set 1
+      (call 1
+        (i32.const 0)))
     (global.set 0
       (i32.const 1))
     (global.set 1
       (local.get 0))
+    (global.set 2
+      (local.get 1))
     (call 0
       (i64.const -8086495256948496852)
       (i64.const 3765343665581825017)
       (i64.const -6863622839687364077)
       (i64.const -5843589418109203719))
-    (i32.const 0)
+    (local.get 1)
   )
   (func (;5;) (type 3)
-    (local i32)
+    (local i32 i32)
     (local.set 0
       (global.get 1))
     (global.set 1
+      (i32.const 0))
+    (local.set 1
+      (global.get 2))
+    (global.set 2
       (i32.const 0))
   )
   (func (;6;) (type 2) (param i32)

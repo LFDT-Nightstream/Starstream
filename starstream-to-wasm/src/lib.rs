@@ -1492,12 +1492,27 @@ impl Compiler {
         func.cfg.seal(bb_orig, BlockType::Empty);
         let mut bb = bb_orig;
 
+        let resource_local = match function.export {
+            Some(FunctionExport::UtxoMain) => {
+                // A `utxo main` fn starts by spawning a resource to represent the created Utxo.
+                let ctx = self.current_utxo.as_mut().unwrap();
+                let resource_local = func.add_locals([ValType::I32]);
+                ctx.resource_local = resource_local;
+                func.instructions(&bb)
+                    .i32_const(0)
+                    .call(ctx.resource_new_fn)
+                    .local_set(resource_local);
+                Some(resource_local)
+            }
+            _ => None,
+        };
+
         let _ = self.visit_block_stack(&mut func, &mut bb, &(parent, &locals), &function.body);
         func.cfg.fill(bb, Out::Return);
 
         // Stackify from entry point.
-        let async_mode = if matches!(function.export, Some(FunctionExport::UtxoMain)) {
-            stackifier::AsyncMode::AsyncStart
+        let async_mode = if let Some(resource_local) = resource_local {
+            stackifier::AsyncMode::AsyncStart { resource_local }
         } else {
             stackifier::AsyncMode::Sync
         };
@@ -1525,6 +1540,10 @@ impl Compiler {
             }
             let idx = self.add_function(stackified.ty, stackified.code);
             self.yield_funcs.push(idx);
+        }
+
+        if let Some(utxo) = &mut self.current_utxo {
+            utxo.resource_local = u32::MAX;
         }
 
         CoreFn {

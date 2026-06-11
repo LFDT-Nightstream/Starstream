@@ -31,7 +31,7 @@ enum SeqItem {
 
 pub enum AsyncMode {
     Sync,
-    AsyncStart,
+    AsyncStart { resource_local: u32 },
     AsyncContinuation,
 }
 
@@ -70,7 +70,7 @@ impl Stackified<'_> {
                 self.ty = FuncType::new(func.params.iter().copied(), func.results.iter().copied());
                 locals = crate::RleLocals::from_iter(func.locals.iter().copied());
             }
-            AsyncMode::AsyncStart => {
+            AsyncMode::AsyncStart { .. } => {
                 // TODO: conform to wasm-component async ABI...?
                 // For now, our async functions always have no returns anyways, so we don't have to deal with that yet.
                 assert!(func.results.is_empty());
@@ -130,6 +130,11 @@ impl Stackified<'_> {
                     match func.cfg.blocks[bb].out {
                         Out::None => unreachable!(),
                         Out::Return | Out::Yield { .. } => {
+                            // TODO: make Return destroy the resource in AsyncStart and AsyncContinuation?
+                            if let AsyncMode::AsyncStart { resource_local } = self.mode {
+                                // AsyncStart fns gain an extra return slot, so we need to fill it in.
+                                InstructionSink::new(sink).local_get(resource_local);
+                            }
                             if i + 1 != seq.len() {
                                 InstructionSink::new(sink).return_();
                             }
@@ -177,10 +182,6 @@ impl Stackified<'_> {
         }
 
         // Finishing touch
-        if matches!(self.mode, AsyncMode::AsyncStart) {
-            // Currently a dummy resource handle, in the future might be a status code
-            InstructionSink::new(sink).i32_const(0);
-        }
         InstructionSink::new(sink).end();
         self.seq = seq;
     }
@@ -189,7 +190,7 @@ impl Stackified<'_> {
         DisplayClosure(|fmt| {
             writeln!(fmt, "flowchart TB")?;
             match self.mode {
-                AsyncMode::Sync | AsyncMode::AsyncStart => {
+                AsyncMode::Sync | AsyncMode::AsyncStart { .. } => {
                     writeln!(fmt, "start([start])")?;
                     writeln!(fmt, "start --> {}", self.entry)?;
                 }

@@ -263,8 +263,12 @@ TypedProgram {
     (call 0)
   )
   (func (;5;) (type 3) (result i32)
+    (local i32)
+    (local.set 0
+      (call 1
+        (i32.const 0)))
     (call 4)
-    (i32.const 0)
+    (local.get 0)
   )
   (@custom "component-type"
     (component

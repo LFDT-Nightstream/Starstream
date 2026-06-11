@@ -385,18 +385,26 @@ TypedProgram {
         (unreachable)))
   )
   (func (;4;) (type 4) (result i32)
+    (local i32)
+    (local.set 0
+      (call 0
+        (i32.const 0)))
     (global.set 0
       (call 3
         (global.get 0)
         (i64.const 1)))
-    (i32.const 0)
+    (local.get 0)
   )
   (func (;5;) (type 4) (result i32)
+    (local i32)
+    (local.set 0
+      (call 0
+        (i32.const 0)))
     (global.set 1
       (call 3
         (global.get 1)
         (i64.const 1)))
-    (i32.const 0)
+    (local.get 0)
   )
   (func (;6;) (type 5) (param i32) (result i64 i64)
     (global.get 0)

@@ -1193,6 +1193,7 @@ TypedProgram {
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i64) (i64.const 0))
   (global (;2;) (mut i64) (i64.const 0))
+  (global (;3;) (mut i32) (i32.const 0))
   (export "score-progress#[static]utxo.new" (func 6))
   (export "score-progress#[method]utxo.plus-chips" (func 9))
   (export "score-progress#[method]utxo.plus-mult" (func 10))
@@ -1251,8 +1252,14 @@ TypedProgram {
             (unreachable)))))
   )
   (func (;6;) (type 6) (result i32)
+    (local i32)
+    (local.set 0
+      (call 2
+        (i32.const 0)))
     (global.set 0
       (i32.const 1))
+    (global.set 3
+      (local.get 0))
     (call 0
       (i64.const -8462002850237496965)
       (i64.const 3777191895585416912)
@@ -1273,9 +1280,14 @@ TypedProgram {
       (i64.const 7822374597054249491)
       (i64.const -6997249775370434463)
       (i64.const -2683880554626369430))
-    (i32.const 0)
+    (local.get 0)
   )
   (func (;7;) (type 4)
+    (local i32)
+    (local.set 0
+      (global.get 3))
+    (global.set 3
+      (i32.const 0))
     (call 1
       (call 5
         (global.get 1)
