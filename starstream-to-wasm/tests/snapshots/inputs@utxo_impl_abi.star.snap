@@ -202,13 +202,16 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func))
-  (type (;1;) (func (param i32) (result i32)))
-  (export "my-utxo#[method]utxo.hello" (func 1))
-  (func (;0;) (type 0)
+  (type (;0;) (func (param i32) (result i32)))
+  (type (;1;) (func (param i32)))
+  (type (;2;) (func))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;0;) (type 0)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;1;) (type 1)))
+  (export "my-utxo#[method]utxo.hello" (func 3))
+  (func (;2;) (type 2)
     (unreachable)
   )
-  (func (;1;) (type 1) (param i32) (result i32)
+  (func (;3;) (type 0) (param i32) (result i32)
     (i32.const 17)
   )
   (@custom "component-type"

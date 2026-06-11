@@ -225,6 +225,7 @@ struct Compiler {
     star_to_component: HashMap<Type, Rc<ComponentAbiType>>,
     imported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
     exported_interfaces: BTreeMap<String, TypeBuilder<InstanceType>>,
+    resource_abi_fns: HashMap<Type, (u32, u32)>,
 
     // Diagnostics.
     fatal: bool,
@@ -246,7 +247,15 @@ struct Compiler {
     yield_global: Option<u32>,
     yield_id: i32,
     yield_funcs: Vec<u32>,
-    resume_func_idx: Option<u32>,
+
+    current_utxo: Option<UtxoContext>,
+}
+
+struct UtxoContext {
+    resume_fn: u32,
+    resource_new_fn: u32,
+    resource_drop_fn: u32,
+    resource_local: u32,
 }
 
 impl Compiler {
@@ -1285,6 +1294,7 @@ impl Compiler {
             match definition {
                 TypedDefinition::Import(def) => self.visit_import(def),
                 TypedDefinition::Abi(def) => self.visit_abi(def),
+                TypedDefinition::Utxo(def) => self.pre_visit_utxo(def),
                 // All others handled below.
                 _ => {}
             }
@@ -1532,6 +1542,27 @@ impl Compiler {
         self.export_component_ty(enum_.name.as_str(), &enum_.ty);
     }
 
+    fn pre_visit_utxo(&mut self, utxo: &TypedUtxoDef) {
+        let interface_name = to_kebab_case(utxo.name.as_str());
+        let resource_name = "utxo";
+
+        // Allocate the synthetic `resource.new` and `resource.drop` imports.
+        let ty = self.add_core_func_type(FuncType::new([ValType::I32], [ValType::I32]));
+        let new_fn = self.import_function(
+            &format!("[export]{interface_name}"),
+            &format!("[resource-new]{resource_name}"),
+            ty,
+        );
+        let ty = self.add_core_func_type(FuncType::new([ValType::I32], []));
+        let drop_fn = self.import_function(
+            &format!("[export]{interface_name}"),
+            &format!("[resource-drop]{resource_name}"),
+            ty,
+        );
+        self.resource_abi_fns
+            .insert(utxo.ty.clone(), (new_fn, drop_fn));
+    }
+
     fn visit_utxo(&mut self, utxo: &TypedUtxoDef) {
         let mut iface = TypeBuilder::<InstanceType>::default();
 
@@ -1545,11 +1576,18 @@ impl Compiler {
         );
         self.resources.insert(utxo.name.to_string(), resource);
 
+        let (resource_new_fn, resource_drop_fn) = *self.resource_abi_fns.get(&utxo.ty).unwrap();
+
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
-        let resume_func_idx = self.add_function(FuncType::new([], []), Vec::new());
+        let resume_fn = self.add_function(FuncType::new([], []), Vec::new());
         let resume_code_idx = self.code_bytes.len() - 1;
-        self.resume_func_idx = Some(resume_func_idx);
+        self.current_utxo = Some(UtxoContext {
+            resume_fn,
+            resource_new_fn,
+            resource_drop_fn,
+            resource_local: u32::MAX,
+        });
 
         // Visit each Utxo part.
         let mut utxo_storage = HashMap::new();
@@ -1616,7 +1654,7 @@ impl Compiler {
 
         // Fill in the code of the `resume;` function.
         self.code_bytes[resume_code_idx] = self.generate_resume_fn(yield_start..self.yield_id);
-        self.resume_func_idx = None;
+        self.current_utxo = None;
 
         // Generate storage exports.
         self.generate_storage_exports(
@@ -1775,7 +1813,7 @@ impl Compiler {
                     func.cfg.fill(
                         *bb,
                         Out::ReturnCall {
-                            func: self.resume_func_idx.unwrap(),
+                            func: self.current_utxo.as_ref().unwrap().resume_fn,
                         },
                     );
                     *bb = usize::MAX;

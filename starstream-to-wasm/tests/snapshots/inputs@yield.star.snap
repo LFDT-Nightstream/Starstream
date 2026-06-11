@@ -275,24 +275,26 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func (param i64 i64 i64 i64)))
-  (type (;1;) (func))
-  (type (;2;) (func (param i32) (result i32)))
-  (type (;3;) (func (param i32)))
+  (type (;1;) (func (param i32) (result i32)))
+  (type (;2;) (func (param i32)))
+  (type (;3;) (func))
   (import "starstream:std/builtin" "implements-method" (func (;0;) (type 0)))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
   (global (;0;) (mut i32) (i32.const 0))
   (global (;1;) (mut i32) (i32.const 0))
-  (export "my-utxo#[static]utxo.hello-utxo" (func 2))
-  (export "my-utxo#[method]utxo.foo" (func 4))
-  (func (;1;) (type 1)
+  (export "my-utxo#[static]utxo.hello-utxo" (func 4))
+  (export "my-utxo#[method]utxo.foo" (func 6))
+  (func (;3;) (type 3)
     (block ;; label = @1
       (br_if 0 (;@1;)
         (i32.ne
           (global.get 0)
           (i32.const 1)))
-      (return_call 3))
+      (return_call 5))
     (unreachable)
   )
-  (func (;2;) (type 2) (param i32) (result i32)
+  (func (;4;) (type 1) (param i32) (result i32)
     (global.set 0
       (i32.const 1))
     (global.set 1
@@ -304,15 +306,15 @@ TypedProgram {
       (i64.const -5843589418109203719))
     (i32.const 0)
   )
-  (func (;3;) (type 1)
+  (func (;5;) (type 3)
     (local i32)
     (local.set 0
       (global.get 1))
     (global.set 1
       (i32.const 0))
   )
-  (func (;4;) (type 3) (param i32)
-    (return_call 1)
+  (func (;6;) (type 2) (param i32)
+    (return_call 3)
   )
   (@custom "component-type"
     (component
