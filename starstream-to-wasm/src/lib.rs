@@ -8,13 +8,12 @@ use std::{borrow::Cow, collections::HashMap, rc::Rc};
 use miette::{Diagnostic, LabeledSpan};
 use sha2::Digest;
 use starstream_types::{
-    BinaryOp, EffectKind, EnumType, EnumVariantKind, FunctionExport, Identifier, IntWidth, Literal,
-    RecordFieldType, RecordType, Span, Spanned, Type, TypedAbiDef, TypedAbiPart, TypedBlock,
-    TypedDefinition, TypedEnumConstructorPayload, TypedEnumDef, TypedEnumPatternPayload, TypedExpr,
-    TypedExprKind, TypedFunctionDef, TypedFunctionParam, TypedIfCondition, TypedImportDef,
-    TypedImportItems, TypedImportSource, TypedMatchArm, TypedPattern, TypedProgram, TypedStatement,
-    TypedStructDef, TypedStructField, TypedStructLiteralField, TypedUtxoDef, TypedUtxoPart,
-    UnaryOp,
+    BinaryOp, EnumType, EnumVariantKind, FunctionExport, IntWidth, Literal, Span, Spanned, Type,
+    TypedAbiDef, TypedAbiPart, TypedBlock, TypedDefinition, TypedEnumConstructorPayload,
+    TypedEnumDef, TypedEnumPatternPayload, TypedExpr, TypedExprKind, TypedFunctionDef,
+    TypedFunctionParam, TypedIfCondition, TypedImportDef, TypedImportItems, TypedImportSource,
+    TypedMatchArm, TypedPattern, TypedProgram, TypedStatement, TypedStructDef, TypedUtxoDef,
+    TypedUtxoPart, UnaryOp,
 };
 use thiserror::Error;
 use wasm_encoder::{
@@ -232,6 +231,9 @@ struct Compiler {
     errors: Vec<CompileError>,
     mermaid: Vec<(String, String)>,
 
+    // Debug info.
+    global_details: Vec<(String, ValType)>,
+
     // Function building.
     core_func_type_cache: HashMap<FuncType, u32>,
     /// Map from name to function index.
@@ -267,7 +269,7 @@ impl Compiler {
 
         // Flush function codes into the code section.
         for each in self.code_bytes {
-            assert!(!each.is_empty());
+            assert!(!each.is_empty(), "a function's body was never set");
             self.code.raw(&each);
         }
 
@@ -420,101 +422,81 @@ impl Compiler {
         utxo: &TypedUtxoDef,
         iface: &mut TypeBuilder<InstanceType>,
         interface_name: &str,
-        scope: &dyn Locals,
-        fields: Vec<TypedStructField>,
+        fields: impl Iterator<Item = u32> + Clone,
     ) {
-        if fields.is_empty() {
+        let name = &utxo.name;
+        let storage_flat: Vec<ValType> = fields
+            .clone()
+            .map(|g| self.global_details[g as usize].1)
+            .collect();
+        if storage_flat.is_empty() {
             return;
         }
 
-        let name = &utxo.name;
-        let storage_struct = Type::Record(RecordType {
-            name: format!("{name}::Storage"),
+        let storage_record = Rc::new(ComponentAbiType::Record {
             fields: fields
-                .iter()
-                .map(|f| RecordFieldType {
-                    name: f.name.name.clone(),
-                    ty: f.ty.clone(),
+                .clone()
+                .map(|g| {
+                    let (name, ty) = &self.global_details[g as usize];
+                    let ty = match ty {
+                        ValType::I32 => ComponentAbiType::S32,
+                        ValType::I64 => ComponentAbiType::S64,
+                        other => panic!("unhandled global type {other:?}"),
+                    };
+                    (name.to_owned(), Rc::new(ty))
                 })
                 .collect(),
         });
-        iface.export_ty(
-            "storage",
-            &self.star_to_component_type(&storage_struct).unwrap(),
-        );
+        iface.export_ty("storage", &storage_record);
 
-        let get_storage = TypedFunctionDef {
-            export: None,
-            name: Identifier::new(format!("{name}::get_storage"), name.span),
-            params: Vec::new(),
-            return_type: storage_struct.clone(),
-            effect: EffectKind::Pure,
-            body: TypedBlock::from(Spanned::none(TypedExpr {
-                ty: storage_struct.clone(),
-                kind: TypedExprKind::StructLiteral {
-                    name: name.clone(),
-                    fields: fields
-                        .iter()
-                        .map(|f| TypedStructLiteralField {
-                            name: f.name.clone(),
-                            value: Spanned::none(TypedExpr {
-                                ty: f.ty.clone(),
-                                kind: TypedExprKind::Identifier(f.name.clone()),
-                            }),
-                        })
-                        .collect(),
-                },
-            })),
-        };
-        let sig = self.star_to_component_signature(Some(&utxo.ty), &get_storage);
-        let core = self.visit_function(Some(&utxo.ty), &get_storage, scope);
-        if let Some(func_idx) =
-            self.make_component_export_wrapper_fn(name.span, &sig, core.idx, &core.ty)
+        let utxo_borrow = self.star_to_component_type(&utxo.ty).unwrap();
+        let utxo_own = utxo_borrow.convert_resource_to_owned();
+
+        // get-storage(self: borrow<utxo>) -> storage
         {
-            self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
-            iface.export_fn("get-storage", &sig);
+            let sig = ComponentAbiFunctionSignature {
+                params: vec![("self".to_owned(), utxo_borrow.clone())],
+                result: Some(storage_record.clone()),
+            };
+            let ty = FuncType::new([ValType::I32], storage_flat.iter().copied());
+            let mut code = Function::new([(1, ValType::I32)]);
+            for g in fields.clone() {
+                code.instructions().global_get(g);
+            }
+            code.instructions().end();
+            let func = self.add_function(&ty, code.into_raw_body());
+            if let Some(func_idx) =
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+            {
+                self.export_core_fn(&format!("{interface_name}#get-storage"), func_idx);
+                iface.export_fn("get-storage", &sig);
+            }
         }
 
-        let set_storage = TypedFunctionDef {
-            export: None,
-            name: Identifier::new(format!("{name}::set_storage"), name.span),
-            params: vec![TypedFunctionParam {
-                public: false,
-                name: Identifier::anon("storage"),
-                ty: storage_struct.clone(),
-            }],
-            return_type: utxo.ty.clone(),
-            effect: EffectKind::Pure,
-            body: TypedBlock::new(
-                fields
-                    .iter()
-                    .map(|f| TypedStatement::Assignment {
-                        target: f.name.clone(),
-                        value: Spanned::none(TypedExpr {
-                            ty: f.ty.clone(),
-                            kind: TypedExprKind::FieldAccess {
-                                target: Box::new(Spanned::none(TypedExpr {
-                                    ty: storage_struct.clone(),
-                                    kind: TypedExprKind::Identifier(Identifier::anon("storage")),
-                                })),
-                                field: f.name.clone(),
-                            },
-                        }),
-                    })
-                    .collect::<Vec<_>>(),
-                Some(Spanned::none(TypedExpr::new(
-                    utxo.ty.clone(),
-                    TypedExprKind::Literal(Literal::Integer(0)),
-                ))),
-            ),
-        };
-        let sig = self.star_to_component_signature(None, &set_storage);
-        let core = self.visit_function(None, &set_storage, scope);
-        if let Some(func_idx) =
-            self.make_component_export_wrapper_fn(name.span, &sig, core.idx, &core.ty)
+        // set-storage(storage: storage) -> utxo
         {
-            self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
-            iface.export_fn("set-storage", &sig);
+            let sig = ComponentAbiFunctionSignature {
+                params: vec![("storage".to_owned(), storage_record.clone())],
+                result: Some(utxo_own.clone()),
+            };
+            let ty = FuncType::new(storage_flat.iter().copied(), [ValType::I32]);
+            let mut code = Function::new(RleLocals::from_iter(storage_flat.iter().copied()));
+            for (l, g) in fields.clone().enumerate() {
+                code.instructions()
+                    .local_get(u32::try_from(l).unwrap())
+                    .global_set(g);
+            }
+            code.instructions()
+                .i32_const(0)
+                .return_call(self.current_utxo.as_ref().unwrap().resource_new_fn)
+                .end();
+            let func = self.add_function(&ty, code.into_raw_body());
+            if let Some(func_idx) =
+                self.make_component_export_wrapper_fn(name.span, &sig, func, &ty)
+            {
+                self.export_core_fn(&format!("{interface_name}#set-storage"), func_idx);
+                iface.export_fn("set-storage", &sig);
+            }
         }
     }
 
@@ -552,9 +534,9 @@ impl Compiler {
         func_index
     }
 
-    fn add_globals(&mut self, types: impl IntoIterator<Item = ValType>) -> u32 {
+    fn add_globals(&mut self, types: impl IntoIterator<Item = ValType>, name: &str) -> u32 {
         let idx = self.globals.len();
-        for ty in types {
+        for (i, ty) in types.into_iter().enumerate() {
             self.globals.global(
                 GlobalType {
                     val_type: ty,
@@ -567,6 +549,12 @@ impl Compiler {
                     _ => unimplemented!(),
                 },
             );
+            let name = if i > 0 {
+                format!("{name}-v{i}")
+            } else {
+                name.to_owned()
+            };
+            self.global_details.push((name, ty));
         }
         idx
     }
@@ -804,7 +792,8 @@ impl Compiler {
     fn star_to_component_signature(
         &mut self,
         this: Option<&Type>,
-        function: &TypedFunctionDef,
+        params: &[TypedFunctionParam],
+        return_type: &Type,
     ) -> ComponentAbiFunctionSignature {
         let this = this.and_then(|ty| {
             self.star_to_component_type(ty)
@@ -812,17 +801,14 @@ impl Compiler {
         });
         let params = this
             .into_iter()
-            .chain(function.params.iter().filter_map(|p| {
+            .chain(params.iter().filter_map(|p| {
                 self.star_to_component_type(&p.ty)
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
             }))
             .collect::<Vec<_>>();
-        let mut result = self.star_to_component_type(&function.return_type);
-        if let Some(m) = &result
-            && let ComponentAbiType::Borrow { resource } = **m
-        {
-            // Component return types can't be borrowed resources.
-            result = Some(Rc::new(ComponentAbiType::Own { resource }));
+        let mut result = self.star_to_component_type(&return_type);
+        if let Some(m) = &result {
+            result = Some(m.convert_resource_to_owned());
         }
         ComponentAbiFunctionSignature { params, result }
     }
@@ -1292,7 +1278,7 @@ impl Compiler {
                 ComponentTypeRef::Func(implements_method_ty),
             );
 
-            self.yield_global = Some(self.add_globals([ValType::I32]));
+            self.yield_global = Some(self.add_globals([ValType::I32], "yield"));
         }
 
         // In the Wasm output, imported functions must precede defined
@@ -1316,7 +1302,8 @@ impl Compiler {
                 TypedDefinition::Function(func) => {
                     let core = self.visit_function(None, func, &());
                     if let Some(FunctionExport::Script) = func.export {
-                        let sig = self.star_to_component_signature(None, func);
+                        let sig =
+                            self.star_to_component_signature(None, &func.params, &func.return_type);
                         self.export_component_fn(
                             &to_kebab_case(func.name.as_str()),
                             func.name.span,
@@ -1616,26 +1603,26 @@ impl Compiler {
 
         // Visit each Utxo part.
         let mut utxo_storage = HashMap::new();
-        let mut utxo_record_type = Vec::new();
+        let start_global = self.globals.len();
         for part in &utxo.parts {
             match part {
                 TypedUtxoPart::Storage(vars) => {
                     for var in vars {
                         let mut types = Vec::new();
                         _ = self.star_to_core_types(utxo.name.span(), &mut types, &var.ty);
-                        let idx = self.add_globals(types.iter().copied());
+                        let idx = self.add_globals(types.iter().copied(), var.name.as_str());
                         utxo_storage.insert(var.name.name.clone(), Var::Global(idx));
-                        utxo_record_type.push(TypedStructField {
-                            name: var.name.clone(),
-                            ty: var.ty.clone(),
-                        });
                     }
                 }
                 TypedUtxoPart::Function(function) => {
                     let core =
                         self.visit_function(None, function, &(&() as &dyn Locals, &utxo_storage));
                     if let Some(FunctionExport::UtxoMain) = function.export {
-                        let mut sig = self.star_to_component_signature(None, function);
+                        let mut sig = self.star_to_component_signature(
+                            None,
+                            &function.params,
+                            &function.return_type,
+                        );
                         sig.result = Some(Rc::new(ComponentAbiType::Own { resource }));
                         let wit_name = format!(
                             "[static]{resource_name}.{}",
@@ -1664,7 +1651,11 @@ impl Compiler {
                             function,
                             &(&() as &dyn Locals, &utxo_storage),
                         );
-                        let sig = self.star_to_component_signature(Some(&utxo.ty), function);
+                        let sig = self.star_to_component_signature(
+                            Some(&utxo.ty),
+                            &function.params,
+                            &function.return_type,
+                        );
                         let wit_name = format!(
                             "[method]{resource_name}.{}",
                             to_kebab_case(function.name.as_str())
@@ -1685,18 +1676,20 @@ impl Compiler {
 
         // Fill in the code of the `resume;` function.
         self.code_bytes[resume_code_idx] = self.generate_resume_fn(yield_start..self.yield_id);
-        self.current_utxo = None;
 
         // Generate storage exports.
+        let end_global = self.globals.len();
         self.generate_storage_exports(
             utxo,
             &mut iface,
             &interface_name,
-            &(&() as &dyn Locals, &utxo_storage),
-            utxo_record_type,
+            self.yield_global
+                .into_iter()
+                .chain(start_global..end_global),
         );
 
         self.exported_interfaces.insert(interface_name, iface);
+        self.current_utxo = None;
     }
 
     fn generate_resume_fn(&mut self, range: Range<i32>) -> Vec<u8> {
@@ -2875,7 +2868,7 @@ impl Compiler {
                 // TODO: only store/load locals that are actually live at this yield point
                 // TODO: optimize number of global slots used
                 let locals = func.params_and_locals();
-                let globals = self.add_globals(locals.iter().copied());
+                let globals = self.add_globals(locals.iter().copied(), &format!("yield{id}"));
                 for i in 0..locals.len() {
                     func.instructions(bb)
                         .local_get(i as u32)
@@ -3672,6 +3665,16 @@ impl FromIterator<ValType> for RleLocals {
             }
         }
         RleLocals(result)
+    }
+}
+
+impl IntoIterator for RleLocals {
+    type Item = (u32, ValType);
+
+    type IntoIter = std::vec::IntoIter<(u32, ValType)>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 

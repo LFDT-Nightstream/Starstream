@@ -71,6 +71,13 @@ pub enum ComponentAbiType {
 }
 
 impl ComponentAbiType {
+    pub fn convert_resource_to_owned(self: &Rc<Self>) -> Rc<ComponentAbiType> {
+        match **self {
+            ComponentAbiType::Borrow { resource } => Rc::new(ComponentAbiType::Own { resource }),
+            _ => self.clone(),
+        }
+    }
+
     pub fn size_align(&self) -> (u32, u32) {
         (self.elem_size(), self.alignment())
     }
