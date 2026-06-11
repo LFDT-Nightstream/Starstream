@@ -519,13 +519,13 @@ impl Compiler {
 
     /// Add a function signature to the `types` section if needed, and return
     /// the index of the new or existing entry.
-    fn add_core_func_type(&mut self, ty: FuncType) -> u32 {
-        if let Some(&index) = self.core_func_type_cache.get(&ty) {
+    fn add_core_func_type(&mut self, ty: &FuncType) -> u32 {
+        if let Some(&index) = self.core_func_type_cache.get(ty) {
             index
         } else {
             let index = self.types.len();
-            self.types.ty().func_type(&ty);
-            self.core_func_type_cache.insert(ty, index);
+            self.types.ty().func_type(ty);
+            self.core_func_type_cache.insert(ty.clone(), index);
             index
         }
     }
@@ -540,7 +540,7 @@ impl Compiler {
 
     /// Add a new function to both the `functions` and `code` section, and
     /// return its index.
-    fn add_function(&mut self, ty: FuncType, code: Vec<u8>) -> u32 {
+    fn add_function(&mut self, ty: &FuncType, code: Vec<u8>) -> u32 {
         let type_index = self.add_core_func_type(ty);
         let func_index = self.imported_functions + self.functions.len();
         self.functions.function(type_index);
@@ -618,7 +618,7 @@ impl Compiler {
         // Sum is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
+        let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_add_checked".to_string(), idx);
@@ -676,7 +676,7 @@ impl Compiler {
         // Diff is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
+        let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_sub_checked".to_string(), idx);
@@ -759,7 +759,7 @@ impl Compiler {
         // Product is already on stack, add function body end
         code.instructions().end();
 
-        let idx = self.add_function(FuncType::new(params, result), code.into_raw_body());
+        let idx = self.add_function(&FuncType::new(params, result), code.into_raw_body());
 
         self.callables
             .insert("__starstream_i64_mul_checked".to_string(), idx);
@@ -829,21 +829,22 @@ impl Compiler {
         sig: &ComponentAbiFunctionSignature,
         core: &CoreFn,
     ) -> Option<u32> {
-        if core.params.len() <= MAX_FLAT_PARAMS && core.results.len() <= MAX_FLAT_RESULTS {
+        if core.ty.params().len() <= MAX_FLAT_PARAMS && core.ty.results().len() <= MAX_FLAT_RESULTS
+        {
             // No need to spill params or results to heap, so don't wrap.
             Some(core.idx)
-        } else if core.params.len() <= MAX_FLAT_PARAMS {
+        } else if core.ty.params().len() <= MAX_FLAT_PARAMS {
             // results.len() > MAX_FLAT_RESULTS, so spill to linear memory.
             let result = sig.result.as_ref().unwrap();
             let (size, align) = result.size_align();
             let return_slot = self.alloc_static(size, align);
 
-            let mut wrapper_func = StFunction::new(&core.params, &[ValType::I32]);
+            let mut wrapper_func = StFunction::new(core.ty.params(), &[ValType::I32]);
             let bb = &wrapper_func.cfg.add_block();
             wrapper_func.cfg.seal(*bb, BlockType::Empty);
             wrapper_func.instructions(bb).i32_const(return_slot as i32);
             // Push parameters and call inner function.
-            for i in 0..core.params.len() {
+            for i in 0..core.ty.params().len() {
                 wrapper_func.instructions(bb).local_get(i as u32);
             }
             wrapper_func.instructions(bb).call(core.idx);
@@ -854,7 +855,7 @@ impl Compiler {
             wrapper_func.cfg.fill(*bb, Out::Return);
 
             let stackified = stackify(&wrapper_func, *bb, stackifier::AsyncMode::Sync);
-            let wrapper_func_idx = self.add_function(stackified.ty, stackified.code);
+            let wrapper_func_idx = self.add_function(&stackified.ty, stackified.code);
 
             Some(wrapper_func_idx)
         } else {
@@ -1267,7 +1268,7 @@ impl Compiler {
     fn visit_program(&mut self, program: &TypedProgram) {
         // First, import builtins.
         if program.has_yields {
-            let core_fn_ty = self.add_core_func_type(FuncType::new([ValType::I64; 4], []));
+            let core_fn_ty = self.add_core_func_type(&FuncType::new([ValType::I64; 4], []));
             self.builtin_implements_method =
                 self.import_function("starstream:std/builtin", "implements-method", core_fn_ty);
 
@@ -1365,7 +1366,7 @@ impl Compiler {
                     let kebab = to_kebab_case(&item.imported.name);
 
                     // Core import
-                    let core_fn_ty = self.add_core_func_type(FuncType::new(
+                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
                         core_params.iter().copied(),
                         core_results.iter().copied(),
                     ));
@@ -1437,7 +1438,7 @@ impl Compiler {
                     let kebab = to_kebab_case(event.name.as_str());
 
                     // Core import
-                    let core_fn_ty = self.add_core_func_type(FuncType::new(
+                    let core_fn_ty = self.add_core_func_type(&FuncType::new(
                         core_params.iter().copied(),
                         std::iter::empty(),
                     ));
@@ -1525,7 +1526,7 @@ impl Compiler {
                 stackified.to_mermaid().to_string(),
             ));
         }
-        let idx: u32 = self.add_function(stackified.ty, stackified.code);
+        let idx: u32 = self.add_function(&stackified.ty, stackified.code);
         self.callables
             .insert(function.name.as_str().to_owned(), idx);
 
@@ -1538,7 +1539,7 @@ impl Compiler {
                     stackified.to_mermaid().to_string(),
                 ));
             }
-            let idx = self.add_function(stackified.ty, stackified.code);
+            let idx = self.add_function(&stackified.ty, stackified.code);
             self.yield_funcs.push(idx);
         }
 
@@ -1548,8 +1549,7 @@ impl Compiler {
 
         CoreFn {
             idx,
-            params,
-            results,
+            ty: stackified.ty,
         }
     }
 
@@ -1566,13 +1566,13 @@ impl Compiler {
         let resource_name = "utxo";
 
         // Allocate the synthetic `resource.new` and `resource.drop` imports.
-        let ty = self.add_core_func_type(FuncType::new([ValType::I32], [ValType::I32]));
+        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], [ValType::I32]));
         let new_fn = self.import_function(
             &format!("[export]{interface_name}"),
             &format!("[resource-new]{resource_name}"),
             ty,
         );
-        let ty = self.add_core_func_type(FuncType::new([ValType::I32], []));
+        let ty = self.add_core_func_type(&FuncType::new([ValType::I32], []));
         let drop_fn = self.import_function(
             &format!("[export]{interface_name}"),
             &format!("[resource-drop]{resource_name}"),
@@ -1599,7 +1599,7 @@ impl Compiler {
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
-        let resume_fn = self.add_function(FuncType::new([], []), Vec::new());
+        let resume_fn = self.add_function(&FuncType::new([], []), Vec::new());
         let resume_code_idx = self.code_bytes.len() - 1;
         self.current_utxo = Some(UtxoContext {
             resume_fn,
@@ -3726,8 +3726,7 @@ impl BulkBlockOutput {
 /// ID and signature of a Wasm core function.
 struct CoreFn {
     idx: u32,
-    params: Vec<ValType>,
-    results: Vec<ValType>,
+    ty: FuncType,
 }
 
 /// Remove column `col` from a `col_locals` slice.
