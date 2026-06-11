@@ -628,6 +628,9 @@ impl DocumentState {
                 self.collect_enum(definition, untyped_enum, source, doc.clone());
             }
             TypedDefinition::Utxo(definition) => self.collect_utxo(definition, scopes),
+            TypedDefinition::Token(_) => {
+                // `token` is parse-only for now: no symbols/hover yet.
+            }
             TypedDefinition::Abi(definition) => {
                 let untyped_abi = untyped.and_then(|u| match &u.node {
                     untyped_ast::Definition::Abi(a) => Some(a),
@@ -1713,6 +1716,9 @@ impl DocumentState {
                         }
                     }
                 }
+                untyped_ast::Definition::Token(_) => {
+                    // `token` is parse-only for now: no annotations collected yet.
+                }
                 untyped_ast::Definition::Import(_) => {
                     // Imports don't have type annotations to collect
                 }
@@ -1994,7 +2000,9 @@ impl DocumentState {
             .definitions
             .iter()
             .filter_map(|definition| match definition {
-                TypedDefinition::Import(_) | TypedDefinition::Contract => None,
+                TypedDefinition::Import(_)
+                | TypedDefinition::Token(_)
+                | TypedDefinition::Contract => None,
                 TypedDefinition::Function(function) => self.function_symbol(function),
                 TypedDefinition::Struct(definition) => self.struct_symbol(definition),
                 TypedDefinition::Enum(definition) => self.enum_symbol(definition),

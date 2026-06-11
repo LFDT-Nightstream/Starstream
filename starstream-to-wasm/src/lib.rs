@@ -1281,6 +1281,7 @@ impl Compiler {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
                 TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
+                TypedDefinition::Token(_) => { /* Token codegen not yet supported. */ }
 
                 TypedDefinition::Function(func) => {
                     self.visit_function(&to_kebab_case(func.name.as_str()), func, &());
@@ -1494,6 +1495,8 @@ impl Compiler {
             Some(FunctionExport::Script | FunctionExport::UtxoMain) => {
                 self.export_component_fn(wit_name, function, idx, &params, &results);
             }
+            // Token mint/burn functions are parse-only for now; no codegen.
+            Some(FunctionExport::TokenMint) | Some(FunctionExport::TokenBurn) => {}
             None => {}
         }
 
