@@ -13,7 +13,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-use wasm_encoder::{Encode, FuncType, InstructionSink};
+use wasm_encoder::{Encode, FuncType, InstructionSink, ValType};
 
 use crate::{
     DisplayClosure, StFunction,
@@ -31,7 +31,7 @@ enum SeqItem {
 
 pub enum AsyncMode {
     Sync,
-    AsyncStart,
+    AsyncStart { resource_local: u32 },
     AsyncContinuation,
 }
 
@@ -70,10 +70,11 @@ impl Stackified<'_> {
                 self.ty = FuncType::new(func.params.iter().copied(), func.results.iter().copied());
                 locals = crate::RleLocals::from_iter(func.locals.iter().copied());
             }
-            AsyncMode::AsyncStart => {
+            AsyncMode::AsyncStart { .. } => {
                 // TODO: conform to wasm-component async ABI...?
                 // For now, our async functions always have no returns anyways, so we don't have to deal with that yet.
-                self.ty = FuncType::new(func.params.iter().copied(), func.results.iter().copied());
+                assert!(func.results.is_empty());
+                self.ty = FuncType::new(func.params.iter().copied(), [ValType::I32]);
                 locals = crate::RleLocals::from_iter(func.locals.iter().copied());
             }
             AsyncMode::AsyncContinuation => {
@@ -129,6 +130,11 @@ impl Stackified<'_> {
                     match func.cfg.blocks[bb].out {
                         Out::None => unreachable!(),
                         Out::Return | Out::Yield { .. } => {
+                            // TODO: make Return destroy the resource in AsyncStart and AsyncContinuation?
+                            if let AsyncMode::AsyncStart { resource_local } = self.mode {
+                                // AsyncStart fns gain an extra return slot, so we need to fill it in.
+                                InstructionSink::new(sink).local_get(resource_local);
+                            }
                             if i + 1 != seq.len() {
                                 InstructionSink::new(sink).return_();
                             }
@@ -184,7 +190,7 @@ impl Stackified<'_> {
         DisplayClosure(|fmt| {
             writeln!(fmt, "flowchart TB")?;
             match self.mode {
-                AsyncMode::Sync | AsyncMode::AsyncStart => {
+                AsyncMode::Sync | AsyncMode::AsyncStart { .. } => {
                     writeln!(fmt, "start([start])")?;
                     writeln!(fmt, "start --> {}", self.entry)?;
                 }

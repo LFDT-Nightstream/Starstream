@@ -353,7 +353,7 @@ impl TypeErrorKind {
             TypeErrorKind::AbiMethodNotFound { .. } => error_code!(E0048),
             TypeErrorKind::LinearMethodCallViolation { .. } => error_code!(E0049),
             TypeErrorKind::UnknownPathExport { .. } => error_code!(E0050),
-            TypeErrorKind::YieldOutsideMainFn { .. } => error_code!(E0051),
+            TypeErrorKind::YieldOutsideMainFn => error_code!(E0051),
         }
     }
 }

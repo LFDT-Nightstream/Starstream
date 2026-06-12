@@ -2,10 +2,10 @@ use std::{collections::HashMap, rc::Rc};
 
 use wasm_encoder::{
     Alias, ComponentType, ComponentTypeEncoder, ComponentTypeRef, ComponentValType, InstanceType,
-    PrimitiveValType,
+    PrimitiveValType, TypeBounds,
 };
 
-use crate::component_abi::ComponentAbiType;
+use crate::component_abi::{ComponentAbiFunctionSignature, ComponentAbiType};
 
 #[derive(Default)]
 pub struct TypeBuilder<T: ?Sized> {
@@ -28,6 +28,19 @@ impl<T: TypeRegistry> TypeBuilder<T> {
             .map(|p| (p.0, self.encode_value(&p.1)))
             .collect::<Vec<_>>();
         let result = result.map(|r| self.encode_value(r));
+
+        let (idx, ty) = self.ty();
+        ty.function().params(params).result(result);
+        idx
+    }
+
+    pub fn encode_func_sig(&mut self, signature: &ComponentAbiFunctionSignature) -> u32 {
+        let params = signature
+            .params
+            .iter()
+            .map(|p| (p.0.as_str(), self.encode_value(&p.1)))
+            .collect::<Vec<_>>();
+        let result = signature.result.as_ref().map(|r| self.encode_value(r));
 
         let (idx, ty) = self.ty();
         ty.function().params(params).result(result);
@@ -118,6 +131,24 @@ impl<T: TypeRegistry> TypeBuilder<T> {
         self.component_to_encoded.insert(ty.clone(), cvt);
         cvt
     }
+
+    pub fn export_ty(&mut self, name: &str, ty: &Rc<ComponentAbiType>) {
+        let ComponentValType::Type(idx) = self.encode_value(ty) else {
+            unreachable!()
+        };
+        // "Exporting" a type consists of importing it with an equality constraint.
+        let new_idx = self.inner.type_count();
+        self.inner
+            .import_or_export(name, ComponentTypeRef::Type(TypeBounds::Eq(idx)));
+        // Future uses must also refer to the imported version.
+        self.component_to_encoded
+            .insert(ty.clone(), ComponentValType::Type(new_idx));
+    }
+
+    pub fn export_fn(&mut self, name: &str, signature: &ComponentAbiFunctionSignature) {
+        let type_idx = self.encode_func_sig(signature);
+        self.inner.export(name, ComponentTypeRef::Func(type_idx));
+    }
 }
 
 /// Abstraction over [`ComponentType`] and [`InstanceType`].
@@ -126,11 +157,12 @@ pub trait TypeRegistry {
     fn ty(&mut self) -> ComponentTypeEncoder<'_>;
     fn alias(&mut self, alias: Alias<'_>);
     fn export(&mut self, name: &str, ty: ComponentTypeRef);
+    fn import_or_export(&mut self, name: &str, ty: ComponentTypeRef);
     fn type_count(&self) -> u32;
     fn instance_count(&self) -> u32;
 }
 
-// ComponentType also has `export`.
+// `world`
 impl TypeRegistry for ComponentType {
     fn ty(&mut self) -> ComponentTypeEncoder<'_> {
         self.ty()
@@ -144,6 +176,10 @@ impl TypeRegistry for ComponentType {
         self.export(name, ty);
     }
 
+    fn import_or_export(&mut self, name: &str, ty: ComponentTypeRef) {
+        self.import(name, ty);
+    }
+
     fn type_count(&self) -> u32 {
         self.type_count()
     }
@@ -153,6 +189,7 @@ impl TypeRegistry for ComponentType {
     }
 }
 
+// `interface`
 impl TypeRegistry for InstanceType {
     fn ty(&mut self) -> ComponentTypeEncoder<'_> {
         self.ty()
@@ -163,6 +200,10 @@ impl TypeRegistry for InstanceType {
     }
 
     fn export(&mut self, name: &str, ty: ComponentTypeRef) {
+        self.export(name, ty);
+    }
+
+    fn import_or_export(&mut self, name: &str, ty: ComponentTypeRef) {
         self.export(name, ty);
     }
 
