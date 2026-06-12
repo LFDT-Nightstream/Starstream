@@ -407,6 +407,7 @@ TypedProgram {
     (local.get 0)
   )
   (func (;6;) (type 5) (param i32) (result i64 i64)
+    (local i32)
     (global.get 0)
     (global.get 1)
   )
@@ -427,18 +428,13 @@ TypedProgram {
     (i32.const 8)
   )
   (func (;8;) (type 6) (param i64 i64) (result i32)
-    (local i64)
+    (local i64 i64)
     (global.set 0
-      (local.get 0)
-      (drop
-        (local.get 1)))
-    (drop
-      (local.get 0)
-      (local.set 2
-        (local.get 1)))
+      (local.get 0))
     (global.set 1
-      (local.get 2))
-    (i32.const 0)
+      (local.get 1))
+    (return_call 0
+      (i32.const 0))
   )
   (@custom "component-type"
     (component
