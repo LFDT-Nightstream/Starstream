@@ -249,16 +249,26 @@ TypedProgram {
 ==== Core WebAssembly ====
 (module
   (type (;0;) (func))
+  (type (;1;) (func (param i32) (result i32)))
+  (type (;2;) (func (param i32)))
+  (type (;3;) (func (result i32)))
   (import "foo-abi" "hello-event" (func (;0;) (type 0)))
-  (export "hello-utxo" (func 3))
-  (func (;1;) (type 0)
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;1;) (type 1)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;2;) (type 2)))
+  (export "my-utxo#[static]utxo.hello-utxo" (func 5))
+  (func (;3;) (type 0)
     (unreachable)
   )
-  (func (;2;) (type 0)
+  (func (;4;) (type 0)
     (call 0)
   )
-  (func (;3;) (type 0)
-    (call 2)
+  (func (;5;) (type 3) (result i32)
+    (local i32)
+    (local.set 0
+      (call 1
+        (i32.const 0)))
+    (call 4)
+    (local.get 0)
   )
   (@custom "component-type"
     (component
@@ -267,16 +277,22 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (import "my-utxo" (type (;0;) (sub resource)))
-              (type (;1;) (func))
-              (export (;0;) "hello-utxo" (func (type 1)))
-              (type (;2;)
+              (type (;0;)
                 (instance
                   (type (;0;) (func))
                   (export (;0;) "hello-event" (func (type 0)))
                 )
               )
-              (import "foo-abi" (instance (;0;) (type 2)))
+              (import "foo-abi" (instance (;0;) (type 0)))
+              (type (;1;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (own 0))
+                  (type (;2;) (func (result 1)))
+                  (export (;0;) "[static]utxo.hello-utxo" (func (type 2)))
+                )
+              )
+              (export (;1;) "my-utxo" (instance (type 1)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -295,7 +311,9 @@ world root {
     hello-event: func();
   }
 
-  resource my-utxo;
-
-  export hello-utxo: func();
+  export my-utxo: interface {
+    resource utxo {
+      hello-utxo: static func() -> utxo;
+    }
+  }
 }

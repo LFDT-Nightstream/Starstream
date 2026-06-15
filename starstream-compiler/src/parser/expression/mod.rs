@@ -30,9 +30,6 @@ macro_rules! assert_expression_snapshot {
     }};
 }
 
-#[cfg(test)]
-pub(crate) use assert_expression_snapshot;
-
 mod additive;
 mod comparison;
 mod equality;
@@ -92,8 +89,6 @@ fn span_union(a: SimpleSpan, b: SimpleSpan) -> SimpleSpan {
 
 #[cfg(test)]
 mod tests {
-    use super::assert_expression_snapshot;
-
     #[test]
     fn arithmetic_precedence() {
         assert_expression_snapshot!("1 + 2 * 3 - 4");

@@ -45,8 +45,6 @@ pub fn parser<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::expression::assert_expression_snapshot;
-
     #[test]
     fn match_expression() {
         assert_expression_snapshot!(

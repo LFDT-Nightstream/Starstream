@@ -17,8 +17,6 @@ pub fn parser<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::expression::assert_expression_snapshot;
-
     #[test]
     fn raise_call() {
         assert_expression_snapshot!("raise blockHeight()");

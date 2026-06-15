@@ -202,13 +202,16 @@ TypedProgram {
 
 ==== Core WebAssembly ====
 (module
-  (type (;0;) (func))
-  (type (;1;) (func (result i32)))
-  (export "hello" (func 1))
-  (func (;0;) (type 0)
+  (type (;0;) (func (param i32) (result i32)))
+  (type (;1;) (func (param i32)))
+  (type (;2;) (func))
+  (import "[export]my-utxo" "[resource-new]utxo" (func (;0;) (type 0)))
+  (import "[export]my-utxo" "[resource-drop]utxo" (func (;1;) (type 1)))
+  (export "my-utxo#[method]utxo.hello" (func 3))
+  (func (;2;) (type 2)
     (unreachable)
   )
-  (func (;1;) (type 1) (result i32)
+  (func (;3;) (type 0) (param i32) (result i32)
     (i32.const 17)
   )
   (@custom "component-type"
@@ -218,7 +221,15 @@ TypedProgram {
         (component
           (type (;0;)
             (component
-              (import "my-utxo" (type (;0;) (sub resource)))
+              (type (;0;)
+                (instance
+                  (export (;0;) "utxo" (type (sub resource)))
+                  (type (;1;) (borrow 0))
+                  (type (;2;) (func (param "self" 1) (result s32)))
+                  (export (;0;) "[method]utxo.hello" (func (type 2)))
+                )
+              )
+              (export (;0;) "my-utxo" (instance (type 0)))
             )
           )
           (export (;0;) "my-namespace:my-package/my-world" (component (type 0)))
@@ -233,5 +244,9 @@ TypedProgram {
 package root:component;
 
 world root {
-  resource my-utxo;
+  export my-utxo: interface {
+    resource utxo {
+      hello: func() -> s32;
+    }
+  }
 }
