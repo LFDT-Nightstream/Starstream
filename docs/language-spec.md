@@ -45,6 +45,7 @@ definition ::=
   | struct_definition
   | enum_definition
   | utxo_definition
+  | token_definition
   | abi_definition
 
 contract_definition ::= "contract" ";"
@@ -108,6 +109,22 @@ impl_part ::=
   | fn_impl_part
 
 fn_impl_part ::= function
+
+token_definition ::=
+  "token" identifier "{" token_part* "}"
+
+token_part ::=
+  | storage_token_part
+  | fn_token_part
+  | abi_impl_token_part
+
+storage_token_part ::= "storage" "{" token_global* "}"
+
+token_global ::= ("indexed")? "let" "mut" identifier ":" type_annotation ";"
+
+fn_token_part ::= ("mint" | "burn")? function
+
+abi_impl_token_part ::= "impl" identifier "{" impl_part* "}"
 
 abi_definition ::=
   "abi" identifier "{" abi_part* "}"
@@ -393,6 +410,13 @@ displayed in IDE hover tooltips above the type information.
   - `main fn` items within the `utxo` block act as this type's constructors
   - Can be unconditionally upcast to the root `Utxo` handle
   - Can attempt to downcast from the root `Utxo` handle (returns `Result`)
+- `token Foo` syntax declares a token type. A `token` block bundles storage
+  fields (optionally `indexed`), one or more `mint` functions, zero or more
+  `burn` functions, an `impl Token { … }` block (with `attach`/`detach`), and
+  ordinary functions.
+  - **Parsing only at this time.** Token definitions are recognized by the parser
+    and formatter but are not yet type-checked or compiled, and the global `Token`
+    type (parallel to the root `Utxo` handle) is not yet part of the type system.
 
 No user-defined generics at this time.
 

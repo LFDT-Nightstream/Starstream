@@ -11,6 +11,7 @@ mod enum_def;
 mod function;
 mod import;
 mod struct_def;
+mod token;
 mod utxo;
 
 pub use abi::parser as abi;
@@ -19,6 +20,7 @@ pub use enum_def::parser as enum_def;
 pub use function::function_with_export;
 pub use import::parser as import;
 pub use struct_def::parser as struct_def;
+pub use token::token;
 pub use utxo::utxo;
 
 pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
@@ -30,7 +32,8 @@ pub fn parser<'a>() -> impl Parser<'a, &'a str, Definition, Extra<'a>> {
         function_with_export(block.clone()).map(Definition::Function),
         struct_def().map(Definition::Struct),
         enum_def().map(Definition::Enum),
-        utxo(block).map(Definition::Utxo),
+        utxo(block.clone()).map(Definition::Utxo),
+        token(block).map(Definition::Token),
         abi().map(Definition::Abi),
     ))
 }
