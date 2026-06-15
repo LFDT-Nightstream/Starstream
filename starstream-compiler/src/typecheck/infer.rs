@@ -1727,7 +1727,9 @@ impl Inferencer {
         let token_impl_count = def
             .parts
             .iter()
-            .filter(|part| matches!(part, TokenPart::AbiImpl { abi, .. } if abi.as_str() == "Token"))
+            .filter(
+                |part| matches!(part, TokenPart::AbiImpl { abi, .. } if abi.as_str() == "Token"),
+            )
             .count();
 
         if mint_count == 0 {
@@ -1824,9 +1826,7 @@ impl Inferencer {
                 parts,
                 ty: Type::TokenNamed(def.name.to_string()),
             },
-            self.make_trace("T-Token", None, Some(def.name.to_string()), None, || {
-                traces
-            }),
+            self.make_trace("T-Token", None, Some(def.name.to_string()), None, || traces),
         ))
     }
 

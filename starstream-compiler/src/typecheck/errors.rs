@@ -743,7 +743,10 @@ impl fmt::Display for TypeErrorKind {
                 write!(f, "token `{name}` must have at least one `mint fn`")
             }
             TypeErrorKind::TokenMissingImpl { name } => {
-                write!(f, "token `{name}` must have an `impl Token {{ ... }}` block")
+                write!(
+                    f,
+                    "token `{name}` must have an `impl Token {{ ... }}` block"
+                )
             }
             TypeErrorKind::TokenDuplicateImpl { name } => {
                 write!(

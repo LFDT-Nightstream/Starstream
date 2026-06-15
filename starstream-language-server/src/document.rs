@@ -892,7 +892,11 @@ impl DocumentState {
         }
     }
 
-    fn collect_token(&mut self, definition: &TypedTokenDef, scopes: &mut Vec<HashMap<String, Span>>) {
+    fn collect_token(
+        &mut self,
+        definition: &TypedTokenDef,
+        scopes: &mut Vec<HashMap<String, Span>>,
+    ) {
         for part in &definition.parts {
             match part {
                 TypedTokenPart::Storage(vars) => {
