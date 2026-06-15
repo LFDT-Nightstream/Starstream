@@ -1,0 +1,148 @@
+---
+source: starstream-compiler/src/parser/definition/token.rs
+description: "Code:\n\ntoken MyToken {\n    storage {\n        indexed let mut my_arbitrary_variable: u32;\n    }\n    mint fn my_mint_fn() {}\n    burn fn my_burn_fn() {}\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n    fn helper() {}\n}\n"
+---
+TokenDef {
+    name: Identifier {
+        name: "MyToken",
+        span: 6..13,
+    },
+    parts: [
+        Storage(
+            [
+                TokenGlobal {
+                    indexed: true,
+                    name: Identifier {
+                        name: "my_arbitrary_variable",
+                        span: 54..75,
+                    },
+                    ty: TypeAnnotation {
+                        name: Identifier {
+                            name: "u32",
+                            span: 77..80,
+                        },
+                        generics: [],
+                    },
+                },
+            ],
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    TokenMint,
+                ),
+                name: Identifier {
+                    name: "my_mint_fn",
+                    span: 100..110,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: None,
+                    span: 113..120,
+                },
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    TokenBurn,
+                ),
+                name: Identifier {
+                    name: "my_burn_fn",
+                    span: 128..138,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: None,
+                    span: 141..148,
+                },
+            },
+        ),
+        AbiImpl {
+            abi: Identifier {
+                name: "Token",
+                span: 153..158,
+            },
+            parts: [
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "attach",
+                        span: 172..178,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "to",
+                                span: 179..181,
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Utxo",
+                                    span: 183..187,
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                        span: 189..200,
+                    },
+                },
+                FunctionDef {
+                    export: None,
+                    name: Identifier {
+                        name: "detach",
+                        span: 203..209,
+                    },
+                    params: [
+                        FunctionParam {
+                            public: false,
+                            name: Identifier {
+                                name: "source",
+                                span: 210..216,
+                            },
+                            ty: TypeAnnotation {
+                                name: Identifier {
+                                    name: "Utxo",
+                                    span: 218..222,
+                                },
+                                generics: [],
+                            },
+                        },
+                    ],
+                    return_type: None,
+                    body: Block {
+                        statements: [],
+                        tail_expression: None,
+                        span: 224..231,
+                    },
+                },
+            ],
+        },
+        Function(
+            FunctionDef {
+                export: None,
+                name: Identifier {
+                    name: "helper",
+                    span: 240..246,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: None,
+                    span: 249..252,
+                },
+            },
+        ),
+    ],
+}

@@ -1298,6 +1298,7 @@ impl Compiler {
                 TypedDefinition::Import(_) => { /* Handled above. */ }
                 TypedDefinition::Abi(_) => { /* Handled above. */ }
                 TypedDefinition::Contract => { /* Pure marker, no codegen. */ }
+                TypedDefinition::Token(_) => { /* Token codegen not yet supported. */ }
 
                 TypedDefinition::Function(func) => {
                     let core = self.visit_function(None, func, &());

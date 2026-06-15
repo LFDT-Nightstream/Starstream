@@ -171,6 +171,7 @@ pub enum Definition {
     Struct(StructDef),
     Enum(EnumDef),
     Utxo(UtxoDef),
+    Token(TokenDef),
     Abi(AbiDef),
     /// `contract;` — marks the file as a contract entry point. May appear
     /// anywhere at the top level; the formatter moves it to the top. The
@@ -244,6 +245,10 @@ pub enum FunctionExport {
     Script,
     /// `utxo { main fn }`
     UtxoMain,
+    /// `token { mint fn }`
+    TokenMint,
+    /// `token { burn fn }`
+    TokenBurn,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -313,6 +318,31 @@ pub type AbiImplPart = FunctionDef;
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct UtxoGlobal {
+    pub name: Identifier,
+    pub ty: TypeAnnotation,
+}
+
+/// `token` definition.
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct TokenDef {
+    pub name: Identifier,
+    pub parts: Vec<TokenPart>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub enum TokenPart {
+    Storage(Vec<TokenGlobal>),
+    Function(Box<FunctionDef>),
+    AbiImpl {
+        abi: Identifier,
+        parts: Vec<AbiImplPart>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct TokenGlobal {
+    /// Whether the field carries the `indexed` modifier.
+    pub indexed: bool,
     pub name: Identifier,
     pub ty: TypeAnnotation,
 }

@@ -1,0 +1,48 @@
+---
+source: starstream-compiler/src/parser/definition/token.rs
+description: "Code:\n\ntoken MyToken {\n    mint fn my_mint_fn() {}\n    burn fn my_burn_fn() {}\n}\n"
+---
+TokenDef {
+    name: Identifier {
+        name: "MyToken",
+        span: 6..13,
+    },
+    parts: [
+        Function(
+            FunctionDef {
+                export: Some(
+                    TokenMint,
+                ),
+                name: Identifier {
+                    name: "my_mint_fn",
+                    span: 28..38,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: None,
+                    span: 41..48,
+                },
+            },
+        ),
+        Function(
+            FunctionDef {
+                export: Some(
+                    TokenBurn,
+                ),
+                name: Identifier {
+                    name: "my_burn_fn",
+                    span: 56..66,
+                },
+                params: [],
+                return_type: None,
+                body: Block {
+                    statements: [],
+                    tail_expression: None,
+                    span: 69..72,
+                },
+            },
+        ),
+    ],
+}
