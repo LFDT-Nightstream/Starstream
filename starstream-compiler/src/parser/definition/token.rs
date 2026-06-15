@@ -14,8 +14,10 @@ pub fn token<'a>(
     let token_global = just("indexed")
         .padded()
         .or_not()
+        .then_ignore(just("let").padded().then(just("mut")).padded())
         .then(primitives::identifier())
         .then(just(":").ignore_then(type_annotation::parser()))
+        .then_ignore(just(';').padded())
         .map(|((indexed, name), ty)| TokenGlobal {
             indexed: indexed.is_some(),
             name,
@@ -23,8 +25,7 @@ pub fn token<'a>(
         });
 
     let storage_part = token_global
-        .separated_by(just(',').padded())
-        .allow_trailing()
+        .repeated()
         .collect::<Vec<_>>()
         .delimited_by(
             just("storage").padded().then(just('{')).padded(),
@@ -108,8 +109,8 @@ mod tests {
             r#"
             token MyToken {
                 storage {
-                    indexed my_arbitrary_variable: u32,
-                    plain_variable: u8,
+                    indexed let mut my_arbitrary_variable: u32;
+                    let mut plain_variable: u8;
                 }
             }
             "#
@@ -148,7 +149,7 @@ mod tests {
             r#"
             token MyToken {
                 storage {
-                    indexed my_arbitrary_variable: u32,
+                    indexed let mut my_arbitrary_variable: u32;
                 }
                 mint fn my_mint_fn() {}
                 burn fn my_burn_fn() {}

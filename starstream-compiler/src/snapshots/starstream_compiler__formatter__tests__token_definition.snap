@@ -1,11 +1,11 @@
 ---
 source: starstream-compiler/src/formatter.rs
-description: "Code:\n\ntoken MyToken {\n    storage {\n        indexed my_arbitrary_variable: u32,\n        plain_variable: u8,\n    }\n    mint fn my_mint_fn() {}\n    burn fn my_burn_fn() {}\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n    fn helper() {}\n}\n"
+description: "Code:\n\ntoken MyToken {\n    storage {\n        indexed let mut my_arbitrary_variable: u32;\n        let mut plain_variable: u8;\n    }\n    mint fn my_mint_fn() {}\n    burn fn my_burn_fn() {}\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n    fn helper() {}\n}\n"
 ---
 token MyToken {
     storage {
-        indexed my_arbitrary_variable: u32,
-        plain_variable: u8,
+        indexed let mut my_arbitrary_variable: u32;
+        let mut plain_variable: u8;
     }
     mint fn my_mint_fn() { }
     burn fn my_burn_fn() { }

@@ -118,9 +118,9 @@ token_part ::=
   | fn_token_part
   | abi_impl_token_part
 
-storage_token_part ::= "storage" "{" ( token_global ( "," token_global )* ","? )? "}"
+storage_token_part ::= "storage" "{" token_global* "}"
 
-token_global ::= ("indexed")? identifier ":" type_annotation
+token_global ::= ("indexed")? "let" "mut" identifier ":" type_annotation ";"
 
 fn_token_part ::= ("mint" | "burn")? function
 
@@ -406,9 +406,10 @@ displayed in IDE hover tooltips above the type information.
   - `main fn` items within the `utxo` block act as this type's constructors
   - Can be unconditionally upcast to the root `Utxo` handle
   - Can attempt to downcast from the root `Utxo` handle (returns `Result`)
-- `token Foo` syntax declares a token type. A `token` block bundles `indexed`
-  storage fields, one or more `mint`/`burn` functions, an `impl Token { … }` block
-  (with `attach`/`detach`), and ordinary functions.
+- `token Foo` syntax declares a token type. A `token` block bundles storage
+  fields (optionally `indexed`), one or more `mint` functions, zero or more
+  `burn` functions, an `impl Token { … }` block (with `attach`/`detach`), and
+  ordinary functions.
   - **Parsing only at this time.** Token definitions are recognized by the parser
     and formatter but are not yet type-checked or compiled, and the global `Token`
     type (parallel to the root `Utxo` handle) is not yet part of the type system.

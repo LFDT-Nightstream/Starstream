@@ -597,11 +597,15 @@ fn token_global_to_doc<'a>(decl: &TokenGlobal, source: &'a str) -> RcDoc<'a, ()>
         RcDoc::nil()
     };
     prefix
+        .append("let")
+        .append(RcDoc::space())
+        .append("mut")
+        .append(RcDoc::space())
         .append(identifier_to_doc(&decl.name, source))
         .append(":")
         .append(RcDoc::space())
         .append(type_annotation_to_doc(&decl.ty, source))
-        .append(RcDoc::text(","))
+        .append(RcDoc::text(";"))
 }
 
 fn abi_definition_to_doc<'a>(
@@ -1510,8 +1514,8 @@ mod tests {
             r#"
             token MyToken {
                 storage {
-                    indexed my_arbitrary_variable: u32,
-                    plain_variable: u8,
+                    indexed let mut my_arbitrary_variable: u32;
+                    let mut plain_variable: u8;
                 }
                 mint fn my_mint_fn() {}
                 burn fn my_burn_fn() {}
