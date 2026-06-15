@@ -973,6 +973,26 @@ impl Compiler {
                     return None;
                 }
             }
+            // Token handles mirror Utxo: always borrowed, the ledger owns them.
+            Type::TokenAny => {
+                if let Some(idx) = self.resources.get("Token") {
+                    ComponentAbiType::Borrow { resource: *idx }
+                } else {
+                    let idx = self.world_type.inner.type_count();
+                    self.world_type
+                        .inner
+                        .import("token", ComponentTypeRef::Type(TypeBounds::SubResource));
+                    self.resources.insert("Token".to_owned(), idx);
+                    ComponentAbiType::Borrow { resource: idx }
+                }
+            }
+            Type::TokenNamed(name) => {
+                if let Some(idx) = self.resources.get(name) {
+                    ComponentAbiType::Borrow { resource: *idx }
+                } else {
+                    return None;
+                }
+            }
             Type::Record(record) => {
                 let fields = record
                     .fields
@@ -1221,7 +1241,7 @@ impl Compiler {
             Type::Unit => 0,
             Type::Bool => 1,
             Type::Int(_) => 1,
-            Type::UtxoAny | Type::UtxoNamed(_) => 1,
+            Type::UtxoAny | Type::UtxoNamed(_) | Type::TokenAny | Type::TokenNamed(_) => 1,
             Type::Tuple(items) => items.iter().map(|t| self.star_count_core_types(t)).sum(),
             Type::Record(record) => record
                 .fields

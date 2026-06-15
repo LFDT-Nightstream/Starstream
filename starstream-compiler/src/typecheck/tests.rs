@@ -1559,3 +1559,123 @@ fn if_is_linear_violation_error() {
         "#
     );
 }
+
+#[test]
+fn token_valid() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            storage {
+                indexed let mut supply: u32;
+                let mut owner: u64;
+            }
+
+            mint fn mint() {
+                supply = 1;
+            }
+
+            burn fn burn() {
+                supply = 0;
+            }
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+
+            fn helper() {}
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_missing_mint_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_missing_impl_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {}
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_duplicate_impl_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {}
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_attach_wrong_signature_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() {}
+
+            impl Token {
+                fn attach(to: i64) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_mint_return_type_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        token MyToken {
+            mint fn mint() -> u32 {
+                0
+            }
+
+            impl Token {
+                fn attach(to: Utxo) {}
+                fn detach(source: Utxo) {}
+            }
+        }
+        "#
+    );
+}
+
+#[test]
+fn token_reserved_abi_name_error() {
+    assert_typecheck_snapshot!(
+        r#"
+        abi Token {
+            fn attach(to: Utxo);
+        }
+        "#
+    );
+}

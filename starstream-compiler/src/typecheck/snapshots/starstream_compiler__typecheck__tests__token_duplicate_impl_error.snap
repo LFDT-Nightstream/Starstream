@@ -1,0 +1,12 @@
+---
+source: starstream-compiler/src/typecheck/tests.rs
+description: "Source:\n\ntoken MyToken {\n    mint fn mint() {}\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n\n    impl Token {\n        fn attach(to: Utxo) {}\n        fn detach(source: Utxo) {}\n    }\n}\n"
+---
+E0054 (https://starstream.nightstream.dev/errors/E0054)
+
+  x token `MyToken` may have only one `impl Token { ... }` block
+   ,-[test.star:1:7]
+ 1 | token MyToken {
+   :       ^^^^^^^
+ 2 |     mint fn mint() {}
+   `----

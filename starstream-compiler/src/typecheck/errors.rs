@@ -297,6 +297,22 @@ pub enum TypeErrorKind {
     },
     /// `yield` appears outside Utxo `main fn`.
     YieldOutsideMainFn,
+    /// A `token` definition has no `mint fn`.
+    TokenMissingMintFn {
+        name: String,
+    },
+    /// A `token` definition has no `impl Token { ... }` block.
+    TokenMissingImpl {
+        name: String,
+    },
+    /// A `token` definition has more than one `impl Token { ... }` block.
+    TokenDuplicateImpl {
+        name: String,
+    },
+    /// User code tried to declare an `abi` with a reserved built-in name (e.g. `Token`).
+    ReservedAbiName {
+        name: String,
+    },
 }
 
 impl TypeErrorKind {
@@ -354,6 +370,10 @@ impl TypeErrorKind {
             TypeErrorKind::LinearMethodCallViolation { .. } => error_code!(E0049),
             TypeErrorKind::UnknownPathExport { .. } => error_code!(E0050),
             TypeErrorKind::YieldOutsideMainFn => error_code!(E0051),
+            TypeErrorKind::TokenMissingMintFn { .. } => error_code!(E0052),
+            TypeErrorKind::TokenMissingImpl { .. } => error_code!(E0053),
+            TypeErrorKind::TokenDuplicateImpl { .. } => error_code!(E0054),
+            TypeErrorKind::ReservedAbiName { .. } => error_code!(E0055),
         }
     }
 }
@@ -718,6 +738,21 @@ impl fmt::Display for TypeErrorKind {
             }
             TypeErrorKind::YieldOutsideMainFn => {
                 write!(f, "`yield` can only be used inside a `main fn`")
+            }
+            TypeErrorKind::TokenMissingMintFn { name } => {
+                write!(f, "token `{name}` must have at least one `mint fn`")
+            }
+            TypeErrorKind::TokenMissingImpl { name } => {
+                write!(f, "token `{name}` must have an `impl Token {{ ... }}` block")
+            }
+            TypeErrorKind::TokenDuplicateImpl { name } => {
+                write!(
+                    f,
+                    "token `{name}` may have only one `impl Token {{ ... }}` block"
+                )
+            }
+            TypeErrorKind::ReservedAbiName { name } => {
+                write!(f, "`{name}` is a built-in ABI and cannot be redeclared")
             }
         }
     }
