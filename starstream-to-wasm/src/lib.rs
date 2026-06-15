@@ -256,7 +256,7 @@ struct Compiler {
 struct UtxoContext {
     resume_fn: u32,
     resource_new_fn: u32,
-    resource_drop_fn: u32,
+    // resource_drop_fn: u32,
     resource_local: u32,
 }
 
@@ -806,7 +806,7 @@ impl Compiler {
                     .map(|t| (to_kebab_case(p.name.as_str()), t))
             }))
             .collect::<Vec<_>>();
-        let mut result = self.star_to_component_type(&return_type);
+        let mut result = self.star_to_component_type(return_type);
         if let Some(m) = &result {
             result = Some(m.convert_resource_to_owned());
         }
@@ -1589,7 +1589,7 @@ impl Compiler {
         );
         self.resources.insert(utxo.name.to_string(), resource);
 
-        let (resource_new_fn, resource_drop_fn) = *self.resource_abi_fns.get(&utxo.ty).unwrap();
+        let (resource_new_fn, _resource_drop_fn) = *self.resource_abi_fns.get(&utxo.ty).unwrap();
 
         // Reserve the ID for the `resume;` function for this Utxo.
         let yield_start = self.yield_id;
@@ -1598,7 +1598,7 @@ impl Compiler {
         self.current_utxo = Some(UtxoContext {
             resume_fn,
             resource_new_fn,
-            resource_drop_fn,
+            // resource_drop_fn,
             resource_local: u32::MAX,
         });
 
