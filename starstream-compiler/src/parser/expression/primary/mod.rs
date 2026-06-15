@@ -61,8 +61,6 @@ pub fn primary<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::expression::assert_expression_snapshot;
-
     #[test]
     fn grouping() {
         assert_expression_snapshot!("(1 + 2)");

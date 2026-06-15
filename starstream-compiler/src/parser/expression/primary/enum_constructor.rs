@@ -41,8 +41,6 @@ pub fn parser<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::expression::assert_expression_snapshot;
-
     #[test]
     fn enum_constructor_expression() {
         assert_expression_snapshot!("Result::Ok(answer)");

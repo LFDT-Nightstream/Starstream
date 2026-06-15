@@ -29,8 +29,6 @@ pub fn field_initializer<'a>(
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::expression::assert_expression_snapshot;
-
     #[test]
     fn struct_literal_expression() {
         assert_expression_snapshot!(

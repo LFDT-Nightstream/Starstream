@@ -21,8 +21,6 @@ pub fn identifier<'a>() -> impl Parser<'a, &'a str, Spanned<Expr>, Extra<'a>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::expression::assert_expression_snapshot;
-
     #[test]
     fn integer_literal() {
         assert_expression_snapshot!("42");
