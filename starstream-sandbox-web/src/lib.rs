@@ -5,6 +5,7 @@ use log::error;
 use wit_component::{ComponentEncoder, DecodedWasm};
 
 // Imports to manipulate the UI contents, provided by the JS page.
+#[link(wasm_import_module = "env")]
 unsafe extern "C" {
     unsafe fn read_input(ptr: *mut u8, len: usize);
 
