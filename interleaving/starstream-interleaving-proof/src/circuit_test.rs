@@ -662,9 +662,9 @@ fn test_entrypoint_return_sat() {
         process_table: vec![h(0)],
         is_utxo: vec![false],
         is_token: vec![false],
-        must_burn: vec![],
-        ownership_in: vec![],
-        ownership_out: vec![],
+        must_burn: vec![false],
+        ownership_in: vec![None],
+        ownership_out: vec![None],
         host_calls_roots,
         input_states: vec![],
     };
@@ -703,4 +703,62 @@ fn test_non_entrypoint_return_without_parent_panics() {
 
     let wit = InterleavingWitness { traces };
     let _ = prove(instance, wit);
+}
+
+// Step 3b foundation: the per-step R1CS extracted from the interleaving circuit
+// (ark) must be satisfied, step by step, by neo-fold-clean's own `is_satisfied_by`
+// (p3). This validates the ark<->p3 field bridge, the matrix extraction, and the
+// `z = [instance | witness]` assignment ordering — the mechanical core the
+// folding lifecycle is built on.
+#[test]
+fn test_folding_r1cs_extraction_satisfies() {
+    setup_logger();
+
+    let p0 = ProcessId(0);
+    let ref_0 = Ref(0);
+    let val_0 = v(&[7]);
+
+    let entry_trace = vec![
+        WitLedgerEffect::NewRef {
+            size: 1,
+            ret: ref_0.into(),
+        },
+        ref_push1(val_0),
+        WitLedgerEffect::Return {},
+    ];
+
+    let traces = vec![entry_trace];
+    let host_calls_roots = host_calls_roots(&traces);
+
+    let instance = InterleavingInstance {
+        n_inputs: 0,
+        n_new: 0,
+        n_coords: 1,
+        entrypoint: p0,
+        process_table: vec![h(0)],
+        is_utxo: vec![false],
+        is_token: vec![false],
+        must_burn: vec![false],
+        ownership_in: vec![None],
+        ownership_out: vec![None],
+        host_calls_roots,
+        input_states: vec![],
+    };
+
+    let wit = InterleavingWitness { traces };
+
+    let (shape, assignments) =
+        crate::folding::extract_r1cs_and_assignments(instance, wit).expect("extract r1cs");
+
+    assert!(!assignments.is_empty());
+    for (i, z) in assignments.iter().enumerate() {
+        assert_eq!(z.len(), shape.r1cs.m, "step {i} assignment width");
+        shape
+            .r1cs
+            .is_satisfied_by(z)
+            .unwrap_or_else(|e| panic!("step {i} not satisfied by neo R1CS: {e:?}"));
+    }
+
+    // Fold all steps and verify the IVC proof (stateless; no cross-linking yet).
+    crate::folding::fold_and_verify(&shape, &assignments);
 }

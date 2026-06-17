@@ -183,13 +183,20 @@ impl<'a, M: IVCMemoryAllocated<F>> OpcodeDsl for OpcodeSynthDsl<'a, M> {
         addr: &Self::Val,
         val: &Self::Val,
     ) -> Result<(), Self::Error> {
+        // Memory backends with read-modify-write semantics (Nebula) treat a
+        // gated-off write as a no-op and witness zero for its value, then
+        // check the caller's value against that. Zero the value when the
+        // write condition is false so the two always agree, regardless of
+        // what the caller computed for the inactive branch. Backends that
+        // ignore the value when not writing (Twist/Shout) are unaffected.
+        let gated_val = cond.select(val, &FpVar::zero())?;
         self.rm.conditional_write(
             cond,
             &Address {
                 tag: FpVar::new_constant(self.cs.clone(), F::from(tag.memory_tag()))?,
                 addr: addr.clone(),
             },
-            std::slice::from_ref(val),
+            std::slice::from_ref(&gated_val),
         )
     }
 }

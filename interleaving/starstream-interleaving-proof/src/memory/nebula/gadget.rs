@@ -201,12 +201,20 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
             .replace(self.scan_monotonic_last_addr_wires.take().unwrap().values());
 
         if is_last_step {
+            // The RS/WS integrity commitment is an order-dependent Poseidon
+            // hash chain over the ACTIVE read/write ops (gated-off ops leave it
+            // unchanged; see `IC::increment`). So this equality holds iff the
+            // out-of-circuit tracer (`trace_memory_ops`) and the in-circuit
+            // synthesizer (`from_irw`) issue their active ops in the same order.
+            // Those two paths must be kept in lockstep — see the ordering note
+            // in `trace_memory_ops`.
             assert!(
                 self.ic_rs_ws
                     .comm
                     .iter()
                     .zip(self.expected_rw_ws.comm.iter())
-                    .all(|(x, y)| x == y)
+                    .all(|(x, y)| x == y),
+                "nebula ic_rs_ws != expected (trace/synth memory-op order or address mismatch)"
             );
 
             assert!(
@@ -397,6 +405,7 @@ impl NebulaMemoryConstraints<F> {
         )?;
 
         self.step_ic_rs_ws.as_mut().unwrap().increment(
+            cond,
             address,
             rv,
             self.params.unsound_disable_poseidon_commitment,
@@ -413,6 +422,7 @@ impl NebulaMemoryConstraints<F> {
         )?;
 
         self.step_ic_rs_ws.as_mut().unwrap().increment(
+            cond,
             address,
             wv,
             self.params.unsound_disable_poseidon_commitment,
@@ -458,6 +468,7 @@ impl NebulaMemoryConstraints<F> {
             let is_entry = is_v.allocate(cs.clone(), max_segment_size)?;
 
             self.step_ic_is_fs.as_mut().unwrap().increment(
+                &Boolean::constant(true),
                 &address,
                 &is_entry,
                 self.params.unsound_disable_poseidon_commitment,
@@ -466,6 +477,7 @@ impl NebulaMemoryConstraints<F> {
             let fs_entry = fs_v.allocate(cs.clone(), max_segment_size)?;
 
             self.step_ic_is_fs.as_mut().unwrap().increment(
+                &Boolean::constant(true),
                 &address,
                 &fs_entry,
                 self.params.unsound_disable_poseidon_commitment,
@@ -537,10 +549,31 @@ fn enforce_monotonic_commitment(
 ) -> Result<(), SynthesisError> {
     let same_segment = &address.tag.is_eq(&last_addr.tag)?;
 
+    // A new segment is any strictly-greater tag. This lets the scan walk a
+    // sparse / non-contiguous tag space, which is what the circuit produces:
+    // ROM and RAM tags live in different namespaces (see `tag.rs`) and not
+    // every segment is populated in every trace, so segment ids have gaps.
+    // Strictly-increasing tags still give the two properties soundness needs
+    // — no segment is revisited (distinctness) and, combined with the
+    // within-segment `addr == last + 1` check and the fixed scan-step count,
+    // full coverage — and they remain in canonical (sorted) order so the IC
+    // hash chain still matches.
+    //
+    // OPTIMIZATION: for a *dense* tag space, `tag == last_tag + 1` (a single
+    // equality) is cheaper than this comparison gadget — which is why the
+    // original check used it. We don't require dense tags here. Note also
+    // that with Nightstream's new F' implementation the range check this
+    // comparison relies on comes essentially for free, so the `>` form is not
+    // much more expensive than the `+ 1` form anyway.
+    //
+    // Tags are tiny (far below (p-1)/2), so the checked `is_cmp` is sound.
     let next_segment = address
         .tag
-        .is_eq(&(&last_addr.tag + FpVar::new_constant(cs.clone(), F::from(1))?))?;
+        .is_cmp(&last_addr.tag, std::cmp::Ordering::Greater, false)?;
 
+    // Tag 0 is reserved and never a real segment (see `tag.rs`): it is both the
+    // pre-scan sentinel value for `last_addr` and the scan's padding filler, so
+    // an entry tagged 0 is exempt from the monotonicity/contiguity checks.
     let is_padding = address
         .tag
         .is_eq(&FpVar::new_constant(cs.clone(), F::from(0))?)?;

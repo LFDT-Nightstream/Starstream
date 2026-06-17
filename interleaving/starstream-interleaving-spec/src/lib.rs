@@ -13,8 +13,6 @@ pub use crate::{
     transaction_effects::ProcessId,
 };
 use imbl::{HashMap, HashSet};
-use neo_ajtai::Commitment;
-use p3_field::PrimeCharacteristicRing;
 use std::{hash::Hasher, marker::PhantomData};
 pub use transaction_effects::{
     FunctionId, InterfaceId,
@@ -56,10 +54,6 @@ impl Value {
     }
 }
 
-fn encode_hash_to_fields<T>(hash: Hash<T>) -> [neo_math::F; 4] {
-    hash.0.map(neo_math::F::from_u64)
-}
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Ref(pub u64);
 
@@ -95,16 +89,10 @@ impl CoroutineState {
 // pub struct ZkTransactionProof {}
 
 pub enum ZkTransactionProof {
-    NeoProof {
-        // does the verifier need this?
-        session: Box<neo_fold::session::FoldingSession<neo_ajtai::AjtaiSModule>>,
-        proof: neo_fold::shard::ShardProof,
-        mcss_public: Vec<neo_ccs::McsInstance<Commitment, neo_math::F>>,
-        steps_public: Vec<neo_memory::StepInstanceBundle<Commitment, neo_math::F, neo_math::K>>,
-        // TODO: this shouldn't be here I think, the ccs should be known somehow by
-        // the verifier
-        ccs: neo_ccs::CcsStructure<neo_math::F>,
-    },
+    // The verifiable folded proof was produced by the now-removed Twist/Shout
+    // neo-fold session. Until the Nightstream dependency is bumped onto the
+    // pure-R1CS folding backend, the Nebula prover only checks the circuit is
+    // satisfiable and emits this placeholder.
     Dummy,
 }
 
@@ -115,98 +103,11 @@ impl ZkTransactionProof {
         wit: &InterleavingWitness,
     ) -> Result<(), VerificationError> {
         match self {
-            ZkTransactionProof::NeoProof {
-                session,
-                proof,
-                mcss_public,
-                steps_public,
-                ccs,
-            } => {
-                let output_binding_config = inst.output_binding_config();
-
-                let ok = session
-                    .verify_with_output_binding_simple(
-                        ccs,
-                        mcss_public,
-                        proof,
-                        &output_binding_config,
-                    )
-                    .expect("verify should run");
-
-                assert!(ok, "optimized verification should pass");
-
-                // dbg!(&self.steps_public[0].lut_insts[0].table);
-
-                // NOTE: the indices in steps_public match the memory initializations
-                // ordered by MemoryTag in the circuit
-                let mut expected_fields = Vec::with_capacity(inst.process_table.len() * 4);
-                for hash in &inst.process_table {
-                    let hash_fields = encode_hash_to_fields(*hash);
-                    expected_fields.extend(hash_fields.iter().copied());
-                }
-                // TODO: review if this is correct, I think all ROM's need to be
-                // of the same size, so we have some extra padding.
-                //
-                // we may need to check the length or something as a new check,
-                // or maybe try to just use a sparse definition?
-                let process_table = &steps_public[0].lut_insts
-                    [RomMemoryTag::ProcessTable.lut_index()]
-                .table[0..expected_fields.len()];
-                assert!(
-                    expected_fields
-                        .iter()
-                        .zip(process_table.iter())
-                        .all(|(expected, found)| *expected == *found),
-                    "program hash table mismatch"
-                );
-
-                assert!(
-                    inst.must_burn
-                        .iter()
-                        .zip(
-                            steps_public[0].lut_insts[RomMemoryTag::MustBurn.lut_index()]
-                                .table
-                                .iter(),
-                        )
-                        .all(|(expected, found)| {
-                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
-                        }),
-                    "must burn table mismatch"
-                );
-
-                assert!(
-                    inst.is_utxo
-                        .iter()
-                        .zip(
-                            steps_public[0].lut_insts[RomMemoryTag::IsUtxo.lut_index()]
-                                .table
-                                .iter(),
-                        )
-                        .all(|(expected, found)| {
-                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
-                        }),
-                    "is_utxo table mismatch"
-                );
-
-                assert!(
-                    inst.is_token
-                        .iter()
-                        .zip(
-                            steps_public[0].lut_insts[RomMemoryTag::IsToken.lut_index()]
-                                .table
-                                .iter(),
-                        )
-                        .all(|(expected, found)| {
-                            neo_math::F::from_u64(if *expected { 1 } else { 0 }) == *found
-                        }),
-                    "is_token table mismatch"
-                );
-
-                // TODO: check interfaces? but I think this can be private
-                // dbg!(&self.steps_public[0].lut_insts[4].table);
-
-                // dbg!(&steps_public[0].mcs_inst.x);
-            }
+            // The Nebula prover currently emits only this placeholder (the
+            // folded-proof verification, and the ROM look-up table checks that
+            // went with it, were tied to the removed Twist/Shout proof and will
+            // return with the pure-R1CS backend). The semantic checks below
+            // still run for every proof.
             ZkTransactionProof::Dummy => {}
         }
 

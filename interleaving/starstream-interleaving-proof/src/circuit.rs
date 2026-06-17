@@ -1118,6 +1118,27 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
         // Initialize handler memory using simplified approach
         self.init_handler_memory(&mut mb);
 
+        // Initialize the dynamically-sized ref memories (see init_ref_memory).
+        self.init_ref_memory(&mut mb);
+
+        // Some memory backends (e.g. Nebula) require one folding step per
+        // init-set entry to scan the initial memory into the IS/FS commitment,
+        // independently of how many ledger operations the trace has. The
+        // init set is fully populated by this point, so pad the op list with
+        // Nops up-front and let those steps flow through the same per-op
+        // bookkeeping (switchboards, write_ops, finish_step, and the
+        // out-of-circuit memory commitment) as real ops. Doing this after the
+        // loop instead would leave the parallel per-op vectors short (so
+        // make_step_circuit indexes out of bounds on scan steps) and would
+        // desync the traced commitment from what the circuit synthesizes for
+        // the padded steps. Backends with no scan requirement (Twist/Shout)
+        // report required_steps() == 0, so this is a no-op for them.
+        if let Some(missing) = mb.required_steps().checked_sub(self.ops.len()) {
+            tracing::debug!("padding with {missing} Nop operations for scan");
+            self.ops
+                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
+        }
+
         // out of circuit memory operations.
         // this is needed to commit to the memory operations before-hand.
         //
@@ -1140,13 +1161,13 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
 
             let config = instr.get_config();
 
-            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
-
-            let curr_switches = config.mem_switches_curr;
-            let target_switches = config.mem_switches_target;
-            let rom_switches = config.rom_switches;
-            let handler_switches = config.handler_switches;
-            let ref_arena_switches = config.ref_arena_switches;
+            // Cloned (not moved) out of `config` so `config` stays intact for
+            // the `trace_ic` call at the end of the body.
+            let curr_switches = config.mem_switches_curr.clone();
+            let target_switches = config.mem_switches_target.clone();
+            let rom_switches = config.rom_switches.clone();
+            let handler_switches = config.handler_switches.clone();
+            let ref_arena_switches = config.ref_arena_switches.clone();
 
             self.mem_switches
                 .push((curr_switches.clone(), target_switches.clone()));
@@ -1172,6 +1193,27 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 _ => F::ZERO,
             };
 
+            // IMPORTANT: the memory operations below must be issued in the exact
+            // same order as the in-circuit synthesis path (`from_irw`), because
+            // the Nebula RS/WS integrity commitment is an order-dependent hash
+            // chain. Keep this sequence in lockstep with `from_irw`:
+            //   curr read, must-enter read, handler, target read,
+            //   curr/target writes, must-enter write, ROM reads, program hash,
+            //   ref arena, trace-commitment (last).
+
+            // 1. current program-state reads
+            let curr_read =
+                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
+            let curr_yield_to = curr_read.yield_to;
+
+            // 2. must-enter reads
+            let _ = trace_must_enter_reads(
+                &mut mb,
+                config.execution_switches.enter,
+                irw.id_curr.into_bigint().0[0],
+            );
+
+            // 3. handler stack (reads the interfaces ROM + handler RAM)
             let handler_reads = trace_handler_stack_ops(
                 &mut mb,
                 &handler_switches,
@@ -1184,31 +1226,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 irw.handler_stack_counter += F::ONE;
             }
 
-            trace_ref_arena_ops(
-                &mut mb,
-                &mut next_ref_base,
-                &mut ref_building_ptr,
-                &mut ref_building_remaining,
-                &ref_arena_switches,
-                instr,
-            );
-
-            let curr_read =
-                trace_program_state_reads(&mut mb, irw.id_curr.into_bigint().0[0], &curr_switches);
-            let curr_yield_to = curr_read.yield_to;
-            let _ = trace_must_enter_reads(
-                &mut mb,
-                config.execution_switches.enter,
-                irw.id_curr.into_bigint().0[0],
-            );
-
+            // 4. resolve the target pid (depends on the curr read + handler reads)
             let target_addr = match instr {
                 LedgerOperation::Resume { target, .. } => Some(*target),
                 LedgerOperation::CallEffectHandler { .. } => {
                     Some(handler_reads.handler_stack_node_process)
                 }
-                LedgerOperation::Yield { .. } => curr_read.yield_to.to_option(),
-                LedgerOperation::Return { .. } => curr_read.yield_to.to_option(),
+                LedgerOperation::Yield { .. } => curr_yield_to.to_option(),
+                LedgerOperation::Return { .. } => curr_yield_to.to_option(),
                 LedgerOperation::Burn { .. } => None,
                 LedgerOperation::NewUtxo { target: id, .. } => Some(*id),
                 LedgerOperation::NewToken { target: id, .. } => Some(*id),
@@ -1217,46 +1242,14 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 LedgerOperation::Unbind { token_id } => Some(*token_id),
                 _ => None,
             };
-
             let target_pid = target_addr.map(|t| t.into_bigint().0[0]);
-            let target_read =
-                trace_program_state_reads(&mut mb, target_pid.unwrap_or(0), &target_switches);
-
-            mb.conditional_read(
-                rom_switches.read_is_utxo_curr,
-                Address {
-                    addr: irw.id_curr.into_bigint().0[0],
-                    tag: RomMemoryTag::IsUtxo.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_is_utxo_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: RomMemoryTag::IsUtxo.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_is_token_target,
-                Address {
-                    addr: target_pid.unwrap_or(0),
-                    tag: RomMemoryTag::IsToken.memory_tag(),
-                },
-            );
-            mb.conditional_read(
-                rom_switches.read_must_burn_curr,
-                Address {
-                    addr: irw.id_curr.into_bigint().0[0],
-                    tag: RomMemoryTag::MustBurn.memory_tag(),
-                },
-            );
             let target_pid_value = target_pid.unwrap_or(0);
-            let _ = trace_program_hash_ops(
-                &mut mb,
-                rom_switches.read_program_hash_target,
-                &F::from(target_pid_value),
-            );
 
+            // 5. target program-state reads
+            let target_read =
+                trace_program_state_reads(&mut mb, target_pid_value, &target_switches);
+
+            // 6. compute program-state transitions (consumes the reads)
             let curr_is_utxo = self.instance.is_utxo[irw.id_curr.into_bigint().0[0] as usize];
             let target_id = match instr {
                 LedgerOperation::CallEffectHandler { .. } => {
@@ -1275,6 +1268,7 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             self.write_ops
                 .push((curr_write.clone(), target_write.clone()));
 
+            // 7. current program-state writes
             trace_program_state_writes(
                 &mut mb,
                 irw.id_curr.into_bigint().0[0],
@@ -1282,7 +1276,10 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 &curr_switches,
             );
 
+            // 8. target program-state writes
             trace_program_state_writes(&mut mb, target_pid_value, &target_write, &target_switches);
+
+            // 9. must-enter writes
             let function_hash = match instr {
                 LedgerOperation::ResumeFunctionId { f_id_hash, .. } => Some(*f_id_hash),
                 _ => None,
@@ -1293,6 +1290,56 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                 irw.id_curr.into_bigint().0[0],
                 &function_hash.unwrap_or([F::ZERO; 4]),
             );
+
+            // 10. ROM reads (is_utxo / is_token / must_burn)
+            mb.conditional_read(
+                rom_switches.read_is_utxo_curr,
+                Address {
+                    addr: irw.id_curr.into_bigint().0[0],
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_utxo_target,
+                Address {
+                    addr: target_pid_value,
+                    tag: RomMemoryTag::IsUtxo.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_is_token_target,
+                Address {
+                    addr: target_pid_value,
+                    tag: RomMemoryTag::IsToken.memory_tag(),
+                },
+            );
+            mb.conditional_read(
+                rom_switches.read_must_burn_curr,
+                Address {
+                    addr: irw.id_curr.into_bigint().0[0],
+                    tag: RomMemoryTag::MustBurn.memory_tag(),
+                },
+            );
+
+            // 11. program-hash ROM read
+            let _ = trace_program_hash_ops(
+                &mut mb,
+                rom_switches.read_program_hash_target,
+                &F::from(target_pid_value),
+            );
+
+            // 12. ref arena
+            trace_ref_arena_ops(
+                &mut mb,
+                &mut next_ref_base,
+                &mut ref_building_ptr,
+                &mut ref_building_remaining,
+                &ref_arena_switches,
+                instr,
+            );
+
+            // 13. trace-commitment (IC) — must be last, matching `from_irw`
+            trace_ic(irw.id_curr.into_bigint().0[0] as usize, &mut mb, &config);
 
             // update pids for next iteration
             match instr {
@@ -1343,18 +1390,6 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
             mb.finish_step();
         }
 
-        let current_steps = self.ops.len();
-        if let Some(missing) = mb.required_steps().checked_sub(current_steps) {
-            tracing::debug!("padding with {missing} Nop operations for scan");
-            self.ops
-                .extend(std::iter::repeat_n(LedgerOperation::Nop {}, missing));
-
-            // TODO: we probably want to do this before the main loop
-            for _ in 0..missing {
-                mb.finish_step();
-            }
-        }
-
         mb
     }
 
@@ -1403,6 +1438,51 @@ impl<M: IVCMemory<F>> StepCircuitBuilder<M> {
                     tag: RamMemoryTag::HandlerStackArenaNextPtr.memory_tag(),
                 },
                 vec![F::ZERO], // next_ptr
+            );
+        }
+    }
+
+    /// Pre-initialize the dynamically-sized ref memories.
+    ///
+    /// `RefSizes`/`RefBases` are addressed by ref id (the `ret` of each
+    /// `NewRef`); `RefArena` spans `[0, Σ sizeᵢ·REF_PUSH_BATCH_SIZE)`. Memory
+    /// backends with read-modify-write semantics (Nebula) require every cell
+    /// that is read or written to be initialized first, so seed all the cells
+    /// the trace can touch with zero. Backends that lazily zero-fill on read
+    /// (Twist/Shout) are unaffected — they simply re-initialize the same cells.
+    fn init_ref_memory(&self, mem: &mut M) {
+        let mut total_arena = 0u64;
+
+        for op in &self.ops {
+            if let LedgerOperation::NewRef { size, ret } = op {
+                let ref_id = ret.into_bigint().0[0];
+
+                mem.init(
+                    Address {
+                        addr: ref_id,
+                        tag: RamMemoryTag::RefSizes.memory_tag(),
+                    },
+                    vec![F::ZERO],
+                );
+                mem.init(
+                    Address {
+                        addr: ref_id,
+                        tag: RamMemoryTag::RefBases.memory_tag(),
+                    },
+                    vec![F::ZERO],
+                );
+
+                total_arena += size.into_bigint().0[0] * REF_PUSH_BATCH_SIZE as u64;
+            }
+        }
+
+        for addr in 0..total_arena {
+            mem.init(
+                Address {
+                    addr,
+                    tag: RamMemoryTag::RefArena.memory_tag(),
+                },
+                vec![F::ZERO],
             );
         }
     }
@@ -2547,9 +2627,13 @@ impl PreWires {
 }
 
 fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig) {
-    if config.execution_switches.nop {
-        return;
-    }
+    // Mirror the in-circuit `trace_ic_wires`: it always emits the IC read/write
+    // pair gated by `should_trace` (= not-nop) for a stable per-step shape, so
+    // the tracer must issue the same gated ops rather than skipping nop steps.
+    // Backends that only record active (cond=true) events (Twist/Shout) treat
+    // the gated-off ops as no-ops; backends that fold every op into a running
+    // commitment (Nebula) need them to stay in sync with the circuit.
+    let should_trace = !config.execution_switches.nop;
 
     let mut concat_data = [F::ZERO; 12];
 
@@ -2557,7 +2641,7 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
         let addr = (curr_pid * 4) + i;
 
         *slot = mb.conditional_read(
-            true,
+            should_trace,
             Address {
                 tag: RamMemoryTag::TraceCommitments.memory_tag(),
                 addr: addr as u64,
@@ -2573,13 +2657,17 @@ fn trace_ic<M: IVCMemory<F>>(curr_pid: usize, mb: &mut M, config: &OpcodeConfig)
     for (i, elem) in new_commitment.iter().enumerate() {
         let addr = (curr_pid * 4) + i;
 
+        // The value is dead when not tracing; zero it so it matches the
+        // gated in-circuit write (see trace_ic_wires).
+        let value = if should_trace { *elem } else { F::ZERO };
+
         mb.conditional_write(
-            true,
+            should_trace,
             Address {
                 addr: addr as u64,
                 tag: RamMemoryTag::TraceCommitments.memory_tag(),
             },
-            vec![*elem],
+            vec![value],
         );
     }
 }
@@ -2628,7 +2716,11 @@ fn trace_ic_wires<M: IVCMemoryAllocated<F>>(
     let new_commitment = ark_poseidon2::compress_12(&compress_input)?;
 
     for i in 0..4 {
-        rm.conditional_write(should_trace, &addresses[i], &[new_commitment[i].clone()])?;
+        // Zero the value on the gated-off branch so it matches the tracer's
+        // padding write (RMW backends assert value consistency even when the
+        // write is gated off).
+        let value = should_trace.select(&new_commitment[i], &FpVar::zero())?;
+        rm.conditional_write(should_trace, &addresses[i], &[value])?;
     }
 
     Ok(())
