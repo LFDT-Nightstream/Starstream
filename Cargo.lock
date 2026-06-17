@@ -3432,6 +3432,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-contracts"
+version = "0.0.0"
+dependencies = [
+ "starstream-compiler",
+ "starstream-to-wasm",
+ "starstream-types",
+]
+
+[[package]]
 name = "textwrap"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

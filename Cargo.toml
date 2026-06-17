@@ -14,7 +14,8 @@ members = [
   "interleaving/starstream-component-runtime",
   "interleaving/starstream-runtime",
   "ark-poseidon2",
-  "ark-goldilocks"
+  "ark-goldilocks",
+  "test-contracts",
 ]
 
 [workspace.package]
