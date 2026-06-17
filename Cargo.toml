@@ -21,7 +21,7 @@ members = [
 version = "0.0.0"
 authors = []
 edition = "2024"
-rust-version = "1.93.0"
+rust-version = "1.94.0"
 repository = "https://github.com/LFDT-Nightstream/Starstream"
 license = "MIT/Apache-2.0"
 
