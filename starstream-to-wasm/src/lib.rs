@@ -1429,7 +1429,8 @@ impl Compiler {
                         _ = self.star_to_core_types(span, &mut core_params, &p.ty);
                     }
 
-                    let interface = to_kebab_case(def.name.as_str());
+                    let interface =
+                        format!("starstream:events/{}", to_kebab_case(def.name.as_str()));
                     let kebab = to_kebab_case(event.name.as_str());
 
                     // Core import
