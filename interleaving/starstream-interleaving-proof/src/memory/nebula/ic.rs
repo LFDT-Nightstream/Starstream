@@ -28,10 +28,7 @@ impl ICPlain {
         vt: &MemOp<F>,
         unsound_make_nop: bool,
     ) -> Result<(), SynthesisError> {
-        // A gated-off op (cond == false) leaves the running commitment
-        // unchanged, mirroring the in-circuit conditional update in `IC` and
-        // the fingerprint product's `×1` for inactive ops. The commitment then
-        // binds exactly the active read/write multiset.
+        // Inactive ops leave the commitment unchanged, matching the circuit.
         if cond && !unsound_make_nop {
             let hash_input = array::from_fn(|i| {
                 if i == 0 {
@@ -124,10 +121,8 @@ impl IC {
 
             let new_comm = ark_poseidon2::compress_8(&concat)?;
 
-            // The increment is always computed (uniform circuit), but a
-            // gated-off op (cond == false) keeps the previous commitment, so the
-            // address/value of an inactive op never affects the chain. See the
-            // matching `ICPlain::increment`.
+            // Compute the hash unconditionally, then keep the old commitment for
+            // inactive ops.
             self.comm = [
                 cond.select(&new_comm[0], &self.comm[0])?,
                 cond.select(&new_comm[1], &self.comm[1])?,

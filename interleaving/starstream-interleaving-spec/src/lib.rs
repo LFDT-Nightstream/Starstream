@@ -86,14 +86,38 @@ impl CoroutineState {
     }
 }
 
-// pub struct ZkTransactionProof {}
-
 pub enum ZkTransactionProof {
-    // The verifiable folded proof was produced by the now-removed Twist/Shout
-    // neo-fold session. Until the Nightstream dependency is bumped onto the
-    // pure-R1CS folding backend, the Nebula prover only checks the circuit is
-    // satisfiable and emits this placeholder.
+    /// Folded interleaving proof. The verifier derives preprocessing from the
+    /// public shape and [`FOLD_SEED`].
+    Neo {
+        r1cs: Box<neo_fold_clean::frontends::r1cs_f_prime::SparseR1cs>,
+        plan: Box<neo_fold_clean::frontends::f_prime::recursive_plan::RecursiveStepImagePlan>,
+        audit: Box<neo_fold_clean::UncompressedAudit>,
+    },
     Dummy,
+}
+
+/// Seed for deterministic folding preprocessing.
+pub const FOLD_SEED: u64 = 0x5742_0001;
+
+/// Must match the proof crate's `IvcWireLayout::FIELD_COUNT`.
+pub const IVC_SEMANTIC_FIELD_COUNT: usize = 9;
+
+/// Initial program-state digest derived from the public instance.
+pub fn expected_initial_semantic_state_anchor(inst: &InterleavingInstance) -> [u8; 32] {
+    use neo_fold_clean::frontends::f_prime::recursive_plan::build_semantic_state_preimage_fields;
+    use neo_fold_clean::paper::digest::digest_fields_as_digest32;
+    use neo_fold_clean::paper::f_prime::poseidon_trace::encode_poseidon_trace;
+    use neo_math::F as NeoF;
+    use p3_field::PrimeCharacteristicRing as _;
+
+    let mut app_state = vec![NeoF::from_u64(0); IVC_SEMANTIC_FIELD_COUNT];
+    // input_indices()[0] is id_curr; the rest of the initial state is zero.
+    app_state[0] = NeoF::from_u64(inst.entrypoint.0 as u64);
+
+    digest_fields_as_digest32(
+        encode_poseidon_trace(&build_semantic_state_preimage_fields(&app_state)).digest_native,
+    )
 }
 
 impl ZkTransactionProof {
@@ -103,11 +127,26 @@ impl ZkTransactionProof {
         wit: &InterleavingWitness,
     ) -> Result<(), VerificationError> {
         match self {
-            // The Nebula prover currently emits only this placeholder (the
-            // folded-proof verification, and the ROM look-up table checks that
-            // went with it, were tied to the removed Twist/Shout proof and will
-            // return with the pure-R1CS backend). The semantic checks below
-            // still run for every proof.
+            ZkTransactionProof::Neo { r1cs, plan, audit } => {
+                let expected_anchor = expected_initial_semantic_state_anchor(inst);
+                if plan
+                    .state_x_out
+                    .as_ref()
+                    .and_then(|s| s.initial_semantic_state_digest_anchor)
+                    != Some(expected_anchor)
+                {
+                    return Err(VerificationError::FoldVerification(
+                        "initial-state digest anchor doesn't match the instance".into(),
+                    ));
+                }
+
+                let prep = neo_fold_clean::frontends::r1cs_f_prime::preprocess_sparse_seeded(
+                    r1cs, plan, FOLD_SEED,
+                )
+                .map_err(|e| VerificationError::FoldVerification(format!("preprocess: {e:?}")))?;
+                neo_fold_clean::verify_uncompressed_audit(&prep.prep, audit)
+                    .map_err(|e| VerificationError::FoldVerification(format!("{e:?}")))?;
+            }
             ZkTransactionProof::Dummy => {}
         }
 
@@ -170,6 +209,8 @@ pub enum VerificationError {
     OwnerHasNoStableIdentity,
     #[error("Interleaving proof error: {0}")]
     InterleavingProofError(#[from] mocked_verifier::InterleavingError),
+    #[error("Interleaving fold verification failed: {0}")]
+    FoldVerification(String),
     #[error("Transaction input not found")]
     InputNotFound,
     #[error("Invalid token storage shape: expected {expected}, got {actual}")]

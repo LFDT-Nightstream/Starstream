@@ -9,8 +9,7 @@ pub mod nebula;
 pub mod tag;
 pub use tag::MemoryTag;
 
-/// Number of value lanes a memory uses per step. Retained as part of the
-/// [`IVCMemory`] API; the current backends (Nebula, Dummy) ignore it.
+/// Number of value lanes a memory uses per step.
 #[derive(Debug, Clone, Copy)]
 pub struct Lanes(pub usize);
 

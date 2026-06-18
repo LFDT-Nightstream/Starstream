@@ -201,13 +201,8 @@ impl IVCMemoryAllocated<F> for NebulaMemoryConstraints<F> {
             .replace(self.scan_monotonic_last_addr_wires.take().unwrap().values());
 
         if is_last_step {
-            // The RS/WS integrity commitment is an order-dependent Poseidon
-            // hash chain over the ACTIVE read/write ops (gated-off ops leave it
-            // unchanged; see `IC::increment`). So this equality holds iff the
-            // out-of-circuit tracer (`trace_memory_ops`) and the in-circuit
-            // synthesizer (`from_irw`) issue their active ops in the same order.
-            // Those two paths must be kept in lockstep — see the ordering note
-            // in `trace_memory_ops`.
+            // RS/WS is an order-dependent hash chain over active read/write ops;
+            // this catches drift between tracing and circuit synthesis order.
             assert!(
                 self.ic_rs_ws
                     .comm

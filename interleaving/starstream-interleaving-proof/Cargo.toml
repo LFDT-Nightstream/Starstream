@@ -15,8 +15,6 @@ starstream-interleaving-spec = { path = "../starstream-interleaving-spec" }
 ark-goldilocks = { path = "../../ark-goldilocks" }
 ark-poseidon2 = { path = "../../ark-poseidon2" }
 
-# Nightstream pure-R1CS folding backend (latest main). The circuit is ark-based;
-# neo-fold-clean is Plonky3-based, so values cross an ark<->p3 Goldilocks bridge.
 neo-fold-clean = { workspace = true }
 neo-math = { workspace = true }
 neo-ccs = { workspace = true }

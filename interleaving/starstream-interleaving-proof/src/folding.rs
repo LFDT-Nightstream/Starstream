@@ -1,28 +1,8 @@
-//! Bridge from the ark-based interleaving step circuit to neo-fold-clean's
-//! Plonky3-based pure-R1CS folding backend (Nightstream main).
+//! Adapts the ark-based interleaving step circuit to neo-fold-clean's pure-R1CS
+//! frontend.
 //!
-//! Step 3b is staged. This module currently establishes the mechanical core:
-//!   * the ark `FpGoldilocks` <-> p3/neo `Goldilocks` field bridge,
-//!   * extraction of the (uniform) per-step R1CS shape (A, B, C, m_in) from the
-//!     interleaving step circuit, and
-//!   * the per-step assignment vector `z = [instance | witness]`,
-//! all validated against neo's own [`R1cs::is_satisfied_by`].
-//!
-//! The folding lifecycle is wired on top of this:
-//!   * a `RecursiveStepImagePlan` whose `semantic_state_{in,out}_var_indices`
-//!     are the program-state IVC wires ([`IvcWireLayout`]) so the fold enforces
-//!     step-to-step continuity (cross-linking),
-//!   * `R1csChainBuilder::append_assignment` per step, then `finish` +
-//!     `verify_uncompressed`.
-//!
-//! TODO(nebula-cross-link): the Nebula running commitments (ic_rs_ws / ic_is_fs,
-//! fingerprints, scan cursor) are also threaded across steps but are NOT yet in
-//! the cross-linked state set — only the program-state IvcWires are. Add their
-//! witness columns to the semantic-state indices in a follow-up so the fold also
-//! binds memory-commitment continuity.
-
-// Staged WIP: the foundation below is exercised by tests; the folding lifecycle
-// that consumes it (prove via R1csChainBuilder) lands next.
+//! TODO(nebula-cross-link): only program-state IVC wires are cross-linked today;
+//! add the Nebula commitment state to the semantic-state indices.
 #![allow(dead_code)]
 
 use crate::F as ArkF;
@@ -37,23 +17,15 @@ use neo_math::F as NeoF;
 use p3_field::PrimeCharacteristicRing as _;
 use starstream_interleaving_spec::{InterleavingInstance, InterleavingWitness};
 
-/// ark Goldilocks -> p3/neo Goldilocks. Both are the same field
-/// (p = 2^64 - 2^32 + 1) in canonical form, so this is a value-preserving
-/// re-encoding through the canonical `u64`.
 pub(crate) fn to_neo(v: ArkF) -> NeoF {
     NeoF::from_u64(v.into_bigint().0[0])
 }
 
-/// The uniform per-step R1CS shape plus the program-state IVC wire layout used
-/// for cross-linking.
 pub(crate) struct StepShape {
     pub r1cs: SparseR1cs,
     pub ivc_layout: IvcWireLayout,
 }
 
-/// Drive the interleaving step circuit over the whole (Nebula-backed) trace,
-/// returning the uniform per-step R1CS shape and one `z = [instance | witness]`
-/// assignment per step.
 pub(crate) fn extract_r1cs_and_assignments(
     inst: InterleavingInstance,
     wit: InterleavingWitness,
@@ -61,12 +33,7 @@ pub(crate) fn extract_r1cs_and_assignments(
     let ops = crate::make_interleaved_trace(&inst, &wit);
 
     let mut builder = StepCircuitBuilder::<NebulaMemory<1>>::new(inst, ops);
-    // TODO(perf/soundness): with the real Poseidon IC commitment the per-step
-    // circuit is ~140k constraints (in-circuit Poseidon per memory op), which
-    // neo-fold-clean's dense matrices can't hold. For the first proof we disable
-    // the Poseidon commitment (already unsound while the FS challenges are
-    // stubbed), which shrinks the circuit. Re-enable once the commitment is
-    // proved out-of-the-dense-matrix (or the matrices go sparse).
+    // TODO(soundness): re-enable the Poseidon IC commitment.
     let mb = builder.trace_memory_ops(NebulaMemoryParams {
         unsound_disable_poseidon_commitment: true,
     });
@@ -82,8 +49,6 @@ pub(crate) fn extract_r1cs_and_assignments(
         let cs = ConstraintSystem::<ArkF>::new_ref();
         cs.set_optimization_goal(OptimizationGoal::Constraints);
 
-        // Capture the IVC wire layout (and the matrix shape) on the first step;
-        // the circuit shape is uniform across steps.
         let capture = i == 0;
         let (next_irw, (), layout) =
             builder.make_step_circuit(i, &mut mem, cs.clone(), irw, capture)?;
@@ -111,8 +76,7 @@ pub(crate) fn extract_r1cs_and_assignments(
             cs.finalize();
             let m_in = cs.num_instance_variables();
             let m = m_in + cs.num_witness_variables();
-            // Borrow the matrices (don't consume the CS: the threaded `irw`
-            // holds FpVars that clone the CS ref, so it isn't uniquely owned).
+            // Borrow the matrices; `irw` still holds variables from this CS.
             let mut all = cs.to_matrices().expect("R1CS matrices");
             let mut matrices = all.remove("R1CS").unwrap_or_else(|| {
                 panic!(
@@ -120,7 +84,6 @@ pub(crate) fn extract_r1cs_and_assignments(
                     all.keys().collect::<Vec<_>>()
                 )
             });
-            // matrices = [A, B, C], each a Vec of sparse rows `Vec<(coeff, col)>`.
             let c = matrices.pop().unwrap();
             let b = matrices.pop().unwrap();
             let a = matrices.pop().unwrap();
@@ -157,45 +120,40 @@ fn csc_from_rows(rows: &[Vec<(ArkF, usize)>], n: usize, m: usize) -> CcsMatrix<N
     CcsMatrix::Csc(CscMat::from_triplets(triplets, n, m))
 }
 
-// ── neo-fold-clean r1cs_f_prime folding ──────────────────────────────────────
-
+use neo_fold_clean::UncompressedAudit;
 use neo_fold_clean::engine::ccs_native::poseidon2::POSEIDON2_GOLDILOCKS_BITS;
 use neo_fold_clean::frontends::f_prime::image::{
     FPrimeImageLayout, NifsCeClaimShape, NifsPayloadShape,
 };
+use neo_fold_clean::frontends::f_prime::recursive_plan::build_semantic_state_preimage_fields;
 use neo_fold_clean::frontends::f_prime::recursive_plan::{
     AccumulatorPlanOptions, RecursiveStepImagePlan, StateXOutPlanOptions,
     build_recursive_step_image_config,
 };
 use neo_fold_clean::frontends::r1cs_f_prime::{self, R1csChainBuilder};
+use neo_fold_clean::paper::digest::digest_fields_as_digest32;
+use neo_fold_clean::paper::f_prime::poseidon_trace::encode_poseidon_trace;
 use neo_fold_clean::paper::f_prime::ring_action_trace::{LowNormEncoding, RingActionTraceLayout};
-use neo_fold_clean::verify_uncompressed_audit;
 
-/// Build the F' recursive-step plan for our per-step R1CS.
-///
-/// Modeled on neo-fold-clean's `make_small_plan` test fixture. Currently
-/// STATELESS (no `semantic_state_*` indices) — it binds the public input but
-/// does not yet cross-link the per-step IVC state. Cross-linking is the next
-/// patch: set `semantic_state_{in,out}_var_indices` to the [`IvcWireLayout`]
-/// indices (+ an initial-state anchor).
-///
-/// The NIFS CE-claim shape below is a stub; the real shape is a params/structure
-/// dependent fixed point that the recursive compile surfaces via
-/// `PostParentShapeMismatch` — tune these constants from that error.
-fn build_stateless_plan(m: usize, m_in: usize) -> RecursiveStepImagePlan {
+fn build_plan(
+    m: usize,
+    m_in: usize,
+    semantic_in: Vec<usize>,
+    semantic_out: Vec<usize>,
+    anchor: [u8; 32],
+) -> RecursiveStepImagePlan {
     let limbs = m * POSEIDON2_GOLDILOCKS_BITS + 1;
 
-    // CE-claim fixed point for our structure under the seeded params, read off
-    // the `PostParentShapeMismatch` error (the documented convergence workflow).
+    // Re-tune this fixed point if the recursive shape changes.
     const C_DATA_ENTRIES: usize = 972;
     let ce_shape = NifsCeClaimShape {
         c_data_entries: C_DATA_ENTRIES,
         x_rows: 54,
         x_active_cols: 5,
-        r_len: 13,
+        r_len: 14,
         y_ring_inner_lens: vec![64; 8],
         y_zcol_len: 64,
-        s_col_len: 19,
+        s_col_len: 20,
     };
 
     let probe_plan = RecursiveStepImagePlan {
@@ -232,19 +190,63 @@ fn build_stateless_plan(m: usize, m_in: usize) -> RecursiveStepImagePlan {
         public_x_out_lane_bit_starts,
         app_public_input_var_indices: (0..m_in).collect(),
         app_public_input_bit_var_indices: Vec::new(),
-        semantic_state_in_var_indices: Vec::new(),
-        semantic_state_out_var_indices: Vec::new(),
-        initial_semantic_state_digest_anchor: None,
+        semantic_state_in_var_indices: semantic_in,
+        semantic_state_out_var_indices: semantic_out,
+        initial_semantic_state_digest_anchor: Some(anchor),
     });
     plan
 }
 
-/// Fold every step's R1CS assignment with neo-fold-clean's `r1cs_f_prime`
-/// frontend (bit-decomposed → low-norm witness) and verify the IVC proof.
-pub(crate) fn fold_and_verify(shape: &StepShape, assignments: &[Vec<NeoF>]) {
-    let plan = build_stateless_plan(shape.r1cs.m, shape.r1cs.m_in);
-    let prep = r1cs_f_prime::preprocess_sparse_seeded(&shape.r1cs, &plan, 0x5742_0001)
-        .expect("preprocess_sparse_seeded");
+fn semantic_state_digest(app_state: &[NeoF]) -> [u8; 32] {
+    digest_fields_as_digest32(
+        encode_poseidon_trace(&build_semantic_state_preimage_fields(app_state)).digest_native,
+    )
+}
+
+/// Fold every step's R1CS assignment and return the public shape, plan, and audit.
+pub(crate) fn fold(
+    shape: &StepShape,
+    assignments: &[Vec<NeoF>],
+    anchor: [u8; 32],
+) -> (SparseR1cs, RecursiveStepImagePlan, UncompressedAudit) {
+    // `IvcWireLayout` indices are witness-local; the plan's semantic-state
+    // indices address the full assignment `z = [instance | witness]`, so shift
+    // by `m_in` (the instance count).
+    let to_z = |w: usize| shape.r1cs.m_in + w;
+    let in_idx: Vec<usize> = shape
+        .ivc_layout
+        .input_indices()
+        .into_iter()
+        .map(to_z)
+        .collect();
+    let out_idx: Vec<usize> = shape
+        .ivc_layout
+        .output_indices()
+        .into_iter()
+        .map(to_z)
+        .collect();
+
+    // The instance-derived anchor assumes the first IVC field is `id_curr`; keep
+    // that layout in sync with `IVC_SEMANTIC_FIELD_COUNT`.
+    debug_assert_eq!(
+        in_idx.len(),
+        starstream_interleaving_spec::IVC_SEMANTIC_FIELD_COUNT,
+        "IvcWireLayout::FIELD_COUNT diverged from IVC_SEMANTIC_FIELD_COUNT"
+    );
+    let z0 = assignments.first().expect("at least one step");
+    debug_assert_eq!(
+        semantic_state_digest(&in_idx.iter().map(|&i| z0[i]).collect::<Vec<_>>()),
+        anchor,
+        "prover's step-0 input state doesn't match the instance-derived anchor"
+    );
+
+    let plan = build_plan(shape.r1cs.m, shape.r1cs.m_in, in_idx, out_idx, anchor);
+    let prep = r1cs_f_prime::preprocess_sparse_seeded(
+        &shape.r1cs,
+        &plan,
+        starstream_interleaving_spec::FOLD_SEED,
+    )
+    .expect("preprocess_sparse_seeded");
 
     let mut chain = R1csChainBuilder::new(&prep).expect("chain builder");
     for z in assignments {
@@ -252,8 +254,7 @@ pub(crate) fn fold_and_verify(shape: &StepShape, assignments: &[Vec<NeoF>]) {
             .append_assignment(z.clone())
             .expect("append_assignment");
     }
-    // Multi-chunk chains use the audit (chain-replay) verifier; the terminal-only
-    // `verify_uncompressed` is for single-chunk chains.
     let audit = chain.finish_with_audit().expect("finish_with_audit");
-    verify_uncompressed_audit(&prep.prep, &audit).expect("verify_uncompressed_audit");
+
+    (shape.r1cs.clone(), plan, audit)
 }

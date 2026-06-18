@@ -1,7 +1,8 @@
 use crate::{logging::setup_logger, prove};
 use starstream_interleaving_spec::{
     CoroutineState, FunctionId, Hash, InterleavingInstance, InterleavingWitness,
-    LedgerEffectsCommitment, ProcessId, Ref, Value, WitEffectOutput, WitLedgerEffect,
+    LedgerEffectsCommitment, ProcessId, Ref, Value, VerificationError, WitEffectOutput,
+    WitLedgerEffect, ZkTransactionProof,
 };
 
 pub fn h<T>(n: u8) -> Hash<T> {
@@ -705,11 +706,7 @@ fn test_non_entrypoint_return_without_parent_panics() {
     let _ = prove(instance, wit);
 }
 
-// Step 3b foundation: the per-step R1CS extracted from the interleaving circuit
-// (ark) must be satisfied, step by step, by neo-fold-clean's own `is_satisfied_by`
-// (p3). This validates the ark<->p3 field bridge, the matrix extraction, and the
-// `z = [instance | witness]` assignment ordering — the mechanical core the
-// folding lifecycle is built on.
+// The extracted ark R1CS must be satisfied by the neo-fold assignment.
 #[test]
 fn test_folding_r1cs_extraction_satisfies() {
     setup_logger();
@@ -738,9 +735,9 @@ fn test_folding_r1cs_extraction_satisfies() {
         process_table: vec![h(0)],
         is_utxo: vec![false],
         is_token: vec![false],
-        must_burn: vec![false],
-        ownership_in: vec![None],
-        ownership_out: vec![None],
+        must_burn: vec![],
+        ownership_in: vec![],
+        ownership_out: vec![],
         host_calls_roots,
         input_states: vec![],
     };
@@ -748,8 +745,8 @@ fn test_folding_r1cs_extraction_satisfies() {
     let wit = InterleavingWitness { traces };
 
     let (shape, assignments) =
-        crate::folding::extract_r1cs_and_assignments(instance, wit).expect("extract r1cs");
-
+        crate::folding::extract_r1cs_and_assignments(instance.clone(), wit.clone())
+            .expect("extract r1cs");
     assert!(!assignments.is_empty());
     for (i, z) in assignments.iter().enumerate() {
         assert_eq!(z.len(), shape.r1cs.m, "step {i} assignment width");
@@ -759,6 +756,28 @@ fn test_folding_r1cs_extraction_satisfies() {
             .unwrap_or_else(|e| panic!("step {i} not satisfied by neo R1CS: {e:?}"));
     }
 
-    // Fold all steps and verify the IVC proof (stateless; no cross-linking yet).
-    crate::folding::fold_and_verify(&shape, &assignments);
+    let proof = prove(instance.clone(), wit.clone()).expect("prove");
+    proof.verify(&instance, &wit).expect("verify");
+
+    // A forged base-step anchor must be rejected before audit verification.
+    let ZkTransactionProof::Neo {
+        r1cs,
+        mut plan,
+        audit,
+    } = proof
+    else {
+        panic!("expected a Neo proof");
+    };
+    plan.state_x_out
+        .as_mut()
+        .expect("state_x_out")
+        .initial_semantic_state_digest_anchor = Some([0xAB; 32]);
+    let tampered = ZkTransactionProof::Neo { r1cs, plan, audit };
+    let err = tampered
+        .verify(&instance, &wit)
+        .expect_err("verify must reject a forged base-step anchor");
+    assert!(
+        matches!(err, VerificationError::FoldVerification(_)),
+        "expected FoldVerification for a mismatched anchor, got {err:?}"
+    );
 }

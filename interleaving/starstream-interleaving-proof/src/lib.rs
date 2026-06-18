@@ -31,25 +31,16 @@ pub type ProgramId = F;
 pub use abi::commit;
 pub use ledger_operation::LedgerOperation;
 
-/// Build and check the interleaving circuit for the whole transaction using the
-/// Nebula memory argument.
-///
-/// This drives the step circuit one step at a time and asserts each step's
-/// constraint system is satisfied, with Nebula as the memory backend; the final
-/// step runs Nebula's IS/FS and RS/WS commitment reconciliation.
-///
-/// NOTE: the verifiable, folded proof artifact was previously produced by the
-/// Twist/Shout neo-fold session, which has been removed. Until the Nightstream
-/// dependency is bumped onto the pure-R1CS folding backend, this only checks the
-/// circuit is satisfiable and returns a placeholder [`ZkTransactionProof::Dummy`].
+/// Build the interleaving circuit, extract per-step R1CS assignments, and fold
+/// them into a verifiable transaction proof.
 pub fn prove(
     inst: InterleavingInstance,
     wit: InterleavingWitness,
 ) -> Result<ZkTransactionProof, SynthesisError> {
     logging::setup_logger();
 
-    // Build the per-step R1CS (Nebula memory) + one assignment per step; each
-    // step's constraint system is checked satisfiable inside.
+    let anchor = starstream_interleaving_spec::expected_initial_semantic_state_anchor(&inst);
+
     let (shape, assignments) = folding::extract_r1cs_and_assignments(inst, wit)?;
 
     tracing::info!(
@@ -59,17 +50,13 @@ pub fn prove(
         "folding interleaving trace with neo-fold-clean (r1cs_f_prime)"
     );
 
-    // Fold all steps and verify the IVC proof.
-    //
-    // NOTE: this first proof is STATELESS (no per-step cross-linking yet) and
-    // runs with Nebula's Poseidon commitment disabled (already unsound while the
-    // Fiat-Shamir challenges are stubbed) to keep the circuit foldable. The
-    // verifiable artifact is checked here but not yet threaded back into
-    // ZkTransactionProof (verify() still uses the placeholder) — both are
-    // follow-ups. See folding.rs.
-    folding::fold_and_verify(&shape, &assignments);
+    let (r1cs, plan, audit) = folding::fold(&shape, &assignments, anchor);
 
-    Ok(ZkTransactionProof::Dummy)
+    Ok(ZkTransactionProof::Neo {
+        r1cs: Box::new(r1cs),
+        plan: Box::new(plan),
+        audit: Box::new(audit),
+    })
 }
 
 pub(crate) fn make_interleaved_trace(
