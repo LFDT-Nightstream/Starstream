@@ -129,10 +129,7 @@ impl Default for CompileOptions {
 impl CompileOptions {
     #[must_use]
     pub fn compile(self, program: &TypedProgram) -> CompileResult {
-        let mut compiler = Compiler {
-            options: self,
-            ..Compiler::default()
-        };
+        let mut compiler = Compiler::new(self);
         compiler.visit_program(program);
         compiler.finish()
     }
@@ -143,10 +140,7 @@ impl CompileOptions {
         graph: &starstream_compiler::TypedModuleGraph,
         entry: starstream_compiler::ModuleId,
     ) -> CompileResult {
-        let mut compiler = Compiler {
-            options: self,
-            ..Compiler::default()
-        };
+        let mut compiler = Compiler::new(self);
 
         // Build a reachable-from-entry set by chasing edges through the typed
         // graph. We don't have the untyped graph's edges here, so we synthesize
@@ -261,6 +255,13 @@ struct UtxoContext {
 }
 
 impl Compiler {
+    fn new(options: CompileOptions) -> Compiler {
+        Compiler {
+            options,
+            ..Compiler::default()
+        }
+    }
+
     /// After [`Compiler::visit_program`], this function collates all the
     /// in-progress sections into an actual Wasm binary module.
     fn finish(mut self) -> CompileResult {
