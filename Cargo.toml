@@ -60,6 +60,20 @@ neo-params = { git = "https://github.com/LFDT-Nightstream/Nightstream.git", rev 
 insta.opt-level = 3
 
 [patch.crates-io]
+# tmp: p3-goldilocks 0.5.1 was yanked from crates.io, but nightstream (rev
+# e752b77) pins it exactly (`=0.5.1`), so a fresh resolve can't select it.
+p3-challenger  = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-dft         = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-field       = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-goldilocks  = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-matrix      = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-maybe-rayon = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-mds         = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-monty-31    = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-poseidon1   = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-poseidon2   = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-symmetric   = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
+p3-util        = { git = "https://github.com/Plonky3/Plonky3", rev = "45e0ffe4d294816755522dd2cf7c38d6bcd701ce" }
 ark-relations = {  git = "https://github.com/arkworks-rs/snark/" }
 ark-snark = {  git = "https://github.com/arkworks-rs/snark/" }
 ark-r1cs-std = {  git = "https://github.com/arkworks-rs/r1cs-std" }
